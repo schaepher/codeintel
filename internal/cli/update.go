@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"database/sql"
 	"flag"
 	"fmt"
 	"os"
@@ -18,6 +19,8 @@ import (
 	"github.com/schaepher/codeintel/internal/logging"
 	"github.com/schaepher/codeintel/internal/orchestrator"
 	"go.uber.org/zap"
+
+	_ "modernc.org/sqlite"
 )
 
 // cmdUpdate 实现 `codeintel update --repo <path>`（增量更新，TD.md 5.2 增量语义）：
@@ -129,6 +132,9 @@ func cmdUpdate(ctx context.Context, args []string) int {
 }
 
 // detectChangedGoFiles 检测仓库中变更的 Go 源文件（相对路径）：
+//   - 索引 commit 落后于 HEAD（build_metadata 最新 commit_sha ≠ HEAD）：
+//     git diff --name-only <buildSHA> HEAD——提交内变更（工作区干净时
+//     git diff HEAD 检测不到，索引基于旧 commit 的场景）
 //   - git diff --name-only HEAD：已跟踪文件的修改/删除/新增
 //   - git ls-files --others --exclude-standard：未跟踪文件（含新文件）
 //
@@ -155,6 +161,15 @@ func detectChangedGoFiles(repoPath string) ([]string, error) {
 			}
 		}
 	}
+	if b, err := exec.Command("git", "-C", repoPath, "rev-parse", "HEAD").Output(); err == nil {
+		if head := strings.TrimSpace(string(b)); head != "" {
+			if sha := indexCommitSHA(repoPath); sha != "" && sha != head {
+				if b, err := exec.Command("git", "-C", repoPath, "diff", "--name-only", sha, head).Output(); err == nil {
+					add(string(b))
+				}
+			}
+		}
+	}
 	if b, err := exec.Command("git", "-C", repoPath, "diff", "--name-only", "HEAD").Output(); err == nil {
 		add(string(b))
 	}
@@ -163,6 +178,23 @@ func detectChangedGoFiles(repoPath string) ([]string, error) {
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// indexCommitSHA 返回索引最新构建的 commit_sha（build_metadata 最新记录）。
+// 索引不存在 / 无构建记录 / 读取失败 → 空串（回退工作区检测）。
+func indexCommitSHA(repoPath string) string {
+	path := filepath.Join(repoPath, ".codeintel", "codeintel.db")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		return ""
+	}
+	defer db.Close()
+	var sha string
+	if err := db.QueryRow(`SELECT COALESCE(commit_sha,'') FROM build_metadata
+		ORDER BY timestamp DESC, rowid DESC LIMIT 1`).Scan(&sha); err != nil {
+		return ""
+	}
+	return sha
 }
 
 // staleInfo 索引过期检测（field_trace.md §20.3，Q243 增强）：

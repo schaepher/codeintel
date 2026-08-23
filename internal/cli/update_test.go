@@ -1,12 +1,15 @@
 package cli
 
 import (
+	"database/sql"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	_ "modernc.org/sqlite"
 )
 
 // gitRun 在指定目录执行 git（注入 user 配置供 commit 使用）。
@@ -15,6 +18,59 @@ func gitRun(t *testing.T, dir string, args ...string) {
 	cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+// gitRunOut 执行 git 并返回 stdout（trimmed）。
+func gitRunOut(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// TestDetectChangedGoFilesIndexStale：索引 commit 落后于 HEAD 且工作区
+// 干净——git diff HEAD 检测不到（update 误报"无变更"），须用
+// buildSHA..HEAD 的 diff 补（真实触发：索引停在 609bd65、HEAD 7994bf3）。
+func TestDetectChangedGoFilesIndexStale(t *testing.T) {
+	dir := t.TempDir()
+	gitRun(t, dir, "init", "-q")
+	writeTestFile(t, filepath.Join(dir, "a.go"), "package a\n")
+	gitRun(t, dir, "add", "-A")
+	gitRun(t, dir, "commit", "-q", "-m", "c1")
+	base := gitRunOut(t, dir, "rev-parse", "HEAD")
+
+	// 模拟索引基于 c1（.codeintel/codeintel.db + build_metadata）
+	idxDir := filepath.Join(dir, ".codeintel")
+	writeTestFile(t, filepath.Join(idxDir, "keep"), "")
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(idxDir, "codeintel.db")+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE build_metadata (build_id TEXT PRIMARY KEY, commit_sha TEXT, timestamp INTEGER)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO build_metadata VALUES ('b1', ?, 1)`, base); err != nil {
+		t.Fatal(err)
+	}
+
+	// c2：改 a.go + 新增 b.go，提交后工作区干净（HEAD 前进）
+	writeTestFile(t, filepath.Join(dir, "a.go"), "package a\n\nfunc F() {}\n")
+	writeTestFile(t, filepath.Join(dir, "b.go"), "package a\n")
+	gitRun(t, dir, "add", "-A")
+	gitRun(t, dir, "commit", "-q", "-m", "c2")
+
+	changed, err := detectChangedGoFiles(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"a.go", "b.go"}
+	if strings.Join(changed, ",") != strings.Join(want, ",") {
+		t.Fatalf("stale detect = %v, want %v", changed, want)
 	}
 }
 
