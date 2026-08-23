@@ -84,46 +84,7 @@ func renderWikiHTML(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiC
 
 	tableCfgs := tableCfgsFrom(cfg)
 	tables := collectTables(data, tableAlias, tableCfgs)
-	main.WriteString(`<section id="tables"><h2>表清单</h2>`)
-	if len(tables) == 0 {
-		main.WriteString("<p>（未识别到 ORM 表写入）</p>")
-	} else {
-		main.WriteString("<table><tr><th>表</th><th>别名</th><th>涉及模块</th></tr>")
-		for _, t := range tables {
-			main.WriteString(fmt.Sprintf("<tr><td><a href=\"#tbl-%s\">%s</a></td><td>%s</td><td>%s</td></tr>",
-				htmlEsc(t.name), htmlEsc(t.name), htmlEsc(t.alias), htmlEsc(strings.Join(t.mods, ", "))))
-		}
-		main.WriteString("</table>")
-
-		for _, t := range tables {
-			main.WriteString(fmt.Sprintf(`<h3 id="tbl-%s">%s</h3>`, htmlEsc(t.name), htmlEsc(t.name)))
-			if t.alias != "" {
-				main.WriteString("<blockquote>" + htmlEsc(t.alias) + "</blockquote>")
-			}
-			tc := tableCfgs[t.name]
-			rows := mergeTableColumns(t.name, cols, tc.Columns)
-			if len(rows) == 0 {
-				main.WriteString("<p class=\"muted\">（无字段信息——维护者可在 wiki.yaml tables.columns 补充）</p>")
-			} else {
-				main.WriteString("<table><tr><th>字段名</th><th>类型</th><th>默认值</th><th>说明</th></tr>")
-				for _, c := range rows {
-					main.WriteString(fmt.Sprintf("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>",
-						htmlEsc(c.name), htmlEsc(c.typ), htmlEsc(c.def), htmlEsc(c.comment)))
-				}
-				main.WriteString("</table>")
-			}
-			if len(tc.Indexes) > 0 {
-				main.WriteString("<h4>索引</h4>")
-				for _, ix := range tc.Indexes {
-					main.WriteString("<p><code>" + htmlEsc(ix) + "</code></p>")
-				}
-			}
-			if tc.DDL != "" {
-				main.WriteString("<h4>建表语句</h4><pre><code>" + htmlEsc(tc.DDL) + "</code></pre>")
-			}
-		}
-	}
-	main.WriteString("</section>\n")
+	main.WriteString(wikiTablesSectionHTML(tables, tableCfgs, cols))
 	nav.WriteString(`<li><a href="#tables">表清单</a></li>`)
 
 	if len(cfg.Glossary) > 0 {
@@ -135,7 +96,8 @@ func renderWikiHTML(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiC
 		nav.WriteString(`<li><a href="#glossary">术语表</a></li>`)
 	}
 
-	html := wikiHTMLPage(title, cfg.Project.Description, nav.String(), main.String())
+	guide := `<strong>快速开始：</strong>① 看<a href="#arch">架构图</a>了解系统组成 → ② 按顺序读各模块（职责 → 入口 → 核心符号 → 相关表）→ ③ 查<a href="#tables">表清单</a>看字段与建表语句。`
+	html := wikiHTMLPage(title, cfg.Project.Description, guide, nav.String(), main.String())
 	return os.WriteFile(filepath.Join(outDir, "index.html"), []byte(html), 0o644)
 }
 

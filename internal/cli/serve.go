@@ -71,6 +71,8 @@ func cmdServe(ctx context.Context, args []string) int {
 	}
 
 	srv := server.New(ctx, acts, webFS, abs)
+	// P2b：wiki 网页版（/wiki/ 多页浏览，请求时内存渲染）
+	srv.SetWikiHandler(wikiServeHandler(abs, acts))
 	// 增量构建自动触发（field_trace.md §20.1）：POST /incremental →
 	// 变更检测（复用 update 的 git 逻辑）+ IncrementalBuild 异步执行
 	repo, err := buildRepo(abs)

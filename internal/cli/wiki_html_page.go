@@ -1,7 +1,8 @@
 package cli
 
-// wikiHTMLPage 组装完整页面（内嵌 CSS/JS）。
-func wikiHTMLPage(title, desc, nav, main string) string {
+// wikiHTMLPage 组装完整页面（内嵌 CSS/JS）。guide 是快速开始引导块
+// （单文件用 #锚点，wiki serve 多页用 /wiki/ 路径链接）。
+func wikiHTMLPage(title, desc, guide, nav, main string) string {
 	return `<!DOCTYPE html>
 <html lang="zh">
 <head>
@@ -63,7 +64,7 @@ html { scroll-behavior: smooth; }
 </div>
 <div id="main">
 <h1>` + htmlEsc(title) + `</h1>
-<div class="guide"><strong>快速开始：</strong>① 看<a href="#arch">架构图</a>了解系统组成 → ② 按顺序读各模块（职责 → 入口 → 核心符号 → 相关表）→ ③ 查<a href="#tables">表清单</a>看字段与建表语句。</div>
+<div class="guide">` + guide + `</div>
 ` + (func() string {
 		if desc != "" {
 			return "<blockquote>" + htmlEsc(desc) + "</blockquote>\n"

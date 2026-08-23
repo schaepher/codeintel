@@ -5,7 +5,9 @@ package cli
 // 零部署零依赖；与 md 输出共用 wiki.yaml 契约与六区块数据。
 
 import (
+	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/schaepher/codeintel/internal/domain"
 )
@@ -51,6 +53,53 @@ func collectTables(data []*domain.WikiModule, tableAlias map[string]string, tabl
 		out = append(out, *byName[t])
 	}
 	return out
+}
+
+// wikiTablesSectionHTML 表清单 section（单文件 html 与 wiki serve 网页版
+// 共用）：表索引表格 + 每表字段/索引/DDL。
+func wikiTablesSectionHTML(tables []tableRow, tableCfgs map[string]wikiTableConfig, cols []*domain.TableColumn) string {
+	var b strings.Builder
+	b.WriteString(`<section id="tables"><h2>表清单</h2>`)
+	if len(tables) == 0 {
+		b.WriteString("<p>（未识别到 ORM 表写入）</p>")
+	} else {
+		b.WriteString("<table><tr><th>表</th><th>别名</th><th>涉及模块</th></tr>")
+		for _, t := range tables {
+			b.WriteString(fmt.Sprintf("<tr><td><a href=\"#tbl-%s\">%s</a></td><td>%s</td><td>%s</td></tr>",
+				htmlEsc(t.name), htmlEsc(t.name), htmlEsc(t.alias), htmlEsc(strings.Join(t.mods, ", "))))
+		}
+		b.WriteString("</table>")
+
+		for _, t := range tables {
+			b.WriteString(fmt.Sprintf(`<h3 id="tbl-%s">%s</h3>`, htmlEsc(t.name), htmlEsc(t.name)))
+			if t.alias != "" {
+				b.WriteString("<blockquote>" + htmlEsc(t.alias) + "</blockquote>")
+			}
+			tc := tableCfgs[t.name]
+			rows := mergeTableColumns(t.name, cols, tc.Columns)
+			if len(rows) == 0 {
+				b.WriteString("<p class=\"muted\">（无字段信息——维护者可在 wiki.yaml tables.columns 补充）</p>")
+			} else {
+				b.WriteString("<table><tr><th>字段名</th><th>类型</th><th>默认值</th><th>说明</th></tr>")
+				for _, c := range rows {
+					b.WriteString(fmt.Sprintf("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>",
+						htmlEsc(c.name), htmlEsc(c.typ), htmlEsc(c.def), htmlEsc(c.comment)))
+				}
+				b.WriteString("</table>")
+			}
+			if len(tc.Indexes) > 0 {
+				b.WriteString("<h4>索引</h4>")
+				for _, ix := range tc.Indexes {
+					b.WriteString("<p><code>" + htmlEsc(ix) + "</code></p>")
+				}
+			}
+			if tc.DDL != "" {
+				b.WriteString("<h4>建表语句</h4><pre><code>" + htmlEsc(tc.DDL) + "</code></pre>")
+			}
+		}
+	}
+	b.WriteString("</section>\n")
+	return b.String()
 }
 
 

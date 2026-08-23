@@ -25,6 +25,10 @@ type Server struct {
 	buildFn  func() (string, error)
 	buildMu  sync.Mutex
 	building bool
+
+	// wiki 网页版（P2b）：/wiki/ 前缀 handler，由 cli serve 注入
+	// （wikiServeHandler——请求时内存渲染 + build_id 缓存失效）
+	wiki http.Handler
 }
 
 // SetBuildFunc 配置增量构建函数（未配置时 /incremental 返回 404）。
@@ -33,6 +37,9 @@ func (s *Server) SetBuildFunc(fn func() (string, error)) {
 	defer s.buildMu.Unlock()
 	s.buildFn = fn
 }
+
+// SetWikiHandler 配置 wiki 网页版 handler（未配置时 /wiki/ 404）。
+func (s *Server) SetWikiHandler(h http.Handler) { s.wiki = h }
 
 // New 创建 Server。
 func New(ctx context.Context, acts *action.Actions, webFS fs.FS, repoRoot string) *Server {
@@ -59,6 +66,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/module-calls", s.handleModuleCalls)
 	mux.HandleFunc("/api/er", s.handleER)
 	mux.HandleFunc("/api/rules", s.handleRules) // Q226：ER 页面配置用户连线规则
+	if s.wiki != nil {
+		mux.Handle("/wiki/", s.wiki) // P2b：wiki 网页版（cli serve 注入）
+	}
 	mux.Handle("/", http.FileServer(http.FS(s.web)))
 	return mux
 }
