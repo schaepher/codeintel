@@ -3,6 +3,7 @@ package cli
 // queryFlags 是 query 子命令的手动解析结果。
 type queryFlags struct {
 	repoPath         string
+	includeUntyped   bool // R6：enums 是否包含无类型常量（默认只返回有类型枚举）
 	depth            int
 	maxDepth         int
 	funcPath         string

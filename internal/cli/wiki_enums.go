@@ -33,8 +33,10 @@ type enumEntry struct {
 }
 
 // extractEnums 提取仓库内字符串枚举常量（类型化或 const 块内字符串
-// 字面量）——排除 _test.go 与外部目录。
-func extractEnums(repoAbs string) []enumEntry {
+// 字面量）——排除 _test.go 与外部目录。onlyTyped=true 时只返回有
+// 显式类型的枚举（无类型字符串常量多为展示标签——默认过滤；
+// --include-untyped 放开）。
+func extractEnums(repoAbs string, onlyTyped bool) []enumEntry {
 	var out []enumEntry
 	root := filepath.Join(repoAbs, "internal")
 	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
@@ -78,6 +80,11 @@ func extractEnums(repoAbs string) []enumEntry {
 				typ := ""
 				if vs.Type != nil {
 					typ = exprName(vs.Type)
+				}
+				// R6：只返回有类型枚举（默认）；无类型常量（展示标签等）
+				// 仅在 includeUntyped 时返回
+				if onlyTyped && typ == "" {
+					continue
 				}
 				if groupName == "" {
 					groupName = vs.Names[0].Name
@@ -129,7 +136,7 @@ func strconvUnquote(s string) (string, error) {
 // cmdEnums 实现 `codeintel query enums [--repo <path>] [--json]`——
 // 源码枚举权威清单（不依赖索引；AI Agent 直接获取避免重定义）。
 func cmdEnums(repoAbs string, f queryFlags) int {
-	entries := extractEnums(repoAbs)
+	entries := extractEnums(repoAbs, !f.includeUntyped)
 	if f.json {
 		b, err := json.MarshalIndent(entries, "", "  ")
 		if err != nil {
@@ -158,10 +165,11 @@ func cmdEnums(repoAbs string, f queryFlags) int {
 
 // renderEnumsMD 枚举页 Markdown（含索引实际值分布对照）。
 func renderEnumsMD(repoAbs string) string {
-	entries := extractEnums(repoAbs)
+	entries := extractEnums(repoAbs, true)
 	var b strings.Builder
-	b.WriteString("# 枚举与工具函数\n\n> 数据源：源码 go/ast 提取（代码事实）——AI/Agent 直接引用这些\n")
-	b.WriteString("> 权威值，勿重新定义（值不一致会导致转换成本）。\n\n")
+	b.WriteString("# 枚举与工具函数\n\n> 数据源：源码 go/ast 提取（代码事实，默认只显示有类型枚举）\n")
+	b.WriteString("> ——AI/Agent 直接引用这些权威值，勿重新定义（值不一致会导致\n")
+	b.WriteString("> 转换成本）；`query enums --include-untyped` 可含无类型常量。\n\n")
 	group := ""
 	for _, e := range entries {
 		key := e.Type
@@ -184,9 +192,9 @@ func renderEnumsMD(repoAbs string) string {
 
 // renderEnumsHTML 枚举页 html 内容。
 func renderEnumsHTML(repoAbs string) string {
-	entries := extractEnums(repoAbs)
+	entries := extractEnums(repoAbs, true)
 	var b strings.Builder
-	b.WriteString(`<section id="enums"><h2>枚举与工具函数</h2><p class="muted">数据源：源码 go/ast 提取——权威值，勿重新定义。</p>`)
+	b.WriteString(`<section id="enums"><h2>枚举与工具函数</h2><p class="muted">数据源：源码 go/ast 提取（有类型枚举）——权威值，勿重新定义。</p>`)
 	group := ""
 	for _, e := range entries {
 		key := e.Type

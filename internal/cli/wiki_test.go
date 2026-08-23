@@ -242,8 +242,14 @@ const (
 	EdgeAlias  EdgeKind = "alias" // 指针别名
 	LongText            = "这是一个非常长的文本常量，用来测试长文本过滤逻辑是否正确工作，应该被过滤掉不当作枚举展示出来"
 )
+
+// 无类型常量（展示标签等）——默认过滤，--include-untyped 放开
+const (
+	StatusOK    = "ok"
+	StatusFail  = "fail"
+)
 `)
-	entries := extractEnums(dir)
+	entries := extractEnums(dir, true)
 	found := map[string]bool{}
 	for _, e := range entries {
 		found[e.Name] = true
@@ -261,5 +267,18 @@ const (
 	}
 	if found["LongText"] {
 		t.Errorf("长文本常量不应提取: %v", found)
+	}
+	// R6：默认过滤无类型常量（StatusOK 无显式类型）
+	if found["StatusOK"] {
+		t.Errorf("无类型常量默认应过滤: %v", found)
+	}
+	// --include-untyped 放开
+	all := extractEnums(dir, false)
+	foundAll := map[string]bool{}
+	for _, e := range all {
+		foundAll[e.Name] = true
+	}
+	if !foundAll["StatusOK"] || !foundAll["EdgeCalls"] {
+		t.Errorf("include-untyped 应含无类型常量: %v", foundAll)
 	}
 }

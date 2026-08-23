@@ -85,3 +85,11 @@ type buildResult struct {
 	CommitSHA    string `json:"commit_sha,omitempty"`
 	Message      string `json:"message,omitempty"` // 提示信息（无变更/需全量重建等）
 }
+
+// enumsParams 枚举查询参数（R6：include_untyped 控制是否含无类型常量）。
+type enumsParams struct {
+	Repo           string `json:"repo"` // 目标仓库（缺省用默认仓库）
+	IncludeUntyped bool   `json:"include_untyped,omitempty"`
+}
+
+func (p enumsParams) getRepo() string { return p.Repo }
