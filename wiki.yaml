@@ -82,6 +82,19 @@ tables:
         FOREIGN KEY (target_id) REFERENCES nodes(id) ON DELETE CASCADE,
         UNIQUE(source_id, target_id, kind)
       )
+glossary:
+  - term: ssa
+    definition: 静态单赋值——编译器中间表示，用于字段级数据流追溯（谁写入/谁读取）
+  - term: ast
+    definition: 抽象语法树——源码结构分析（调用关系/服务入口标记）
+  - term: scip
+    definition: 代码索引协议（scip-go 生成符号定义索引）
+  - term: ER
+    definition: 实体关系——数据库表与列、表间关联的可视化
+  - term: MCP
+    definition: Model Context Protocol——AI 代理调用 codeintel 查询能力的接口
+  - term: 意图命令
+    definition: before（改前影响预判）/ trace（数据来龙去脉）等业务语义查询
 architecture: |
   graph LR
     SRC[Go 源码] --> A1[ssa 适配器]

@@ -275,7 +275,7 @@ tables:
 		t.Errorf("相关表应链接 tables.md#orders:\n%s", ms)
 	}
 	// 自动时序：main 的一级 callee = (Svc).Run → 单独一张图
-	if !strings.Contains(ms, "### (Svc).Run") || !strings.Contains(ms, "main->>(Svc).Run") {
+	if !strings.Contains(ms, "### 内部调用链：(Svc).Run") || !strings.Contains(ms, "main->>(Svc).Run") {
 		t.Errorf("时序应按一级调用分支单独画:\n%s", ms)
 	}
 }

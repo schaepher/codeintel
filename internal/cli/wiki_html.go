@@ -63,7 +63,7 @@ func renderWikiHTML(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiC
 		if desc != "" {
 			main.WriteString("<blockquote>" + htmlEsc(desc) + "</blockquote>")
 		}
-		main.WriteString(renderModuleHTML(wm, i, tableAlias, hidden, cfg))
+		main.WriteString(renderModuleHTML(wm, i, tableAlias, hidden, cfg, desc))
 		main.WriteString("</section>\n")
 	}
 	// 表清单 section + 每表详情（字段定义/索引/建表语句，#243）
@@ -110,6 +110,15 @@ func renderWikiHTML(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiC
 	}
 	main.WriteString("</section>\n")
 	nav.WriteString(`<li><a href="#tables">表清单</a></li>`)
+	// 术语表 section（#246）
+	if len(cfg.Glossary) > 0 {
+		main.WriteString(`<section id="glossary"><h2>术语表</h2>`)
+		for _, g := range cfg.Glossary {
+			main.WriteString(fmt.Sprintf("<p><strong>%s</strong>：%s</p>", htmlEsc(g.Term), htmlEsc(g.Definition)))
+		}
+		main.WriteString("</section>\n")
+		nav.WriteString(`<li><a href="#glossary">术语表</a></li>`)
+	}
 
 	html := wikiHTMLPage(title, cfg.Project.Description, nav.String(), main.String())
 	return os.WriteFile(filepath.Join(outDir, "index.html"), []byte(html), 0o644)
@@ -142,7 +151,7 @@ func moduleAnchors(wm *domain.WikiModule) []moduleAnchor {
 }
 
 // renderModuleHTML 模块内容（区块标题可折叠，默认展开）。
-func renderModuleHTML(wm *domain.WikiModule, i int, tableAlias map[string]string, hidden map[string]bool, cfg wikiConfig) string {
+func renderModuleHTML(wm *domain.WikiModule, i int, tableAlias map[string]string, hidden map[string]bool, cfg wikiConfig, desc string) string {
 	var b strings.Builder
 	sec := func(key, title string) string {
 		return fmt.Sprintf(`<h3 class="fold-btn" data-target="%s-%d" data-label="1">▾ %s</h3><div class="sec-body" id="%s-%d">`,
@@ -150,10 +159,14 @@ func renderModuleHTML(wm *domain.WikiModule, i int, tableAlias map[string]string
 	}
 	// 职责
 	b.WriteString(sec("desc", "职责"))
+	if desc != "" {
+		b.WriteString("<p>" + htmlEsc(desc) + "</p>")
+	}
 	if wm.Desc != "" {
 		b.WriteString("<p>" + htmlEsc(wm.Desc) + "</p>")
-	} else {
-		b.WriteString("<p class=\"muted\">（无包注释——维护者可在 wiki.yaml 补充）</p>")
+	}
+	if desc == "" && wm.Desc == "" {
+		b.WriteString("<p class=\"muted\">（无描述——维护者可在 wiki.yaml modules.description 补充）</p>")
 	}
 	b.WriteString("</div>\n")
 	// 入口
@@ -165,7 +178,7 @@ func renderModuleHTML(wm *domain.WikiModule, i int, tableAlias map[string]string
 		b.WriteString("</div>\n")
 	}
 	// 核心符号
-	b.WriteString(sec("core", "核心符号（被调用最多）"))
+	b.WriteString(sec("core", "核心符号（内部实现参考——被调用最多）"))
 	if len(wm.CoreSymbols) > 0 {
 		b.WriteString("<table><tr><th>符号</th><th>类型</th><th>调用者数</th><th>位置</th></tr>")
 		for _, s := range wm.CoreSymbols {
@@ -234,8 +247,11 @@ func renderModuleHTML(wm *domain.WikiModule, i int, tableAlias map[string]string
 		b.WriteString("<pre class=\"mermaid\">" + htmlEsc(f.Mermaid) + "</pre>")
 		hasSeq = true
 	}
+	if len(wm.Flows) > 0 {
+		b.WriteString("<p class=\"muted\">（自动生成：内部调用链——代码事实；业务时序见上方 yaml flows）</p>")
+	}
 	for _, fl := range wm.Flows {
-		b.WriteString("<h4>" + htmlEsc(fl.Title) + "</h4>")
+		b.WriteString("<h4>内部调用链：" + htmlEsc(fl.Title) + "</h4>")
 		b.WriteString("<pre class=\"mermaid\">" + htmlEsc(sequenceMermaid(fl.Steps)) + "</pre>")
 		hasSeq = true
 	}
@@ -313,15 +329,35 @@ body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
 #main .muted { color: #86909c; }
 #main section { margin-bottom: 32px; }
 .fold-btn { cursor: pointer; }
+.guide { margin: 12px 0 24px; padding: 10px 14px; background: #e8f3ff; border-radius: 6px; font-size: 13px; line-height: 1.8; }
+.guide a { color: #1677ff; }
+.nav-tools { padding: 0 16px 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+.nav-tools input { flex: 1; min-width: 120px; padding: 4px 8px; border: 1px solid #d0d3d9; border-radius: 4px; font-size: 12px; outline: none; }
+.nav-tools input:focus { border-color: #1677ff; }
+.nav-tools button { padding: 3px 8px; font-size: 11px; border: 1px solid #d0d3d9; border-radius: 4px; background: #fff; cursor: pointer; }
+.nav-tools button:hover { border-color: #1677ff; color: #1677ff; }
+html { scroll-behavior: smooth; }
+#sidebar .mod-head.active { color: #1677ff; background: #e5e6eb; }
+#sidebar .mod-sec a.active { color: #1677ff; font-weight: 600; }
+@media (max-width: 768px) {
+  #sidebar { position: static; width: auto; border-right: none; border-bottom: 1px solid #e5e6eb; max-height: 40vh; }
+  #main { margin-left: 0; padding: 16px; }
+}
 </style>
 </head>
 <body>
 <div id="sidebar">
 <h2>目录</h2>
+<div class="nav-tools">
+  <input id="nav-search" type="text" placeholder="搜索模块 / 章节 / 表…" autocomplete="off">
+  <button id="nav-expand-all" title="全部展开">全部展开</button>
+  <button id="nav-collapse-all" title="全部收起">全部收起</button>
+</div>
 <ul id="nav">` + nav + `</ul>
 </div>
 <div id="main">
 <h1>` + htmlEsc(title) + `</h1>
+<div class="guide"><strong>快速开始：</strong>① 看<a href="#arch">架构图</a>了解系统组成 → ② 按顺序读各模块（职责 → 入口 → 核心符号 → 相关表）→ ③ 查<a href="#tables">表清单</a>看字段与建表语句。</div>
 ` + (func() string {
 		if desc != "" {
 			return "<blockquote>" + htmlEsc(desc) + "</blockquote>\n"
@@ -332,19 +368,78 @@ body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 <script>
 mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
-document.addEventListener('click', function (ev) {
-  var btn = ev.target.closest('.fold-btn');
-document.addEventListener('click', function (ev) {
-  var btn = ev.target.closest('.fold-btn');
-  if (!btn) return;
-  var target = document.getElementById(btn.getAttribute('data-target'));
-  if (!target) return;
-  var collapsed = target.style.display === 'none';
-  target.style.display = collapsed ? '' : 'none';
-  if (btn.getAttribute('data-label') === '1') {
-    btn.textContent = (collapsed ? '▾ ' : '▸ ') + btn.textContent.replace(/^[▾▸] /, '');
-  }
-});
+// 目录当前模块高亮（scrollspy）
+(function () {
+  var mods = Array.prototype.slice.call(document.querySelectorAll('#main section[id^="mod-"]'));
+  var navMods = Array.prototype.slice.call(document.querySelectorAll('#sidebar .mod-head'));
+  var onScroll = function () {
+    var pos = window.scrollY + 120;
+    var cur = null;
+    mods.forEach(function (sec) { if (sec.offsetTop <= pos) cur = sec; });
+    navMods.forEach(function (el) { el.classList.remove('active'); });
+    if (!cur) return;
+    var idx = parseInt(cur.id.replace('mod-', ''), 10);
+    if (navMods[idx]) navMods[idx].classList.add('active');
+  };
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+})();
+// 折叠交互（#246：状态 localStorage 持久化）+ 全部展开/收起 + 搜索
+(function () {
+  var KEY = 'codeintel-wiki-fold';
+  var state = {};
+  try { state = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) {}
+  var apply = function (btn) {
+    var target = document.getElementById(btn.getAttribute('data-target'));
+    if (!target) return;
+    var collapsed = target.style.display === 'none';
+    target.style.display = collapsed ? '' : 'none';
+    if (btn.getAttribute('data-label') === '1') {
+      btn.textContent = (collapsed ? '▾ ' : '▸ ') + btn.textContent.replace(/^[▾▸] /, '');
+    }
+  };
+  document.addEventListener('click', function (ev) {
+    var btn = ev.target.closest('.fold-btn');
+    if (!btn) return;
+    var id = btn.getAttribute('data-target');
+    var target = document.getElementById(id);
+    if (!target) return;
+    apply(btn);
+    state[id] = target.style.display === 'none';
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+  });
+  document.querySelectorAll('.fold-btn').forEach(function (btn) {
+    var id = btn.getAttribute('data-target');
+    var target = document.getElementById(id);
+    if (target && state[id]) { target.style.display = 'none'; apply(btn); }
+  });
+  document.getElementById('nav-expand-all').addEventListener('click', function () {
+    document.querySelectorAll('.fold-btn').forEach(function (btn) {
+      var target = document.getElementById(btn.getAttribute('data-target'));
+      if (target && target.style.display === 'none') apply(btn);
+    });
+  });
+  document.getElementById('nav-collapse-all').addEventListener('click', function () {
+    document.querySelectorAll('.fold-btn').forEach(function (btn) {
+      var target = document.getElementById(btn.getAttribute('data-target'));
+      if (target && target.style.display !== 'none') apply(btn);
+    });
+  });
+  document.getElementById('nav-search').addEventListener('input', function () {
+    var q = this.value.trim().toLowerCase();
+    document.querySelectorAll('#nav .mod, #nav > li').forEach(function (li) {
+      var ok = !q || li.textContent.toLowerCase().indexOf(q) >= 0;
+      li.style.display = ok ? '' : 'none';
+      if (ok && q) {
+        var sec = li.querySelector('.mod-sec');
+        if (sec && sec.style.display === 'none') {
+          var btn = li.querySelector('.fold-btn');
+          if (btn) apply(btn);
+        }
+      }
+    });
+  });
+})();
 </script>
 </body>
 </html>

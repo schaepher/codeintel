@@ -39,6 +39,11 @@ type wikiConfig struct {
 		Title  string `yaml:"title"`
 		Mermaid string `yaml:"mermaid"`
 	} `yaml:"flows"`
+	// 术语表（#246 业务黑话解释：ssa/ast/ER 等）
+	Glossary []struct {
+		Term       string `yaml:"term"`
+		Definition string `yaml:"definition"`
+	} `yaml:"glossary"`
 }
 
 // wikiTableConfig 表结构契约（#243 表详情：字段定义/索引/建表语句——
@@ -46,6 +51,7 @@ type wikiConfig struct {
 type wikiTableConfig struct {
 	Name    string `yaml:"name"`
 	Alias   string `yaml:"alias"`
+	Hidden  bool   `yaml:"hidden"` // #245 噪音表隐藏（fixture 等）
 	Columns []struct {
 		Name    string `yaml:"name"`
 		Type    string `yaml:"type"`
@@ -196,6 +202,24 @@ func renderWiki(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiConfi
 	// yaml 索引：模块描述/顺序、表别名、隐藏符号（md/html 共用）
 	meta, tableAlias, hidden := wikiMetaIndex(cfg)
 	tableCfgs := tableCfgsFrom(cfg)
+	// #245 表噪音过滤：hidden 表从模块相关表与表清单移除
+	hideTable := map[string]bool{}
+	for _, t := range cfg.Tables {
+		if t.Hidden {
+			hideTable[t.Name] = true
+		}
+	}
+	if len(hideTable) > 0 {
+		for _, wm := range data {
+			var kept []string
+			for _, t := range wm.Tables {
+				if !hideTable[t] {
+					kept = append(kept, t)
+				}
+			}
+			wm.Tables = kept
+		}
+	}
 	// 模块页（按 order 排序）
 	ordered := append([]*domain.WikiModule(nil), data...)
 	sort.SliceStable(ordered, func(i, j int) bool {
@@ -210,6 +234,7 @@ func renderWiki(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiConfi
 	if cfg.Project.Description != "" {
 		idx.WriteString(cfg.Project.Description + "\n\n")
 	}
+	idx.WriteString("**快速开始**：① 看[架构图](#架构图)了解系统组成 → ② 按顺序读各模块（职责 → 入口 → 核心符号 → 相关表）→ ③ 查[表清单](tables.md)看字段与建表语句。\n\n")
 	idx.WriteString("由 `codeintel wiki` 生成（全量覆盖；业务描述/别名维护在 wiki.yaml）\n\n")
 	idx.WriteString("## 模块\n\n")
 	for _, wm := range ordered {
@@ -221,6 +246,12 @@ func renderWiki(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiConfi
 	}
 	idx.WriteString("\n## 表\n\n")
 	idx.WriteString("- [表清单](tables.md)\n")
+	if len(cfg.Glossary) > 0 {
+		idx.WriteString("\n## 术语表\n\n")
+		for _, g := range cfg.Glossary {
+			idx.WriteString(fmt.Sprintf("- **%s**：%s\n", g.Term, g.Definition))
+		}
+	}
 	for _, wm := range data {
 		page := renderModulePage(wm, meta[wm.Name].desc, tableAlias, hidden, cfg)
 		if err := os.WriteFile(filepath.Join(outDir, wm.ShortName+".md"), []byte(page), 0o644); err != nil {
@@ -253,10 +284,14 @@ func renderModulePage(wm *domain.WikiModule, desc string, tableAlias map[string]
 		b.WriteString("> " + desc + "\n\n")
 	}
 	b.WriteString("## 职责\n\n")
+	if desc != "" {
+		b.WriteString(desc + "\n\n")
+	}
 	if wm.Desc != "" {
 		b.WriteString(wm.Desc + "\n\n")
-	} else {
-		b.WriteString("（无包注释——维护者可在 wiki.yaml 补充）\n\n")
+	}
+	if desc == "" && wm.Desc == "" {
+		b.WriteString("（无描述——维护者可在 wiki.yaml modules.description 补充）\n\n")
 	}
 	if len(wm.Entries) > 0 {
 		b.WriteString("## 入口\n\n")
@@ -265,7 +300,7 @@ func renderModulePage(wm *domain.WikiModule, desc string, tableAlias map[string]
 		}
 		b.WriteString("\n")
 	}
-	b.WriteString("## 核心符号（被调用最多）\n\n")
+	b.WriteString("## 核心符号（内部实现参考——被调用最多）\n\n")
 	if len(wm.CoreSymbols) > 0 {
 		b.WriteString("| 符号 | 类型 | 调用者数 | 位置 |\n|---|---|---|---|\n")
 		for _, s := range wm.CoreSymbols {
@@ -328,8 +363,11 @@ func renderModulePage(wm *domain.WikiModule, desc string, tableAlias map[string]
 		b.WriteString("```mermaid\n" + f.Mermaid + "\n```\n\n")
 		hasSeq = true
 	}
+	if len(wm.Flows) > 0 {
+		b.WriteString("（自动生成：内部调用链——代码事实，帮助理解模块怎么运转；业务时序见上方 yaml flows）\n\n")
+	}
 	for _, fl := range wm.Flows {
-		b.WriteString("### " + fl.Title + "\n\n")
+		b.WriteString("### 内部调用链：" + fl.Title + "\n\n")
 		b.WriteString("```mermaid\n" + sequenceMermaid(fl.Steps) + "\n```\n\n")
 		hasSeq = true
 	}
