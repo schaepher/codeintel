@@ -14,8 +14,10 @@
   ],
   "activationEvents": [
     "onCommand:codeintel.querySymbol",
+    "onCommand:codeintel.querySymbolAt",
     "onCommand:codeintel.impact",
-    "onCommand:codeintel.updateIndex"
+    "onCommand:codeintel.updateIndex",
+    "onLanguage:go"
   ],
   "main": "./extension.js",
   "contributes": {
@@ -31,6 +33,10 @@
       {
         "command": "codeintel.updateIndex",
         "title": "codeintel: 增量更新索引"
+      },
+      {
+        "command": "codeintel.querySymbolAt",
+        "title": "codeintel: 查询光标处符号"
       }
     ],
     "configuration": {

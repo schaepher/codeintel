@@ -14,9 +14,11 @@ function activate(context) {
   channel = vscode.window.createOutputChannel('codeintel');
   context.subscriptions.push(
     vscode.commands.registerCommand('codeintel.querySymbol', () => querySymbol()),
+    vscode.commands.registerCommand('codeintel.querySymbolAt', () => querySymbolAt()), // #215 深化：光标处符号
     vscode.commands.registerCommand('codeintel.impact', () => queryImpact()),
     vscode.commands.registerCommand('codeintel.updateIndex', () => updateIndex())
   );
+  bindHover(context);      // #215 深化：悬停 Go 标识符显示符号信息
   bindAutoUpdate(context); // #234：保存 .go 后自动更新索引
 }
 
@@ -35,6 +37,37 @@ function bindAutoUpdate(context) {
     if (timer) clearTimeout(timer);
     timer = setTimeout(function () { updateIndex(); }, 2000);
   }));
+}
+
+// ---- #215 深化：Hover 提示 ----
+
+// bindHover 悬停 Go 标识符显示 codeintel 符号信息（复用 CLI --json 契
+// 约）：名称/kind/签名/位置/调用者被调用者计数 + 「查看详情」命令入口。
+// 查询失败静默返回 null——hover 不阻塞编辑。
+function bindHover(context) {
+  if (!vscode.languages || !vscode.languages.registerHoverProvider) return;
+  context.subscriptions.push(vscode.languages.registerHoverProvider('go', {
+    provideHover: function (doc, pos) {
+      const range = doc.getWordRangeAtPosition(pos, /[A-Za-z_][A-Za-z0-9_.]*/);
+      if (!range) return null;
+      const word = doc.getText(range);
+      const c = cfg();
+      return runCli(['query', 'symbol', word, '--repo', c.repo, '--json'], true).then(function (r) {
+        if (r.error || !r.data || !r.data.name) return null;
+        const md = new vscode.MarkdownString();
+        md.appendMarkdown(renderHoverMarkdown(r.data));
+        return new vscode.Hover(md, range);
+      });
+    }
+  }));
+}
+
+// currentWord 光标处标识符（选中区优先，否则 word range）。
+function currentWord(ed) {
+  const sel = ed.selection;
+  if (sel && !sel.isEmpty) return ed.document.getText(sel);
+  const range = ed.document.getWordRangeAtPosition(ed.selection.active, /[A-Za-z_][A-Za-z0-9_.]*/);
+  return range ? ed.document.getText(range) : '';
 }
 
 function deactivate() {}
@@ -88,7 +121,21 @@ async function querySymbol() {
     placeHolder: '如 (Manager).Run 或 symbol:go:...:main'
   });
   if (!sym) return;
-  const c = cfg();
+  await queryAndShow(sym, cfg());
+}
+
+// querySymbolAt 光标处符号直接查询（Hover「查看详情」命令入口）。
+async function querySymbolAt() {
+  const ed = vscode.window.activeTextEditor;
+  if (!ed) return;
+  const word = currentWord(ed);
+  if (!word) return;
+  await queryAndShow(word, cfg());
+}
+
+// queryAndShow 查询符号并展示（channel 详情 + 跳转 QuickPick）——
+// querySymbol（输入框）与 querySymbolAt（光标符号）共用。
+async function queryAndShow(sym, c) {
   let r = await runCli(['query', 'symbol', sym, '--repo', c.repo, '--json'], true);
   // #236：多匹配（重名符号）→ QuickPick 候选 → 用 canonical ID 重查
   if (r.error) {
@@ -249,4 +296,18 @@ function shortID(id) {
   return i >= 0 ? String(id).slice(i + 1) : String(id);
 }
 
-module.exports = { activate, deactivate, renderSymbol, shortID, shouldAutoUpdateFileName, parseCandidates, openAt };
+// renderHoverMarkdown Hover 内容组装（纯函数可单测）：名称/kind/签名/
+// 位置/调用者被调用者计数 + 「查看详情」命令入口。
+function renderHoverMarkdown(d) {
+  const parts = ['**' + d.name + '** `' + (d.kind || '') + '`'];
+  if (d.signature) parts.push('\n\n`' + d.signature + '`');
+  if (d.file) parts.push('\n\n' + d.file + (d.line ? ':' + d.line : ''));
+  const extra = [];
+  if (d.callers && d.callers.length) extra.push('调用者 ' + d.callers.length);
+  if (d.callees && d.callees.length) extra.push('被调用者 ' + d.callees.length);
+  if (extra.length) parts.push('\n\n' + extra.join(' · '));
+  parts.push('\n\n[查看详情](command:codeintel.querySymbolAt)');
+  return parts.join('');
+}
+
+module.exports = { activate, deactivate, renderSymbol, renderHoverMarkdown, shortID, shouldAutoUpdateFileName, parseCandidates, openAt };
