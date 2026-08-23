@@ -48,6 +48,8 @@ func Main(ctx context.Context, args []string) int {
 		return cmdTrace(args[1:])
 	case "batch":
 		return cmdBatch(args[1:])
+	case "wiki":
+		return cmdWiki(args[1:])
 	case "version", "--version", "-v":
 		return cmdVersion(args[1:])
 	case "help", "-h", "--help":

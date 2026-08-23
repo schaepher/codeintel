@@ -229,3 +229,11 @@ func (a *Actions) DispatchCandidates(ifaceID domain.CanonicalID) ([]*domain.Fact
 	defer logger.Info("exit (Actions).DispatchCandidates")
 	return a.repo.GetDispatchEdges(ifaceID)
 }
+
+// GetAllTableColumns 全库表列（#238 wiki 相关表聚合）。
+func (a *Actions) GetAllTableColumns() ([]*domain.TableColumn, error) {
+	logger := zap.L()
+	logger.Info("enter (Actions).GetAllTableColumns")
+	defer logger.Info("exit (Actions).GetAllTableColumns")
+	return a.repo.GetAllTableColumns()
+}

@@ -41,6 +41,8 @@ type Reader interface {
 	GetTables() ([]string, error) // Q241 表名枚举（table-path 表名解析）
 	SymbolsAt(file string, line int) ([]*domain.CodeEntity, error) // #229 file:line 定位符号
 	RecentChanges(limit int) ([]*domain.RecentChange, error) // #237 最近变更
+	TopCallersInModule(prefix string, limit int) ([]*domain.WikiSymbol, error) // #238 wiki 核心符号
+	TablesWrittenByModule(prefix string) ([]string, error) // #238 wiki 相关表
 	GetUncalledFunctions() ([]*domain.UnusedFunc, error)
 	GetIsolatedChains() ([][]*domain.UnusedFunc, error)
 	GetPath(from, to domain.CanonicalID, maxDepth int, viaCalls bool) ([]*domain.TraceRow, error)
