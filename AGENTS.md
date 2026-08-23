@@ -41,10 +41,11 @@
 4. **提交前验证（防忘机制，Q242–Q244 沉淀）**：commit 前必须通过
    `scripts/verify.sh --quick`（build + vet + 非 race 全量单测）——
    本仓库已装 pre-commit hook（`scripts/install-precommit.sh`）自动
-   执行，失败拒绝提交；全量基线（-race 逐包）手动跑
-   `scripts/verify.sh`。`scripts/dbdiag.sh`（sqlite 库健康诊断）、
-   `scripts/assert_replace.py`（带断言替换，杜绝静默失败）详见
-   事前树 prevention-tree.md。
+   执行，失败拒绝提交；hook 先跑 `scripts/check-file-size.sh`
+   （staged Go 文件 >300 行拒绝，提示用 line-limit skill 拆分——
+   §85）；全量基线（-race 逐包）手动跑 `scripts/verify.sh`。
+   `scripts/dbdiag.sh`（sqlite 库健康诊断）、`scripts/assert_replace.py`
+   （带断言替换，杜绝静默失败）详见事前树 prevention-tree.md。
 
 支撑：`.claude/hooks/impact-check.sh`（PreToolUse 非阻断提醒，只提示
 不拒绝；仓库已索引/未索引两种情况各一行）；`.claude/hooks/verify-remind.sh`

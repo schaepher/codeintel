@@ -3522,3 +3522,31 @@ edges.d/%s 残留/CTE 名/d_at 全无）；edges.source_id/target_id filter
 节点双分支产出；ER 图 edges→nodes fk 关联完整。测试新增
 TestSQLDynamicSprintfPhi（phi 双分支）+ TestSQLCaseKeywordUpper（CASE
 + 字面 \n）+ TestSQLWhereCTEAlias（CTE 别名列）。
+
+## §85 行数治理 + funcsize + pre-commit 行数硬拦截（2026-08-23）
+
+**16 个 >300 行 Go 文件全量拆分**（用户要求"用 skill 处理大于 300
+行的 go 文件"）：line-limit skill 流程（检测 → asttool analyze/split
+按主题分组 → goimports 清 import → find-misplaced/fix-comments 清
+孤立注释 → verify.sh）。cli 11（wiki/mcp/wiki_html/vt_render/
+relations + 3 测试）、ssa 6（applySQLSummaryOne 336 行抽读分支
+applySQLRead；emitValue 手工提取）、sqlite 2。踩坑两个：
+- **split 覆盖已存在输出文件**（fe_emit.go 含 emitFunctionFields 被
+  emitValue 拆写覆盖）——git checkout 恢复 + 手工提取
+- **测试文件命名**：`mcp_test_extra.go` 不以 `_test.go` 结尾被当普通
+  源文件编译（build 报测试符号 undefined）——重命名 `*_test.go`
+
+**funcsize 子命令**（用户要求）：`asttool funcsize <file...>`——AST
+遍历函数/方法行数（含 receiver、泛型/指针/包限定），降序输出
+`行数 | (Receiver).Name | 起止行`——行数治理先看函数大头，决定拆
+文件还是拆函数。SKILL.md 拆分流程加第 0 步（funcsize 预检）。
+
+**pre-commit 行数硬拦截**（用户要求）：`scripts/check-file-size.sh`
+——staged .go 文件 wc -l >300 拒绝提交，报错提示 asttool
+funcsize/analyze/split 用法；install-precommit.sh 把检查插在
+verify.sh --quick 前。实测 601 行临时文件被拦截。事前树分支 D
+防忘机制描述同步。
+
+**验证**：verify.sh 全过（build+vet+-race 13 包）；全项目 174 文件
+函数行数排名最大 127 行（(Actions).TablePath）；超行复查 0；
+DUP-DEF 清零。
