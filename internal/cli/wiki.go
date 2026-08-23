@@ -234,7 +234,10 @@ func renderWiki(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiConfi
 	if cfg.Project.Description != "" {
 		idx.WriteString(cfg.Project.Description + "\n\n")
 	}
-	idx.WriteString("**快速开始**：① 看[架构图](#架构图)了解系统组成 → ② 按顺序读各模块（职责 → 入口 → 核心符号 → 相关表）→ ③ 查[表清单](tables.md)看字段与建表语句。\n\n")
+	idx.WriteString("**快速开始**：① 看[架构图](#整体架构图)了解系统组成 → ② 按顺序读各模块（职责 → 入口 → 核心符号 → 相关表）→ ③ 查[表清单](tables.md)看字段与建表语句。\n\n")
+	if cfg.Architecture != "" {
+		idx.WriteString("## 整体架构图\n\n```mermaid\n" + cfg.Architecture + "\n```\n\n")
+	}
 	idx.WriteString("由 `codeintel wiki` 生成（全量覆盖；业务描述/别名维护在 wiki.yaml）\n\n")
 	idx.WriteString("## 模块\n\n")
 	for _, wm := range ordered {
@@ -342,17 +345,13 @@ func renderModulePage(wm *domain.WikiModule, desc string, tableAlias map[string]
 		}
 		b.WriteString("\n")
 	}
-	// 架构图（#241）：yaml 覆盖优先，否则自动模块间调用图
-	b.WriteString("## 架构图\n\n")
-	if cfg.Architecture != "" {
-		b.WriteString("```mermaid\n" + cfg.Architecture + "\n```\n\n")
-	} else if len(wm.OutCalls) > 0 || len(wm.InCalls) > 0 {
-		arch := moduleArchMermaid(wm)
-		if arch != "" {
-			b.WriteString("```mermaid\n" + arch + "\n```\n\n")
-		}
+	// 架构图（#248：yaml 全局图在 index；模块页只渲染自动模块间调用图）
+	b.WriteString("## 架构图（模块间调用）\n\n")
+	arch := moduleArchMermaid(wm)
+	if arch != "" {
+		b.WriteString("```mermaid\n" + arch + "\n```\n\n")
 	} else {
-		b.WriteString("（单模块或无线索——yaml architecture 可手写）\n\n")
+		b.WriteString("（单模块或无线索；整体架构见 index 架构图）\n\n")
 	}
 	// 流程时序（#242）：yaml 业务时序各自单独 + 自动时序每个一级调用
 	// 分支单独一张图

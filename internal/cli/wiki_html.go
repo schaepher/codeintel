@@ -66,6 +66,12 @@ func renderWikiHTML(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiC
 		main.WriteString(renderModuleHTML(wm, i, tableAlias, hidden, cfg, desc))
 		main.WriteString("</section>\n")
 	}
+	// 全局架构图（#248：yaml architecture 放 index 顶部一次，引导链接
+	// #arch 有效；模块页只渲染自动模块间调用图）
+	if cfg.Architecture != "" {
+		main.WriteString(`<section id="arch"><h2>架构图</h2><pre class="mermaid">` + htmlEsc(cfg.Architecture) + `</pre></section>` + "\n")
+		nav.WriteString(`<li><a href="#arch">架构图</a></li>`)
+	}
 	// 表清单 section + 每表详情（字段定义/索引/建表语句，#243）
 	tableCfgs := tableCfgsFrom(cfg)
 	tables := collectTables(data, tableAlias)
@@ -225,17 +231,12 @@ func renderModuleHTML(wm *domain.WikiModule, i int, tableAlias map[string]string
 		b.WriteString("</div>\n")
 	}
 	// 架构图（#241）：yaml 覆盖优先，否则自动模块间调用图
-	b.WriteString(sec("arch", "架构图"))
-	arch := ""
-	if cfg.Architecture != "" {
-		arch = cfg.Architecture
-	} else {
-		arch = moduleArchMermaid(wm)
-	}
+	b.WriteString(sec("arch", "架构图（模块间调用）"))
+	arch := moduleArchMermaid(wm)
 	if arch != "" {
 		b.WriteString("<pre class=\"mermaid\">" + htmlEsc(arch) + "</pre>")
 	} else {
-		b.WriteString("<p class=\"muted\">（单模块或无线索——yaml architecture 可手写）</p>")
+		b.WriteString("<p class=\"muted\">（单模块或无线索；整体架构见页面顶部架构图）</p>")
 	}
 	b.WriteString("</div>\n")
 	// 流程时序（#242）：yaml 业务时序各自单独 + 自动时序每个一级调用
