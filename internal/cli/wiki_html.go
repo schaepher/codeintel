@@ -60,6 +60,7 @@ func collectTables(data []*domain.WikiModule, tableAlias map[string]string, tabl
 func wikiTablesSectionHTML(tables []tableRow, tableCfgs map[string]wikiTableConfig, cols []*domain.TableColumn) string {
 	var b strings.Builder
 	b.WriteString(`<section id="tables"><h2>表清单</h2>`)
+	b.WriteString(`<p class="muted">自动生成：gorm/xorm 写路径识别；别名与字段说明可在 wiki.yaml tables 补充。</p>`)
 	if len(tables) == 0 {
 		b.WriteString("<p>（未识别到 ORM 表写入）</p>")
 	} else {

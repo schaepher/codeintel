@@ -63,7 +63,7 @@ func renderWikiHTML(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiC
 	}
 
 	if cfg.Architecture != "" {
-		main.WriteString(`<section id="arch"><h2>架构图</h2><pre class="mermaid">` + htmlEsc(cfg.Architecture) + `</pre></section>` + "\n")
+		main.WriteString(`<section id="arch"><h2>架构图</h2><p class="muted">（来源：wiki.yaml architecture）</p><pre class="mermaid">` + htmlEsc(cfg.Architecture) + `</pre></section>` + "\n")
 		nav.WriteString(`<li><a href="#arch">架构图</a></li>`)
 	}
 

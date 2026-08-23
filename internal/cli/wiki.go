@@ -103,6 +103,13 @@ func cmdWiki(args []string) int {
 			fmt.Fprintf(os.Stderr, "error: 解析 %s: %v\n", yamlPath, err)
 			return 1
 		}
+	} else if b, err := os.ReadFile(filepath.Join(abs, "wiki.yaml")); err == nil {
+		// B：与 serve 对齐——仓库根 wiki.yaml 自动发现（存在即用；
+		// 否则纯自动生成，丢人工描述）
+		if err := yaml.Unmarshal(b, &cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "error: 解析 wiki.yaml: %v\n", err)
+			return 1
+		}
 	}
 	// yaml 模块白名单：列出则只生成这些模块（fixture/子模块噪音过滤）
 	if len(cfg.Modules) > 0 {
@@ -206,7 +213,7 @@ func renderWiki(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiConfi
 	}
 	idx.WriteString("**快速开始**：① 看[架构图](#整体架构图)了解系统组成 → ② 按顺序读各模块（职责 → 入口 → 核心符号 → 相关表）→ ③ 查[表清单](tables.md)看字段与建表语句。\n\n")
 	if cfg.Architecture != "" {
-		idx.WriteString("## 整体架构图\n\n```mermaid\n" + cfg.Architecture + "\n```\n\n")
+		idx.WriteString("## 整体架构图\n\n> 来源：wiki.yaml architecture\n\n```mermaid\n" + cfg.Architecture + "\n```\n\n")
 	}
 	idx.WriteString("由 `codeintel wiki` 生成（全量覆盖；业务描述/别名维护在 wiki.yaml）\n\n")
 	idx.WriteString("## 模块\n\n")

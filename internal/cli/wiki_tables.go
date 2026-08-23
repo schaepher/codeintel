@@ -11,7 +11,7 @@ import (
 // renderTablesPage 表清单 + 每表详情（字段定义表/索引/建表语句，#243）。
 func renderTablesPage(data []*domain.WikiModule, tableAlias map[string]string, tableCfgs map[string]wikiTableConfig, cols []*domain.TableColumn) string {
 	var b strings.Builder
-	b.WriteString("# 表清单\n\n")
+	b.WriteString("# 表清单\n\n> 自动生成：gorm/xorm 写路径识别；别名与字段说明可在 wiki.yaml tables 补充。\n\n")
 	seen := map[string]bool{}
 	var tables []string
 	for _, wm := range data {

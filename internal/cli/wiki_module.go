@@ -16,10 +16,10 @@ func renderModulePage(wm *domain.WikiModule, desc string, tableAlias map[string]
 	}
 	b.WriteString("## 职责\n\n")
 	if desc != "" {
-		b.WriteString(desc + "\n\n")
+		b.WriteString(desc + "（来源：wiki.yaml）\n\n")
 	}
 	if wm.Desc != "" {
-		b.WriteString(wm.Desc + "\n\n")
+		b.WriteString(wm.Desc + "（来源：包注释）\n\n")
 	}
 	if desc == "" && wm.Desc == "" {
 		b.WriteString("（无描述——维护者可在 wiki.yaml modules.description 补充）\n\n")

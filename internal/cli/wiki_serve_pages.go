@@ -60,7 +60,7 @@ func (ws *wikiServe) pageHTML(snap *wikiSnapshot, current string, main string) s
 func (ws *wikiServe) overviewPage(snap *wikiSnapshot) string {
 	var b strings.Builder
 	if snap.cfg.Architecture != "" {
-		b.WriteString(`<section id="arch"><h2>架构图</h2><pre class="mermaid">` + htmlEsc(snap.cfg.Architecture) + `</pre></section>` + "\n")
+		b.WriteString(`<section id="arch"><h2>架构图</h2><p class="muted">（来源：wiki.yaml architecture）</p><pre class="mermaid">` + htmlEsc(snap.cfg.Architecture) + `</pre></section>` + "\n")
 	}
 	b.WriteString(`<section id="modules"><h2>模块</h2>`)
 	if len(snap.ordered) == 0 {
