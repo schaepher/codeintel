@@ -72,14 +72,16 @@ func printEntityDiags(g *domain.EntityGraph) {
 	fmt.Println("  诊断是设计信号不是结论——先核实具体调用（query callees）再重构")
 }
 
-// entityMermaid 实体协作图 mermaid（graph LR：节点 + 聚合计数边）。
+// entityMermaid 实体协作图 mermaid（graph LR：节点 + 聚合计数边；
+// R15：节点按调用方向拓扑排序——线尽量从左往右）。
 func entityMermaid(g *domain.EntityGraph) string {
 	if len(g.Nodes) == 0 {
 		return ""
 	}
+	nodes := sortEntitiesByCallFlow(g.Nodes, g.Edges)
 	var b strings.Builder
 	b.WriteString("graph LR\n")
-	for _, n := range g.Nodes {
+	for _, n := range nodes {
 		label := n.Name
 		if n.Kind == domain.EntityKindPkgFace {
 			label += fmt.Sprintf("（门面%d）", n.FreeFuncs)

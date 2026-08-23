@@ -45,6 +45,53 @@ var entityDiagExplain = map[string][2]string{
 // 投影到实体——保留调用顺序、连续相同实体对合并计数（×N）、实体
 // 内调用折叠（内互调已在节点标注）。参与者带包前缀消歧。
 
+// sortEntitiesByCallFlow 按调用方向拓扑排序（R15）：入度 0（上游/入口）
+// 在左，下游在右——调用线尽量从左往右。Kahn 算法 + 稳定（同层保持
+// 输入序）；环/孤立节点回退原序（不丢节点）。
+func sortEntitiesByCallFlow(nodes []*domain.EntityNode, edges []*domain.EntityEdge) []*domain.EntityNode {
+	indeg := map[string]int{}
+	adj := map[string][]string{}
+	for _, e := range edges {
+		indeg[e.To]++
+		adj[e.From] = append(adj[e.From], e.To)
+	}
+	// 入度 0 的节点按原序入队（稳定）
+	var queue []*domain.EntityNode
+	for _, n := range nodes {
+		if indeg[n.ID] == 0 {
+			queue = append(queue, n)
+		}
+	}
+	var out []*domain.EntityNode
+	for len(queue) > 0 {
+		n := queue[0]
+		queue = queue[1:]
+		out = append(out, n)
+		for _, to := range adj[n.ID] {
+			indeg[to]--
+			if indeg[to] == 0 {
+				for _, m := range nodes {
+					if m.ID == to {
+						queue = append(queue, m)
+						break
+					}
+				}
+			}
+		}
+	}
+	// 剩余（环内/孤立）按原序追加
+	seen := map[string]bool{}
+	for _, n := range out {
+		seen[n.ID] = true
+	}
+	for _, n := range nodes {
+		if !seen[n.ID] {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 // entityLegend 图例（图怎么读）。
 const entityLegend = "图例：节点 = 实体（`类型名`；`门面 N` = 包内 N 个游离函数聚合，`内 N` = 实体内方法互调）；" +
 	"边 `--|N|-->` = 方法互调 N 次（聚合计数）。"
@@ -136,20 +183,24 @@ func entitySubgraphMermaid(g *domain.EntityGraph, steps []domain.WikiSeqStep) st
 	if len(nodes) == 0 {
 		return ""
 	}
+	// 先确定性排序（Pkg/Name），再按调用方向拓扑（R15：线从左往右）
 	sort.Slice(nodes, func(i, j int) bool {
 		if nodes[i].Pkg != nodes[j].Pkg {
 			return nodes[i].Pkg < nodes[j].Pkg
 		}
 		return nodes[i].Name < nodes[j].Name
 	})
-	// 集合内边聚合
+	// 集合内边聚合（拓扑排序用）
 	type key struct{ from, to string }
 	counts := map[key]int{}
+	var subEdges []*domain.EntityEdge
 	for _, e := range g.Edges {
 		if involved[e.From] && involved[e.To] {
 			counts[key{e.From, e.To}] += e.Count
+			subEdges = append(subEdges, e)
 		}
 	}
+	nodes = sortEntitiesByCallFlow(nodes, subEdges)
 	var b strings.Builder
 	b.WriteString("graph LR\n")
 	for _, n := range nodes {

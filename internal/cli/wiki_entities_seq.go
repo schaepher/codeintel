@@ -82,13 +82,25 @@ func entitySequenceMermaid(g *domain.EntityGraph, steps []domain.WikiSeqStep) st
 	var b strings.Builder
 	b.WriteString("sequenceDiagram\n")
 
-	seen := map[string]bool{}
+	// R15：参与者按调用流向拓扑排序（上游在左——消息线尽量从左往右）
+	var partNodes []*domain.EntityNode
+	var partEdges []*domain.EntityEdge
 	for _, m := range merged {
 		for _, id := range []string{m.from, m.to} {
-			if !seen[id] {
-				seen[id] = true
-				aliasOf(id)
+			for _, n := range g.Nodes {
+				if n.ID == id {
+					partNodes = append(partNodes, n)
+					break
+				}
 			}
+		}
+		partEdges = append(partEdges, &domain.EntityEdge{From: m.from, To: m.to, Count: m.count})
+	}
+	seen := map[string]bool{}
+	for _, n := range sortEntitiesByCallFlow(partNodes, partEdges) {
+		if !seen[n.ID] {
+			seen[n.ID] = true
+			aliasOf(n.ID)
 		}
 	}
 	for _, id := range order {
