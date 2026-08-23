@@ -37,6 +37,9 @@ func TestParseSQLStmt(t *testing.T) {
 		// （COALESCE 内部逗号）+ 引号/函数残留过滤
 		{"SELECT DISTINCT callee_id FROM summary_origins WHERE function_id = ?", "summary_origins", []string{"callee_id"}, []string{"function_id"}},
 		{"SELECT COALESCE(commit_sha,''), timestamp FROM build_metadata ORDER BY timestamp DESC, rowid DESC LIMIT 1", "build_metadata", []string{"timestamp"}, nil},
+		// Q251：fmt.Sprintf 动态 SQL 的 %s 占位符——`%s = ?` 的 s
+		// （% 后标识符片段）不得当列名
+		{"SELECT * FROM edges WHERE %s = ? AND kind = 'calls' AND confidence >= ?", "edges", nil, []string{"confidence"}},
 		{"SELECT DISTINCT s.id, a.name FROM sys_sub_station s INNER JOIN sys_district a ON a.code = s.city_code", "sys_sub_station", []string{"id", "name"}, nil},
 		// Q250：多行 SQL（\n\t\tFROM）——FROM 前是 tab/换行非空格，
 		// " FROM " 子串匹配不到
@@ -489,6 +492,45 @@ func save(c Conn) {
 	}
 	if got["users.name"] != "write" || got["users.email"] != "write" {
 		t.Errorf("Prepare(INSERT) 列节点应为 write（got %v/%v）", got["users.name"], got["users.email"])
+	}
+}
+
+// TestParseSQLCTE：Q251——递归 CTE（value-trace 形态）的递归引用
+// （JOIN back d / FROM walk）不得当表；JOIN ON 段列名过 validSQLColumn
+// （动态 SQL 的 %s 占位符残留过滤）。
+func TestParseSQLCTE(t *testing.T) {
+	cases := []struct {
+		sql   string
+		table string
+		pairs []sqlJoinPair
+	}{
+		// 递归分支 JOIN back（CTE）——pair 跳过；主表仍取首个 FROM（nodes）
+		{"WITH RECURSIVE back(id, dir) AS (SELECT id, 0 FROM nodes UNION SELECT e.source_id, 1 FROM edges e JOIN back d ON e.target_id = d.id) SELECT * FROM back",
+			"nodes", nil},
+		// 多 CTE：walk/reach 均不得当表
+		{"WITH RECURSIVE walk(id, dir) AS (SELECT id, 0 FROM nodes UNION ALL SELECT source_id, 1 FROM edges JOIN walk ON edges.target_id = walk.id), reach(id) AS (SELECT id FROM walk) SELECT * FROM nodes WHERE id = ?",
+			"nodes", nil},
+		// JOIN 列 %s 占位符残留（fmt.Sprintf 动态 SQL）→ pair 放弃
+		{"SELECT * FROM a JOIN b ON a.%s = b.id", "a", nil},
+		// 非 CTE 的 JOIN 正常产出
+		{"SELECT s.id FROM sys_sub_station s INNER JOIN sys_district a ON a.code = s.city_code",
+			"sys_sub_station", []sqlJoinPair{{"sys_district", "code", "sys_sub_station", "city_code"}}},
+	}
+	for _, c := range cases {
+		table, _, _, _, pairs := parseSQLStmt(c.sql)
+		if table != c.table {
+			t.Errorf("%.40q: table = %q, want %q", c.sql, table, c.table)
+			continue
+		}
+		if len(pairs) != len(c.pairs) {
+			t.Errorf("%.40q: joinPairs = %+v, want %+v", c.sql, pairs, c.pairs)
+			continue
+		}
+		for i, want := range c.pairs {
+			if pairs[i] != want {
+				t.Errorf("%.40q: pair[%d] = %+v, want %+v", c.sql, i, pairs[i], want)
+			}
+		}
 	}
 }
 

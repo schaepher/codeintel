@@ -5,7 +5,10 @@ import (
 	"strings"
 )
 
-var whereColRe = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_.]*)\s*(?:=|>=|<=|>|<|!=|<>)\s*(\?|\$\d+)`)
+// whereColRe WHERE 过滤列（`列 = ?` 序列）。Q251：前导捕获组排除
+// 标识符/点/%（fmt.Sprintf 动态 SQL 的 `%s = ?`——s 是 % 后残留
+// 片段，不得当列名；a.s 由 a 起点整串匹配，s 处不重复匹配）。
+var whereColRe = regexp.MustCompile(`(^|[^A-Za-z0-9_%.])([A-Za-z_][A-Za-z0-9_.]*)\s*(?:=|>=|<=|>|<|!=|<>)\s*(\?|\$\d+)`)
 
 // sqlJoinPair JOIN ON 等值键对（Q239）：JOIN 表.列 = 主表.列
 // （SQL 书写顺序：左 = From，右 = To；别名已映射回真实表名）。
@@ -41,6 +44,20 @@ func nextToken(s string) (tok, rest string) {
 		i++
 	}
 	return s[:i], strings.TrimSpace(s[i:])
+}
+
+// reCTEName CTE 定义名（Q251：WITH [RECURSIVE] name(cols) AS (——
+// 递归分支的递归引用（FROM back / JOIN back d）不得当表）。
+var reCTEName = regexp.MustCompile(`(?i)([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)\s+AS\s*\(`)
+
+// extractCTENames 提取 SQL 中全部 CTE 定义名（value-trace 递归 CTE
+// 形态：back/reach/walk/flows/def_trace/fwd_trace）。
+func extractCTENames(sql string) map[string]bool {
+	names := map[string]bool{}
+	for _, m := range reCTEName.FindAllStringSubmatch(sql, -1) {
+		names[m[1]] = true
+	}
+	return names
 }
 
 // splitTopLevelComma 顶层逗号拆分（Q250：括号内不切——COALESCE(a,b)
@@ -114,7 +131,7 @@ func splitQualified(s string) (string, string) {
 //
 // 覆盖 INNER/LEFT/RIGHT/CROSS JOIN + 别名映射 + AND 多键对；逗号连接 /
 // 子查询 JOIN / 无 ON 的 CROSS JOIN 放弃（无键信号）。
-func extractJoinPairs(rest string) []sqlJoinPair {
+func extractJoinPairs(rest string, cte map[string]bool) []sqlJoinPair {
 	up := strings.ToUpper(rest)
 	if !strings.Contains(up, " JOIN ") {
 		return nil
@@ -128,6 +145,18 @@ func extractJoinPairs(rest string) []sqlJoinPair {
 			aliases[a] = firstTok
 		}
 	}
+	// Q251：全局扫描 FROM <表> <别名> 注册（UNION 递归分支的
+	// FROM edges e——JOIN 段别名只覆盖 JOIN 表，递归分支表别名缺失
+	// 会把 e 当表名）
+	for _, m := range reFromAlias.FindAllStringSubmatch(rest, -1) {
+		if m[1] == "" {
+			continue
+		}
+		aliases[m[1]] = m[1]
+		if m[2] != "" && !sqlKwdSet[strings.ToUpper(m[2])] {
+			aliases[m[2]] = m[1]
+		}
+	}
 	var pairs []sqlJoinPair
 	for {
 		j := strings.Index(up, " JOIN ")
@@ -139,6 +168,12 @@ func extractJoinPairs(rest string) []sqlJoinPair {
 		tbl, afterTbl := nextToken(seg)
 		if tbl == "" {
 			break
+		}
+		// Q251：递归 CTE 引用（JOIN back d）——CTE 名不得当表
+		if cte[tbl] {
+			rest = afterTbl
+			up = strings.ToUpper(rest)
+			continue
 		}
 		aliases[tbl] = tbl
 		// 可选别名（非关键字且非 ON 起始）
@@ -189,7 +224,11 @@ func extractJoinPairs(rest string) []sqlJoinPair {
 			}
 			lt, lc := splitQualified(l)
 			rt, rc := splitQualified(r)
-			if lc == "" || rc == "" {
+			// Q251：右括号残留剥离（`d.id)` 截断）+ 列名合法性
+			// （动态 SQL 的 %s 占位符残留过滤）
+			lc = strings.TrimRight(lc, ")")
+			rc = strings.TrimRight(rc, ")")
+			if lc == "" || rc == "" || !validSQLColumn(lc) || !validSQLColumn(rc) {
 				continue
 			}
 			lT := aliases[lt]
@@ -231,7 +270,7 @@ func extractWhereCols(rest string) []string {
 	}
 	var out []string
 	for _, m := range whereColRe.FindAllStringSubmatch(wherePart, -1) {
-		c := m[1]
+		c := m[2] // m[1] 是前导字符（Q251：排除 %s 残留）
 		if i := strings.LastIndex(c, "."); i >= 0 {
 			c = c[i+1:] // #249：别名前缀剥离（多表 SQL 兼容）
 		}
@@ -267,6 +306,8 @@ var (
 	// reInsertOrReplace：SQLite INSERT OR REPLACE/IGNORE 与 REPLACE INTO
 	// 形态（repo_write 批量写；REPLACE 词边界防 replace_xxx 列误命中）。
 	reInsertOrReplace = regexp.MustCompile(`(?i)\b(?:REPLACE|INSERT\s+(?:OR\s+(?:REPLACE|IGNORE|ABORT|ROLLBACK|FAIL)\s+)?)\s+INTO\b`)
+	// reFromAlias FROM <表> <别名>（Q251：UNION 递归分支别名注册）。
+	reFromAlias = regexp.MustCompile(`(?i)\bFROM\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+([A-Za-z_][A-Za-z0-9_]*))?`)
 	// reWriteStmt 语句级写判定（Q250：Prepare(INSERT) 场景——内置配置
 	// 按方法名判 SQLWrite（Exec→写），Prepare 恒读；改按语句类型强制
 	// 修正。词边界匹配防 updated_at/replace_xxx 列名误命中）。
@@ -280,6 +321,8 @@ func sqlStmtIsWrite(sql string) bool {
 
 func parseSQLStmt(sql string) (table, alias string, cols []string, whereCols []string, joinPairs []sqlJoinPair) {
 	upper := strings.ToUpper(sql)
+	// Q251：CTE 定义名（递归引用不得当表）
+	cte := extractCTENames(sql)
 	rest := ""
 	switch {
 	case reInsertOrReplace.MatchString(upper):
@@ -294,7 +337,7 @@ func parseSQLStmt(sql string) (table, alias string, cols []string, whereCols []s
 
 		fromIdx := reFrom.FindStringIndex(upper)[0]
 		rest = sql[fromIdx+len("FROM"):]
-		joinPairs = extractJoinPairs(rest)
+		joinPairs = extractJoinPairs(rest, cte)
 		if strings.Contains(upper, "SELECT ") {
 			selPart := strings.TrimSpace(sql[strings.Index(upper, "SELECT ")+len("SELECT ") : fromIdx])
 			// Q250：DISTINCT/ALL 前缀剥离（DISTINCT 关键字不得并进列名）
@@ -337,6 +380,11 @@ func parseSQLStmt(sql string) (table, alias string, cols []string, whereCols []s
 	table = strings.Trim(table, "`\"[]")
 	// Q239：子查询右括号不得并进表名（(SELECT ... FROM mm_member) → mm_member）
 	table = strings.TrimRight(table, ")")
+	// Q251：主表是 CTE 定义名（WITH RECURSIVE back(...) 的外部查询
+	// FROM back）——不得当表
+	if cte[table] {
+		return "", "", nil, nil, nil
+	}
 	if table == "" {
 		return "", "", nil, nil, nil
 	}

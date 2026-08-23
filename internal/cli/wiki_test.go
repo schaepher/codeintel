@@ -163,6 +163,9 @@ func TestWikiHTML(t *testing.T) {
 		"example.com/m",     // 模块名（目录 + 内容）
 		"fold",              // 折叠交互标记
 		"id=\"tables\"",     // 表清单区块
+		"id=\"er\"",         // Q251 ER 图区块
+		"href=\"#er\"",      // 导航 ER 图入口
+		"无表间直接关联",     // fixture 无关系 → 降级提示
 		"orders",            // 相关表
 		"<style>",           // 内嵌 CSS
 		"<script>",          // 内嵌 JS
@@ -181,6 +184,17 @@ func TestWikiHTML(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(out2, "index.md")); err != nil {
 		t.Error("默认 format 应生成 index.md")
+	}
+	// Q251：md 输出应含 er.md（ER 图页面）且 index 链接到它
+	if _, err := os.Stat(filepath.Join(out2, "er.md")); err != nil {
+		t.Error("md 输出应生成 er.md")
+	}
+	idx2, err := os.ReadFile(filepath.Join(out2, "index.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(idx2), "er.md") {
+		t.Error("index.md 应链接 er.md")
 	}
 }
 
@@ -277,5 +291,56 @@ tables:
 	// 自动时序：main 的一级 callee = (Svc).Run → 单独一张图
 	if !strings.Contains(ms, "### 内部调用链：(Svc).Run") || !strings.Contains(ms, "main->>(Svc).Run") {
 		t.Errorf("时序应按一级调用分支单独画:\n%s", ms)
+	}
+}
+
+// TestWikiERMermaid：Q251 ER 图页面——erDiagram 实体/关系行渲染，
+// fk/query 画线、write/read 剔除、隐藏表过滤、列级 label、确定性排序。
+func TestWikiERMermaid(t *testing.T) {
+	rels := []*domain.TableRelation{
+		{FromTable: "orders", FromCol: "user_id", ToTable: "users", ToCol: "id", Type: domain.RelationFK, Hops: 1},
+		{FromTable: "users", FromCol: "id", ToTable: "orders", ToCol: "user_id", Type: domain.RelationQuery, Hops: 2},
+		{FromTable: "orders", FromCol: "total", ToTable: "audit", ToCol: "amount", Type: domain.RelationWrite, Hops: 1},
+		{FromTable: "secret", FromCol: "x", ToTable: "users", ToCol: "id", Type: domain.RelationQuery, Hops: 3},
+	}
+	hide := map[string]bool{"secret": true}
+	m := renderERMermaid(rels, hide)
+	if !strings.HasPrefix(m, "erDiagram\n") {
+		t.Errorf("应以 erDiagram 开头:\n%s", m)
+	}
+	for _, want := range []string{"    orders\n", "    users\n", "user_id → id [fk]", "id → user_id [query]"} {
+		if !strings.Contains(m, want) {
+			t.Errorf("ER 图应含 %q:\n%s", want, m)
+		}
+	}
+	for _, bad := range []string{"secret", "write", "audit"} {
+		if strings.Contains(m, bad) {
+			t.Errorf("ER 图不应含 %q（write/隐藏表剔除）:\n%s", bad, m)
+		}
+	}
+	// 确定性：同输入两次输出一致
+	if m2 := renderERMermaid(rels, hide); m2 != m {
+		t.Errorf("ER 图输出不确定")
+	}
+	// 空关系
+	if e := renderERMermaid(nil, nil); e != "erDiagram\n" {
+		t.Errorf("空关系应返回裸 erDiagram，got %q", e)
+	}
+}
+
+// TestWikiERPage：Q251 er.md 页面——erDiagram 代码块 + 关系明细表。
+func TestWikiERPage(t *testing.T) {
+	rels := []*domain.TableRelation{
+		{FromTable: "orders", FromCol: "user_id", ToTable: "users", ToCol: "id", Type: domain.RelationFK, Hops: 1},
+	}
+	page := renderERPage(rels, nil)
+	for _, want := range []string{"# ER 图", "```mermaid", "erDiagram", "| orders | user_id | users | id | fk |", "tables.md"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("er.md 应含 %q:\n%s", want, page)
+		}
+	}
+	// 无关联提示
+	if p2 := renderERPage(nil, nil); !strings.Contains(p2, "无表间直接关联") {
+		t.Errorf("空关系应提示无关联:\n%s", p2)
 	}
 }

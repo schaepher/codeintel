@@ -3394,3 +3394,41 @@ relation_progress/relation_rules/repos/summary_origins + registry repos）
 **方法论沉淀**：功能交付后主动做「表识别完整性」自检——真实表集合
 从 CREATE TABLE + SQL 引用双向收集（词边界），与索引表节点对账；
 噪音面（子串误命中/关键字/引号/括号/CTE 名）显式扫描归零。
+
+## §83 Wiki ER 图页面 + CTE/占位符噪音修复（Q251，2026-08-23）
+
+grilling 确认（Q1-Q5 接受推荐）：wiki 增加**独立 ER 图页面**——md
+独立文件 er.md + html 独立导航项 #er（架构图后/表清单前）；mermaid
+erDiagram 渲染（零新依赖，与架构图/时序图同款）；数据复用已算
+relation_candidates、未算时 wiki 生成同步兜底计算；粒度表级节点 +
+列级标注（label `from_col→to_col [fk/query]`）；只画 fk/query 直接
+键关联（write/read 间接关联不画）；yaml tables.hidden 白名单复用。
+
+**真实验证抓到 3 个数据层噪音**（er.md 首版输出）：
+
+1. **递归 CTE 引用当表**：value-trace 查询
+   `WITH RECURSIVE back(...) AS (...) UNION SELECT ... FROM edges e JOIN back d`
+   ——递归分支的 `JOIN back`/`FROM walk` 把 CTE 名（back/walk/reach/
+   flows/e/def_trace/fwd_trace）当表，ER 图出现假实体 + 假键关联
+   （如 e.source_id → back.id）。修复：parseSQLStmt 提取 CTE 定义名
+   （`name(cols) AS (` 正则），主表/JOIN 表是 CTE 名则跳过；FROM
+   段全局扫描注册别名（UNION 递归分支的 `FROM edges e` 别名缺失
+   会把 e 当表名）。
+2. **fmt.Sprintf 动态 SQL 的 %s 占位符**：`WHERE %s = ?`——whereColRe
+   正则搜索把 `%s` 的 s（% 后标识符片段）当列名（edges.s）；JOIN
+   ON `e.%s = w.%s` 的 %s 列残留。修复：whereColRe 加前导捕获组
+   `(^|[^A-Za-z0-9_%.])`（RE2 无 lookbehind）排除 % 后残留；JOIN
+   pair 列过 validSQLColumn。
+3. **JOIN 列右括号残留**：`d.id)` 截断——JOIN pair 列 TrimRight(")")。
+
+**验证证据**：13 包 -race 全绿 + verify.sh OK；重建索引后 ER 图噪音
+归零（back/e/flows/reach/walk/s/%s 全消失），剩 6 张真实表的 9 条
+fk 键关联（edges↔nodes、function_field_summary↔summary_origins、
+nodes→relation_candidates→build_metadata/repos）全部合理。测试新增
+TestParseSQLCTE（3 形态）+ %s 列用例 + TestWikiERMermaid/ERPage +
+TestWikiGenerate/HTML er 断言。
+
+**备注**：无 build_metadata 的仓库（fixture）兜底计算 finish 跳过置
+done——wiki ER 图降级显示「无表间直接关联」不阻塞生成（stderr
+warning）。md/html 同目录互覆盖问题：html 生成清目录会删 md——
+双格式需分目录生成（wiki skill 已注明）。

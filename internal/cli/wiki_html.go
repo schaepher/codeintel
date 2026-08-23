@@ -16,7 +16,7 @@ import (
 )
 
 // renderWikiHTML 生成单文件自包含 index.html（全量覆盖）。
-func renderWikiHTML(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiConfig, cols []*domain.TableColumn) error {
+func renderWikiHTML(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiConfig, cols []*domain.TableColumn, rels []*domain.TableRelation) error {
 	logger := zap.L()
 	logger.Debug("enter renderWikiHTML", zap.Int("modules", len(data)))
 	defer logger.Debug("exit renderWikiHTML")
@@ -72,6 +72,23 @@ func renderWikiHTML(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiC
 		main.WriteString(`<section id="arch"><h2>架构图</h2><pre class="mermaid">` + htmlEsc(cfg.Architecture) + `</pre></section>` + "\n")
 		nav.WriteString(`<li><a href="#arch">架构图</a></li>`)
 	}
+	// ER 图 section（Q251：单独页面/区块——表实体 + fk/query 关系线，
+	// 列级标注；yaml 隐藏表过滤）
+	hideTable := map[string]bool{}
+	for _, t := range cfg.Tables {
+		if t.Hidden {
+			hideTable[t.Name] = true
+		}
+	}
+	erMermaid := renderERMermaid(rels, hideTable)
+	main.WriteString(`<section id="er"><h2>ER 图（表间关系）</h2>`)
+	if strings.Contains(erMermaid, "||--") {
+		main.WriteString(`<p class="muted">表间直接键关联（fk=值流验证的真实键 / query=WHERE 键关联），列级标注。字段定义见下方表清单。</p><pre class="mermaid">` + htmlEsc(erMermaid) + `</pre>`)
+	} else {
+		main.WriteString("<p class=\"muted\">（无表间直接关联）</p>")
+	}
+	main.WriteString("</section>\n")
+	nav.WriteString(`<li><a href="#er">ER 图</a></li>`)
 	// 表清单 section + 每表详情（字段定义/索引/建表语句，#243）
 	tableCfgs := tableCfgsFrom(cfg)
 	tables := collectTables(data, tableAlias, tableCfgs)
