@@ -77,7 +77,7 @@ func call(u *U) {
 
 // findSummary 按（函数, access_kind, field_path）查找摘要行。
 func findSummary(t *testing.T, summaries []*domain.FunctionFieldSummary,
-	funcID, accessKind, fieldPath string) *domain.FunctionFieldSummary {
+	funcID string, accessKind domain.SummaryAccessKind, fieldPath string) *domain.FunctionFieldSummary {
 	t.Helper()
 	for _, s := range summaries {
 		if string(s.FunctionID) == funcID && s.AccessKind == accessKind && s.FieldPath == fieldPath {

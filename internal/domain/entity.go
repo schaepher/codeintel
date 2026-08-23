@@ -15,6 +15,12 @@ var ErrNotFound = errors.New("not found")
 type EntityKind string
 
 const (
+	BuildDegraded BuildStatus = "degraded"
+	BuildFailed   BuildStatus = "failed"
+	BuildSuccess  BuildStatus = "success"
+)
+
+const (
 	KindFile      EntityKind = "file"
 	KindPackage   EntityKind = "package"
 	KindFunction  EntityKind = "function"
@@ -34,6 +40,10 @@ const (
 	KindGrpcService     EntityKind = "grpc_service"     // gRPC 服务标识（模块间调用，field_trace.md §18）
 	KindHTTPRoute       EntityKind = "http_route"       // HTTP 路由（人工路由表 routes.yaml，§18.7）
 )
+
+// BuildStatus 构建状态，对应 build_metadata.status 列（R7：真枚举——
+// 定义类型防错误值传参；检测器据此识别）。
+type BuildStatus string
 
 // FactKind 事实（关系）种类，对应 edges.kind 列。
 type FactKind string
@@ -69,12 +79,14 @@ const (
 	FactHTTPCall      FactKind = "http_call"      // 客户端调用方函数 → http_route（HTTP 模块间调用，§18.7）
 )
 
-// 工具来源标识，对应 edges.tool_source 列。
+// ToolSource 工具来源标识，对应 edges.tool_source 列。
+type ToolSource string
+
 const (
-	ToolSCIP      = "scip"      // 符号与引用，置信度 1.0
-	ToolCodeGraph = "codegraph" // 调用图与依赖图，置信度 0.8
-	ToolGit       = "git"       // Git 历史，置信度 1.0
-	ToolSSA       = "ssa"       // 字段追溯（SSA def-use，置信度 1.0；alias 0.8）
+	ToolSCIP      ToolSource = "scip"      // 符号与引用，置信度 1.0
+	ToolCodeGraph ToolSource = "codegraph" // 调用图与依赖图，置信度 0.8
+	ToolGit       ToolSource = "git"       // Git 历史，置信度 1.0
+	ToolSSA       ToolSource = "ssa"       // 字段追溯（SSA def-use，置信度 1.0；alias 0.8）
 )
 
 // CanonicalID 是 Code Entity 的内部唯一标识（值对象）。
@@ -130,7 +142,7 @@ type Fact struct {
 	SourceID   CanonicalID    `json:"source_id"`
 	TargetID   CanonicalID    `json:"target_id"`
 	Kind       FactKind       `json:"kind"`
-	ToolSource string         `json:"tool_source,omitempty"`
+	ToolSource ToolSource     `json:"tool_source,omitempty"`
 	Confidence float64        `json:"confidence"` // 0.0~1.0
 	Metadata   map[string]any `json:"metadata,omitempty"`
 }
@@ -141,7 +153,7 @@ type BuildMeta struct {
 	BuildID    string `json:"build_id"`
 	CommitSHA  string `json:"commit_sha,omitempty"`
 	ToolName   string `json:"tool_name"`
-	Status     string `json:"status"`
+	Status     BuildStatus `json:"status"`
 	DurationMs int64  `json:"duration_ms,omitempty"`
 	ErrorMsg   string `json:"error_msg,omitempty"`
 	Nodes      int    `json:"nodes,omitempty"` // 构建产物节点数（--memory auto 判断缓存，P0④）
@@ -151,13 +163,6 @@ type BuildMeta struct {
 	// 提前暴露，不再静默）
 	DegradeStats string `json:"degrade_stats,omitempty"`
 }
-
-// BuildStatus 常量
-const (
-	BuildSuccess  = "success"
-	BuildDegraded = "degraded"
-	BuildFailed   = "failed"
-)
 
 // Repository 描述被索引的代码仓库。
 // json tag（Q243 JSON 契约）。

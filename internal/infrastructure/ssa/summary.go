@@ -184,7 +184,7 @@ type indirectSite struct {
 }
 
 // emitSummaryRows 发射单个 access_kind 的摘要行（同字段路径去重，取首条）。
-func emitSummaryRows(funcID domain.CanonicalID, accessKind string, entries []fieldEntry,
+func emitSummaryRows(funcID domain.CanonicalID, accessKind domain.SummaryAccessKind, entries []fieldEntry,
 	emit domain.EmitFunc) error {
 	logger := zap.L()
 	logger.Debug("enter emitSummaryRows")

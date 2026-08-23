@@ -97,7 +97,7 @@ func (a *Actions) Before(input string) (*BeforeSummary, error) {
 			if s.FieldPath != tgt.Name {
 				continue
 			}
-			if strings.HasSuffix(s.AccessKind, "write") {
+			if strings.HasSuffix(string(s.AccessKind), "write") {
 				sum.Writers = append(sum.Writers, s)
 			} else {
 				sum.Reads = append(sum.Reads, s)
@@ -150,7 +150,7 @@ func relSteps(rels []*domain.TableRelation) []SummaryStep {
 	steps := make([]SummaryStep, 0, len(rels))
 	for _, r := range rels {
 		steps = append(steps, SummaryStep{
-			Kind: r.Type, Name: r.FromTable + "." + r.FromCol + " → " + r.ToTable + "." + r.ToCol,
+			Kind: string(r.Type), Name: r.FromTable + "." + r.FromCol + " → " + r.ToTable + "." + r.ToCol,
 		})
 	}
 	return steps

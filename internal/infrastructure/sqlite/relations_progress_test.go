@@ -87,7 +87,7 @@ func TestRelationProgressFlow(t *testing.T) {
 	if !found {
 		detail := []string{}
 		for _, rel := range rels {
-			detail = append(detail, rel.FromTable+"."+rel.FromCol+"→"+rel.ToTable+"."+rel.ToCol+":"+rel.Type)
+			detail = append(detail, rel.FromTable+"."+rel.FromCol+"→"+rel.ToTable+"."+rel.ToCol+":"+string(rel.Type))
 		}
 		t.Fatalf("table_a.id → table_b.a_id [query] 应出现，got %v", detail)
 	}

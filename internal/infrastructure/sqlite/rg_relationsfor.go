@@ -199,7 +199,7 @@ func (g *relationGraph) relationsFor(table string) []*domain.TableRelation {
 			key := st.name + "|" + otherTable + "|" + col
 			if ex, ok := seen[key]; ok {
 
-				if relTypeRank(rtype) > relTypeRank(ex.Type) {
+				if relTypeRank(string(rtype)) > relTypeRank(string(ex.Type)) {
 					ex.Type = rtype
 				}
 				if d < ex.Hops {

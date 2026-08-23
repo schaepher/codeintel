@@ -23,7 +23,7 @@ type Item struct {
 // 是候选实现时带出 register/enum + 置信度）。
 type SummaryOrigin struct {
 	FunctionID CanonicalID `json:"function_id"`
-	AccessKind string      `json:"access_kind"`
+	AccessKind SummaryAccessKind `json:"access_kind"`
 	FieldPath  string      `json:"field_path"`
 	CallLine   int         `json:"call_line"`
 	CalleeID   CanonicalID `json:"callee_id"`
@@ -35,7 +35,7 @@ type SummaryOrigin struct {
 // 构建时预计算，加速 S1 查询，field_trace.md §5.2）。
 type FunctionFieldSummary struct {
 	FunctionID   CanonicalID      `json:"function_id"`
-	AccessKind   string           `json:"access_kind"` // direct_read / direct_write / indirect_write
+	AccessKind   SummaryAccessKind `json:"access_kind"` // direct_read / direct_write / indirect_write
 	FieldPath    string           `json:"field_path"`  // 类型限定路径（同 field_access.full_path）
 	InstancePath string           `json:"instance_path"`
 	LineStart    int              `json:"line_start"`
@@ -43,11 +43,15 @@ type FunctionFieldSummary struct {
 	Origins      []*SummaryOrigin `json:"origins,omitempty"` // Q161 间接写多来源（查询期填充）
 }
 
+// SummaryAccessKind 字段访问类型，对应 function_field_summary.
+// access_kind 列（CHECK 约束 direct_read/direct_write/indirect_write）。
+type SummaryAccessKind string
+
 // 摘要 access_kind 常量。
 const (
-	SummaryDirectRead    = "direct_read"
-	SummaryDirectWrite   = "direct_write"
-	SummaryIndirectWrite = "indirect_write"
+	SummaryDirectRead    SummaryAccessKind = "direct_read"
+	SummaryDirectWrite   SummaryAccessKind = "direct_write"
+	SummaryIndirectWrite SummaryAccessKind = "indirect_write"
 )
 
 // TraceRow 字段追溯路径上的一步（S2/S3，field_trace.md §6.3/6.4）。
@@ -126,14 +130,18 @@ type TableColumn struct {
 	Readers   []TableEndpoint `json:"readers,omitempty"` // 虚拟节点出边（消费）；SELECT 读路径未解析时为空
 }
 
+// RelationType 表间关联类型，对应 relation_candidates.type 列
+// （Q218：fk/query 是值流验证的真实键；read/write 间接扩散）。
+type RelationType string
+
 // 表关联类型（关联终点虚拟节点的 access_kind 判定）：
 const (
-	RelationFK = "fk" // Q218：query 的子集——值级 taint 验证通过的真实键关联
+	RelationFK RelationType = "fk" // Q218：query 的子集——值级 taint 验证通过的真实键关联
 	// （链上对象字段读与起点列 lowercase 呼应，值确实从起点列流来）——
 	// ER 图默认连线类型；fk 默认不限跳（值流已验证）
-	RelationQuery = "query" // 终点是 WHERE 过滤列（filter）——A 的值作为 B 的查询条件（键关联，高置信；含对象字段换名型噪声）
-	RelationWrite = "write" // 终点是写入列——同源/间接写入（值相关，中置信）
-	RelationRead  = "read"  // 终点是读出列——间接扩散（低置信）
+	RelationQuery RelationType = "query" // 终点是 WHERE 过滤列（filter）——A 的值作为 B 的查询条件（键关联，高置信；含对象字段换名型噪声）
+	RelationWrite RelationType = "write" // 终点是写入列——同源/间接写入（值相关，中置信）
+	RelationRead  RelationType = "read"  // 终点是读出列——间接扩散（低置信）
 )
 
 // TableRelation 表间关联（query relations）：本表某列的值沿数据流链
@@ -159,7 +167,7 @@ type TableRelation struct {
 	ToTable   string `json:"to_table"`   // 关联表
 	ToCol     string `json:"to_col"`     // 关联表列
 	Hops      int    `json:"hops"`       // 数据流链长度（边数）
-	Type      string `json:"type"`       // query（键关联）/ write（同源）/ read（间接）
+	Type      RelationType `json:"type"` // query（键关联）/ write（同源）/ read（间接）
 }
 
 // ErrRelationInProgress 全量 relations 计算未完成（Q228）：查询端据此

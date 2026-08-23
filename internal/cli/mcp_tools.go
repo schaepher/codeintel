@@ -117,7 +117,7 @@ func filterRelTypes(rels []*domain.TableRelation, types string) []*domain.TableR
 	for _, t := range strings.Split(types, ",") {
 		want[strings.TrimSpace(t)] = true
 	}
-	return filterRels(rels, func(r *domain.TableRelation) bool { return want[r.Type] })
+	return filterRels(rels, func(r *domain.TableRelation) bool { return want[string(r.Type)] })
 }
 
 // filterRels 谓词过滤（保留满足的）。

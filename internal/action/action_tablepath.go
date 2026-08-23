@@ -55,7 +55,7 @@ func (a *Actions) TablePath(from, to string, maxHops int) (*TablePathResult, err
 	// 表级邻接（无向——表通路不限定方向；同表对多条边取类型最优）
 	adj := map[string][]tableEdge{}
 	for _, r := range rels {
-		rank := relTypeRank[r.Type]
+		rank := relTypeRank[string(r.Type)]
 		// from → to
 		if es, ok := adj[r.FromTable]; ok {
 			best := true
@@ -66,10 +66,10 @@ func (a *Actions) TablePath(from, to string, maxHops int) (*TablePathResult, err
 				}
 			}
 			if best {
-				adj[r.FromTable] = append(es, tableEdge{r.ToTable, r.FromCol, r.ToCol, r.Type})
+				adj[r.FromTable] = append(es, tableEdge{r.ToTable, r.FromCol, r.ToCol, string(r.Type)})
 			}
 		} else {
-			adj[r.FromTable] = []tableEdge{{r.ToTable, r.FromCol, r.ToCol, r.Type}}
+			adj[r.FromTable] = []tableEdge{{r.ToTable, r.FromCol, r.ToCol, string(r.Type)}}
 		}
 		// to → from（反向同类型）
 		if es, ok := adj[r.ToTable]; ok {
@@ -81,10 +81,10 @@ func (a *Actions) TablePath(from, to string, maxHops int) (*TablePathResult, err
 				}
 			}
 			if best {
-				adj[r.ToTable] = append(es, tableEdge{r.FromTable, r.ToCol, r.FromCol, r.Type})
+				adj[r.ToTable] = append(es, tableEdge{r.FromTable, r.ToCol, r.FromCol, string(r.Type)})
 			}
 		} else {
-			adj[r.ToTable] = []tableEdge{{r.FromTable, r.ToCol, r.FromCol, r.Type}}
+			adj[r.ToTable] = []tableEdge{{r.FromTable, r.ToCol, r.FromCol, string(r.Type)}}
 		}
 	}
 	if from == to {

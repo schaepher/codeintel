@@ -22,7 +22,7 @@ func (r *Repo) getAllTableRelationsSQL() ([]*domain.TableRelation, error) {
 		for _, rel := range rels {
 			key := rel.FromTable + "|" + rel.FromCol + "|" + rel.ToTable + "|" + rel.ToCol
 			ex, ok := seen[key]
-			if !ok || rel.Hops < ex.Hops || (rel.Hops == ex.Hops && relTypeRank(rel.Type) > relTypeRank(ex.Type)) {
+			if !ok || rel.Hops < ex.Hops || (rel.Hops == ex.Hops && relTypeRank(string(rel.Type)) > relTypeRank(string(ex.Type))) {
 				seen[key] = rel
 			}
 		}

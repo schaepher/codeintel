@@ -17,14 +17,14 @@ func relationsFilter(f *queryFlags) func([]*domain.TableRelation) []*domain.Tabl
 	}
 	if len(types) == 0 {
 
-		types[domain.RelationFK] = true
-		types[domain.RelationQuery] = true
-		types[domain.RelationWrite] = true
+		types[string(domain.RelationFK)] = true
+		types[string(domain.RelationQuery)] = true
+		types[string(domain.RelationWrite)] = true
 	}
 	return func(rels []*domain.TableRelation) []*domain.TableRelation {
 		out := make([]*domain.TableRelation, 0, len(rels))
 		for _, r := range rels {
-			if !types[r.Type] {
+			if !types[string(r.Type)] {
 				continue
 			}
 			if f.maxHops > 0 && r.Hops > f.maxHops {

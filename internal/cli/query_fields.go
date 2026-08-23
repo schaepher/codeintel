@@ -38,7 +38,7 @@ func queryFields(acts *action.Actions, input string, opts outputOpts, since *dom
 		}
 		jrows := make([]fieldRow, 0, len(rows))
 		for _, r := range rows {
-			fr := fieldRow{r.AccessKind, r.FieldPath, r.InstancePath, r.LineStart, r.CodeSnippet, nil}
+			fr := fieldRow{string(r.AccessKind), r.FieldPath, r.InstancePath, r.LineStart, r.CodeSnippet, nil}
 			if len(r.Origins) > 0 {
 				for _, o := range r.Origins {
 					fr.Origins = append(fr.Origins, originRow{
@@ -58,21 +58,21 @@ func queryFields(acts *action.Actions, input string, opts outputOpts, since *dom
 		return 0
 	}
 	groups := map[string][]*domain.FunctionFieldSummary{
-		domain.SummaryDirectRead:    nil,
-		domain.SummaryDirectWrite:   nil,
-		domain.SummaryIndirectWrite: nil,
+		string(domain.SummaryDirectRead):    nil,
+		string(domain.SummaryDirectWrite):   nil,
+		string(domain.SummaryIndirectWrite): nil,
 	}
 	for _, r := range rows {
-		groups[r.AccessKind] = append(groups[r.AccessKind], r)
+		groups[string(r.AccessKind)] = append(groups[string(r.AccessKind)], r)
 	}
-	for _, kind := range []string{domain.SummaryDirectRead, domain.SummaryDirectWrite, domain.SummaryIndirectWrite} {
+	for _, kind := range []string{string(domain.SummaryDirectRead), string(domain.SummaryDirectWrite), string(domain.SummaryIndirectWrite)} {
 		items := groups[kind]
 		if len(items) == 0 {
 			continue
 		}
 		fmt.Printf("  [%s] %d 个字段\n", kind, len(items))
 
-		if kind == domain.SummaryIndirectWrite && !opts.json {
+		if kind == string(domain.SummaryIndirectWrite) && !opts.json {
 			if sites, err := acts.IndirectWriteSites(n.ID); err == nil {
 				for _, f := range sites {
 					line, _ := f.Metadata["call_line"].(float64)

@@ -163,7 +163,7 @@ func (r *Repo) mergeRuleRelations(rels []*domain.TableRelation, table string) ([
 			// Q234：同 rank 也覆盖——用户显式声明优先于自动识别（规则 B
 			// 的 where 字段直接识别可能与规则同 key 同 fk，保持用户规则
 			// 的 hops 语义）
-			if relTypeRank(rr.Type) >= relTypeRank(out[i].Type) {
+			if relTypeRank(string(rr.Type)) >= relTypeRank(string(out[i].Type)) {
 				out[i] = rr
 			}
 			continue

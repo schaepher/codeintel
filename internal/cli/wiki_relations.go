@@ -96,7 +96,7 @@ func renderERPage(rels []*domain.TableRelation, hideTable map[string]bool) strin
 		if hideTable[r.FromTable] || hideTable[r.ToTable] {
 			continue
 		}
-		rows = append(rows, row{r.FromTable, r.FromCol, r.ToTable, r.ToCol, r.Type})
+		rows = append(rows, row{r.FromTable, r.FromCol, r.ToTable, r.ToCol, string(r.Type)})
 	}
 	sort.Slice(rows, func(i, j int) bool {
 		if rows[i].a != rows[j].a {

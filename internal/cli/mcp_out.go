@@ -113,7 +113,7 @@ func factBriefs(facts []*domain.Fact, endpoint string) []FactBrief {
 		if endpoint == "target" {
 			id = f.TargetID
 		}
-		out = append(out, FactBrief{ID: string(id), Tool: f.ToolSource, Confidence: f.Confidence})
+		out = append(out, FactBrief{ID: string(id), Tool: string(f.ToolSource), Confidence: f.Confidence})
 	}
 	return out
 }

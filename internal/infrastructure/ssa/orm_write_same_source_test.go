@@ -69,10 +69,10 @@ func (s *Session) Insert(bean any) (int64, error) { return 0, nil }
 	// 写入两表同名列）
 	got := []string{}
 	for _, r := range rels {
-		got = append(got, r.FromTable+"."+r.FromCol+" → "+r.ToTable+"."+r.ToCol+" ["+r.Type+"]")
+		got = append(got, r.FromTable+"."+r.FromCol+" → "+r.ToTable+"."+r.ToCol+" ["+string(r.Type)+"]")
 		if r.FromTable == "a_tab" && r.FromCol == "biz_id" &&
 			r.ToTable == "b_tab" && r.ToCol == "biz_id" {
-			t.Logf("命中：%s → %s.%s [%s] hops=%d", r.FromTable+"."+r.FromCol, r.ToTable, r.ToCol, r.Type, r.Hops)
+			t.Logf("命中：%s → %s.%s [%s] hops=%d", r.FromTable+"."+r.FromCol, r.ToTable, r.ToCol, string(r.Type), r.Hops)
 			return
 		}
 	}
@@ -244,10 +244,10 @@ func (s *Session) Insert(bean any) (int64, error) { return 0, nil }
 	}
 	got := []string{}
 	for _, r := range rels {
-		got = append(got, r.FromTable+"."+r.FromCol+" → "+r.ToTable+"."+r.ToCol+" ["+r.Type+"]")
+		got = append(got, r.FromTable+"."+r.FromCol+" → "+r.ToTable+"."+r.ToCol+" ["+string(r.Type)+"]")
 		if r.FromTable == "a_tab" && r.FromCol == "biz_id" &&
 			r.ToTable == "b_tab" && r.ToCol == "biz_id" {
-			t.Logf("命中：%s → %s.%s [%s] hops=%d", r.FromTable+"."+r.FromCol, r.ToTable, r.ToCol, r.Type, r.Hops)
+			t.Logf("命中：%s → %s.%s [%s] hops=%d", r.FromTable+"."+r.FromCol, r.ToTable, r.ToCol, string(r.Type), r.Hops)
 			// Q225：跨函数 write 目标列须外键形态或同名列强呼应——
 			// b_tab.id（对象展开噪声）应被 Q202c 丢弃（id 非外键形态、
 			// taint={biz_id} 非 exact）

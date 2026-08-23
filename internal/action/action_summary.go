@@ -50,7 +50,7 @@ func (a *Actions) ExportIndex() (map[string]*ExportField, error) {
 		case domain.SummaryDirectRead:
 			ef.Consumers = append(ef.Consumers, entry)
 		default:
-			entry.Access = s.AccessKind
+			entry.Access = string(s.AccessKind)
 			ef.Producers = append(ef.Producers, entry)
 		}
 	}

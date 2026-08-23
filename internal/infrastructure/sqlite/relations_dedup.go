@@ -9,11 +9,11 @@ import (
 // relTypeRank 关联类型优先级（聚合去重用）：fk > query > write > read。
 func relTypeRank(t string) int {
 	switch t {
-	case domain.RelationFK:
+	case string(domain.RelationFK):
 		return 3
-	case domain.RelationQuery:
+	case string(domain.RelationQuery):
 		return 2
-	case domain.RelationWrite:
+	case string(domain.RelationWrite):
 		return 1
 	default:
 		return 0

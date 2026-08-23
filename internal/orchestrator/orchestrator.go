@@ -35,7 +35,7 @@ type AdapterResult struct {
 
 // BuildResult 全量构建报告。
 type BuildResult struct {
-	Status       string
+	Status       domain.BuildStatus
 	Nodes        int
 	Edges        int
 	Duration     time.Duration

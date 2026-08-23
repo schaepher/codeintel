@@ -108,7 +108,7 @@ func TestQueryFieldsOrigins(t *testing.T) {
 	}
 	found := false
 	for _, row := range got.Rows {
-		if row.AccessKind != domain.SummaryIndirectWrite {
+		if row.AccessKind != string(domain.SummaryIndirectWrite) {
 			continue
 		}
 		for _, o := range row.Origins {

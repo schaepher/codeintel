@@ -95,8 +95,8 @@ func cmdPrecompute(args []string) int {
 		return 1
 	}
 	fmt.Printf("完成：%d 表 · %d 条关联（fk %d / 键 %d / 写 %d / 读 %d）\n",
-		p.Total, len(rels), countByType(rels, "fk"), countByType(rels, "query"),
-		countByType(rels, "write"), countByType(rels, "read"))
+		p.Total, len(rels), countByType(rels, string(domain.RelationFK)), countByType(rels, string(domain.RelationQuery)),
+		countByType(rels, string(domain.RelationWrite)), countByType(rels, string(domain.RelationRead)))
 	return 0
 }
 
@@ -104,7 +104,7 @@ func cmdPrecompute(args []string) int {
 func countByType(rels []*domain.TableRelation, typ string) int {
 	n := 0
 	for _, r := range rels {
-		if r.Type == typ {
+		if string(r.Type) == typ {
 			n++
 		}
 	}

@@ -9,7 +9,7 @@ import "github.com/schaepher/codeintel/internal/domain"
 func mergeRelation(seen map[string]*domain.TableRelation, all []*domain.TableRelation,
 	key string, rel *domain.TableRelation) []*domain.TableRelation {
 	if ex, ok := seen[key]; ok {
-		if relTypeRank(rel.Type) > relTypeRank(ex.Type) {
+		if relTypeRank(string(rel.Type)) > relTypeRank(string(ex.Type)) {
 			ex.Type = rel.Type
 		}
 		if rel.Hops < ex.Hops {

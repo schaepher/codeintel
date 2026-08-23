@@ -63,12 +63,12 @@ func (r *Repo) GetFunctionFields(funcID domain.CanonicalID) ([]*domain.FunctionF
 		if cid.Valid {
 			o.CalleeID = domain.CanonicalID(cid.String)
 		}
-		key := o.AccessKind + "|" + o.FieldPath
+		key := string(o.AccessKind) + "|" + o.FieldPath
 		origins[key] = append(origins[key], &o)
 	}
 	if len(origins) > 0 {
 		for _, s := range out {
-			key := s.AccessKind + "|" + s.FieldPath
+			key := string(s.AccessKind) + "|" + s.FieldPath
 			if os, ok := origins[key]; ok {
 				s.Origins = os
 			}

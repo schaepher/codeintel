@@ -93,7 +93,7 @@ func cmdServe(ctx context.Context, args []string) int {
 		if err != nil {
 			return "", err
 		}
-		return res.Status, nil
+		return string(res.Status), nil
 	})
 	httpSrv := &http.Server{
 		Addr:              *addr,

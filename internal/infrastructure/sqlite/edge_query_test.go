@@ -136,9 +136,9 @@ func TestAllSummaries(t *testing.T) {
 	}
 	// 排序：field_path ASC（T.A < T.C），同字段 access_kind ASC（read < write）
 	wantPaths := []string{"example.com/m.T.A", "example.com/m.T.A", "example.com/m.T.C"}
-	wantKinds := []string{domain.SummaryDirectRead, domain.SummaryDirectWrite, domain.SummaryDirectRead}
+	wantKinds := []string{string(domain.SummaryDirectRead), string(domain.SummaryDirectWrite), string(domain.SummaryDirectRead)}
 	for i, row := range rows {
-		if row.FieldPath != wantPaths[i] || row.AccessKind != wantKinds[i] {
+		if row.FieldPath != wantPaths[i] || string(row.AccessKind) != wantKinds[i] {
 			t.Fatalf("rows[%d] = %s/%s, want %s/%s", i, row.FieldPath, row.AccessKind, wantPaths[i], wantKinds[i])
 		}
 	}
