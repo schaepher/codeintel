@@ -81,6 +81,9 @@ func extractJoinPairs(rest string, cte map[string]bool) []sqlJoinPair {
 			}
 		}
 		onPart := onSeg[:end]
+		// P2a：ON 内子查询作用域——EXISTS/IN (SELECT…) 内部的等值
+		// 比较属子查询内部，不得误作 JOIN 键对
+		onPart = stripSubqueries(onPart)
 		for _, cond := range splitSQLCond(onPart) {
 			eq := strings.Index(cond, "=")
 			if eq < 0 {

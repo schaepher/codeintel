@@ -52,6 +52,15 @@ func TestParseSQLStmt(t *testing.T) {
 		{"SELECT * FROM table_b WHERE a.y = ? AND z = ?", "table_b", nil, []string{"y", "z"}},
 		{"SELECT * FROM t WHERE id = ? ORDER BY id", "t", nil, []string{"id"}},
 		{"UPDATE users SET name = ? WHERE id = ?", "users", []string{"name"}, []string{"id"}},
+		// 子查询作用域（P2a）：EXISTS / IN / = (SELECT…) 内部的列 = ?
+		// 属于子查询作用域，不得混入外层过滤列（AST 路径 Walk 递归 +
+		// 启发式正则全文匹配都会泄漏）
+		{"SELECT * FROM table_a WHERE x = ? AND EXISTS (SELECT 1 FROM table_b WHERE y = ?)", "table_a", nil, []string{"x"}},
+		{"SELECT * FROM table_a WHERE id IN (SELECT a_id FROM table_b WHERE y = ?)", "table_a", nil, nil},
+		{"SELECT * FROM table_a WHERE x = ? AND y = (SELECT MAX(y) FROM table_b WHERE z = ?)", "table_a", nil, []string{"x"}},
+		// 启发式路径（vitess 解析失败降级——%s 残留）：EXISTS 子查询
+		// 内部列同样不得泄漏
+		{"SELECT * FROM table_a WHERE %s = ? AND EXISTS (SELECT 1 FROM table_b WHERE y = ?)", "table_a", nil, nil},
 		{"not sql at all", "", nil, nil},
 		{"", "", nil, nil},
 	}
@@ -77,6 +86,33 @@ func TestParseSQLStmt(t *testing.T) {
 			if whereCols[i] != c.whereCols[i] {
 				t.Errorf("parseSQLStmt(%q) whereCols[%d] = %q, want %q", c.sql, i, whereCols[i], c.whereCols[i])
 			}
+		}
+	}
+}
+
+// TestStripSubqueries：P2a——stripSubqueries 只剥 SELECT/WITH/VALUES
+// 开头的括号块（等长空白替换）；嵌套子查询整体剥；函数调用/普通逻辑
+// 括号原样保留；剥除后剩余 ? 序与外层列序对齐。
+func TestStripSubqueries(t *testing.T) {
+	blank := func(s string) string { return strings.Repeat(" ", len(s)) }
+	cases := []struct{ in, want string }{
+		{"x = ? AND EXISTS (SELECT 1 FROM b WHERE y = ?)",
+			"x = ? AND EXISTS " + blank("(SELECT 1 FROM b WHERE y = ?)")},
+		{"x IN (SELECT y FROM b WHERE z = ?) AND w = ?",
+			"x IN " + blank("(SELECT y FROM b WHERE z = ?)") + " AND w = ?"},
+		// 嵌套子查询（EXISTS 内再嵌 SELECT）整体剥
+		{"x = ? AND EXISTS (SELECT 1 FROM b WHERE y IN (SELECT z FROM c))",
+			"x = ? AND EXISTS " + blank("(SELECT 1 FROM b WHERE y IN (SELECT z FROM c))")},
+		// 函数调用 / 普通逻辑括号保留
+		{"COALESCE(a, b) = ? AND (c = ? OR d = ?)",
+			"COALESCE(a, b) = ? AND (c = ? OR d = ?)"},
+		// 子查询内占位符同步剥除——剩余 ? 序与外层列序对齐
+		{"x = ? AND y = (SELECT MAX(y) FROM b WHERE z = ?)",
+			"x = ? AND y = " + blank("(SELECT MAX(y) FROM b WHERE z = ?)")},
+	}
+	for _, c := range cases {
+		if got := stripSubqueries(c.in); got != c.want {
+			t.Errorf("stripSubqueries(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
 }

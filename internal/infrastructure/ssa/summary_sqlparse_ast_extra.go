@@ -60,6 +60,11 @@ func astWhereCols(w *sqlparser.Where, aliases map[string]string, cteQual map[str
 	}
 	var out []string
 	sqlparser.Walk(func(node sqlparser.SQLNode) (bool, error) {
+		// P2a：子查询作用域——EXISTS/IN/= (SELECT…) 内部节点属于子查询
+		// 作用域，其列名/占位符不得混入外层 WHERE 过滤列
+		if _, ok := node.(*sqlparser.Subquery); ok {
+			return false, nil
+		}
 		ce, ok := node.(*sqlparser.ComparisonExpr)
 		if !ok {
 			return true, nil
@@ -116,6 +121,11 @@ func astJoinPairs(from sqlparser.TableExprs, aliases map[string]string) []sqlJoi
 		}
 		if jt.Condition != nil && jt.Condition.On != nil {
 			sqlparser.Walk(func(node sqlparser.SQLNode) (bool, error) {
+				// P2a：子查询作用域——ON 内 (SELECT…) 的等值比较属子查询
+				// 内部，不得误作 JOIN 键对
+				if _, ok := node.(*sqlparser.Subquery); ok {
+					return false, nil
+				}
 				ce, ok := node.(*sqlparser.ComparisonExpr)
 				if !ok || ce.Operator != sqlparser.EqualOp {
 					return true, nil

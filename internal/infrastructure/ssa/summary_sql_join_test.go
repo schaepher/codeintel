@@ -165,6 +165,14 @@ func TestParseSQLCTE(t *testing.T) {
 
 		{"SELECT s.id FROM sys_sub_station s INNER JOIN sys_district a ON a.code = s.city_code",
 			"sys_sub_station", []sqlJoinPair{{"sys_district", "code", "sys_sub_station", "city_code"}}},
+		// P2a：ON 内子查询作用域——EXISTS (SELECT…) 内部的 a.x = b.y
+		// 是相关子查询列引用，不得误作 JOIN 键对（AST 路径；书写顺序
+		// 左=From——a.id = b.a_id → {a,id,b,a_id}）
+		{"SELECT * FROM a JOIN b ON a.id = b.a_id AND EXISTS (SELECT 1 FROM c WHERE a.x = b.y)",
+			"a", []sqlJoinPair{{"a", "id", "b", "a_id"}}},
+		// 启发式路径（%s 残留致 vitess 失败降级）：同上
+		{"SELECT * FROM a JOIN b ON a.id = b.a_id AND EXISTS (SELECT 1 FROM c WHERE a.x = b.y) WHERE %s = ?",
+			"a", []sqlJoinPair{{"a", "id", "b", "a_id"}}},
 	}
 	for _, c := range cases {
 		table, _, _, _, pairs := parseSQLStmt(c.sql)

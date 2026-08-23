@@ -142,6 +142,9 @@ func extractWhereCols(rest string, cte map[string]bool) []string {
 			break
 		}
 	}
+	// P2a：子查询作用域——EXISTS/IN/= (SELECT…) 内部列名/占位符属于
+	// 子查询，正则全文匹配会泄漏；先整体剥离子查询块（保空白对齐）
+	wherePart = stripSubqueries(wherePart)
 	var out []string
 	for _, m := range whereColRe.FindAllStringSubmatch(wherePart, -1) {
 		c := m[2] // m[1] 是前导字符（Q251：排除 %s 残留）
@@ -161,6 +164,45 @@ func extractWhereCols(rest string, cte map[string]bool) []string {
 		}
 	}
 	return out
+}
+
+// stripSubqueries 剥离括号子查询块（P2a）：`(...)` 且括号内容以
+// SELECT/WITH/VALUES 开头（忽略空白）→ 整块替换为等长空白——子查询
+// 内部列名/占位符属于子查询作用域，不得混入外层 WHERE 过滤列；占位符
+// 数量同步减少（? 顺序映射保持对齐）。普通括号（函数调用等）原样保留。
+func stripSubqueries(s string) string {
+	var out strings.Builder
+	depth := 0
+	start := -1
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '(':
+			if depth == 0 {
+				start = i
+			}
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+			if depth == 0 && start >= 0 {
+				trim := strings.TrimSpace(s[start+1 : i])
+				u := strings.ToUpper(trim)
+				if strings.HasPrefix(u, "SELECT") || strings.HasPrefix(u, "WITH") ||
+					strings.HasPrefix(u, "VALUES") {
+					out.WriteString(strings.Repeat(" ", i-start+1))
+				} else {
+					out.WriteString(s[start : i+1])
+				}
+				start = -1
+			}
+		default:
+			if depth == 0 && start < 0 {
+				out.WriteByte(s[i])
+			}
+		}
+	}
+	return out.String()
 }
 
 // parseSQLStmt 从 SQL 语句提取表名、列名与 WHERE 过滤列（Q97 启发式，
