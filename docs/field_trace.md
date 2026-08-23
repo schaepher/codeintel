@@ -3491,3 +3491,34 @@ go.mod 的 go 版本自动提升（1.26 → 1.26.2）——预期内，examples
 索引后 9 张真实表全识别、噪音（DISTINCT/引号/括号/d_at/CTE 名）
 归零，与启发式结果一致。探测：vitess 对项目 18 种 SQL 形态覆盖
 15（83%），失败 3 种正是降级场景。
+
+## §84 补：%s 多候选还原（Q252 扩展，2026-08-23）
+
+用户提议：%s 场景能否用项目自身功能（SSA 值流）还原——把所有分支
+条件都加进去，尽可能让工具可解析，还失败才 fallback。实施：
+
+- **resolveSQLCandidates（多值）**：Sprintf 实参的 phi（if/else 分支
+  赋值）每分支常量各一候选；多占位符候选笛卡尔积（上限 16 防爆炸）；
+  跨函数参数多调用点候选并集。resolveSQLString 变薄封装（取第一
+  候选，Q239 语义不变）。
+- **applySQLSummary 多候选循环**：每个候选独立解析 emit（同调用点
+  同表列 → 同 id，落库 REPLACE 幂等去重）。walkEdges 的
+  `WHERE %s = ?` 还原出 source_id/target_id 两分支 → 真实 filter 节点。
+- **排查中连抓 4 个噪音源**（phi 还原后 %s 减少暴露了剩余残留）：
+  1. **Go 反引号 SQL 的字面 `\n\t`**（不做转义）——vitess 视为非法
+     token → AST 失败降级启发式。修：parseSQLStmt 第二尝试（字面
+     \n\t 转真实空白后再 AST；GetGrpcCalls 真实形态）。
+  2. **validSQLColumn 关键字检查大小写敏感**：`CASE` 大写绕过 `case`
+     黑名单——CASE WHEN 表达式被当列名。修：ToLower。
+  3. **emit 写循环漏列校验**：`INSERT INTO repos(%s)` 有值实参时 %s
+     列名残留产出。修：有值循环加 validSQLColumn。
+  4. **CTE 引用列**：`w.d < ?`（w 是 walk/reach 别名）剥点后 d 当
+     edges 列——AST 主表是 CTE 时降级启发式，启发式剥点前只查 CTE
+     名不查别名。修：AST 收集 CTE 限定符（名+别名）；启发式
+     reCTEAlias 注册 JOIN/FROM 段 CTE 别名。
+
+**验证证据**：13 包 -race 全绿 + verify.sh；噪音终扫归零（CASE/
+edges.d/%s 残留/CTE 名/d_at 全无）；edges.source_id/target_id filter
+节点双分支产出；ER 图 edges→nodes fk 关联完整。测试新增
+TestSQLDynamicSprintfPhi（phi 双分支）+ TestSQLCaseKeywordUpper（CASE
++ 字面 \n）+ TestSQLWhereCTEAlias（CTE 别名列）。

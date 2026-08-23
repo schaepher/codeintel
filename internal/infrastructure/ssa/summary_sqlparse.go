@@ -254,7 +254,7 @@ func extractJoinPairs(rest string, cte map[string]bool) []sqlJoinPair {
 // extractWhereCols 从 SQL 语句剩余部分提取 WHERE 子句的过滤列
 // （`列 = ?` 序列，值实参按 ? 顺序映射——表关联分析的数据基础）。
 // 支持 a.y = ? 表前缀（去前缀）；WHERE 缺失返回 nil。
-func extractWhereCols(rest string) []string {
+func extractWhereCols(rest string, cte map[string]bool) []string {
 	up := strings.ToUpper(rest)
 	wi := strings.Index(up, " WHERE ")
 	if wi < 0 {
@@ -272,6 +272,12 @@ func extractWhereCols(rest string) []string {
 	for _, m := range whereColRe.FindAllStringSubmatch(wherePart, -1) {
 		c := m[2] // m[1] 是前导字符（Q251：排除 %s 残留）
 		if i := strings.LastIndex(c, "."); i >= 0 {
+			// Q252 补：CTE 引用列（递归分支 WHERE w.d < ? 的 w 是
+			// walk 别名）不当真实表列——启发式主查询是 CTE 时
+			// AST 降级，此路径兜底
+			if cte[c[:i]] {
+				continue
+			}
 			c = c[i+1:] // #249：别名前缀剥离（多表 SQL 兼容）
 		}
 		c = strings.Trim(c, "`\"[]")
@@ -319,6 +325,10 @@ func sqlStmtIsWrite(sql string) bool {
 	return reWriteStmt.MatchString(sql)
 }
 
+// reCTEAlias JOIN/FROM 段的 CTE 引用别名（Q252：`JOIN reach r`——
+// WHERE r.d 的 r 是 CTE 别名，d 不得当真实表列）。
+var reCTEAlias = regexp.MustCompile(`(?i)\b(?:JOIN|FROM)\s+([A-Za-z_][A-Za-z0-9_]*)\s+([A-Za-z_][A-Za-z0-9_]*)`)
+
 // parseSQLStmt 混合解析（Q252）：vitess 专业解析器 AST 主路径——
 // 完整 SQL 精确提取（词边界/列段/CTE 作用域/语句类型是解析器本职）；
 // parse error（动态 SQL %s 残留、SQLite 特有语法 INSERT OR REPLACE/
@@ -326,6 +336,14 @@ func sqlStmtIsWrite(sql string) bool {
 func parseSQLStmt(sql string) (table, alias string, cols []string, whereCols []string, joinPairs []sqlJoinPair) {
 	if t, a, c, wc, jp, ok := parseSQLStmtAST(sql); ok {
 		return t, a, c, wc, jp
+	}
+	// Q252 补：Go 反引号 SQL 不做转义——`\n\t` 是字面反斜杠，vitess
+	// 视为非法 token；转真实空白后 AST 可解析（GetGrpcCalls 真实形态）
+	if strings.Contains(sql, "\\n") || strings.Contains(sql, "\\t") {
+		esc := strings.NewReplacer("\\n", "\n", "\\t", "\t").Replace(sql)
+		if t, a, c, wc, jp, ok := parseSQLStmtAST(esc); ok {
+			return t, a, c, wc, jp
+		}
 	}
 	return parseSQLStmtHeuristic(sql)
 }
@@ -451,6 +469,17 @@ func parseSQLStmtHeuristic(sql string) (table, alias string, cols []string, wher
 		}
 	}
 
-	whereCols = extractWhereCols(rest)
+	// Q252：CTE 限定符（名 + JOIN/FROM 别名）——递归分支 WHERE r.d 的
+	// r 是 reach 别名，剥点前判定跳过
+	cteQual := map[string]bool{}
+	for n := range cte {
+		cteQual[n] = true
+	}
+	for _, m := range reCTEAlias.FindAllStringSubmatch(rest, -1) {
+		if cte[m[1]] && m[2] != "" {
+			cteQual[m[2]] = true
+		}
+	}
+	whereCols = extractWhereCols(rest, cteQual)
 	return table, alias, cols, whereCols, joinPairs
 }

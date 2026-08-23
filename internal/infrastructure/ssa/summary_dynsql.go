@@ -1,7 +1,6 @@
 package ssa
 
 import (
-	"fmt"
 	"go/constant"
 	"sort"
 	"strings"
@@ -19,41 +18,73 @@ import (
 // 「调用方常量 → dao 参数」2 层覆盖）。
 const maxSQLResolveDepth = 3
 
-// resolveSQLString 解析 SQL 字符串实参（Q239）：
-//   - 字符串常量 → 直接返回
+// maxSQLCandidates 候选 SQL 上限（Q252：phi 分支笛卡尔积防爆炸——
+// 3 个占位符 × 各 2 分支 = 8 组合已够；再大截断保安全）。
+const maxSQLCandidates = 16
+
+// resolveSQLString 解析 SQL 字符串实参（Q239 单值语义保持——取第一
+// 候选；多值/分支展开见 resolveSQLCandidates）。
+func (ext *fieldExtractor) resolveSQLString(v ssa.Value, depth int) string {
+	c := ext.resolveSQLCandidates(v, depth)
+	if len(c) > 0 {
+		return c[0]
+	}
+	return ""
+}
+
+// resolveSQLCandidates 解析 SQL 字符串实参为候选集（Q252）：
+//   - 字符串常量 → 单候选
 //   - fmt.Sprintf 调用 → 模板 + %s 实参递归还原（部分还原：不可还原
 //     的占位符保留）
-//   - 函数参数 → 调用点实参追溯（静态调用点，实参按参数索引定位）
-// 不可还原返回 ""。只处理 string Kind（%d 等数值实参不参与 %s 替换）。
-func (ext *fieldExtractor) resolveSQLString(v ssa.Value, depth int) string {
+//   - 函数参数 → 全部静态调用点实参候选并集
+//   - phi（if/else 分支赋值）→ 每分支常量各一候选——「把所有分支的
+//     条件都加进去」：还原出每个分支的 SQL，全部候选参与解析，提取
+//     并集（walkEdges 的 anchor=source_id/target_id 形态）
+// 不可还原返回 nil（调用方保持原始 SQL → 解析失败降级启发式）。
+func (ext *fieldExtractor) resolveSQLCandidates(v ssa.Value, depth int) []string {
 	if depth > maxSQLResolveDepth {
-		return ""
+		return nil
 	}
 	if mi, ok := v.(*ssa.MakeInterface); ok {
 		v = mi.X // any 参数包装解包（Call/Parameter 在包装内）
 	}
 	if c, ok := unwrapConst(v); ok && c.Value != nil && c.Value.Kind() == constant.String {
-		return constant.StringVal(c.Value)
+		return []string{constant.StringVal(c.Value)}
+	}
+	// Q252：phi 分支展开（if/else 赋值）——每分支候选并集
+	if phi, ok := v.(*ssa.Phi); ok {
+		var out []string
+		seen := map[string]bool{}
+		for _, e := range phi.Edges {
+			for _, c := range ext.resolveSQLCandidates(e, depth+1) {
+				if !seen[c] {
+					seen[c] = true
+					out = append(out, c)
+				}
+			}
+		}
+		return out
 	}
 	call, ok := v.(*ssa.Call)
 	if !ok {
-		// 跨函数参数：静态调用点实参追溯（带缓存）
+		// 跨函数参数：全部静态调用点实参候选并集（带缓存）
 		if p, isParam := v.(*ssa.Parameter); isParam {
-			return ext.resolveParamAtCalls(p, depth)
+			return ext.resolveParamCandidates(p, depth)
 		}
-		return ""
+		return nil
 	}
 	fn := call.Call.StaticCallee()
 	if fn == nil || fn.Name() != "Sprintf" || len(call.Call.Args) < 1 {
-		return ""
+		return nil
 	}
-	tmpl := ext.resolveSQLString(call.Call.Args[0], depth+1)
-	if tmpl == "" {
-		return ""
+	tmpls := ext.resolveSQLCandidates(call.Call.Args[0], depth+1)
+	if len(tmpls) == 0 {
+		return nil
 	}
 	// %s 占位符按实参序逐个替换（%d 等数值实参不消耗 %s——字符串实参
 	// 与 %s 位置对齐时正确；不齐时部分还原不误报）；变参打包的 Slice
-	// 指令展开为元素（fmt.Sprintf(format, a ...any) 的 []any{...}）
+	// 指令展开为元素（fmt.Sprintf(format, a ...any) 的 []any{...}）；
+	// 多候选实参 → 笛卡尔积展开（上限 maxSQLCandidates）
 	for i := 1; i < len(call.Call.Args); i++ {
 		elems := []ssa.Value{call.Call.Args[i]}
 		if sl, ok := call.Call.Args[i].(*ssa.Slice); ok {
@@ -62,15 +93,46 @@ func (ext *fieldExtractor) resolveSQLString(v ssa.Value, depth int) string {
 			}
 		}
 		for _, e := range elems {
-			if !strings.Contains(tmpl, "%s") {
+			if !tmplsHavePlaceholder(tmpls) {
 				break
 			}
-			if s := ext.resolveSQLString(e, depth+1); s != "" {
-				tmpl = strings.Replace(tmpl, "%s", s, 1)
+			cands := ext.resolveSQLCandidates(e, depth+1)
+			if len(cands) == 0 {
+				continue // 不可还原——%s 保留（部分还原）
+			}
+			var next []string
+			for _, t := range tmpls {
+				for _, c := range cands {
+					if strings.Contains(t, "%s") {
+						next = append(next, strings.Replace(t, "%s", c, 1))
+					} else {
+						next = append(next, t)
+					}
+					if len(next) >= maxSQLCandidates {
+						break
+					}
+				}
+				if len(next) >= maxSQLCandidates {
+					break
+				}
+			}
+			tmpls = next
+			if len(tmpls) == 0 {
+				return nil
 			}
 		}
 	}
-	return tmpl
+	return tmpls
+}
+
+// tmplsHavePlaceholder 候选集里是否还有未还原的 %s。
+func tmplsHavePlaceholder(tmpls []string) bool {
+	for _, t := range tmpls {
+		if strings.Contains(t, "%s") {
+			return true
+		}
+	}
+	return false
 }
 
 // sliceElemsOf 提取变参打包 slice 的元素（[]any{a, b} 的 Alloc/MakeSlice
@@ -117,11 +179,10 @@ type paramCalls struct {
 // resolveParamAtCalls 函数参数 → 静态调用点实参追溯（多个调用点取首个
 // 可还原的；实参索引 = 参数在签名中的位置——方法调用 Args[0]=receiver
 // 偏移 1）。
-func (ext *fieldExtractor) resolveParamAtCalls(p *ssa.Parameter, depth int) string {
+func (ext *fieldExtractor) resolveParamCandidates(p *ssa.Parameter, depth int) []string {
 	fn := p.Parent()
-	fmt.Printf("DEBUG param fn=%v\n", fn)
 	if fn == nil {
-		return ""
+		return nil
 	}
 	paramIdx := 0
 	for i, par := range fn.Params {
@@ -131,7 +192,7 @@ func (ext *fieldExtractor) resolveParamAtCalls(p *ssa.Parameter, depth int) stri
 		}
 	}
 	if paramIdx >= len(fn.Params) {
-		return ""
+		return nil
 	}
 	// 惰性扫描 prog 找调用 fn 的静态调用点（每函数一次，缓存）
 	key := fn
@@ -149,29 +210,30 @@ func (ext *fieldExtractor) resolveParamAtCalls(p *ssa.Parameter, depth int) stri
 				}
 			}
 		}
-		fmt.Printf("DEBUG param callers=%d\n", len(pc.callers))
 		if ext.paramCallerCache == nil {
 			ext.paramCallerCache = map[*ssa.Function]*paramCalls{}
 		}
 		ext.paramCallerCache[key] = pc
 	}
+	var out []string
+	seen := map[string]bool{}
 	for _, args := range pc.callers {
-		off := 0
-		if call := pc.callers[0]; false {
-			_ = call
-		}
 		// 方法调用 Args[0]=receiver；普通函数 Args[0]=首参
+		off := 0
 		if fn.Signature.Recv() != nil {
 			off = 1
 		}
 		if paramIdx+off >= len(args) {
 			continue
 		}
-		if s := ext.resolveSQLString(args[paramIdx+off], depth+1); s != "" {
-			return s
+		for _, c := range ext.resolveSQLCandidates(args[paramIdx+off], depth+1) {
+			if !seen[c] {
+				seen[c] = true
+				out = append(out, c)
+			}
 		}
 	}
-	return ""
+	return out
 }
 
 // allFunctions 全部 SSA 函数（prog 缓存）。

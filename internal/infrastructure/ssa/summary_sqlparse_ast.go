@@ -49,9 +49,12 @@ type astTable struct {
 }
 
 // astCollectTables 遍历 TableExprs 收集真实表（子查询 JOIN/派生表跳过，
-// CTE 名跳过）。返回 (表列表, 是否含子查询)。
-func astCollectTables(exprs sqlparser.TableExprs, cte map[string]bool) ([]astTable, bool) {
+// CTE 名跳过）。返回 (表列表, CTE 限定符集合（名+别名，Q252：WHERE
+// 里 w.d 的 w 是 walk 的别名——递归分支 CTE 引用列不当真实表列）,
+// 是否含子查询)。
+func astCollectTables(exprs sqlparser.TableExprs, cte map[string]bool) ([]astTable, map[string]bool, bool) {
 	var out []astTable
+	cteQual := map[string]bool{}
 	derived := false
 	var walk func(sqlparser.TableExpr)
 	walk = func(e sqlparser.TableExpr) {
@@ -60,7 +63,13 @@ func astCollectTables(exprs sqlparser.TableExprs, cte map[string]bool) ([]astTab
 			if tn, ok := t.Expr.(*sqlparser.TableName); ok {
 				name := tn.Name.String()
 				if cte[name] {
-					return // Q251：递归 CTE 引用不当表
+					// Q251：递归 CTE 引用不当表——但名+别名注册为 CTE
+					// 限定符（WHERE 列判定用）
+					cteQual[name] = true
+					if t.As.String() != "" {
+						cteQual[t.As.String()] = true
+					}
+					return
 				}
 				at := astTable{name: name}
 				if t.As.String() != "" {
@@ -84,7 +93,7 @@ func astCollectTables(exprs sqlparser.TableExprs, cte map[string]bool) ([]astTab
 	for _, e := range exprs {
 		walk(e)
 	}
-	return out, derived
+	return out, cteQual, derived
 }
 
 // astSelect SELECT 语句提取。
@@ -95,7 +104,7 @@ func astSelect(s *sqlparser.Select, cte map[string]bool) (string, string, []stri
 			cte[c.ID.String()] = true
 		}
 	}
-	tables, _ := astCollectTables(s.From, cte)
+	tables, cteQual, _ := astCollectTables(s.From, cte)
 	if len(tables) == 0 {
 		return "", "", nil, nil, nil, false
 	}
@@ -121,7 +130,7 @@ func astSelect(s *sqlparser.Select, cte map[string]bool) (string, string, []stri
 			aliases[t.alias] = t.name
 		}
 	}
-	whereCols := astWhereCols(s.Where, aliases)
+	whereCols := astWhereCols(s.Where, aliases, cteQual)
 	joinPairs := astJoinPairs(s.From, aliases)
 	return table, alias, cols, whereCols, joinPairs, true
 }
@@ -147,7 +156,7 @@ func astInsert(s *sqlparser.Insert) (string, string, []string, []string, []sqlJo
 
 // astUpdate UPDATE 语句提取（SET 列 + WHERE 过滤列）。
 func astUpdate(s *sqlparser.Update, cte map[string]bool) (string, string, []string, []string, []sqlJoinPair, bool) {
-	tables, _ := astCollectTables(s.TableExprs, cte)
+	tables, cteQual, _ := astCollectTables(s.TableExprs, cte)
 	if len(tables) == 0 {
 		return "", "", nil, nil, nil, false
 	}
@@ -165,13 +174,13 @@ func astUpdate(s *sqlparser.Update, cte map[string]bool) (string, string, []stri
 			aliases[t.alias] = t.name
 		}
 	}
-	whereCols := astWhereCols(s.Where, aliases)
+	whereCols := astWhereCols(s.Where, aliases, cteQual)
 	return table, alias, cols, whereCols, nil, true
 }
 
 // astDelete DELETE 语句提取。
 func astDelete(s *sqlparser.Delete, cte map[string]bool) (string, string, []string, []string, []sqlJoinPair, bool) {
-	tables, _ := astCollectTables(s.TableExprs, cte)
+	tables, cteQual, _ := astCollectTables(s.TableExprs, cte)
 	if len(tables) == 0 {
 		return "", "", nil, nil, nil, false
 	}
@@ -183,14 +192,16 @@ func astDelete(s *sqlparser.Delete, cte map[string]bool) (string, string, []stri
 			aliases[t.alias] = t.name
 		}
 	}
-	whereCols := astWhereCols(s.Where, aliases)
+	whereCols := astWhereCols(s.Where, aliases, cteQual)
 	return table, alias, nil, whereCols, nil, true
 }
 
 // astWhereCols WHERE 过滤列：比较运算符（= >= <= > < !=）且右操作数是
 // 占位符（? / $N）→ 左操作数列名（AST 天然无表前缀；kind='calls' 字面
 // 量、json_extract(...) 函数调用不提取——值流只在参数占位符处）。
-func astWhereCols(w *sqlparser.Where, aliases map[string]string) []string {
+// Q252 补：CTE 限定符（w.d < ? 的 w 是 walk 别名）跳过——CTE 引用列
+// 不当真实表列。
+func astWhereCols(w *sqlparser.Where, aliases map[string]string, cteQual map[string]bool) []string {
 	if w == nil {
 		return nil
 	}
@@ -212,6 +223,9 @@ func astWhereCols(w *sqlparser.Where, aliases map[string]string) []string {
 		cn, ok := ce.Left.(*sqlparser.ColName)
 		if !ok {
 			return true, nil // 左侧函数/表达式
+		}
+		if cn.Qualifier.Name.String() != "" && cteQual[cn.Qualifier.Name.String()] {
+			return true, nil // CTE 引用列（递归分支 w.d）不当表列
 		}
 		out = append(out, cn.Name.String())
 		return true, nil

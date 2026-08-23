@@ -510,6 +510,10 @@ func TestParseSQLCTE(t *testing.T) {
 		// 多 CTE：walk/reach 均不得当表
 		{"WITH RECURSIVE walk(id, dir) AS (SELECT id, 0 FROM nodes UNION ALL SELECT source_id, 1 FROM edges JOIN walk ON edges.target_id = walk.id), reach(id) AS (SELECT id FROM walk) SELECT * FROM nodes WHERE id = ?",
 			"nodes", nil},
+		// Q252：主查询 FROM walk（主表是 CTE）→ AST 降级启发式——
+		// 递归分支 WHERE w.d < ? 的 w 是 CTE 别名，d 不得当 edges 列
+		{"WITH RECURSIVE walk(src, tgt, d) AS (SELECT source_id, target_id, 1 FROM edges UNION SELECT e.source_id, e.target_id, w.d + 1 FROM edges e JOIN walk w ON e.source_id = w.tgt WHERE w.d < ?) SELECT * FROM edges WHERE source_id = ?",
+			"edges", nil},
 		// JOIN 列 %s 占位符残留（fmt.Sprintf 动态 SQL）→ pair 放弃
 		{"SELECT * FROM a JOIN b ON a.%s = b.id", "a", nil},
 		// 非 CTE 的 JOIN 正常产出
@@ -559,6 +563,72 @@ func TestSQLAliasNormalize(t *testing.T) {
 			if whereCols[i] != c.whereCols[i] {
 				t.Errorf("parseSQLStmt(%q) whereCols[%d] = %q, want %q", c.sql, i, whereCols[i], c.whereCols[i])
 			}
+		}
+	}
+}
+
+// TestSQLDynamicSprintfPhi：Q252 扩展——if/else 分支赋值的 Sprintf
+// 实参（SSA phi）按分支展开多候选：每个分支的常量各还原一次，全部
+// 候选的提取并集（walkEdges 的 anchor=source_id/target_id 形态）。
+func TestSQLDynamicSprintfPhi(t *testing.T) {
+	nodes, _ := indexFixture(t, map[string]string{
+		"go.mod": moduleGoMod,
+		"field-summary.yaml": `
+summaries:
+  - iface: example.com/mtest.Conn
+    method: Query
+    kind: sql
+    sql_write: false
+    where_arg: 0
+`,
+		"main.go": `package m
+
+import "fmt"
+
+type Rows struct{}
+
+type Conn interface {
+	Query(sql string, cb func(*Rows))
+}
+
+func walk(c Conn, dir string) {
+	anchor := "source_id"
+	if dir == "backward" {
+		anchor = "target_id"
+	}
+	q := fmt.Sprintf("SELECT * FROM edges WHERE %s = ? AND kind = 'calls'", anchor)
+	c.Query(q, func(r *Rows) {})
+}
+`,
+	})
+	got := map[string]string{}
+	for _, n := range nodes {
+		if n.Kind == domain.KindFieldAccess && n.Property("type_string") == "sql" {
+			got[n.Name] = n.Property("access_kind")
+		}
+	}
+	if got["edges.source_id"] != "filter" {
+		t.Errorf("phi 分支 source_id 未还原（got %v）", got["edges.source_id"])
+	}
+	if got["edges.target_id"] != "filter" {
+		t.Errorf("phi 分支 target_id 未还原（got %v）", got["edges.target_id"])
+	}
+	for _, noise := range []string{"edges.s", "edges.%s"} {
+		if got[noise] != "" {
+			t.Errorf("占位符残留不应产出：%s", noise)
+		}
+	}
+}
+
+// TestSQLWhereCTEAlias：Q252 补——启发式降级路径的 CTE 别名列过滤
+// （GetImpact 的 reach 递归分支 `WHERE r.d < ?`——r 是 reach 别名，
+// d 不得当 edges 列；主查询无真实表时 AST 降级启发式）。
+func TestSQLWhereCTEAlias(t *testing.T) {
+	sql := "WITH RECURSIVE reach(id, d) AS (\n    SELECT target_id, 1 FROM edges WHERE source_id = ?\n    UNION\n    SELECT e.target_id, r.d + 1 FROM edges e JOIN reach r ON e.source_id = r.id WHERE r.d < ?\n)"
+	_, _, _, whereCols, _ := parseSQLStmt(sql)
+	for _, c := range whereCols {
+		if c == "d" {
+			t.Errorf("CTE 别名列 d 不得当 edges 列: %v", whereCols)
 		}
 	}
 }

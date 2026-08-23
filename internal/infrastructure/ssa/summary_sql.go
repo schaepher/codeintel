@@ -24,13 +24,28 @@ func (ext *fieldExtractor) applySQLSummary(cc *ssa.CallCommon, calleeID domain.C
 	if sqlArg < 0 || sqlArg >= len(cc.Args) {
 		return nil
 	}
-	sqlStr := ext.resolveSQLString(cc.Args[sqlArg], 0)
-	if sqlStr == "" {
+	// Q252：多候选还原（phi 分支展开）——每个候选独立解析 emit
+	// （同调用点同表列 → 同节点 id，落库 REPLACE 幂等去重）
+	sqlCands := ext.resolveSQLCandidates(cc.Args[sqlArg], 0)
+	if len(sqlCands) == 0 {
 		// Q177 真实形态：Exec(sql interface{}) 常量被 MakeInterface 包装
 		if c, ok := unwrapConst(cc.Args[sqlArg]); ok {
-			sqlStr = constant.StringVal(c.Value)
+			sqlCands = []string{constant.StringVal(c.Value)}
 		}
 	}
+	if len(sqlCands) == 0 {
+		return nil
+	}
+	for _, sqlStr := range sqlCands {
+		if err := ext.applySQLSummaryOne(cc, calleeID, spec, callVal, sqlArg, sqlStr); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// applySQLSummaryOne 单条 SQL 的摘要主体（Q252：多候选各自调用）。
+func (ext *fieldExtractor) applySQLSummaryOne(cc *ssa.CallCommon, calleeID domain.CanonicalID, spec summarySpec, callVal ssa.Value, sqlArg int, sqlStr string) error {
 	table, tableAlias, cols, whereCols, joinPairs := parseSQLStmt(sqlStr)
 	line := ext.prog.Fset.PositionFor(cc.Pos(), false).Line
 
@@ -277,6 +292,11 @@ func (ext *fieldExtractor) applySQLSummary(cc *ssa.CallCommon, calleeID domain.C
 		if i < len(cols) {
 			col = cols[i]
 		}
+		// Q252 补：有值实参循环也过滤噪音列（INSERT INTO repos(%s) 的
+		// %s 列名——动态列名残留不当列）
+		if col != "" && !validSQLColumn(col) {
+			continue
+		}
 		name := table
 		if col != "" {
 			name = table + "." + col
@@ -443,6 +463,8 @@ var whereColLeadRe = regexp.MustCompile(`(?i)^([A-Za-z_][A-Za-z0-9_.]*)\s*(?:=|<
 // validSQLColumn SQL 列名合法性（#247）：标识符形态（字母开头 + 字母/
 // 数字/下划线）+ 非 SQL 关键字 + 非纯数字——SQL 摘要把截断片段
 // （nodes.access_kind')、DISTINCT、0/1 等）当列引用的噪音过滤。
+// Q252 补：关键字检查小写化（SQL 里 CASE 大写——大小写敏感绕过
+// 黑名单，CASE WHEN 表达式被当列名）。
 func validSQLColumn(name string) bool {
 	if name == "" {
 		return false
@@ -458,7 +480,7 @@ func validSQLColumn(name string) bool {
 			return false
 		}
 	}
-	return !sqlKeyword[name]
+	return !sqlKeyword[strings.ToLower(name)]
 }
 
 // sqlKeyword SQL 关键字黑名单（#247：DISTINCT/SELECT 等被误当列名）。
