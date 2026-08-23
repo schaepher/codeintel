@@ -11,3 +11,4 @@ examples/*/.codeintel/
 e2e/integration/
 docs/wiki/
 node_modules/
+dist/
