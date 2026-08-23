@@ -6,6 +6,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -174,7 +175,10 @@ func TestWikiHTML(t *testing.T) {
 			t.Errorf("html 应含 %q", want)
 		}
 	}
-	if strings.Contains(s, "## ") {
+	// Q251：内嵌 mermaid JS 源码含 "##" 字符串——剥离 script 块后
+	// 检查 markdown 泄漏
+	body := regexp.MustCompile(`(?s)<script>.*?</script>`).ReplaceAllString(s, "")
+	if strings.Contains(body, "## ") {
 		t.Error("html 不应含 markdown 标题")
 	}
 	// 无 --format 时默认 md（回归）

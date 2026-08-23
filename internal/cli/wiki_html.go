@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/schaepher/codeintel/internal/domain"
+	"github.com/schaepher/codeintel/assets"
 	"go.uber.org/zap"
 )
 
@@ -390,7 +391,7 @@ html { scroll-behavior: smooth; }
 		return ""
 	}()) + main + `
 </div>
-<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>` + assets.MermaidJS + `</script>
 <script>
 mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
 // 目录当前模块高亮（scrollspy）
