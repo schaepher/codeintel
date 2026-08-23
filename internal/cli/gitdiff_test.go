@@ -67,6 +67,30 @@ index 5555555..0000000
 	if _, ok := info.AddedLines["del.go"]; ok {
 		t.Errorf("删除文件不应出现在结果: %v", info.AddedLines["del.go"])
 	}
+	// P3b 审计：deleted 段（+++ /dev/null）不得留下幽灵 key "-deleted-"
+	if _, ok := info.AddedLines["-deleted-"]; ok {
+		t.Errorf("deleted 段幽灵 key -deleted- 不应出现: %v", info.AddedLines)
+	}
+}
+
+// TestParseGitDiffNoPrefix：P3b 审计——git diff.noprefix 配置（--no-prefix
+// 输出 `--- m.go`/`+++ m.go` 无 a/b 前缀）时解析不得静默丢失整段。
+func TestParseGitDiffNoPrefix(t *testing.T) {
+	out := `diff --git a/m.go b/m.go
+index 1111111..2222222 100644
+--- m.go
++++ m.go
+@@ -1,1 +1,2 @@
+ func A() {}
++_ = 1
+`
+	info := parseGitDiff(out)
+	if _, ok := info.AddedLines["m.go"]; !ok {
+		t.Fatalf("noprefix diff 应解析出 m.go: %v", info.AddedLines)
+	}
+	if !info.AddedLines["m.go"][2] {
+		t.Errorf("m.go added line 2 缺失: %v", info.AddedLines["m.go"])
+	}
 }
 
 // TestParseGitDiffMultiHunk：多 hunk 累加。

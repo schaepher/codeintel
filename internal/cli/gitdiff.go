@@ -45,9 +45,13 @@ func parseGitDiff(out string) *gitDiffInfo {
 		case strings.HasPrefix(line, "new file mode"):
 			curIsNew = true
 		case strings.HasPrefix(line, "deleted file mode"):
-			curFile = "-deleted-"
-		case strings.HasPrefix(line, "+++ b/"):
-			curFile = strings.TrimPrefix(line, "+++ b/")
+			curFile = "" // 删除段跳过（+++ /dev/null 无文件可记）
+		case strings.HasPrefix(line, "+++ /dev/null"):
+			curFile = "" // 删除段的 +++ /dev/null（防御：deleted 分支后仍可达）
+		case strings.HasPrefix(line, "+++ "):
+			// 兼容 diff.noprefix 配置（`+++ m.go` 无 a/b 前缀）——否则
+			// 整段静默丢失，--since 标注全失效
+			curFile = strings.TrimPrefix(strings.TrimPrefix(line, "+++ "), "b/")
 			if curIsNew {
 				info.NewFiles[curFile] = true
 				curIsNew = false
