@@ -38,8 +38,18 @@
 3. **UNKNOWN 视为未解决**：符号未索引 / 索引陈旧 → 先
    `codeintel update --repo <path>` 或 `init` 补索引，不得直接改
 
+4. **提交前验证（防忘机制，Q242–Q244 沉淀）**：commit 前必须通过
+   `scripts/verify.sh --quick`（build + vet + 非 race 全量单测）——
+   本仓库已装 pre-commit hook（`scripts/install-precommit.sh`）自动
+   执行，失败拒绝提交；全量基线（-race 逐包）手动跑
+   `scripts/verify.sh`。`scripts/dbdiag.sh`（sqlite 库健康诊断）、
+   `scripts/assert_replace.py`（带断言替换，杜绝静默失败）详见
+   事前树 prevention-tree.md。
+
 支撑：`.claude/hooks/impact-check.sh`（PreToolUse 非阻断提醒，只提示
-不拒绝；仓库已索引/未索引两种情况各一行）。
+不拒绝；仓库已索引/未索引两种情况各一行）；`.claude/hooks/verify-remind.sh`
+（PostToolUse 非阻断提醒，改 Go 文件后提示跑 verify.sh——未装
+pre-commit 场景的兜底）。
 
 ## 常用命令
 

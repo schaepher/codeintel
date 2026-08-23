@@ -24,3 +24,4 @@
 | 14 | 索引与二进制 schema 版本不匹配（旧库） | 加表类自动补建；列变更 clean 重建 | schema 演进。预防：Q235-3 自动迁移 |
 | 15 | probe/脚本用 `src[pos]` 反查源码字符错位 1 字节（把 '(' 看成 ')'） | 用 `fset.Position(pos).Offset` 索引源码，不用 token.Pos 直接索引 | token.Pos = base+offset（base≥1，多文件递增）。预防：源码反查一律经 Position（Q236 教训——错位曾把 Call.Pos=Lparen 误判成 Rparen，「死代码」误报） |
 | 16 | serve 页面是旧版交互（前端改动没生效） | `go build -o codeintel ./cmd/codeintel` 重建二进制；`strings codeintel \| grep <新标记>` 验证 | 前端走 go:embed，构建时打包（Q236 P2：go2o 旧二进制嵌 Q228 页面） |
+| 17 | pre-commit 内嵌套 git 命令失败 `index file open failed: Not a directory`（workspace 测试 / 增量构建） | hook 开头 `unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE`（install-precommit.sh 已含） | git commit 的 pre-commit 阶段设置 GIT_INDEX_FILE 指向提交用 index，子进程继承后 `git worktree add` 等打开失败；增量构建 git 检测失败 → 快速失败返回 202（本应 409）。预防：hook 内 unset（Q245 防忘机制实战抓到） |

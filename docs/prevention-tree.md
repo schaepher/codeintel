@@ -42,10 +42,17 @@
 
 拦截「改写静默破坏」与「回归漏网」类错误（事后树分支 A/B/C/E）：
 
-- 批量改写后立即编译（编译是最快反馈）；脚本替换带断言（runbook #10）
+- 批量改写后立即编译（编译是最快反馈）；脚本替换带断言
+  （已固化：`scripts/assert_replace.py`，默认断言恰好 1 次，
+  --all/--count N 变体——runbook #10）
 - 连续失败先探测环境分层，勿盲目重试
 - 依赖升级独立 commit + 全量验证
-- 改完跑全量基线（-race -count=1 -p 1）+ git push
+- 改完跑全量基线（已固化：`scripts/verify.sh`，TMPDIR 自动切换 +
+  -race 逐包 timeout；--quick 供提交前）
+- **防忘机制**：`scripts/install-precommit.sh` 装 pre-commit hook——
+  commit 前自动跑 verify.sh --quick，失败拒绝提交（硬拦截）；叠加
+  .claude/settings.json PostToolUse hook 提醒（软兜底，未装
+  pre-commit 的场景）
 
 ## 分支 E：环境机制
 

@@ -17,6 +17,7 @@ prevention-tree.md。
    （为期望行为写测试，BFS 多路径真 bug 就是这么暴露的）
 5. **修复后全量验证**——`go test -race -count=1 -p 1 ./...`
    （须 `TMPDIR=/home/schaepher/.tmp-build` 前缀），依赖升级也全量
+   （已固化：`scripts/verify.sh`，含 TMPDIR 自动切换与逐包 timeout）
 
 ## 分支 A：命令报错 / 编译失败
 
@@ -31,7 +32,8 @@ prevention-tree.md。
 
 ## 分支 B：测试挂起
 
-- `timeout 30 go test -run ^TestX` 逐个定位
+- `timeout 30 go test -run ^TestX` 逐个定位（全量防挂起已固化：
+  `scripts/verify.sh` 逐包 timeout 300s）
 - 找「等一个不会来的响应」：MCP notifications/* 无 id 不响应 →
   只写不读；死锁 = 列出谁在等、被等方为何不回
 
@@ -43,9 +45,11 @@ prevention-tree.md。
 
 ## 分支 D：查询结果不对
 
-- D1 返回 0 结果：先确认数据在不在（diag 测试直查 sqlite）→ 再理解
-  过滤逻辑——filterFKNoise 有意丢 id→id 互查（fixture 须用非 id
-  列名）；relation_candidates 有 marker 行（from_col=''）诊断勿当数据
+- D1 返回 0 结果：先确认数据在不在（已固化：`scripts/dbdiag.sh`
+  直查 sqlite 表行数/build_metadata/marker 行，免临时写查询或 diag
+  测试）→ 再理解过滤逻辑——filterFKNoise 有意丢 id→id 互查（fixture
+  须用非 id 列名）；relation_candidates 有 marker 行（from_col=''）
+  诊断勿当数据
 - D2 路径缺失/候选数不对：先查表级去重（adj 同表对只留类型最优边 →
   多候选须不同中间表）→ 再看真 bug（BFS `seen` 阻止同层前驱 +
   `reached` 提前退出——测试驱动才暴露，功能从未工作过）
