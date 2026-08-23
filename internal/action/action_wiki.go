@@ -50,7 +50,7 @@ func (a *Actions) WikiData(mods []string) ([]*domain.WikiModule, error) {
 			if err != nil {
 				return nil, err
 			}
-			wm.Sequence = seq
+			wm.Flows = seq
 		}
 		for _, c := range calls {
 			if c.FromModule == mod && !containsStr(wm.OutCalls, c.ToModule) {
@@ -199,29 +199,42 @@ func moduleEntryID(roots []*domain.CodeEntity, mod string) domain.CanonicalID {
 	return ""
 }
 
-// wikiSequenceByID 锚点符号调用链（#241 自动时序图数据）：Callees
-// 深度 3 的调用边集合（caller/callee 短名，确定性排序）。
-func (a *Actions) wikiSequenceByID(id domain.CanonicalID) ([]domain.WikiSeqStep, error) {
-	facts, err := a.Callees(id, 3)
+// wikiSequenceByID 锚点调用链分组（#242 每个流程单独画）：入口的每条
+// 一级调用 = 一条流程（一个命令/服务），各自一张图；组内 = 锚点 →
+// 一级被调者 + 其后续链（深度 2）。
+func (a *Actions) wikiSequenceByID(id domain.CanonicalID) ([]domain.WikiFlow, error) {
+	depth1, err := a.Callees(id, 1)
 	if err != nil {
 		return nil, err
 	}
-	seen := map[[2]string]bool{}
-	var out []domain.WikiSeqStep
-	for _, f := range facts {
-		pair := [2]string{seqShort(string(f.SourceID)), seqShort(string(f.TargetID))}
-		if seen[pair] {
-			continue
+	var out []domain.WikiFlow
+	for _, f := range depth1 {
+		calleeID := f.TargetID
+		title := seqShort(string(calleeID))
+		steps := []domain.WikiSeqStep{{Caller: seqShort(string(id)), Callee: title}}
+		// 后续链（一级被调者出发深度 2）
+		sub, err := a.Callees(calleeID, 2)
+		if err != nil {
+			return nil, err
 		}
-		seen[pair] = true
-		out = append(out, domain.WikiSeqStep{Caller: pair[0], Callee: pair[1]})
+		seen := map[[2]string]bool{{seqShort(string(id)), title}: true}
+		for _, sf := range sub {
+			pair := [2]string{seqShort(string(sf.SourceID)), seqShort(string(sf.TargetID))}
+			if seen[pair] {
+				continue
+			}
+			seen[pair] = true
+			steps = append(steps, domain.WikiSeqStep{Caller: pair[0], Callee: pair[1]})
+		}
+		sort.Slice(steps, func(i, j int) bool {
+			if steps[i].Caller != steps[j].Caller {
+				return steps[i].Caller < steps[j].Caller
+			}
+			return steps[i].Callee < steps[j].Callee
+		})
+		out = append(out, domain.WikiFlow{Title: title, Steps: steps})
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Caller != out[j].Caller {
-			return out[i].Caller < out[j].Caller
-		}
-		return out[i].Callee < out[j].Callee
-	})
+	sort.Slice(out, func(i, j int) bool { return out[i].Title < out[j].Title })
 	return out, nil
 }
 

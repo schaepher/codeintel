@@ -10,6 +10,78 @@ tables:
     alias: 关系边
   - name: build_metadata
     alias: 构建元数据
+  - name: nodes
+    columns:
+      - name: id
+        type: TEXT
+        comment: Canonical ID（主键）
+      - name: kind
+        type: TEXT
+        comment: 节点类型（function/method/struct/package 等）
+      - name: name
+        type: TEXT
+        comment: 符号名
+      - name: file_path
+        type: TEXT
+        comment: 源文件相对路径
+      - name: line_start
+        type: INTEGER
+        comment: 定义起始行
+      - name: line_end
+        type: INTEGER
+        comment: 定义结束行
+      - name: properties
+        type: JSON
+        comment: 扩展属性（签名/文档/服务标记等）
+    indexes:
+      - idx_nodes_name(name)
+      - idx_nodes_file_kind(file_path, kind)
+      - idx_nodes_signature(signature_text)
+    ddl: |
+      CREATE TABLE nodes (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        name TEXT NOT NULL,
+        file_path TEXT,
+        line_start INTEGER,
+        line_end INTEGER,
+        properties JSON
+      )
+  - name: edges
+    columns:
+      - name: id
+        type: INTEGER
+        comment: 自增主键
+      - name: source_id
+        type: TEXT
+        comment: 起点节点（外键 → nodes.id）
+      - name: target_id
+        type: TEXT
+        comment: 终点节点（外键 → nodes.id）
+      - name: kind
+        type: TEXT
+        comment: 边类型（calls/imports/modified_by 等）
+      - name: confidence
+        type: REAL
+        comment: 置信度（SCIP=1.0 / AST=0.8 / Git=1.0）
+      - name: metadata
+        type: JSON
+        comment: 扩展属性（调用点/条件等）
+    indexes:
+      - idx_edges_source_kind(source_id, kind)
+      - idx_edges_target_kind(target_id, kind)
+    ddl: |
+      CREATE TABLE edges (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_id TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        confidence REAL NOT NULL DEFAULT 0.5,
+        metadata JSON,
+        FOREIGN KEY (source_id) REFERENCES nodes(id) ON DELETE CASCADE,
+        FOREIGN KEY (target_id) REFERENCES nodes(id) ON DELETE CASCADE,
+        UNIQUE(source_id, target_id, kind)
+      )
 architecture: |
   graph LR
     SRC[Go 源码] --> A1[ssa 适配器]

@@ -224,3 +224,58 @@ flows:
 		t.Errorf("应含自动时序（main 调用链）:\n%s", ms)
 	}
 }
+
+// TestWikiTableDetail：#243 表详情——字段定义表/索引/建表语句 + 时序
+// 逐流程单独画。
+func TestWikiTableDetail(t *testing.T) {
+	dir := seedWikiRepo(t)
+	out := filepath.Join(t.TempDir(), "wiki")
+	yamlPath := filepath.Join(t.TempDir(), "wiki.yaml")
+	yaml := `modules:
+  - name: example.com/m
+tables:
+  - name: orders
+    alias: 订单表
+    columns:
+      - name: id
+        type: bigint
+        comment: 主键
+      - name: user_id
+        type: bigint
+        default: "0"
+        comment: 用户
+    indexes:
+      - idx_orders_user(user_id)
+    ddl: |
+      CREATE TABLE orders (id bigint PRIMARY KEY, user_id bigint)
+`
+	if err := os.WriteFile(yamlPath, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code := cmdWiki([]string{"--repo", dir, "--out", out, "--yaml", yamlPath}); code != 0 {
+		t.Fatalf("cmdWiki exit = %d", code)
+	}
+	tb, err := os.ReadFile(filepath.Join(out, "tables.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := string(tb)
+	for _, want := range []string{"## orders", "字段名", "类型", "默认值", "说明", "id", "bigint", "主键", "idx_orders_user", "CREATE TABLE orders", "```sql"} {
+		if !strings.Contains(ts, want) {
+			t.Errorf("tables.md 应含 %q:\n%s", want, ts)
+		}
+	}
+	// 模块页：相关表链接 tables.md 锚点 + 时序逐流程（main→(Svc).Run 独立图）
+	mod, err := os.ReadFile(filepath.Join(out, "m.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms := string(mod)
+	if !strings.Contains(ms, "tables.md#orders") {
+		t.Errorf("相关表应链接 tables.md#orders:\n%s", ms)
+	}
+	// 自动时序：main 的一级 callee = (Svc).Run → 单独一张图
+	if !strings.Contains(ms, "### (Svc).Run") || !strings.Contains(ms, "main->>(Svc).Run") {
+		t.Errorf("时序应按一级调用分支单独画:\n%s", ms)
+	}
+}

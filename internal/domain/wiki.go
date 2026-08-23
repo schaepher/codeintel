@@ -13,7 +13,13 @@ type WikiModule struct {
 	OutCalls    []string     `json:"out_calls,omitempty"`  // 调用的模块
 	InCalls     []string     `json:"in_calls,omitempty"`   // 被哪些模块调用
 	Tables      []string     `json:"tables,omitempty"`     // 相关表（该模块代码写入的表）
-	Sequence    []WikiSeqStep `json:"sequence,omitempty"`  // 核心符号调用链（自动时序图数据）
+	Flows       []WikiFlow   `json:"flows,omitempty"`      // 自动时序（每个一级调用分支单独一个图）
+}
+
+// WikiFlow 一条流程的时序数据（单独画一张 sequenceDiagram）。
+type WikiFlow struct {
+	Title string         `json:"title"`           // 流程名（一级被调者短名）
+	Steps []WikiSeqStep  `json:"steps,omitempty"` // 调用步骤（caller → callee）
 }
 
 // WikiSeqStep 时序图一步（调用者 → 被调用者短名）。

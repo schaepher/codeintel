@@ -66,7 +66,8 @@ func renderWikiHTML(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiC
 		main.WriteString(renderModuleHTML(wm, i, tableAlias, hidden, cfg))
 		main.WriteString("</section>\n")
 	}
-	// 表清单 section
+	// 表清单 section + 每表详情（字段定义/索引/建表语句，#243）
+	tableCfgs := tableCfgsFrom(cfg)
 	tables := collectTables(data, tableAlias)
 	main.WriteString(`<section id="tables"><h2>表清单</h2>`)
 	if len(tables) == 0 {
@@ -74,10 +75,37 @@ func renderWikiHTML(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiC
 	} else {
 		main.WriteString("<table><tr><th>表</th><th>别名</th><th>涉及模块</th></tr>")
 		for _, t := range tables {
-			main.WriteString(fmt.Sprintf("<tr><td>%s</td><td>%s</td><td>%s</td></tr>",
-				htmlEsc(t.name), htmlEsc(t.alias), htmlEsc(strings.Join(t.mods, ", "))))
+			main.WriteString(fmt.Sprintf("<tr><td><a href=\"#tbl-%s\">%s</a></td><td>%s</td><td>%s</td></tr>",
+				htmlEsc(t.name), htmlEsc(t.name), htmlEsc(t.alias), htmlEsc(strings.Join(t.mods, ", "))))
 		}
 		main.WriteString("</table>")
+		// 每表详情小节
+		for _, t := range tables {
+			main.WriteString(fmt.Sprintf(`<h3 id="tbl-%s">%s</h3>`, htmlEsc(t.name), htmlEsc(t.name)))
+			if t.alias != "" {
+				main.WriteString("<blockquote>" + htmlEsc(t.alias) + "</blockquote>")
+			}
+			tc, ok := tableCfgs[t.name]
+			if !ok || len(tc.Columns) == 0 {
+				main.WriteString("<p class=\"muted\">（无字段定义——维护者可在 wiki.yaml tables.columns 补充）</p>")
+			} else {
+				main.WriteString("<table><tr><th>字段名</th><th>类型</th><th>默认值</th><th>说明</th></tr>")
+				for _, c := range tc.Columns {
+					main.WriteString(fmt.Sprintf("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>",
+						htmlEsc(c.Name), htmlEsc(c.Type), htmlEsc(c.Default), htmlEsc(c.Comment)))
+				}
+				main.WriteString("</table>")
+			}
+			if len(tc.Indexes) > 0 {
+				main.WriteString("<h4>索引</h4>")
+				for _, ix := range tc.Indexes {
+					main.WriteString("<p><code>" + htmlEsc(ix) + "</code></p>")
+				}
+			}
+			if tc.DDL != "" {
+				main.WriteString("<h4>建表语句</h4><pre><code>" + htmlEsc(tc.DDL) + "</code></pre>")
+			}
+		}
 	}
 	main.WriteString("</section>\n")
 	nav.WriteString(`<li><a href="#tables">表清单</a></li>`)
@@ -174,7 +202,7 @@ func renderModuleHTML(wm *domain.WikiModule, i int, tableAlias map[string]string
 	if len(wm.Tables) > 0 {
 		b.WriteString(sec("tbl", "相关表"))
 		for _, t := range wm.Tables {
-			line := "<code>" + htmlEsc(t) + "</code>"
+			line := "<a href=\"#tbl-" + htmlEsc(t) + "\"><code>" + htmlEsc(t) + "</code></a>"
 			if a := tableAlias[t]; a != "" {
 				line += "（" + htmlEsc(a) + "）"
 			}
@@ -196,7 +224,8 @@ func renderModuleHTML(wm *domain.WikiModule, i int, tableAlias map[string]string
 		b.WriteString("<p class=\"muted\">（单模块或无线索——yaml architecture 可手写）</p>")
 	}
 	b.WriteString("</div>\n")
-	// 流程时序（#241）：yaml 业务时序 + 自动核心符号调用链
+	// 流程时序（#242）：yaml 业务时序各自单独 + 自动时序每个一级调用
+	// 分支单独一张图
 	b.WriteString(sec("seq", "流程时序"))
 	hasSeq := false
 	for _, f := range cfg.Flows {
@@ -204,8 +233,9 @@ func renderModuleHTML(wm *domain.WikiModule, i int, tableAlias map[string]string
 		b.WriteString("<pre class=\"mermaid\">" + htmlEsc(f.Mermaid) + "</pre>")
 		hasSeq = true
 	}
-	if len(wm.Sequence) > 0 {
-		b.WriteString("<pre class=\"mermaid\">" + htmlEsc(sequenceMermaid(wm.Sequence)) + "</pre>")
+	for _, fl := range wm.Flows {
+		b.WriteString("<h4>" + htmlEsc(fl.Title) + "</h4>")
+		b.WriteString("<pre class=\"mermaid\">" + htmlEsc(sequenceMermaid(fl.Steps)) + "</pre>")
 		hasSeq = true
 	}
 	if !hasSeq {

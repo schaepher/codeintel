@@ -30,11 +30,8 @@ type wikiConfig struct {
 		Description string `yaml:"description"`
 		Order       int    `yaml:"order"`
 	} `yaml:"modules"`
-	Tables []struct {
-		Name  string `yaml:"name"`
-		Alias string `yaml:"alias"`
-	} `yaml:"tables"`
-	HiddenSymbols []string `yaml:"hidden_symbols"`
+	Tables        []wikiTableConfig `yaml:"tables"`
+	HiddenSymbols []string          `yaml:"hidden_symbols"`
 	// 架构图（mermaid 代码块；为空时自动从模块间调用生成）
 	Architecture string `yaml:"architecture"`
 	// 业务流程时序（业务语义，代码画不出——维护者模式访谈产出）
@@ -42,6 +39,21 @@ type wikiConfig struct {
 		Title  string `yaml:"title"`
 		Mermaid string `yaml:"mermaid"`
 	} `yaml:"flows"`
+}
+
+// wikiTableConfig 表结构契约（#243 表详情：字段定义/索引/建表语句——
+// 业务表 schema 在外部库，代码分析不出，AI 调研产出 + 人工确认）。
+type wikiTableConfig struct {
+	Name    string `yaml:"name"`
+	Alias   string `yaml:"alias"`
+	Columns []struct {
+		Name    string `yaml:"name"`
+		Type    string `yaml:"type"`
+		Default string `yaml:"default"`
+		Comment string `yaml:"comment"`
+	} `yaml:"columns"`
+	Indexes []string `yaml:"indexes"`
+	DDL     string   `yaml:"ddl"`
 }
 
 // wikiMeta 渲染用的模块增强信息（yaml 合并结果）。
@@ -178,6 +190,7 @@ func renderWiki(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiConfi
 	}
 	// yaml 索引：模块描述/顺序、表别名、隐藏符号（md/html 共用）
 	meta, tableAlias, hidden := wikiMetaIndex(cfg)
+	tableCfgs := tableCfgsFrom(cfg)
 	// 模块页（按 order 排序）
 	ordered := append([]*domain.WikiModule(nil), data...)
 	sort.SliceStable(ordered, func(i, j int) bool {
@@ -214,8 +227,17 @@ func renderWiki(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiConfi
 	if err := os.WriteFile(filepath.Join(outDir, "index.md"), []byte(idx.String()), 0o644); err != nil {
 		return err
 	}
-	tables := renderTablesPage(data, tableAlias)
+	tables := renderTablesPage(data, tableAlias, tableCfgs)
 	return os.WriteFile(filepath.Join(outDir, "tables.md"), []byte(tables), 0o644)
+}
+
+// tableCfgsFrom 从 yaml 构建表配置索引（name → 配置）。
+func tableCfgsFrom(cfg wikiConfig) map[string]wikiTableConfig {
+	out := map[string]wikiTableConfig{}
+	for _, t := range cfg.Tables {
+		out[t.Name] = t
+	}
+	return out
 }
 
 // renderModulePage 模块页六区块 + 架构图 + 流程时序。
@@ -272,7 +294,7 @@ func renderModulePage(wm *domain.WikiModule, desc string, tableAlias map[string]
 	if len(wm.Tables) > 0 {
 		b.WriteString("## 相关表\n\n")
 		for _, t := range wm.Tables {
-			line := "- `" + t + "`"
+			line := "- [`" + t + "`](tables.md#" + t + ")"
 			if a := tableAlias[t]; a != "" {
 				line += "（" + a + "）"
 			}
@@ -292,7 +314,8 @@ func renderModulePage(wm *domain.WikiModule, desc string, tableAlias map[string]
 	} else {
 		b.WriteString("（单模块或无线索——yaml architecture 可手写）\n\n")
 	}
-	// 流程时序（#241）：yaml 业务时序 + 自动核心符号调用链
+	// 流程时序（#242）：yaml 业务时序各自单独 + 自动时序每个一级调用
+	// 分支单独一张图
 	b.WriteString("## 流程时序\n\n")
 	hasSeq := false
 	for _, f := range cfg.Flows {
@@ -300,11 +323,9 @@ func renderModulePage(wm *domain.WikiModule, desc string, tableAlias map[string]
 		b.WriteString("```mermaid\n" + f.Mermaid + "\n```\n\n")
 		hasSeq = true
 	}
-	if len(wm.Sequence) > 0 {
-		if !hasSeq {
-			b.WriteString("（自动生成：核心符号调用链，深度 3）\n\n")
-		}
-		b.WriteString("```mermaid\n" + sequenceMermaid(wm.Sequence) + "\n```\n\n")
+	for _, fl := range wm.Flows {
+		b.WriteString("### " + fl.Title + "\n\n")
+		b.WriteString("```mermaid\n" + sequenceMermaid(fl.Steps) + "\n```\n\n")
 		hasSeq = true
 	}
 	if !hasSeq {
@@ -356,8 +377,8 @@ func sequenceMermaid(steps []domain.WikiSeqStep) string {
 	return b.String()
 }
 
-// renderTablesPage 表清单附录。
-func renderTablesPage(data []*domain.WikiModule, tableAlias map[string]string) string {
+// renderTablesPage 表清单 + 每表详情（字段定义表/索引/建表语句，#243）。
+func renderTablesPage(data []*domain.WikiModule, tableAlias map[string]string, tableCfgs map[string]wikiTableConfig) string {
 	var b strings.Builder
 	b.WriteString("# 表清单\n\n")
 	seen := map[string]bool{}
@@ -387,7 +408,35 @@ func renderTablesPage(data []*domain.WikiModule, tableAlias map[string]string) s
 				}
 			}
 		}
-		b.WriteString(fmt.Sprintf("| %s | %s | %s |\n", t, alias, strings.Join(mods, ", ")))
+		b.WriteString(fmt.Sprintf("| [%s](#%s) | %s | %s |\n", t, t, alias, strings.Join(mods, ", ")))
+	}
+	// 每表详情小节
+	b.WriteString("\n---\n\n")
+	for _, t := range tables {
+		b.WriteString(fmt.Sprintf("## %s\n\n", t))
+		if alias := tableAlias[t]; alias != "" {
+			b.WriteString("> " + alias + "\n\n")
+		}
+		cfg, ok := tableCfgs[t]
+		if !ok || len(cfg.Columns) == 0 {
+			b.WriteString("（无字段定义——维护者可在 wiki.yaml tables.columns 补充）\n\n")
+		} else {
+			b.WriteString("### 字段\n\n| 字段名 | 类型 | 默认值 | 说明 |\n|---|---|---|---|\n")
+			for _, c := range cfg.Columns {
+				b.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n", c.Name, c.Type, c.Default, c.Comment))
+			}
+			b.WriteString("\n")
+		}
+		if len(cfg.Indexes) > 0 {
+			b.WriteString("### 索引\n\n")
+			for _, ix := range cfg.Indexes {
+				b.WriteString("- `" + ix + "`\n")
+			}
+			b.WriteString("\n")
+		}
+		if cfg.DDL != "" {
+			b.WriteString("### 建表语句\n\n```sql\n" + cfg.DDL + "\n```\n\n")
+		}
 	}
 	return b.String()
 }
