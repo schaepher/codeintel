@@ -3248,4 +3248,70 @@ sale_sub_item 1→15 条（多行 JOIN 修复）；**rbac 系保持孤立为合�
 
 ---
 
+---
+
+## §80 Q243/Q244 Agent/UX 批次（2026-08-23）
+
+**背景**：Agent 视角 + 普通程序员视角的 UX 改善批次（任务 #216-221/#211-215）。
+Q243 = Agent 向（JSON 契约 / MCP / 新鲜度 / 确定性）；Q244 = 意图命令。
+
+### §80.1 Q243 JSON 输出契约（#219）
+
+query context 直接 marshal domain.CodeEntity/Fact/FunctionFieldSummary/
+TraceRow——无 json tag 时输出 Go 默认 camelCase，与其余命令 snake_case
+不一致。**domain 12 个输出类型统一加 snake_case tag**；契约文档
+docs/json-contract.md（标准 + 核心类型 + 各命令结构 + 稳定性承诺）；
+json_contract_test.go 固化（禁止 camelCase 键）。server /api 前端私有
+契约（fullPath/funcName）不承诺。
+
+### §80.2 Q243 MCP server（#216）
+
+`codeintel mcp [--repo]`：stdio MCP server，**go-sdk**
+（github.com/modelcontextprotocol/go-sdk v1.7.0，协议由 SDK 实现，不
+手写 JSON-RPC）。13 个工具（symbol/fields/callers/callees/impact/trace/
+value_trace/context/table/relations/table_path/summary/module_calls）：
+参数结构体 json tag 即 inputSchema（自动生成），输出复用 #219 契约；
+工具错误 → isError（文本带原因）。测试：内存 transport + SDK client
+直连。注：go get 顺带升 x/tools v0.26→v0.42——ssa 全量验证无破坏。
+
+### §80.3 Q243 索引新鲜度显式化（#217）
+
+staleInfo 原为 timestamp 比较（build 时间 vs HEAD commit 时间）——
+不可靠。升级：build_metadata.commit_sha vs git HEAD SHA 比较（SHA 不同
+→ 提示「基于 commit <sha>，HEAD 为 <sha>，N 个文件未索引」）；SHA 一致
+但工作区变更 → 提示文件数（排除 .codeintel/ 产物目录）；commit_sha 空
+回退 timestamp（兼容历史构建）。MCP 集成：staleWrap 包装全部工具——
+结果非错误且过期时 content 追加 `[stale]` 标注（Agent 可见），
+content[0] 契约 JSON 不变。
+
+### §80.4 Q243 输出确定性（#218）
+
+审计全部 map range 输出点：vt_render groups/query_fields groups 为
+slice 或固定 key 顺序（确定）；非确定的是 mermaid 渲染——relations
+（列节点/子图/fromCols）与 module 边（export graph --type modules）
+遍历 map 随机。修复：收集后 sort.Strings / 按 (from,to) 排序。
+table-path BFS 复查：adj/preds 值为 slice，顺序确定（无 map range）。
+测试：连续 10 次输出一致（修复前第 6 次即不同）。
+
+### §80.5 Q244 意图命令 before/trace + serve 首屏（#211）
+
+普通程序员入口：不问「用哪个子命令」，只问「改这个会炸谁」（before）
+与「数据从哪来到哪去」（trace）。决策（访谈确认）：before + trace 两个
+命令；serve 首屏本轮做；目标形态分派。
+
+- `codeintel before <符号|字段|表>`：目标形态分派（含 '.' 的字段路径
+  优先字段→回退符号/表；纯名优先表→回退符号；输出 target.kind 标注）
+  → 符号聚合 callers(深度2)+impact(深度3)；字段聚合 writers/reads
+  （AllSummaries 按 field_path 过滤）；表聚合 relations+columns。
+  文本三段式（目标/影响面）；--json 契约（缺省组 omitempty）
+- `codeintel trace <字段|符号|表>`：值流全链（ValueTrace）+ 生命周期
+  主链（SummaryChain）；表目标输出关联链
+- serve 首屏：index.html 加「常用查询」速览条（before/trace/relations/
+  table-path 命令示例 + 复制按钮 + ER/模块页链接）
+
+**测试**：action 层（形态分派 symbol/field + Before 聚合 + TraceFlow）
++ cli 层（before 符号/字段/表文本 + JSON 契约 + trace 文本/JSON）。
+
+---
+
 **文档结束**。本版由 go-cpg v1.0 设计文档（2026-08-13 之前版本）整体适配而来：保留全部 SSA 语义与映射规则，重塑为 codeintel 适配器形态；§1–§12 为设计正文（Q1–Q73），§14 为 2026-08-14 实现阶段需求增补（Q74–Q83），§15 起为实现记录（Q84–Q240，逐 Q 编号 + 日期）。

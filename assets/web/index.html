@@ -161,6 +161,25 @@
       line-height: 1.6; color: #24292f; white-space: pre; tab-size: 4;
     }
     .loading { opacity: .5; pointer-events: none; }
+    /* Q244 常用查询速览条 */
+    #quick {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 6px 20px; background: #f0f1f5; border-bottom: 1px solid #e5e6eb;
+      font-size: 12px; color: #4e5969;
+    }
+    #quick .qk { display: flex; align-items: center; gap: 6px; }
+    #quick .qk code {
+      background: #fff; border: 1px solid #d9d9d9; border-radius: 4px;
+      padding: 1px 6px; font-size: 11px; color: #1f1f2e;
+      font-family: ui-monospace, Menlo, Consolas, monospace;
+    }
+    #quick a { color: #1677ff; text-decoration: none; }
+    #quick a:hover { text-decoration: underline; }
+    #quick .qk-btn {
+      border: 1px solid #d9d9d9; background: #fff; border-radius: 4px;
+      font-size: 11px; color: #86909c; cursor: pointer; padding: 0 5px;
+    }
+    #quick .qk-btn:hover { color: #1677ff; border-color: #1677ff; }
   </style>
 </head>
 <body>
@@ -184,6 +203,15 @@
       </div>
     </div>
   </div>
+  <div id="quick">
+    <span style="font-weight:600;color:#86909c">常用查询:</span>
+    <span class="qk"><code>before &lt;符号|字段|表&gt;</code> 改前影响预判<button class="qk-btn" data-copy="codeintel before &lt;目标&gt; --repo .">复制</button></span>
+    <span class="qk"><code>trace &lt;字段|符号&gt;</code> 数据来龙去脉<button class="qk-btn" data-copy="codeintel trace &lt;目标&gt; --repo .">复制</button></span>
+    <span class="qk"><code>query relations &lt;表&gt;</code> 表间关联<button class="qk-btn" data-copy="codeintel query relations &lt;表名&gt; --repo .">复制</button></span>
+    <span class="qk"><code>query table-path &lt;A&gt; &lt;B&gt;</code> 表间通路<button class="qk-btn" data-copy="codeintel query table-path &lt;表A&gt; &lt;表B&gt; --repo .">复制</button></span>
+    <span class="qk"><a href="/er.html">数据库 ER →</a></span>
+    <span class="qk"><a href="/modules.html">模块间调用 →</a></span>
+  </div>
   <div id="main-area">
     <div id="tip">搜索并选择顶层入口后展示 · 双击节点展开/收起依赖 · 单击节点查看出入边</div>
     <div id="container"></div>
@@ -202,6 +230,19 @@
       <pre id="modal-code"></pre>
     </div>
   </div>
+  <script>
+    // Q244 命令速览复制按钮
+    document.addEventListener('click', function (ev) {
+      var btn = ev.target.closest && ev.target.closest('.qk-btn');
+      if (!btn) return;
+      var text = btn.getAttribute('data-copy');
+      if (!text) return;
+      navigator.clipboard.writeText(text).then(function () {
+        btn.textContent = '已复制';
+        setTimeout(function () { btn.textContent = '复制'; }, 1200);
+      });
+    });
+  </script>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>

@@ -42,6 +42,10 @@ func Main(ctx context.Context, args []string) int {
 		return cmdPrecompute(args[1:])
 	case "mcp":
 		return cmdMCP(args[1:])
+	case "before":
+		return cmdBefore(args[1:])
+	case "trace":
+		return cmdTrace(args[1:])
 	case "version", "--version", "-v":
 		return cmdVersion(args[1:])
 	case "help", "-h", "--help":
@@ -74,6 +78,10 @@ func usage() {
   codeintel serve --repo <path>    启动图探索 Web 服务（AntV G6 前端，--addr 默认 :8090）
   codeintel mcp --repo <path>      stdio MCP server（Q243：query 能力暴露为
                                   tools/list + tools/call，Agent 直接调用）
+  codeintel before <符号|字段|表>   改动影响预判（Q244：callers/impact 或
+                                  字段读写方或表关联，一次聚合）
+  codeintel trace <字段|符号|表>    数据来龙去脉（Q244：值流全链 + 生命周期
+                                  主链）
   codeintel query <symbol|name>    查询符号详情（含调用者/被调用者）
   codeintel query callers <sym>    查询调用者（--depth N，默认 1，置信度阈值 0.8）
   codeintel query callees <sym>    查询被调用者（--depth N，默认 1）
