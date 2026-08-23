@@ -459,6 +459,20 @@ func registerMCPTools(server *mcp.Server, env *mcpEnv, r *sqlite.Repo, repoAbs s
 			out := FileSymbolsOut{Symbols: nodeBriefList(syms)}
 			return toolJSON(out), out, nil
 		})))
+	// #237 recent_changes：最近变更（Agent 接手仓库先看动态）。
+	mcp.AddTool(server, &mcp.Tool{Name: "recent_changes", Description: "最近变更（commit 按日期降序 + 变更文件 + 顶层符号；max_commits 默认 10）"},
+		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args recentChangesParams) (*mcp.CallToolResult, RecentChangesOut, error) {
+			limit := 10
+			if args.MaxCommits != nil && *args.MaxCommits > 0 {
+				limit = *args.MaxCommits
+			}
+			commits, err := a.RecentChanges(limit)
+			if err != nil {
+				return toolErr(err.Error()), RecentChangesOut{}, nil
+			}
+			out := RecentChangesOut{Commits: commits}
+			return toolJSON(out), out, nil
+		})))
 }
 
 // runBuildTool 增量（full=false）/全量（full=true）重建，输出 JSON 摘要

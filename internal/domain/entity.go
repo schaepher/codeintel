@@ -167,3 +167,28 @@ type Repository struct {
 	// 加载与 scip-go 需要按目录定位 module
 	ModuleDirs []string `json:"module_dirs,omitempty"`
 }
+
+// #237 recent_changes 工具数据：最近变更条目（commit → 变更文件 →
+// 文件内顶层符号）。
+type RecentChange struct {
+	CommitSHA string       `json:"commit_sha"`        // 完整 SHA（commit:<sha>）
+	ShortSHA  string       `json:"short_sha"`         // 短 SHA（12 位）
+	Name      string       `json:"name"`              // commit 节点名
+	Date      string       `json:"date"`              // 提交日期（YYYY-MM-DD）
+	Message   string       `json:"message,omitempty"` // 提交说明
+	Files     []ChangeFile `json:"files"`             // 变更文件（含顶层符号）
+}
+
+// ChangeFile 变更文件及其顶层符号（#237）。
+type ChangeFile struct {
+	Path    string        `json:"path"`
+	Symbols []SymbolBrief `json:"symbols,omitempty"` // 文件内 function/method/struct/interface（≤5）
+}
+
+// SymbolBrief 符号摘要（#237 变更文件内符号）。
+type SymbolBrief struct {
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+	File string `json:"file"`
+	Line int    `json:"line,omitempty"`
+}

@@ -411,3 +411,54 @@ func TestMCPOutputSchema(t *testing.T) {
 		}
 	}
 }
+
+// TestMCPToolRecentChanges：#237 recent_changes——commit 时间降序 +
+// 文件/符号聚合（fixture 直连库构造）。
+func TestMCPToolRecentChanges(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	r := sqlite.NewRepo(db)
+	if _, err := r.SaveBatchStats([]*domain.CodeEntity{
+		{ID: "commit:ccc333", Kind: domain.KindCommit, Name: "ccc333cccccc", Properties: map[string]any{"date": "2026-08-20", "message": "old"}},
+		{ID: "commit:ddd444", Kind: domain.KindCommit, Name: "ddd444dddddd", Properties: map[string]any{"date": "2026-08-23", "message": "new"}},
+		{ID: "file:x.go", Kind: domain.KindFile, Name: "x.go"},
+	}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.SaveBatchStats(nil, []*domain.Fact{
+		{SourceID: "file:x.go", TargetID: "commit:ddd444", Kind: domain.FactModifiedBy, ToolSource: domain.ToolGit, Confidence: 1.0},
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	cs := mcpDial(t, dir)
+	text, isErr := mcpCallTool(t, cs, "recent_changes", map[string]any{})
+	if isErr {
+		t.Fatalf("recent_changes 调用报错: %s", text)
+	}
+	var m struct {
+		Commits []struct {
+			CommitSHA string `json:"commit_sha"`
+			Date      string `json:"date"`
+			Message   string `json:"message"`
+			Files     []struct {
+				Path string `json:"path"`
+			} `json:"files"`
+		} `json:"commits"`
+	}
+	if err := json.Unmarshal([]byte(text), &m); err != nil {
+		t.Fatalf("content 应为 JSON: %v\n%s", err, text)
+	}
+	if len(m.Commits) != 2 {
+		t.Fatalf("commits = %d, want 2: %s", len(m.Commits), text)
+	}
+	if m.Commits[0].CommitSHA != "commit:ddd444" || m.Commits[0].Date != "2026-08-23" {
+		t.Errorf("最新 commit 应在前: %+v", m.Commits[0])
+	}
+	if len(m.Commits[0].Files) != 1 || m.Commits[0].Files[0].Path != "x.go" {
+		t.Errorf("文件聚合 = %+v", m.Commits[0].Files)
+	}
+}

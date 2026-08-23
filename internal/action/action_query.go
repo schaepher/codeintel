@@ -204,6 +204,15 @@ func (a *Actions) GetTables() ([]string, error) {
 	return a.repo.GetTables()
 }
 
+// RecentChanges 最近变更（#237：commit 按日期降序 + 变更文件 + 顶层
+// 符号；Agent 接手仓库先看动态）。
+func (a *Actions) RecentChanges(maxCommits int) ([]*domain.RecentChange, error) {
+	logger := zap.L()
+	logger.Info("enter (Actions).RecentChanges", zap.Int("max_commits", maxCommits))
+	defer logger.Info("exit (Actions).RecentChanges")
+	return a.repo.RecentChanges(maxCommits)
+}
+
 // IndirectWriteSites 返回函数的 INDIRECT_WRITE 边（Q90 调用点回连：
 // metadata 含 call_line / call_args，fields 展示用）。
 func (a *Actions) IndirectWriteSites(funcID domain.CanonicalID) ([]*domain.Fact, error) {

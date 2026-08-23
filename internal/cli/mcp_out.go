@@ -126,3 +126,16 @@ func nodeBriefList(nodes []*domain.CodeEntity) []NodeBrief {
 	}
 	return out
 }
+
+// RecentChangesOut recent_changes 工具输出（#237）。
+type RecentChangesOut struct {
+	Commits []*domain.RecentChange `json:"commits"`
+}
+
+// recentChangesParams recent_changes 工具参数。
+type recentChangesParams struct {
+	Repo       string `json:"repo,omitempty"` // #232 多仓库：空=默认仓库
+	MaxCommits *int   `json:"max_commits,omitempty"` // 最近 N 个 commit（默认 10；省略时用默认）
+}
+
+func (p recentChangesParams) getRepo() string { return p.Repo }
