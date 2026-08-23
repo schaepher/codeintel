@@ -53,6 +53,16 @@ body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
 html { scroll-behavior: smooth; }
 #sidebar .mod-head.active { color: #1677ff; background: #e5e6eb; }
 #sidebar .mod-sec a.active { color: #1677ff; font-weight: 600; }
+#sidebar-toggle {
+  position: fixed; top: 8px; left: 288px; z-index: 50;
+  background: #f6f8fa; border: 1px solid #e5e6eb; border-radius: 4px;
+  font-size: 12px; padding: 2px 8px; cursor: pointer; color: #4e5969;
+  transition: left .2s;
+}
+#sidebar-toggle:hover { color: #1677ff; border-color: #1677ff; }
+body.sidebar-off #sidebar-toggle { left: 8px; }
+body.sidebar-off #sidebar { display: none; }
+body.sidebar-off #main { margin-left: 0; }
 #search-results { padding: 4px 12px; display: flex; flex-direction: column; gap: 2px; }
 #search-results .sr-item { display: flex; gap: 6px; align-items: baseline; padding: 3px 8px;
   font-size: 12px; color: #4e5969; text-decoration: none; border-radius: 4px; }
@@ -66,6 +76,7 @@ html { scroll-behavior: smooth; }
 </style>
 </head>
 <body>
+<button id="sidebar-toggle" title="收起/展开目录"></button>
 <div id="sidebar">
 ` + (func() string {
 		if opts.exploreLink != "" {
@@ -120,6 +131,24 @@ mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
   };
   window.addEventListener('scroll', onScroll, { passive: true });
   onScroll();
+})();
+// 侧栏整体收起/展开（localStorage 持久化——阅读空间最大化）
+(function () {
+  var KEY = 'codeintel-wiki-sidebar';
+  var btn = document.getElementById('sidebar-toggle');
+  if (!btn) return;
+  var off = false;
+  try { off = localStorage.getItem(KEY) === '1'; } catch (e) {}
+  var apply = function () {
+    document.body.classList.toggle('sidebar-off', off);
+    btn.textContent = off ? '\u00bb 展开目录' : '\u00ab 收起目录';
+  };
+  btn.addEventListener('click', function () {
+    off = !off;
+    try { localStorage.setItem(KEY, off ? '1' : '0'); } catch (e) {}
+    apply();
+  });
+  apply();
 })();
 // D：补全引导横幅——已关闭（localStorage）则不显示
 (function () {
