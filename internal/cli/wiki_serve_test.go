@@ -107,6 +107,20 @@ func TestWikiServe(t *testing.T) {
 	if !strings.Contains(body, "无表间直接关联") {
 		t.Errorf("ER 页应含无关联提示，body 前 200: %.200s", body)
 	}
+	// E：模块筛选工具条（全部/各模块链接 + 交互 ER 入口）
+	for _, want := range []string{`href="/wiki/er"`, `href="/wiki/er?mod=m"`, "/er.html"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("ER 页应含筛选工具条 %q", want)
+		}
+	}
+	// E：按模块过滤（m 模块相关表 orders）
+	resp, body = get("/wiki/er?mod=m")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("/wiki/er?mod=m status = %d", resp.StatusCode)
+	}
+	if !strings.Contains(body, "相关表（1 张") {
+		t.Errorf("ER 过滤页应含模块相关表说明，body 前 300: %.300s", body)
+	}
 
 	// 未知路径 → 404
 	resp, _ = get("/wiki/unknown")

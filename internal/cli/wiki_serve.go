@@ -77,7 +77,8 @@ func wikiServeHandler(repoAbs string, acts *action.Actions) http.Handler {
 			}
 			http.NotFound(w, r)
 		case path == "er":
-			serveWikiHTML(w, ws.erPage(snap))
+			// E：模块过滤（?mod=<短名>）——只看某模块相关表的关系
+			serveWikiHTML(w, ws.erPage(snap, r.URL.Query().Get("mod")))
 		case path == "tables":
 			serveWikiHTML(w, ws.tablesPage(snap))
 		default:

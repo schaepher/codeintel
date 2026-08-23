@@ -155,17 +155,36 @@ func (ws *wikiServe) modulePage(snap *wikiSnapshot, wm *domain.WikiModule) strin
 	return ws.pageHTML(snap, "/wiki/mod/"+wm.ShortName, b.String())
 }
 
-// erPage ER 图页。
-func (ws *wikiServe) erPage(snap *wikiSnapshot) string {
+// erPage ER 图页（E：?mod=<短名> 按模块过滤——模块表 + 直接关联表；
+// 工具条提供模块筛选链接与 serve 交互 ER 图入口）。
+func (ws *wikiServe) erPage(snap *wikiSnapshot, mod string) string {
 	hideTable := map[string]bool{}
 	for _, t := range snap.cfg.Tables {
 		if t.Hidden {
 			hideTable[t.Name] = true
 		}
 	}
-	erMermaid := renderERMermaid(snap.rels, hideTable)
+	rels := snap.rels
+	var filterNote string
+	if mod != "" {
+		rels, filterNote = erRelsForModule(snap, mod, rels, hideTable)
+	}
+	erMermaid := renderERMermaid(rels, hideTable)
 	var b strings.Builder
 	b.WriteString(`<section id="er"><h2>ER 图（表间关系）</h2>`)
+	// 模块筛选工具条
+	b.WriteString(`<p class="muted" style="margin-bottom:4px">按模块筛选：<a href="/wiki/er">全部</a>`)
+	for _, wm := range snap.ordered {
+		cls := ""
+		if wm.ShortName == mod {
+			cls = ` style="font-weight:600;color:#1677ff"`
+		}
+		b.WriteString(fmt.Sprintf(` <a href="/wiki/er?mod=%s"%s>%s</a>`, htmlEsc(wm.ShortName), cls, htmlEsc(shortMod(wm.Name))))
+	}
+	b.WriteString(`　<a href="/er.html" style="color:#1677ff">交互 ER 图 →</a></p>`)
+	if filterNote != "" {
+		b.WriteString(`<p class="muted" style="margin-bottom:4px">` + filterNote + `</p>`)
+	}
 	if strings.Contains(erMermaid, "||--") {
 		b.WriteString(`<p class="muted">表间直接键关联（fk=值流验证的真实键 / query=WHERE 键关联），列级标注。字段定义见<a href="/wiki/tables">表清单</a>。</p><pre class="mermaid">` + htmlEsc(erMermaid) + `</pre>`)
 	} else {
@@ -173,6 +192,41 @@ func (ws *wikiServe) erPage(snap *wikiSnapshot) string {
 	}
 	b.WriteString("</section>\n")
 	return ws.pageHTML(snap, "/wiki/er", b.String())
+}
+
+// erRelsForModule 模块过滤：模块表 + 直接关联表（关系任一端的表），
+// 关系线只保留两端都在集合内的。
+func erRelsForModule(snap *wikiSnapshot, mod string, rels []*domain.TableRelation, hideTable map[string]bool) ([]*domain.TableRelation, string) {
+	var wm *domain.WikiModule
+	for _, m := range snap.ordered {
+		if m.ShortName == mod {
+			wm = m
+			break
+		}
+	}
+	if wm == nil || len(wm.Tables) == 0 {
+		return nil, "（该模块无相关表）"
+	}
+	allow := map[string]bool{}
+	for _, t := range wm.Tables {
+		allow[t] = true
+	}
+	// 直接关联表并入（两端都在集合内才保留线——先扩集合再过滤）
+	for _, r := range rels {
+		if allow[r.FromTable] {
+			allow[r.ToTable] = true
+		}
+		if allow[r.ToTable] {
+			allow[r.FromTable] = true
+		}
+	}
+	var out []*domain.TableRelation
+	for _, r := range rels {
+		if allow[r.FromTable] && allow[r.ToTable] && !hideTable[r.FromTable] && !hideTable[r.ToTable] {
+			out = append(out, r)
+		}
+	}
+	return out, fmt.Sprintf("模块 %s 相关表（%d 张，含直接关联表）", shortMod(wm.Name), len(allow))
 }
 
 // tablesPage 表清单页。
