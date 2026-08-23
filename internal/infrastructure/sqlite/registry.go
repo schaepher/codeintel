@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 	"go.uber.org/zap"
 )
 
@@ -321,9 +321,10 @@ func nowStamp() string {
 	return time.Now().UTC().Format(time.RFC3339)
 }
 
-// openRawSQLite 裸 sql.Open（busy_timeout=5000 单写者模式 + 外键）。
-// 注册表与图库共用；测试用它构造旧版表验证迁移。
+// openRawSQLite 裸 sql.Open（busy_timeout=5000 单写者模式 + 外键；
+// modernc 纯 Go 驱动，_pragma 形式）。注册表与图库共用；测试用它构造
+// 旧版表验证迁移。
 func openRawSQLite(path string) (*sql.DB, error) {
-	dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=ON", path)
-	return sql.Open("sqlite3", dsn)
+	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)", path)
+	return sql.Open("sqlite", dsn)
 }

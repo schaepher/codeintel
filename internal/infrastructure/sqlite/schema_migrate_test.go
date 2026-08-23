@@ -66,7 +66,7 @@ func openRaw(t *testing.T, dir, ddl string, version int) *sql.DB {
 	if err := os.MkdirAll(filepath.Join(dir, ".codeintel"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	db, err := sql.Open("sqlite3", filepath.Join(dir, ".codeintel", "codeintel.db"))
+	db, err := sql.Open("sqlite", filepath.Join(dir, ".codeintel", "codeintel.db"))
 	if err != nil {
 		t.Fatalf("open raw: %v", err)
 	}
