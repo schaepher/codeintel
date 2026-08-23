@@ -433,6 +433,13 @@ func renderTablesPage(data []*domain.WikiModule, tableAlias map[string]string, t
 			}
 		}
 	}
+	// #249：yaml 手写定义的表也渲染（自动未发现时用户已维护 schema）
+	for name := range tableCfgs {
+		if !seen[name] {
+			seen[name] = true
+			tables = append(tables, name)
+		}
+	}
 	sort.Strings(tables)
 	if len(tables) == 0 {
 		b.WriteString("（未识别到 ORM 表写入）\n")

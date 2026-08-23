@@ -74,7 +74,7 @@ func renderWikiHTML(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiC
 	}
 	// 表清单 section + 每表详情（字段定义/索引/建表语句，#243）
 	tableCfgs := tableCfgsFrom(cfg)
-	tables := collectTables(data, tableAlias)
+	tables := collectTables(data, tableAlias, tableCfgs)
 	main.WriteString(`<section id="tables"><h2>表清单</h2>`)
 	if len(tables) == 0 {
 		main.WriteString("<p>（未识别到 ORM 表写入）</p>")
@@ -271,21 +271,28 @@ type tableRow struct {
 }
 
 // collectTables 表清单（去重 + 涉及模块）。
-func collectTables(data []*domain.WikiModule, tableAlias map[string]string) []tableRow {
+func collectTables(data []*domain.WikiModule, tableAlias map[string]string, tableCfgs map[string]wikiTableConfig) []tableRow {
 	byName := map[string]*tableRow{}
 	var order []string
+	add := func(t string, short string) {
+		r, ok := byName[t]
+		if !ok {
+			r = &tableRow{name: t, alias: tableAlias[t]}
+			byName[t] = r
+			order = append(order, t)
+		}
+		if short != "" && !containsStr(r.mods, short) {
+			r.mods = append(r.mods, short)
+		}
+	}
 	for _, wm := range data {
 		for _, t := range wm.Tables {
-			r, ok := byName[t]
-			if !ok {
-				r = &tableRow{name: t, alias: tableAlias[t]}
-				byName[t] = r
-				order = append(order, t)
-			}
-			if !containsStr(r.mods, wm.ShortName) {
-				r.mods = append(r.mods, wm.ShortName)
-			}
+			add(t, wm.ShortName)
 		}
+	}
+	// #249：yaml 手写定义的表也渲染
+	for name := range tableCfgs {
+		add(name, "")
 	}
 	sort.Strings(order)
 	out := make([]tableRow, 0, len(order))

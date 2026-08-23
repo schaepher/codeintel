@@ -36,7 +36,7 @@ func TestParseSQLStmt(t *testing.T) {
 		{"", "", nil, nil},
 	}
 	for _, c := range cases {
-		table, cols, whereCols, _ := parseSQLStmt(c.sql)
+		table, _, cols, whereCols, _ := parseSQLStmt(c.sql)
 		if table != c.table {
 			t.Errorf("parseSQLStmt(%q) table = %q, want %q", c.sql, table, c.table)
 		}
@@ -182,7 +182,7 @@ func TestParseSQLJoinPairs(t *testing.T) {
 		{"SELECT name FROM users WHERE id = ?", nil},
 	}
 	for _, c := range cases {
-		_, _, _, pairs := parseSQLStmt(c.sql)
+		_, _, _, _, pairs := parseSQLStmt(c.sql)
 		if len(pairs) != len(c.pairs) {
 			t.Errorf("%q: joinPairs = %+v, want %+v", c.sql, pairs, c.pairs)
 			continue
@@ -280,7 +280,7 @@ func TestParseSQLSubqueryParen(t *testing.T) {
 		{"SELECT * FROM (SELECT id FROM b) x WHERE x.id = ?", "", nil},
 	}
 	for _, c := range cases {
-		table, _, whereCols, _ := parseSQLStmt(c.sql)
+		table, _, _, whereCols, _ := parseSQLStmt(c.sql)
 		if table != c.table {
 			t.Errorf("%q: table = %q, want %q", c.sql, table, c.table)
 		}
@@ -361,7 +361,7 @@ func TestParseSQLJoinPairsMultiline(t *testing.T) {
 		INNER JOIN sale_normal_order ord ON ord.id = it.order_id
 		INNER JOIN mm_member m ON m.member_id = ord.buyer_id
 		WHERE it.item_id = $1`
-	_, _, _, pairs := parseSQLStmt(sql)
+	_, _, _, _, pairs := parseSQLStmt(sql)
 	want := []sqlJoinPair{
 		{"sale_normal_order", "id", "sale_sub_item", "order_id"},
 		{"mm_member", "member_id", "sale_normal_order", "buyer_id"},
@@ -372,6 +372,35 @@ func TestParseSQLJoinPairsMultiline(t *testing.T) {
 	for i, w := range want {
 		if pairs[i] != w {
 			t.Errorf("pair[%d] = %+v, want %+v", i, pairs[i], w)
+		}
+	}
+}
+
+// TestSQLAliasNormalize：#249 别名归一——FROM edges e 的 WHERE 列
+// e.source_id 归一为 source_id；未知前缀丢弃。
+func TestSQLAliasNormalize(t *testing.T) {
+	cases := []struct {
+		sql       string
+		table     string
+		whereCols []string
+	}{
+		{"SELECT source_id FROM edges e WHERE e.kind = ? AND e.confidence >= ?", "edges", []string{"kind", "confidence"}},
+		{"UPDATE nodes SET name = ? WHERE nodes.id = ?", "nodes", []string{"id"}},
+		{"SELECT x FROM a x JOIN b ON a.id = b.a_id WHERE x.id = ?", "a", []string{"id"}},
+	}
+	for _, c := range cases {
+		table, _, _, whereCols, _ := parseSQLStmt(c.sql)
+		if table != c.table {
+			t.Errorf("parseSQLStmt(%q) table = %q, want %q", c.sql, table, c.table)
+		}
+		if len(whereCols) != len(c.whereCols) {
+			t.Errorf("parseSQLStmt(%q) whereCols = %v, want %v", c.sql, whereCols, c.whereCols)
+			continue
+		}
+		for i := range whereCols {
+			if whereCols[i] != c.whereCols[i] {
+				t.Errorf("parseSQLStmt(%q) whereCols[%d] = %q, want %q", c.sql, i, whereCols[i], c.whereCols[i])
+			}
 		}
 	}
 }

@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-var whereColRe = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_.]*)\s*=\s*(\?|\$\d+)`)
+var whereColRe = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_.]*)\s*(?:=|>=|<=|>|<|!=|<>)\s*(\?|\$\d+)`)
 
 // sqlJoinPair JOIN ON 等值键对（Q239）：JOIN 表.列 = 主表.列
 // （SQL 书写顺序：左 = From，右 = To；别名已映射回真实表名）。
@@ -209,7 +209,7 @@ func extractWhereCols(rest string) []string {
 	for _, m := range whereColRe.FindAllStringSubmatch(wherePart, -1) {
 		c := m[1]
 		if i := strings.LastIndex(c, "."); i >= 0 {
-			c = c[i+1:]
+			c = c[i+1:] // #249：别名前缀剥离（多表 SQL 兼容）
 		}
 		c = strings.Trim(c, "`\"[]")
 		c = strings.TrimRight(c, ")") // Q239：子查询闭合括号剥离
@@ -230,7 +230,7 @@ func extractWhereCols(rest string) []string {
 //	SELECT * FROM t                   → t, [], nil（表级）
 //	... WHERE y = ?                   → ..., [], [y]（表关联：值实参按 ? 顺序映射）
 
-func parseSQLStmt(sql string) (table string, cols []string, whereCols []string, joinPairs []sqlJoinPair) {
+func parseSQLStmt(sql string) (table, alias string, cols []string, whereCols []string, joinPairs []sqlJoinPair) {
 	upper := strings.ToUpper(sql)
 	rest := ""
 	switch {
@@ -267,7 +267,7 @@ func parseSQLStmt(sql string) (table string, cols []string, whereCols []string, 
 			}
 		}
 	default:
-		return "", nil, nil, nil
+		return "", "", nil, nil, nil
 	}
 	rest = strings.TrimSpace(rest)
 
@@ -283,7 +283,21 @@ func parseSQLStmt(sql string) (table string, cols []string, whereCols []string, 
 	// Q239：子查询右括号不得并进表名（(SELECT ... FROM mm_member) → mm_member）
 	table = strings.TrimRight(table, ")")
 	if table == "" {
-		return "", nil, nil, nil
+		return "", "", nil, nil, nil
+	}
+	// 主表别名（#249：FROM edges e → alias=e——WHERE 列别名归一用）
+	after0 := strings.TrimSpace(rest[tableEnd:])
+	if after0 != "" && after0[0] != '(' {
+		if i := strings.IndexAny(after0, " \t\n,;("); i > 0 {
+			alias = strings.TrimSpace(after0[:i])
+			alias = strings.Trim(alias, "`\"[]")
+		}
+	}
+	if alias != "" {
+		up := strings.ToUpper(alias)
+		if sqlKwdSet[up] || up == "WHERE" || up == "JOIN" || up == "SET" {
+			alias = "" // 关键字不是别名
+		}
 	}
 
 	after := strings.TrimSpace(rest[tableEnd:])
@@ -322,5 +336,5 @@ func parseSQLStmt(sql string) (table string, cols []string, whereCols []string, 
 	}
 
 	whereCols = extractWhereCols(rest)
-	return table, cols, whereCols, joinPairs
+	return table, alias, cols, whereCols, joinPairs
 }

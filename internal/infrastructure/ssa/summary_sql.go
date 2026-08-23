@@ -31,7 +31,7 @@ func (ext *fieldExtractor) applySQLSummary(cc *ssa.CallCommon, calleeID domain.C
 			sqlStr = constant.StringVal(c.Value)
 		}
 	}
-	table, cols, whereCols, joinPairs := parseSQLStmt(sqlStr)
+	table, tableAlias, cols, whereCols, joinPairs := parseSQLStmt(sqlStr)
 	line := ext.prog.Fset.PositionFor(cc.Pos(), false).Line
 
 	if !spec.SQLWrite {
@@ -93,10 +93,11 @@ func (ext *fieldExtractor) applySQLSummary(cc *ssa.CallCommon, calleeID domain.C
 				if i >= len(whereCols) {
 					break
 				}
-				if !validSQLColumn(whereCols[i]) {
-					continue // #247 SQL 截断片段噪音
+				col := sqlColUnqual(table, tableAlias, whereCols[i])
+				if !validSQLColumn(col) {
+					continue // #247/#249 截断片段或未知前缀
 				}
-				name := table + "." + whereCols[i]
+				name := table + "." + col
 				id := domain.CanonicalID(string(ext.funcID) + "#ext.sql." + name + ".filter@" + fmt.Sprintf("%d", line))
 				if err := ext.emit(domain.Item{Node: &domain.CodeEntity{
 					ID:        id,
@@ -236,6 +237,10 @@ func (ext *fieldExtractor) applySQLSummary(cc *ssa.CallCommon, calleeID domain.C
 			vi := len(cols) + i
 			if vi >= len(values) {
 				break
+			}
+			col = sqlColUnqual(table, tableAlias, col)
+			if !validSQLColumn(col) {
+				continue // #247/#249 截断片段或未知前缀
 			}
 			name := table + "." + col
 			id := domain.CanonicalID(string(ext.funcID) + "#ext.sql." + name + ".filter@" + fmt.Sprintf("%d", line))
@@ -382,4 +387,17 @@ var sqlKeyword = map[string]bool{
 	"end": true, "null": true, "true": true, "false": true, "count": true,
 	"sum": true, "avg": true, "max": true, "min": true, "exists": true,
 	"like": true, "between": true, "is": true, "desc": true, "asc": true,
+}
+
+// sqlColUnqual 列别名归一（#249）：`e.source_id` 且 e 是主表别名 →
+// source_id（前缀必须是 table 或 alias，否则丢弃返回空）。
+func sqlColUnqual(table, alias, col string) string {
+	if i := strings.Index(col, "."); i >= 0 {
+		pre, rest := col[:i], col[i+1:]
+		if pre == table || (alias != "" && pre == alias) {
+			return rest
+		}
+		return "" // 未知前缀（CTE 名/其他表）——丢弃
+	}
+	return col
 }
