@@ -182,3 +182,26 @@ func TestWikiAutoDesc(t *testing.T) {
 		t.Errorf("空模块自动推断应为空")
 	}
 }
+
+// TestArchMermaidFallback：R2——yaml architecture 空时自动包间调用
+// 聚合图（同 from→to 计数相加，确定性排序）。
+func TestArchMermaidFallback(t *testing.T) {
+	data := []*domain.WikiModule{
+		{Name: "m1", PkgCalls: []*domain.WikiPkgCall{
+			{From: "cli", To: "action", Count: 5},
+			{From: "cli", To: "server", Count: 1},
+		}},
+		{Name: "m2", PkgCalls: []*domain.WikiPkgCall{
+			{From: "cli", To: "action", Count: 3},
+		}},
+	}
+	got := archMermaidFallback(data)
+	for _, want := range []string{"cli[cli] -->|8| action[action]", "cli[cli] -->|1| server[server]"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("fallback 应含 %q:\n%s", want, got)
+		}
+	}
+	if archMermaidFallback(nil) != "" {
+		t.Errorf("空数据 fallback 应为空")
+	}
+}

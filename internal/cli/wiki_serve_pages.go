@@ -118,8 +118,14 @@ func searchIndexJSON(snap *wikiSnapshot) string {
 // overviewPage 概览页：架构图 + 模块目录 + 术语表。
 func (ws *wikiServe) overviewPage(snap *wikiSnapshot) string {
 	var b strings.Builder
-	if snap.cfg.Architecture != "" {
-		b.WriteString(`<section id="arch"><h2>架构图</h2><p class="muted">（来源：wiki.yaml architecture）</p><pre class="mermaid">` + htmlEsc(snap.cfg.Architecture) + `</pre></section>` + "\n")
+	archMermaid := snap.cfg.Architecture
+	archNote := "（来源：wiki.yaml architecture）"
+	if archMermaid == "" {
+		archMermaid = archMermaidFallback(snap.data)
+		archNote = "（自动生成：包间调用聚合——yaml architecture 可覆盖）"
+	}
+	if archMermaid != "" {
+		b.WriteString(`<section id="arch"><h2>架构图</h2><p class="muted">` + archNote + `</p><pre class="mermaid">` + htmlEsc(archMermaid) + `</pre></section>` + "\n")
 	}
 	b.WriteString(`<section id="modules"><h2>模块</h2>`)
 	if len(snap.ordered) == 0 {

@@ -62,8 +62,14 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 		main.WriteString("</section>\n")
 	}
 
-	if cfg.Architecture != "" {
-		main.WriteString(`<section id="arch"><h2>架构图</h2><p class="muted">（来源：wiki.yaml architecture）</p><pre class="mermaid">` + htmlEsc(cfg.Architecture) + `</pre></section>` + "\n")
+	archMermaid := cfg.Architecture
+	archNote := "（来源：wiki.yaml architecture）"
+	if archMermaid == "" {
+		archMermaid = archMermaidFallback(data)
+		archNote = "（自动生成：包间调用聚合——yaml architecture 可覆盖）"
+	}
+	if archMermaid != "" {
+		main.WriteString(`<section id="arch"><h2>架构图</h2><p class="muted">` + archNote + `</p><pre class="mermaid">` + htmlEsc(archMermaid) + `</pre></section>` + "\n")
 		nav.WriteString(`<li><a href="#arch">架构图</a></li>`)
 	}
 

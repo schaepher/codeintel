@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/schaepher/codeintel/internal/domain"
@@ -141,6 +142,38 @@ func renderModulePage(wm *domain.WikiModule, desc string, tableAlias map[string]
 	}
 	if !hasSeq {
 		b.WriteString("（无调用链——yaml flows 可手写业务时序）\n\n")
+	}
+	return b.String()
+}
+
+// archMermaidFallback 概览架构图自动 fallback（R2）：yaml architecture
+// 空时用包间调用聚合图（所有模块 PkgCalls 合并，线计数相加）——新人
+// 第一眼有系统图；yaml architecture 可覆盖。
+func archMermaidFallback(data []*domain.WikiModule) string {
+	type key struct{ from, to string }
+	counts := map[key]int{}
+	for _, wm := range data {
+		for _, c := range wm.PkgCalls {
+			counts[key{c.From, c.To}] += c.Count
+		}
+	}
+	if len(counts) == 0 {
+		return ""
+	}
+	keys := make([]key, 0, len(counts))
+	for k := range counts {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].from != keys[j].from {
+			return keys[i].from < keys[j].from
+		}
+		return keys[i].to < keys[j].to
+	})
+	var b strings.Builder
+	b.WriteString("graph LR\n")
+	for _, k := range keys {
+		b.WriteString(fmt.Sprintf("  %s -->|%d| %s\n", archNode(k.from), counts[k], archNode(k.to)))
 	}
 	return b.String()
 }
