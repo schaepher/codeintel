@@ -157,14 +157,19 @@ func cmdWiki(args []string) int {
 		}
 		data = filtered
 	}
+	cols, err := acts.GetAllTableColumns()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
 	switch format {
 	case "html":
-		if err := renderWikiHTML(abs, outDir, data, cfg); err != nil {
+		if err := renderWikiHTML(abs, outDir, data, cfg, cols); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
 		}
 	case "md", "":
-		if err := renderWiki(abs, outDir, data, cfg); err != nil {
+		if err := renderWiki(abs, outDir, data, cfg, cols); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
 		}
@@ -177,7 +182,7 @@ func cmdWiki(args []string) int {
 }
 
 // renderWiki 生成 index.md + 模块页 + tables.md（全量覆盖）。
-func renderWiki(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiConfig) error {
+func renderWiki(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiConfig, cols []*domain.TableColumn) error {
 	logger := zap.L()
 	logger.Debug("enter renderWiki", zap.Int("modules", len(data)))
 	defer logger.Debug("exit renderWiki")
@@ -227,7 +232,7 @@ func renderWiki(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiConfi
 	if err := os.WriteFile(filepath.Join(outDir, "index.md"), []byte(idx.String()), 0o644); err != nil {
 		return err
 	}
-	tables := renderTablesPage(data, tableAlias, tableCfgs)
+	tables := renderTablesPage(data, tableAlias, tableCfgs, cols)
 	return os.WriteFile(filepath.Join(outDir, "tables.md"), []byte(tables), 0o644)
 }
 
@@ -378,7 +383,7 @@ func sequenceMermaid(steps []domain.WikiSeqStep) string {
 }
 
 // renderTablesPage 表清单 + 每表详情（字段定义表/索引/建表语句，#243）。
-func renderTablesPage(data []*domain.WikiModule, tableAlias map[string]string, tableCfgs map[string]wikiTableConfig) string {
+func renderTablesPage(data []*domain.WikiModule, tableAlias map[string]string, tableCfgs map[string]wikiTableConfig, cols []*domain.TableColumn) string {
 	var b strings.Builder
 	b.WriteString("# 表清单\n\n")
 	seen := map[string]bool{}
@@ -417,13 +422,14 @@ func renderTablesPage(data []*domain.WikiModule, tableAlias map[string]string, t
 		if alias := tableAlias[t]; alias != "" {
 			b.WriteString("> " + alias + "\n\n")
 		}
-		cfg, ok := tableCfgs[t]
-		if !ok || len(cfg.Columns) == 0 {
-			b.WriteString("（无字段定义——维护者可在 wiki.yaml tables.columns 补充）\n\n")
+		cfg := tableCfgs[t]
+		rows := mergeTableColumns(t, cols, cfg.Columns)
+		if len(rows) == 0 {
+			b.WriteString("（无字段信息——维护者可在 wiki.yaml tables.columns 补充）\n\n")
 		} else {
 			b.WriteString("### 字段\n\n| 字段名 | 类型 | 默认值 | 说明 |\n|---|---|---|---|\n")
-			for _, c := range cfg.Columns {
-				b.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n", c.Name, c.Type, c.Default, c.Comment))
+			for _, c := range rows {
+				b.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n", c.name, c.typ, c.def, c.comment))
 			}
 			b.WriteString("\n")
 		}
@@ -456,4 +462,52 @@ func wikiMetaIndex(cfg wikiConfig) (map[string]wikiMeta, map[string]string, map[
 		hidden[s] = true
 	}
 	return meta, tableAlias, hidden
+}
+
+// tableColRow 渲染用表字段行。
+type tableColRow struct {
+	name    string
+	typ     string
+	def     string
+	comment string
+}
+
+// mergeTableColumns 表字段合并（#243 自动初稿 + yaml 覆盖）：
+// 自动列（ER 表列虚拟节点：列名 + gorm tag 类型）为底，yaml columns
+// 覆盖同名（type/default/comment 各自覆盖），自动列未列出的补全。
+func mergeTableColumns(table string, cols []*domain.TableColumn, yamlCols []struct {
+	Name    string `yaml:"name"`
+	Type    string `yaml:"type"`
+	Default string `yaml:"default"`
+	Comment string `yaml:"comment"`
+}) []tableColRow {
+	// yaml 索引（同名覆盖）
+	byName := map[string]tableColRow{}
+	var order []string
+	for _, c := range yamlCols {
+		byName[c.Name] = tableColRow{name: c.Name, typ: c.Type, def: c.Default, comment: c.Comment}
+		order = append(order, c.Name)
+	}
+	// 自动列补全（同名合并：yaml 有值则保留，空则用自动）
+	prefix := table + "."
+	for _, c := range cols {
+		if !strings.HasPrefix(c.Name, prefix) {
+			continue
+		}
+		col := strings.TrimPrefix(c.Name, prefix)
+		if r, ok := byName[col]; ok {
+			if r.typ == "" {
+				r.typ = c.ColType
+			}
+			byName[col] = r
+			continue
+		}
+		byName[col] = tableColRow{name: col, typ: c.ColType}
+		order = append(order, col)
+	}
+	out := make([]tableColRow, 0, len(order))
+	for _, n := range order {
+		out = append(out, byName[n])
+	}
+	return out
 }

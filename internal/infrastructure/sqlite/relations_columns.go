@@ -136,7 +136,8 @@ func (r *Repo) GetAllTableColumns() ([]*domain.TableColumn, error) {
 	logger := zap.L()
 	logger.Debug("enter (Repo).GetAllTableColumns")
 	defer logger.Debug("exit (Repo).GetAllTableColumns")
-	rows, err := r.Query(`SELECT name, line_start, properties FROM nodes
+	rows, err := r.Query(`SELECT name, line_start, properties,
+		COALESCE(json_extract(properties, '$.col_type'), '') FROM nodes
 		WHERE kind = 'field_access'
 		  AND json_extract(properties, '$.is_external') = 'true'
 		  AND json_extract(properties, '$.type_string') IN ('gorm', 'sql', 'xorm')
@@ -149,9 +150,9 @@ func (r *Repo) GetAllTableColumns() ([]*domain.TableColumn, error) {
 	seen := map[string]bool{}
 	var out []*domain.TableColumn
 	for rows.Next() {
-		var name, props string
+		var name, props, colType string
 		var line int
-		if err := rows.Scan(&name, &line, &props); err != nil {
+		if err := rows.Scan(&name, &line, &props, &colType); err != nil {
 			return nil, err
 		}
 		if seen[name] {
@@ -166,7 +167,7 @@ func (r *Repo) GetAllTableColumns() ([]*domain.TableColumn, error) {
 		if a, ok := m["access_kind"].(string); ok {
 			access = a
 		}
-		out = append(out, &domain.TableColumn{Name: name, Access: access, LineStart: line})
+		out = append(out, &domain.TableColumn{Name: name, ColType: colType, Access: access, LineStart: line})
 	}
 	return out, rows.Err()
 }

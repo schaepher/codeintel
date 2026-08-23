@@ -16,7 +16,7 @@ import (
 )
 
 // renderWikiHTML 生成单文件自包含 index.html（全量覆盖）。
-func renderWikiHTML(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiConfig) error {
+func renderWikiHTML(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiConfig, cols []*domain.TableColumn) error {
 	logger := zap.L()
 	logger.Debug("enter renderWikiHTML", zap.Int("modules", len(data)))
 	defer logger.Debug("exit renderWikiHTML")
@@ -85,14 +85,15 @@ func renderWikiHTML(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiC
 			if t.alias != "" {
 				main.WriteString("<blockquote>" + htmlEsc(t.alias) + "</blockquote>")
 			}
-			tc, ok := tableCfgs[t.name]
-			if !ok || len(tc.Columns) == 0 {
-				main.WriteString("<p class=\"muted\">（无字段定义——维护者可在 wiki.yaml tables.columns 补充）</p>")
+			tc := tableCfgs[t.name]
+			rows := mergeTableColumns(t.name, cols, tc.Columns)
+			if len(rows) == 0 {
+				main.WriteString("<p class=\"muted\">（无字段信息——维护者可在 wiki.yaml tables.columns 补充）</p>")
 			} else {
 				main.WriteString("<table><tr><th>字段名</th><th>类型</th><th>默认值</th><th>说明</th></tr>")
-				for _, c := range tc.Columns {
+				for _, c := range rows {
 					main.WriteString(fmt.Sprintf("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>",
-						htmlEsc(c.Name), htmlEsc(c.Type), htmlEsc(c.Default), htmlEsc(c.Comment)))
+						htmlEsc(c.name), htmlEsc(c.typ), htmlEsc(c.def), htmlEsc(c.comment)))
 				}
 				main.WriteString("</table>")
 			}

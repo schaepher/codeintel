@@ -119,6 +119,7 @@ type TableEndpoint struct {
 // TableColumn 表的一列虚拟节点及数据流（query table）。
 type TableColumn struct {
 	Name      string          `json:"name"`              // 表.列（无列时为表名）
+	ColType   string          `json:"col_type,omitempty"` // gorm tag type（#243 wiki 表详情初稿）
 	Access    string          `json:"access"`            // read / write / filter
 	LineStart int             `json:"line_start"`        // 定义行号
 	Writers   []TableEndpoint `json:"writers,omitempty"` // summary_io 入边（值 → 虚拟节点）：谁写入该列

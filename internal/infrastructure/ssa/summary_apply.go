@@ -281,6 +281,21 @@ func (ext *fieldExtractor) applyTxBoundary(cc *ssa.CallCommon, calleeID domain.C
 	}})
 }
 
+// gormTypeOf 提取 gorm:"type:xxx" 的字段类型（无则空——#243 表详情
+// 自动初稿尽力而为）。
+func gormTypeOf(tag reflect.StructTag) string {
+	g := tag.Get("gorm")
+	for _, part := range strings.Split(g, ";") {
+		part = strings.TrimSpace(part)
+		if strings.HasPrefix(part, "type:") {
+			if t := strings.TrimSpace(strings.TrimPrefix(part, "type:")); t != "" {
+				return t
+			}
+		}
+	}
+	return ""
+}
+
 // gormColumnOf 提取 gorm:"column:x" 的列名（无则 snake_case 字段名）。
 
 func gormColumnOf(tag reflect.StructTag, fieldName string) string {

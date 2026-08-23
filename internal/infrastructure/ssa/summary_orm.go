@@ -73,6 +73,7 @@ func (ext *fieldExtractor) applyORMRead(cc *ssa.CallCommon, calleeID domain.Cano
 				"type_string":   "gorm",
 				"is_external":   "true",
 				"func_id":       string(ext.funcID),
+				"col_type":      gormTypeOf(reflect.StructTag(st.Tag(i))), // #243 字段类型初稿
 			},
 		}}); err != nil {
 			return err
