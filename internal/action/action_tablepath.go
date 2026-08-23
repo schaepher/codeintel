@@ -3,6 +3,7 @@ package action
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"go.uber.org/zap"
 )
@@ -197,6 +198,10 @@ func (a *Actions) ResolveTableName(name string) (string, []string, error) {
 	}
 	if len(hits) > 1 {
 		return "", hits, fmt.Errorf("表名 %q 命中多个候选", name)
+	}
+	// Q244：相似名提示（前缀/编辑距离 ≤2）
+	if cands := similarCandidates(name, tables, 5); len(cands) > 0 {
+		return "", cands, fmt.Errorf("表 %q 不存在，你是要找 %s？", name, strings.Join(cands, " / "))
 	}
 	return "", nil, fmt.Errorf("表 %q 不存在", name)
 }

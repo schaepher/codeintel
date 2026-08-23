@@ -137,3 +137,26 @@ func shortNameFromID(id string) string {
 	}
 	return id
 }
+
+// AllSymbolNames 全部可搜索符号名（Q244 相似名提示候选池；排除字段
+// 追溯内部节点）。
+func (r *Repo) AllSymbolNames(limit int) ([]string, error) {
+	logger := zap.L()
+	logger.Debug("enter (Repo).AllSymbolNames")
+	defer logger.Debug("exit (Repo).AllSymbolNames")
+	const exclude = "kind NOT IN ('field_access','ssa_value','external_summary')"
+	rows, err := r.Query("SELECT DISTINCT name FROM nodes WHERE "+exclude+" ORDER BY name LIMIT ?", limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var names []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		names = append(names, n)
+	}
+	return names, rows.Err()
+}

@@ -3,6 +3,7 @@ package action
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/schaepher/codeintel/internal/domain"
@@ -32,6 +33,11 @@ func beforeActs(t *testing.T) (*Actions, string) {
 			Properties: map[string]any{"full_path": "example.com/m.T.A", "access_kind": "write", "func_id": string(funcID)}},
 		{ID: funcID + "#t.A.read@7", Kind: domain.KindFieldAccess, Name: "t.A", FilePath: "main.go", LineStart: 7,
 			Properties: map[string]any{"full_path": "example.com/m.T.A", "access_kind": "read", "func_id": string(funcID)}},
+		// 表虚拟节点（相似表名测试）
+		{ID: domain.CanonicalID(string(funcID) + "#ext.sql.table_a.id.read@10"), Kind: domain.KindFieldAccess,
+			Name: "table_a.id", FilePath: "main.go", LineStart: 10,
+			Properties: map[string]any{"full_path": "table_a.id", "access_kind": "read",
+				"type_string": "sql", "is_external": "true", "func_id": string(funcID)}},
 	}
 	if _, err := r.SaveBatchStats(nodes, []*domain.Fact{
 		{SourceID: startID, TargetID: funcID, Kind: domain.FactCalls, Confidence: 0.9},
@@ -134,5 +140,40 @@ func TestBatchSymbols(t *testing.T) {
 	}
 	if res[0].Callers == 0 {
 		t.Errorf("main 应有调用者（start → main）: %+v", res[0])
+	}
+}
+
+// TestSimilarNames：相似名提示（Q244）——拼错时给出候选。
+func TestSimilarNames(t *testing.T) {
+	a, _ := beforeActs(t)
+	// 表名拼错（table_a 打错）
+	_, cands, err := a.ResolveTableName("table_")
+	if err == nil {
+		t.Fatal("拼错表名应报错")
+	}
+	if len(cands) == 0 {
+		t.Errorf("应给出相似表名候选: %v", err)
+	}
+	found := false
+	for _, c := range cands {
+		if c == "table_a" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("候选应含 table_a: %v", cands)
+	}
+}
+
+// TestSimilarSymbols：符号名相似候选（编辑距离——前缀/子串已被
+// GetSymbolByName 的 LIKE fallback 兜底命中，不走到候选）。
+func TestSimilarSymbols(t *testing.T) {
+	a, _ := beforeActs(t)
+	_, err := a.ResolveSymbol("man") // main 打错一个字母
+	if err == nil {
+		t.Fatal("拼错符号应报错")
+	}
+	if !strings.Contains(err.Error(), "main") {
+		t.Errorf("错误应提示相似符号 main: %v", err)
 	}
 }

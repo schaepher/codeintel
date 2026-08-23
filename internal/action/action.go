@@ -55,6 +55,7 @@ type Reader interface {
 	RelationProgress() (domain.RelationProgress, error)
 	StartRelationComputeIfNeeded() (bool, error)
 	PrecomputeAllRelations(progressFn func(done, total int)) error
+	AllSymbolNames(limit int) ([]string, error) // Q244 相似名候选池
 }
 
 // Actions 是 CLI 与 HTTP 共享的查询用例集合。

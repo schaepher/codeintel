@@ -29,6 +29,12 @@ func (a *Actions) ResolveSymbol(input string) (*domain.CodeEntity, error) {
 		return nil, err
 	}
 	if len(matches) == 0 {
+		// Q244：相似名提示（前缀/编辑距离 ≤2）
+		if names, err := a.repo.AllSymbolNames(5000); err == nil {
+			if cands := similarCandidates(input, names, 5); len(cands) > 0 {
+				return nil, fmt.Errorf("符号 %q 不存在，你是要找 %s？", input, strings.Join(cands, " / "))
+			}
+		}
 		return nil, fmt.Errorf("符号 %q 不存在", input)
 	}
 	if len(matches) > 1 {
