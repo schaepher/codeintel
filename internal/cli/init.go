@@ -94,6 +94,9 @@ func cmdInit(ctx context.Context, args []string) int {
 		fmt.Printf("  跳过边: %d (端点非索引对象)\n", result.SkippedEdges)
 	}
 	fmt.Printf("  状态:   %s\n", result.Status)
+	if ds := result.DegradeStats; ds != "" {
+		fmt.Printf("  SQL 解析: %s\n", ds)
+	}
 	fmt.Printf("  耗时:   %s\n", result.Duration.Round(time.Millisecond))
 	if result.CommitSHA != "" {
 		fmt.Printf("  HEAD:   %s\n", result.CommitSHA[:12])

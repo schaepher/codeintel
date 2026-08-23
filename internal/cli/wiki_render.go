@@ -14,7 +14,7 @@ import (
 // renderWiki 生成 index.md + 模块页 + tables.md + er.md + commands.md +
 // api.md（全量覆盖）。
 func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
-	acts, data, cfg, cols, rels, freshNote, pkgs := rc.acts, rc.data, rc.cfg, rc.cols, rc.rels, rc.freshNote, rc.pkgs
+	acts, data, cfg, cols, rels, freshNote, pkgs, degradeStats := rc.acts, rc.data, rc.cfg, rc.cols, rc.rels, rc.freshNote, rc.pkgs, rc.degradeStats
 	logger := zap.L()
 	logger.Debug("enter renderWiki", zap.Int("modules", len(data)))
 	defer logger.Debug("exit renderWiki")
@@ -67,6 +67,9 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 		idx.WriteString("## 整体架构图\n\n> 自动生成：包间调用聚合（yaml architecture 可覆盖）\n\n```mermaid\n" + arch + "\n```\n\n")
 	}
 	idx.WriteString("由 `codeintel wiki` 生成（全量覆盖；业务描述/别名维护在 wiki.yaml）\n\n")
+	if degradeStats != "" {
+		idx.WriteString("> 构建 SQL 解析降级统计：" + degradeStats + "（AST 降级率异常高时检查解析器）\n\n")
+	}
 	idx.WriteString("## 模块\n\n")
 	for _, wm := range ordered {
 		idx.WriteString(fmt.Sprintf("- [%s](%s.md)", wm.Name, wm.ShortName))

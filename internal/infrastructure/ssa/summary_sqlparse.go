@@ -251,6 +251,7 @@ var reCTEAlias = regexp.MustCompile(`(?i)\b(?:JOIN|FROM)\s+([A-Za-z_][A-Za-z0-9_
 // GLOB）降级启发式（残缺 SQL 尽量提取，保守不误报）。
 func parseSQLStmt(sql string) (table, alias string, cols []string, whereCols []string, joinPairs []sqlJoinPair) {
 	if t, a, c, wc, jp, ok := parseSQLStmtAST(sql); ok {
+		sqlAstOK.Add(1) // R6：降级可观测埋点
 		return t, a, c, wc, jp
 	}
 	// Q252 补：Go 反引号 SQL 不做转义——`\n\t` 是字面反斜杠，vitess
@@ -258,9 +259,11 @@ func parseSQLStmt(sql string) (table, alias string, cols []string, whereCols []s
 	if strings.Contains(sql, "\\n") || strings.Contains(sql, "\\t") {
 		esc := strings.NewReplacer("\\n", "\n", "\\t", "\t").Replace(sql)
 		if t, a, c, wc, jp, ok := parseSQLStmtAST(esc); ok {
+			sqlAstOK.Add(1)
 			return t, a, c, wc, jp
 		}
 	}
+	sqlAstFail.Add(1) // R6：AST 失败（含转义第二尝试）
+	sqlHeuristic.Add(1)
 	return parseSQLStmtHeuristic(sql)
 }
-

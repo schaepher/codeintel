@@ -87,10 +87,10 @@ func (r *Repo) Save(meta *domain.BuildMeta) error {
 	logger.Debug("enter (Repo).Save")
 	defer logger.Debug("exit (Repo).Save")
 	_, err := r.Exec(`INSERT OR REPLACE INTO build_metadata
-		(build_id, commit_sha, tool_name, status, duration_ms, error_message, nodes_count, edges_count)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		(build_id, commit_sha, tool_name, status, duration_ms, error_message, nodes_count, edges_count, degrade_stats)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		meta.BuildID, meta.CommitSHA, meta.ToolName, meta.Status, meta.DurationMs, meta.ErrorMsg,
-		meta.Nodes, meta.Edges)
+		meta.Nodes, meta.Edges, meta.DegradeStats)
 	return err
 }
 
@@ -102,10 +102,10 @@ func (r *Repo) GetLatest() (*domain.BuildMeta, error) {
 	m := &domain.BuildMeta{}
 	// timestamp 为秒级：同一秒内多次构建须按写入顺序取最新（rowid 递增）
 	err := r.QueryRow(`SELECT build_id, commit_sha, tool_name, status, duration_ms, error_message,
-		COALESCE(nodes_count, 0), COALESCE(edges_count, 0)
+		COALESCE(nodes_count, 0), COALESCE(edges_count, 0), COALESCE(degrade_stats, '')
 		FROM build_metadata ORDER BY timestamp DESC, rowid DESC LIMIT 1`).
 		Scan(&m.BuildID, &m.CommitSHA, &m.ToolName, &m.Status, &m.DurationMs, &m.ErrorMsg,
-			&m.Nodes, &m.Edges)
+			&m.Nodes, &m.Edges, &m.DegradeStats)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, domain.ErrNotFound
 	}

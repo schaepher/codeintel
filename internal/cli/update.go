@@ -118,6 +118,10 @@ func cmdUpdate(ctx context.Context, args []string) int {
 	}
 	fmt.Printf("  状态:     %s\n", result.Status)
 	fmt.Printf("  耗时:     %s\n", result.Duration.Round(time.Millisecond))
+	// R6：SQL 解析降级统计（AST 死代码类问题提前暴露）
+	if ds := result.DegradeStats; ds != "" {
+		fmt.Printf("  SQL 解析: %s\n", ds)
+	}
 	fmt.Println("=========================")
 	if result.Status == domain.BuildFailed {
 		fmt.Fprintln(os.Stderr, "增量更新失败：SCIP 符号索引不可用。请检查 scip-go 是否安装。")

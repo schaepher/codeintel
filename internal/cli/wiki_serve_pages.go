@@ -120,6 +120,9 @@ func searchIndexJSON(snap *wikiSnapshot) string {
 // overviewPage 概览页：架构图 + 模块目录 + 术语表。
 func (ws *wikiServe) overviewPage(snap *wikiSnapshot) string {
 	var b strings.Builder
+	if snap.degradeStats != "" {
+		b.WriteString(`<p class="muted">构建 SQL 解析降级统计：` + htmlEsc(snap.degradeStats) + `（AST 降级率异常高时检查解析器）</p>`)
+	}
 	archMermaid := snap.cfg.Architecture
 	archNote := "（来源：wiki.yaml architecture）"
 	if archMermaid == "" {

@@ -42,6 +42,10 @@ type BuildResult struct {
 	CommitSHA    string
 	Adapter      []AdapterResult
 	SkippedEdges int // 因外键冲突跳过的边（日志用）
+	// R6：SQL 解析降级统计 JSON（{"sql_ast_ok":..,"sql_ast_fail":..,
+	// "sql_heuristic":..}）——构建期降级可观测（AST 死代码类问题
+	// 提前暴露，不再静默）
+	DegradeStats string
 }
 
 // Orchestrator 编排全量构建。

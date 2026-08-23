@@ -146,6 +146,10 @@ type BuildMeta struct {
 	ErrorMsg   string `json:"error_msg,omitempty"`
 	Nodes      int    `json:"nodes,omitempty"` // 构建产物节点数（--memory auto 判断缓存，P0④）
 	Edges      int    `json:"edges,omitempty"` // 构建产物边数
+	// R6：降级统计（JSON：{"sql_ast_ok":N,"sql_ast_fail":M,
+	// "sql_heuristic":K}）——构建期降级可观测（AST 死代码类问题
+	// 提前暴露，不再静默）
+	DegradeStats string `json:"degrade_stats,omitempty"`
 }
 
 // BuildStatus 常量

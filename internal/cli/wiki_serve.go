@@ -32,8 +32,9 @@ type wikiServe struct {
 
 // wikiSnapshot 一次有效数据快照（渲染入参，与 renderWikiHTML 同源）。
 type wikiSnapshot struct {
-	buildID    string
-	commitSHA  string
+	buildID      string
+	commitSHA    string
+	degradeStats string // R6：构建降级统计
 	yamlMod    int64
 	data       []*domain.WikiModule
 	ordered    []*domain.WikiModule
@@ -106,15 +107,15 @@ func serveWikiHTML(w http.ResponseWriter, html string) {
 func (ws *wikiServe) snapshot() (*wikiSnapshot, error) {
 	ws.mu.Lock()
 	defer ws.mu.Unlock()
-	buildID, commitSHA := "", ""
+	buildID, commitSHA, degradeStats := "", "", ""
 	if latest, err := ws.acts.Latest(); err == nil {
-		buildID, commitSHA = latest.BuildID, latest.CommitSHA
+		buildID, commitSHA, degradeStats = latest.BuildID, latest.CommitSHA, latest.DegradeStats
 	}
 	yamlMod := wikiYAMLModTime(ws.repoAbs)
 	if ws.snap != nil && ws.snap.buildID == buildID && ws.snap.yamlMod == yamlMod {
 		return ws.snap, nil
 	}
-	snap, err := ws.load(buildID, commitSHA, yamlMod)
+	snap, err := ws.load(buildID, commitSHA, degradeStats, yamlMod)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +124,7 @@ func (ws *wikiServe) snapshot() (*wikiSnapshot, error) {
 }
 
 // load 收集全部 wiki 数据（与 cmdWiki 同源，yaml 自动发现）。
-func (ws *wikiServe) load(buildID, commitSHA string, yamlMod int64) (*wikiSnapshot, error) {
+func (ws *wikiServe) load(buildID, commitSHA, degradeStats string, yamlMod int64) (*wikiSnapshot, error) {
 	logger := zap.L()
 	logger.Debug("load wiki snapshot", zap.String("build_id", buildID))
 	repo, err := buildRepo(ws.repoAbs)
@@ -158,7 +159,7 @@ func (ws *wikiServe) load(buildID, commitSHA string, yamlMod int64) (*wikiSnapsh
 		return ordered[i].Name < ordered[j].Name
 	})
 	return &wikiSnapshot{
-		buildID: buildID, commitSHA: commitSHA, yamlMod: yamlMod, data: data, ordered: ordered,
+		buildID: buildID, commitSHA: commitSHA, degradeStats: degradeStats, yamlMod: yamlMod, data: data, ordered: ordered,
 		cfg: cfg, meta: meta, tableAlias: tableAlias, hidden: hidden,
 		tableCfgs: tableCfgsFrom(cfg), cols: cols, rels: rels,
 	}, nil

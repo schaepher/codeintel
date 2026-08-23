@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS build_metadata (
     error_message TEXT,
     nodes_count INTEGER,      -- 构建产物规模（--memory auto 判断缓存，P0④）
     edges_count INTEGER,
+    degrade_stats TEXT, -- R6：降级统计 JSON（AST 死代码类问题提前暴露）
     timestamp INTEGER DEFAULT (strftime('%s', 'now'))
 );
 CREATE INDEX IF NOT EXISTS idx_build_commit ON build_metadata(commit_sha);
@@ -206,6 +207,12 @@ func (db *DB) init() error {
 		}
 	} else {
 		// 旧库自动补建缺失表/索引（加法迁移）
+		// R6：build_metadata 列加法幂等（SQLite 无 ADD COLUMN IF NOT
+		// EXISTS——duplicate column 错误忽略）
+		if _, err := db.Exec(`ALTER TABLE build_metadata ADD COLUMN degrade_stats TEXT`); err != nil &&
+			!strings.Contains(err.Error(), "duplicate column") {
+			return fmt.Errorf("add degrade_stats column: %w", err)
+		}
 		if _, err := db.Exec(schema); err != nil {
 			// 缺列（破坏性变更）：补建表达式索引/生成列引用缺失列 →
 			// 包装 clean 提示（verifySchema 覆盖不到的早期失败路径）

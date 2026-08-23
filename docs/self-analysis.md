@@ -188,6 +188,27 @@ AST 主路径——**事实驱动的验证（query table 输出 vs schema
 - **遗留**：解析器别名列归属 bug 本身未修（R4 候选——astSelect
   列提取需保留限定符映射回真实表）
 
+### R6（2026-08-24）——降级可观测（fallback 感知增强）
+
+用户诉求：凡是 fallback 添加信息增强感知——提前识别"一直降级"
+（R4 教训：AST 主路径死代码静默半年无人察觉，直到用户检查图）。
+
+盘点降级点（SQL 解析 AST→启发式 / scip 缺失 / relations 未算 /
+update 全量降级），核心是 SQL 解析（最易静默）。实施：
+- ssa 包计数器（atomic）：sql_ast_ok / sql_ast_fail / sql_heuristic
+  ——parseSQLStmt 埋点（AST 成功 / 失败 / 启发式兜底）
+- orchestrator：构建前 Reset + finishBuild 采集 → build_metadata
+  新列 degrade_stats（JSON，ALTER 幂等补列）
+- 展示三通道：init/update/reindex 构建报告"SQL 解析:"行 +
+  wiki 概览（index.md + serve overview"构建 SQL 解析降级统计"）
+  + repo_summary（Latest 带字段）
+- 测试：TestSQLStats（计数/清零）
+
+**实测**：ana reindex 降级统计 {"sql_ast_ok":72,"sql_ast_fail":43,
+"sql_heuristic":43}——37% SQL 走启发式（动态 SQL 正常降级，但
+此前完全不可见）；R4 场景（AST 全死）下现在会显示 ast_ok=0——
+"一直降级"第一次构建即暴露。
+
 ## 候选方向（未定优先级）
 
 - yaml 语义层：术语表（glossary）、表列说明（50 列无 comment）、

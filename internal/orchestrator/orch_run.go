@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"encoding/json"
 	"context"
 	"fmt"
 	"os"
@@ -48,6 +49,7 @@ func (o *Orchestrator) SetWorkers(n int) {
 // keep(item) 为 true 的条目）。pkgs 为共享加载的 go/packages 结果
 // （AST/SSA 复用，避免重复类型检查）。返回各适配器结果与跳过的 FK 冲突边数。
 func (o *Orchestrator) runAdapters(ctx context.Context, pkgs []*packages.Package, keep func(domain.Item) bool, changedFiles []string) ([]AdapterResult, int, error) {
+	ssa.ResetSQLStats() // R6：降级统计清零（构建期计数）
 	logger := logging.FromContext(ctx)
 	runStart := time.Now()
 
@@ -181,6 +183,10 @@ func (o *Orchestrator) finishBuild(start time.Time, results []AdapterResult, ski
 	nodes, edges, _ := o.RepoImpl.Counts()
 	duration := time.Since(start)
 
+	// R6：降级统计（SQL 解析 AST 成功/失败/启发式）——"一直降级"
+	// 提前暴露（R4 教训：AST 死代码静默半年）
+	statsJSON, _ := json.Marshal(ssa.SQLStats())
+
 	build := &BuildResult{
 		Status:       status,
 		Nodes:        nodes,
@@ -189,17 +195,19 @@ func (o *Orchestrator) finishBuild(start time.Time, results []AdapterResult, ski
 		CommitSHA:    headCommitSHA(o.Repo.Path),
 		Adapter:      results,
 		SkippedEdges: skipped,
+		DegradeStats: string(statsJSON),
 	}
 
 	meta := &domain.BuildMeta{
-		BuildID:    newBuildID(),
-		CommitSHA:  build.CommitSHA,
-		ToolName:   toolName,
-		Status:     status,
-		DurationMs: duration.Milliseconds(),
-		ErrorMsg:   errorMsgs,
-		Nodes:      nodes,
-		Edges:      edges,
+		BuildID:      newBuildID(),
+		CommitSHA:    build.CommitSHA,
+		ToolName:     toolName,
+		Status:       status,
+		DurationMs:   duration.Milliseconds(),
+		ErrorMsg:     errorMsgs,
+		Nodes:        nodes,
+		Edges:        edges,
+		DegradeStats: string(statsJSON),
 	}
 	if err := o.RepoImpl.Save(meta); err != nil {
 		return build, fmt.Errorf("save build metadata: %w", err)

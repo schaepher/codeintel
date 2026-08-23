@@ -275,3 +275,24 @@ func TestParseSQLStmtAliasColOwnership(t *testing.T) {
 		t.Errorf("主表别名列 e.source_id 应保留: %v", cols)
 	}
 }
+
+// TestSQLStats：R6——SQL 解析降级计数器（AST 成功/失败/启发式）——
+// 构建期降级可观测（R4 教训：AST 死代码静默半年无人察觉）。
+func TestSQLStats(t *testing.T) {
+	ResetSQLStats()
+	// AST 成功：标准 SQL
+	parseSQLStmt("SELECT id FROM users WHERE name = ?")
+	// AST 失败：动态 SQL %s 残留 → 启发式
+	parseSQLStmt("SELECT * FROM edges WHERE %s = ?")
+	stats := SQLStats()
+	if stats.AstOK != 1 {
+		t.Errorf("AstOK = %d, want 1", stats.AstOK)
+	}
+	if stats.AstFail != 1 || stats.Heuristic != 1 {
+		t.Errorf("AstFail/Heuristic = %d/%d, want 1/1", stats.AstFail, stats.Heuristic)
+	}
+	ResetSQLStats()
+	if s := SQLStats(); s.AstOK != 0 || s.AstFail != 0 || s.Heuristic != 0 {
+		t.Errorf("Reset 后应清零: %+v", s)
+	}
+}
