@@ -45,6 +45,11 @@
           "type": "string",
           "default": "",
           "description": "目标仓库根目录（空 = 当前工作区根目录；须已 codeintel init）"
+        },
+        "codeintel.autoUpdate": {
+          "type": "boolean",
+          "default": true,
+          "description": "保存 .go 文件后自动增量更新索引（防抖 2s；#234 索引自动更新闭环）"
         }
       }
     }

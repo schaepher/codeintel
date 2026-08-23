@@ -119,6 +119,17 @@ func cmdInit(ctx context.Context, args []string) int {
 	fmt.Printf("  codeintel serve --repo %s   启动 Web 探索\n", abs)
 	// Q238：构建成功注册全局台账（路径/module/HEAD/worktree 归属）
 	registerRepoAfterBuild(abs, repo.Module, len(repo.Modules), result.CommitSHA)
+	// #234：询问安装 post-commit 自动更新 hook（仅交互终端；默认不装）
+	if isTerminal(os.Stdin) {
+		_ = maybeInstallHook(abs, func() bool {
+			fmt.Print("安装 post-commit hook（提交后自动更新索引）？[y/N] ")
+			var s string
+			if _, err := fmt.Scanln(&s); err != nil {
+				return false
+			}
+			return strings.EqualFold(strings.TrimSpace(s), "y")
+		})
+	}
 	return 0
 }
 

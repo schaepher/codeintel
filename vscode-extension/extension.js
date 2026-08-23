@@ -17,6 +17,24 @@ function activate(context) {
     vscode.commands.registerCommand('codeintel.impact', () => queryImpact()),
     vscode.commands.registerCommand('codeintel.updateIndex', () => updateIndex())
   );
+  bindAutoUpdate(context); // #234：保存 .go 后自动更新索引
+}
+
+// shouldAutoUpdateFileName #234：保存事件是否触发索引更新（.go 文件 +
+// 配置开关，默认开）。
+function shouldAutoUpdateFileName(fileName, enabled) {
+  return enabled !== false && String(fileName || '').endsWith('.go');
+}
+
+// bindAutoUpdate 保存 .go 文件后防抖 2s 自动增量更新（索引自动更新闭环）。
+function bindAutoUpdate(context) {
+  if (!vscode.workspace || !vscode.workspace.onDidSaveTextDocument) return;
+  let timer = null;
+  context.subscriptions.push(vscode.workspace.onDidSaveTextDocument(function (doc) {
+    if (!shouldAutoUpdateFileName(doc && doc.fileName, vscode.workspace.getConfiguration('codeintel').get('autoUpdate', true))) return;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(function () { updateIndex(); }, 2000);
+  }));
 }
 
 function deactivate() {}
@@ -155,4 +173,4 @@ function shortID(id) {
   return i >= 0 ? String(id).slice(i + 1) : String(id);
 }
 
-module.exports = { activate, deactivate, renderSymbol, shortID };
+module.exports = { activate, deactivate, renderSymbol, shortID, shouldAutoUpdateFileName };
