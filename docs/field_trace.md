@@ -3432,3 +3432,29 @@ TestWikiGenerate/HTML er 断言。
 done——wiki ER 图降级显示「无表间直接关联」不阻塞生成（stderr
 warning）。md/html 同目录互覆盖问题：html 生成清目录会删 md——
 双格式需分目录生成（wiki skill 已注明）。
+
+## §83 补：mermaid 语法验证机制 + 两处渲染错误修复（Q251 补，2026-08-23）
+
+用户指出「包间调用图渲染有误」——交付前未验证 mermaid 语法（交付
+纪律违反，用户要求写脚本先验证）。
+
+**真实语法错误两处**（用真实 mermaid 解析器抓到）：
+1. **`[cli]` 纯方括号节点非法**：mermaid flowchart 要求 `id[文本]`
+   形态——`[cli] -->|79| [action]` 解析失败（旧模块级 gRPC 图是空
+   图从未渲染，包级图填内容后暴露）。修复：archNode 改
+   `cli[cli]`（id 用短名保证唯一）。
+2. **sequenceDiagram 参与者含括号符号名**：`(Actions).BatchSymbols->>...`
+   非法——自动时序的参与者是方法符号短名。修复：参与者别名化
+   （P0/P1… + `participant P0 as "显示名"`，消息行用别名）。
+
+**验证机制固化**（用户要求）：
+- `scripts/mermaid-check/`（package.json 固定 jsdom+mermaid；node_modules
+  不入 git）——check.mjs 提取 html/md 全部 mermaid 块，HTML 实体还原
+  后用**真实 mermaid 解析器**逐个 parse，输出 ✓/✗ + 退出码
+- `scripts/wiki-check.py` 新增第 7 项「mermaid 语法」——交付前必跑
+  的检查证据从 6 项扩到 7 项（html）/6 项（md）
+
+**验证证据**：修复后 html 7/7 PASS（mermaid 8 块全部通过）、md 6/6、
+13 包 -race 全绿。测试新增 TestWikiSeqMermaidAlias + archNode 断言
+更新。教训：**图类生成物交付前必须过真实渲染器语法检查**（结构
+断言 ≠ 渲染正确）。

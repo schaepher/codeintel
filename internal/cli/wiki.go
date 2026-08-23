@@ -506,9 +506,10 @@ func moduleArchMermaid(wm *domain.WikiModule) string {
 	return b.String()
 }
 
-// archNode mermaid 节点（短名做 id，中文/特殊字符安全：用短名 id + 标签）。
+// archNode mermaid 节点（Q251 补：`[cli]` 纯方括号是非法语法——
+// mermaid 要求 id[文本] 形态；id 用短名保证唯一）。
 func archNode(name string) string {
-	return "[" + name + "]"
+	return name + "[" + name + "]"
 }
 
 // shortMod module 路径末段（渲染用）。
@@ -520,11 +521,27 @@ func shortMod(mod string) string {
 }
 
 // sequenceMermaid 调用链 → sequenceDiagram（参与者 + 边，确定性排序）。
+// sequenceMermaid 自动时序（Q251 补）：参与者含括号符号名
+// （(Actions).BatchSymbols）直接出现在消息行是语法错误——参与者
+// 别名化（P0/P1… + participant P0 as "显示名"），消息行用别名。
 func sequenceMermaid(steps []domain.WikiSeqStep) string {
 	var b strings.Builder
 	b.WriteString("sequenceDiagram\n")
+	alias := map[string]string{}
+	var order []string
 	for _, st := range steps {
-		b.WriteString("  " + st.Caller + "->>" + st.Callee + ": call\n")
+		for _, p := range []string{st.Caller, st.Callee} {
+			if _, ok := alias[p]; !ok {
+				alias[p] = fmt.Sprintf("P%d", len(order))
+				order = append(order, p)
+			}
+		}
+	}
+	for _, p := range order {
+		b.WriteString(fmt.Sprintf("  participant %s as \"%s\"\n", alias[p], p))
+	}
+	for _, st := range steps {
+		b.WriteString(fmt.Sprintf("  %s->>%s: call\n", alias[st.Caller], alias[st.Callee]))
 	}
 	return b.String()
 }

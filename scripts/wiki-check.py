@@ -6,6 +6,7 @@ PASS/FAIL 清单作为「检查到位」的证据。交付前必跑（wiki skill
   <out-dir>  wiki 生成目录（含 tables.md / *.md，或 index.html）
   退出码：0 = 全部 PASS；1 = 有 FAIL
 """
+import os
 import re
 import subprocess
 import sys
@@ -96,6 +97,25 @@ if IS_HTML:
         ok = p.returncode == 0
         detail = (p.stderr.decode()[:120] if not ok else f"JS 语法 OK（{len(js)} 字节）")
     check("HTML JS 语法", ok, detail)
+
+# 7. mermaid 语法（Q251 补：包间调用图 [cli] 纯方括号 / 时序图括号
+# 参与者名曾渲染失败——用真实 mermaid 解析器（jsdom + mermaid）逐个
+# parse 生成物的全部图）
+blocks_mm = (re.findall(r'<pre class="mermaid">(.*?)</pre>', all_text, re.S)
+             if IS_HTML else re.findall(r'```mermaid\n(.*?)```', all_text, re.S))
+if blocks_mm:
+    import tempfile
+    tmp = tempfile.NamedTemporaryFile('w', suffix='.html', delete=False, encoding='utf-8')
+    tmp.write("".join('<pre class="mermaid">%s</pre>' % b for b in blocks_mm))
+    tmp.close()
+    p = subprocess.run(["node", "scripts/mermaid-check/check.mjs", tmp.name],
+                       capture_output=True, text=True)
+    os.unlink(tmp.name)
+    last = [l for l in p.stdout.strip().split('\n') if l.strip()][-1:] or [""]
+    check("mermaid 语法", p.returncode == 0,
+          last[0] if p.returncode == 0 else p.stdout.strip()[-200:])
+else:
+    check("mermaid 语法", True, "无 mermaid 块")
 
 # 汇总
 fails = [r for r in results if not r[1]]

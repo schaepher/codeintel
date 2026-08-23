@@ -88,7 +88,7 @@ func TestWikiGenerate(t *testing.T) {
 		}
 	}
 	// Q251-A：模块页架构图区块 = 包间调用图（util→m x2、m→svc x1）
-	for _, want := range []string{"包间调用", "[util] -->|2| [m]", "[m] -->|1| [svc]"} {
+	for _, want := range []string{"包间调用", "util[util] -->|2| m[m]", "m[m] -->|1| svc[svc]"} {
 		if !strings.Contains(ms, want) {
 			t.Errorf("模块页包间调用图应含 %q:\n%s", want, ms)
 		}
@@ -243,8 +243,8 @@ flows:
 			t.Errorf("模块页应含 %q:\n%s", want, ms)
 		}
 	}
-	// 自动时序：核心符号第一名（main）的调用链
-	if !strings.Contains(ms, "main->>") && !strings.Contains(ms, "main->") {
+	// 自动时序：核心符号第一名（main）的调用链（Q251 补：参与者别名化）
+	if !strings.Contains(ms, `participant P0 as "main"`) || !strings.Contains(ms, "P0->>P1: call") {
 		t.Errorf("应含自动时序（main 调用链）:\n%s", ms)
 	}
 }
@@ -299,7 +299,7 @@ tables:
 		t.Errorf("相关表应链接 tables.md#orders:\n%s", ms)
 	}
 	// 自动时序：main 的一级 callee = (Svc).Run → 单独一张图
-	if !strings.Contains(ms, "### 内部调用链：(Svc).Run") || !strings.Contains(ms, "main->>(Svc).Run") {
+	if !strings.Contains(ms, "### 内部调用链：(Svc).Run") || !strings.Contains(ms, `participant P0 as "main"`) || !strings.Contains(ms, "P0->>P1: call") {
 		t.Errorf("时序应按一级调用分支单独画:\n%s", ms)
 	}
 }
@@ -363,12 +363,32 @@ func TestWikiPkgArch(t *testing.T) {
 		{From: "action", To: "sqlite", Count: 7},
 	}}
 	m := moduleArchMermaid(wm)
-	for _, want := range []string{"graph LR", "[cli] -->|42| [action]", "[action] -->|7| [sqlite]"} {
+	for _, want := range []string{"graph LR", "cli[cli] -->|42| action[action]", "action[action] -->|7| sqlite[sqlite]"} {
 		if !strings.Contains(m, want) {
 			t.Errorf("包级架构图应含 %q:\n%s", want, m)
 		}
 	}
 	if e := moduleArchMermaid(&domain.WikiModule{}); e != "" {
 		t.Errorf("空调用应返回空串，got %q", e)
+	}
+}
+
+// TestWikiSeqMermaidAlias：Q251 补——sequenceDiagram 参与者含括号
+// 符号名（(Actions).BatchSymbols）→ 别名化（participant P0 as "..."），
+// 消息行用别名（括号名直接渲染是语法错误）。
+func TestWikiSeqMermaidAlias(t *testing.T) {
+	steps := []domain.WikiSeqStep{
+		{Caller: "cmdBatch", Callee: "(Actions).BatchSymbols"},
+		{Caller: "(Actions).BatchSymbols", Callee: "(Repo).Save"},
+	}
+	m := sequenceMermaid(steps)
+	for _, want := range []string{"sequenceDiagram", `participant P0 as "cmdBatch"`, `participant P1 as "(Actions).BatchSymbols"`,
+		"P0->>P1: call", "P1->>P2: call"} {
+		if !strings.Contains(m, want) {
+			t.Errorf("sequence 应含 %q:\n%s", want, m)
+		}
+	}
+	if strings.Contains(m, "(Actions).BatchSymbols->>") {
+		t.Errorf("参与者不得直接出现括号名于消息行:\n%s", m)
 	}
 }
