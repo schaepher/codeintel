@@ -3,6 +3,8 @@ package ssa
 import (
 	"regexp"
 	"strings"
+
+	"go.uber.org/zap"
 )
 
 // whereColRe WHERE 过滤列（`列 = ?` 序列）。Q251：前导捕获组排除
@@ -250,6 +252,15 @@ var reCTEAlias = regexp.MustCompile(`(?i)\b(?:JOIN|FROM)\s+([A-Za-z_][A-Za-z0-9_
 // parse error（动态 SQL %s 残留、SQLite 特有语法 INSERT OR REPLACE/
 // GLOB）降级启发式（残缺 SQL 尽量提取，保守不误报）。
 func parseSQLStmt(sql string) (table, alias string, cols []string, whereCols []string, joinPairs []sqlJoinPair) {
+	// R7：SQLite 特有命令（VACUUM/PRAGMA/ATTACH 等）非标准 SQL——
+	// 无表/列信息，vitess 必然失败且启发式无产出；提前短路不占
+	// 降级计数（VACUUM 曾让降级统计虚高 1 条）
+	if up := strings.ToUpper(strings.TrimSpace(sql)); up == "VACUUM" ||
+		strings.HasPrefix(up, "VACUUM ") || strings.HasPrefix(up, "PRAGMA ") ||
+		strings.HasPrefix(up, "ATTACH ") || strings.HasPrefix(up, "DETACH ") ||
+		up == "BEGIN" || up == "COMMIT" || up == "ROLLBACK" {
+		return "", "", nil, nil, nil
+	}
 	if t, a, c, wc, jp, ok := parseSQLStmtAST(sql); ok {
 		sqlAstOK.Add(1) // R6：降级可观测埋点
 		return t, a, c, wc, jp
@@ -264,6 +275,13 @@ func parseSQLStmt(sql string) (table, alias string, cols []string, whereCols []s
 		}
 	}
 	sqlAstFail.Add(1) // R6：AST 失败（含转义第二尝试）
-	sqlHeuristic.Add(1)
+	classifyHeuristic(sql) // R7：降级去重 + 形态分类（动态拼接预期/方言/其他）
+	logger := zap.L()
+	// R6 调查：降级样本记录（debug 日志——构建日志可看降级形态，
+	// 判断是动态 SQL 正常降级还是解析器缺陷）
+	if len(sql) > 200 {
+		sql = sql[:200] + "..."
+	}
+	logger.Debug("sql parse degraded to heuristic", zap.String("sql", sql))
 	return parseSQLStmtHeuristic(sql)
 }

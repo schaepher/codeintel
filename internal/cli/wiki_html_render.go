@@ -72,6 +72,11 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 		main.WriteString(`<section id="arch"><h2>架构图</h2><p class="muted">` + archNote + `</p><pre class="mermaid">` + htmlEsc(archMermaid) + `</pre></section>` + "\n")
 		nav.WriteString(`<li><a href="#arch">架构图</a></li>`)
 	}
+	// R7：AI 整理架构图（过滤基础包 + 分层分组）
+	if curated := archMermaidCurated(data); curated != "" {
+		main.WriteString(`<section id="arch-curated"><h2>架构图（AI 整理）</h2><p class="muted">过滤基础工具包（logging 等）+ 临时包（seed），分层分组（入口/核心/支撑）。</p><pre class="mermaid">` + htmlEsc(curated) + `</pre></section>` + "\n")
+		nav.WriteString(`<li><a href="#arch-curated">架构图（AI 整理）</a></li>`)
+	}
 
 	hideTable := map[string]bool{}
 	for _, t := range cfg.Tables {

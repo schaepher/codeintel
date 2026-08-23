@@ -132,6 +132,10 @@ func (ws *wikiServe) overviewPage(snap *wikiSnapshot) string {
 	if archMermaid != "" {
 		b.WriteString(`<section id="arch"><h2>架构图</h2><p class="muted">` + archNote + `</p><pre class="mermaid">` + htmlEsc(archMermaid) + `</pre></section>` + "\n")
 	}
+	// R7：AI 整理架构图（过滤基础包 + 分层分组）
+	if curated := archMermaidCurated(snap.data); curated != "" {
+		b.WriteString(`<section id="arch-curated"><h2>架构图（AI 整理）</h2><p class="muted">过滤基础工具包（logging 等）+ 临时包（seed），分层分组（入口/核心/支撑）。</p><pre class="mermaid">` + htmlEsc(curated) + `</pre></section>` + "\n")
+	}
 	b.WriteString(`<section id="modules"><h2>模块</h2>`)
 	if len(snap.ordered) == 0 {
 		b.WriteString("<p class=\"muted\">（未识别到模块）</p>")

@@ -61,10 +61,16 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 		idx.WriteString(cfg.Project.Description + "\n\n")
 	}
 	idx.WriteString("**快速开始**：① 看[架构图](#整体架构图)了解系统组成 → ② 按顺序读各模块（职责 → 入口 → 核心符号 → 相关表）→ ③ 查[表清单](tables.md)看字段与建表语句。\n\n")
+	curated := archMermaidCurated(data)
 	if cfg.Architecture != "" {
 		idx.WriteString("## 整体架构图\n\n> 来源：wiki.yaml architecture\n\n```mermaid\n" + cfg.Architecture + "\n```\n\n")
 	} else if arch := archMermaidFallback(data); arch != "" {
 		idx.WriteString("## 整体架构图\n\n> 自动生成：包间调用聚合（yaml architecture 可覆盖）\n\n```mermaid\n" + arch + "\n```\n\n")
+	}
+	// R7：AI 整理架构图（过滤 logging/seed 等基础包 + 分层分组）——
+	// 自动图保留，整理图新增（结构更分明）
+	if curated != "" {
+		idx.WriteString("## 架构图（AI 整理）\n\n> 过滤基础工具包（logging 等）+ 临时包（seed），分层分组\n> （入口/核心/支撑）——快速建立分层心智模型。\n\n```mermaid\n" + curated + "\n```\n\n")
 	}
 	idx.WriteString("由 `codeintel wiki` 生成（全量覆盖；业务描述/别名维护在 wiki.yaml）\n\n")
 	if degradeStats != "" {
