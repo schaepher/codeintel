@@ -2,10 +2,9 @@ package sqlite
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
+	"strings"
 
-	"github.com/mattn/go-sqlite3"
 	"github.com/schaepher/codeintel/internal/domain"
 	"go.uber.org/zap"
 )
@@ -145,16 +144,14 @@ func marshalProps(props map[string]any) ([]byte, error) {
 }
 
 // isFKError 判断是否为外键约束错误（SQLITE_CONSTRAINT_FOREIGNKEY = 787）。
-// go-sqlite3 的 sqlite3.Error 用 ExtendedCode 存扩展错误码。
+// 驱动无关实现：mattn/go-sqlite3（cgo）的 sqlite3.Error 类型在交叉编译
+// CGO_ENABLED=0 时不存在（#227 release 交叉编译暴露），modernc 驱动
+// 类型亦不同——统一用 SQLite 官方报错文案匹配（两驱动输出一致）。
 func isFKError(err error) bool {
 	logger := zap.L()
 	logger.Debug("enter isFKError")
 	defer logger.Debug("exit isFKError")
-	var e sqlite3.Error
-	if errors.As(err, &e) {
-		return e.ExtendedCode == 787
-	}
-	return false
+	return err != nil && strings.Contains(err.Error(), "FOREIGN KEY constraint failed")
 }
 
 // SaveNode 保存单个节点（TD.md 4.2 接口）。

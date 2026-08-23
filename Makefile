@@ -1,6 +1,10 @@
 # codeintel 构建配置
 # version 通过 -ldflags 注入编译时的 git commit hash。
 
+# /tmp 是 tmpfs 配额小（runbook #1）：构建临时目录统一切到 .tmp-build
+# （?= 尊重已有 TMPDIR；目录不存在时 go 会自动创建）
+export TMPDIR ?= /home/schaepher/.tmp-build
+
 BINARY     := codeintel
 E2E_REPO   ?= .
 GIT_COMMIT := $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
@@ -16,6 +20,22 @@ build:
 ## install: 安装到 GOBIN（默认 GOPATH/bin），同样注入 commit hash
 install:
 	go install -ldflags "$(LDFLAGS)" ./cmd/codeintel
+
+## release: 交叉编译多平台发布包（#227 分发简化）——dist/codeintel-<os>-<arch>.tar.gz
+##          （包内二进制名 codeintel，与 scripts/install.sh 约定一致）+ SHA256SUMS
+release:
+	@mkdir -p dist
+	@rm -f dist/codeintel-*.tar.gz dist/SHA256SUMS 2>/dev/null || true
+	@for target in "linux amd64" "linux arm64" "darwin amd64" "darwin arm64"; do \
+	  os=$$(echo $$target | cut -d' ' -f1); arch=$$(echo $$target | cut -d' ' -f2); \
+	  echo "== $$os/$$arch =="; \
+	  GOOS=$$os GOARCH=$$arch go build -ldflags "$(LDFLAGS)" \
+	    -o dist/codeintel-$$os-$$arch/codeintel ./cmd/codeintel || exit 1; \
+	  tar -czf dist/codeintel-$$os-$$arch.tar.gz -C dist/codeintel-$$os-$$arch codeintel; \
+	  rm -rf dist/codeintel-$$os-$$arch; \
+	done
+	@cd dist && sha256sum codeintel-*.tar.gz > SHA256SUMS
+	@echo "== dist/ ==" && ls -la dist/
 
 ## test: 运行全部测试（-race 竞态检测 + -count=1 禁用缓存 + 覆盖率汇总）
 test:

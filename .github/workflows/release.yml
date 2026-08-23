@@ -1,0 +1,26 @@
+name: release
+
+# 打 tag（v*）自动交叉编译并发布 GitHub Releases（#227 分发简化）——
+# 产物命名与 scripts/install.sh 下载路径约定一致：
+#   codeintel-<os>-<arch>.tar.gz（包内二进制名 codeintel）+ SHA256SUMS
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: make release
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
