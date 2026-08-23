@@ -9,6 +9,7 @@ type queryFlags struct {
 	positional       []string
 	json             bool
 	compact          bool
+	full             bool // table-path --full（Q244：候选不截断）
 	format           string   // summary 的 mermaid 输出（Q100）
 	since            string   // unused 的 --since <ref>（git diff 区间）
 	failOn           string   // unused 的 --fail-on unused|isolated（CI 退出码）

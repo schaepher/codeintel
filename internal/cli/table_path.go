@@ -9,14 +9,31 @@ import (
 	"github.com/schaepher/codeintel/internal/action"
 )
 
-// Q241 query table-path <表A> <表B> [--max-hops N] [--json]：
+// Q241 query table-path <表A> <表B> [--max-hops N] [--json] [--full]：
 // 表 A → 表 B 数据通路（跨 mapping 表/关联表）。文本输出类型优先级
-// 最优一条；--json 全列候选。
+// 最优一条；--json 全列候选（Q244：默认截断 maxTablePathCandidates
+// 条 + truncated 标记，--full 全列）。
 
-func queryTablePath(acts *action.Actions, args []string, jsonFlag bool) int {
-	from, to, maxHops, asJSON, rest, err := parseTablePathArgs(args)
+// maxTablePathCandidates 同跳数候选截断上限（Q244，防真实仓库爆炸）。
+const maxTablePathCandidates = 50
+
+// capTablePathCandidates 截断 candidates（CLI --json 与 MCP 默认；
+// --full 跳过）。
+func capTablePathCandidates(res *action.TablePathResult) {
+	if res == nil || len(res.Candidates) <= maxTablePathCandidates {
+		return
+	}
+	res.Candidates = res.Candidates[:maxTablePathCandidates]
+	res.CandidatesTruncated = true
+}
+
+func queryTablePath(acts *action.Actions, args []string, jsonFlag, fullFlag bool) int {
+	from, to, maxHops, asJSON, full, rest, err := parseTablePathArgs(args)
 	if jsonFlag {
 		asJSON = true
+	}
+	if fullFlag {
+		full = true
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -53,6 +70,9 @@ func queryTablePath(acts *action.Actions, args []string, jsonFlag bool) int {
 		return 1
 	}
 	if asJSON {
+		if !full {
+			capTablePathCandidates(res)
+		}
 		b, _ := json.Marshal(res)
 		fmt.Println(string(b))
 		return 0
@@ -67,8 +87,8 @@ func queryTablePath(acts *action.Actions, args []string, jsonFlag bool) int {
 	return 0
 }
 
-// parseTablePathArgs 解析 table-path 参数（位置参数 + --max-hops/--json）。
-func parseTablePathArgs(args []string) (from, to string, maxHops int, asJSON bool, rest []string, err error) {
+// parseTablePathArgs 解析 table-path 参数（位置参数 + --max-hops/--json/--full）。
+func parseTablePathArgs(args []string) (from, to string, maxHops int, asJSON, full bool, rest []string, err error) {
 	maxHops = 6 // Q241：默认 6（mapping 链常见 2-3 跳，显式查询放宽）
 	var positional []string
 	for i := 0; i < len(args); i++ {
@@ -76,23 +96,25 @@ func parseTablePathArgs(args []string) (from, to string, maxHops int, asJSON boo
 		switch {
 		case a == "--max-hops" && i+1 < len(args):
 			if _, e := fmt.Sscanf(args[i+1], "%d", &maxHops); e != nil {
-				return "", "", 0, false, nil, fmt.Errorf("--max-hops 无效: %q", args[i+1])
+				return "", "", 0, false, false, nil, fmt.Errorf("--max-hops 无效: %q", args[i+1])
 			}
 			i++
 		case strings.HasPrefix(a, "--max-hops="):
 			if _, e := fmt.Sscanf(strings.TrimPrefix(a, "--max-hops="), "%d", &maxHops); e != nil {
-				return "", "", 0, false, nil, fmt.Errorf("--max-hops 无效: %q", a)
+				return "", "", 0, false, false, nil, fmt.Errorf("--max-hops 无效: %q", a)
 			}
 		case a == "--json":
 			asJSON = true
+		case a == "--full":
+			full = true
 		case strings.HasPrefix(a, "-"):
-			return "", "", 0, false, nil, fmt.Errorf("未知参数 %q", a)
+			return "", "", 0, false, false, nil, fmt.Errorf("未知参数 %q", a)
 		default:
 			positional = append(positional, a)
 		}
 	}
 	if len(positional) < 2 {
-		return "", "", 0, false, nil, fmt.Errorf("用法: query table-path <表A> <表B> [--max-hops N] [--json]")
+		return "", "", 0, false, false, nil, fmt.Errorf("用法: query table-path <表A> <表B> [--max-hops N] [--json] [--full]")
 	}
-	return positional[0], positional[1], maxHops, asJSON, positional[2:], nil
+	return positional[0], positional[1], maxHops, asJSON, full, positional[2:], nil
 }

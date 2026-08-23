@@ -237,6 +237,7 @@ func registerMCPTools(server *mcp.Server, acts *action.Actions, r *sqlite.Repo, 
 			if err != nil {
 				return toolErr(err.Error()), nil, nil
 			}
+			capTablePathCandidates(res) // Q244：候选默认截断（防爆炸）
 			return toolJSON(res), nil, nil
 		}))
 	mcp.AddTool(server, &mcp.Tool{Name: "summary", Description: "跨层生命周期摘要（entry/compute/write/consume 主链）"},

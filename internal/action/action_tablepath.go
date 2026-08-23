@@ -21,11 +21,14 @@ type TablePathStep struct {
 }
 
 // TablePathResult 通路查询结果。
+// CandidatesTruncated（Q244）：同跳数候选超上限截断标记——CLI --json
+// 与 MCP 默认截断（capTablePathCandidates），--full 全列。
 type TablePathResult struct {
-	Path       []TablePathStep   `json:"path"`                // 最优路径（类型序列最优先）
-	Candidates [][]TablePathStep `json:"candidates,omitempty"` // 全部同跳数最短路径
-	Hops       int               `json:"hops"`                // 跳数（边数）
-	Reachable  bool              `json:"reachable"`
+	Path                []TablePathStep   `json:"path"`                     // 最优路径（类型序列最优先）
+	Candidates          [][]TablePathStep `json:"candidates,omitempty"`     // 同跳数最短路径（可截断）
+	CandidatesTruncated bool              `json:"candidates_truncated,omitempty"` // 候选被截断（Q244）
+	Hops                int               `json:"hops"`                     // 跳数（边数）
+	Reachable           bool              `json:"reachable"`
 }
 
 // relTypeRank 边类型优先级（fk > query > write > read）。
@@ -94,27 +97,36 @@ func (a *Actions) TablePath(from, to string, maxHops int) (*TablePathResult, err
 	level := map[string]int{from: 0}
 	preds := map[string][]predEntry{}
 	queue := []string{from}
-	reached := false
-	for len(queue) > 0 && !reached {
+	reachedLevel := -1 // 目标最短层——处理完该层全部节点再停（同跳数多路径）
+	for len(queue) > 0 {
 		cur := queue[0]
 		queue = queue[1:]
+		if reachedLevel >= 0 && level[cur] >= reachedLevel {
+			continue // 已找到目标：更深层不扩展（同层节点仍处理完）
+		}
 		if level[cur] >= maxHops {
 			continue
 		}
 		for _, e := range adj[cur] {
-			if _, seen := level[e.to]; seen {
+			if lv, seen := level[e.to]; seen {
+				// 同层第二次到达：追加前驱（同跳数多路径），不入队
+				if lv == level[cur]+1 {
+					preds[e.to] = append(preds[e.to], predEntry{cur, e})
+				}
 				continue
 			}
 			level[e.to] = level[cur] + 1
 			preds[e.to] = append(preds[e.to], predEntry{cur, e})
 			if e.to == to {
-				reached = true
+				if reachedLevel < 0 {
+					reachedLevel = level[cur] + 1
+				}
 				continue
 			}
 			queue = append(queue, e.to)
 		}
 	}
-	if !reached {
+	if reachedLevel < 0 {
 		return &TablePathResult{Reachable: false, Hops: 0}, nil
 	}
 	// 回溯所有最短路径（前驱组合；fixture/真实规模下同跳数路径有限）

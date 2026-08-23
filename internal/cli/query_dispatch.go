@@ -118,7 +118,7 @@ func cmdQuery(args []string) int {
 	case "path":
 		return queryPath(acts, f.positional[0], f.positional[1], f)
 	case "table-path":
-		return queryTablePath(acts, f.positional, f.json)
+		return queryTablePath(acts, f.positional, f.json, f.full)
 	case "callers", "callees", "impact":
 		d := f.depth
 		if d <= 0 {
@@ -229,6 +229,8 @@ func parseQueryFlags(args []string) queryFlags {
 			f.memory = strings.TrimPrefix(a, "--memory=")
 		case a == "--json":
 			f.json = true
+		case a == "--full":
+			f.full = true
 		case a == "--compact":
 			f.compact = true
 		case a == "--format" && i+1 < len(args):
