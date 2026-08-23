@@ -50,9 +50,10 @@
 - 改完跑全量基线（已固化：`scripts/verify.sh`，TMPDIR 自动切换 +
   -race 逐包 timeout；--quick 供提交前）
 - **防忘机制**：`scripts/install-precommit.sh` 装 pre-commit hook——
-  commit 前自动跑 verify.sh --quick，失败拒绝提交（硬拦截）；叠加
-  .claude/settings.json PostToolUse hook 提醒（软兜底，未装
-  pre-commit 的场景）
+  commit 前自动跑 check-file-size.sh（staged .go 文件 >300 行拒绝，
+  提示用 line-limit skill 拆分）+ verify.sh --quick，失败拒绝提交
+  （硬拦截）；叠加 .claude/settings.json PostToolUse hook 提醒
+  （软兜底，未装 pre-commit 的场景）
 
 ## 分支 E：环境机制
 
