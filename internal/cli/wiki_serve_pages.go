@@ -151,6 +151,10 @@ func (ws *wikiServe) overviewPage(snap *wikiSnapshot) string {
 		b.WriteString("</ul>")
 	}
 	b.WriteString("</section>\n")
+	// R9：实体协作区块（对象设计视角）
+	if sec := renderEntitiesSectionHTML(snap.eg); sec != "" {
+		b.WriteString(sec)
+	}
 	if len(snap.cfg.Glossary) > 0 {
 		b.WriteString(`<section id="glossary"><h2>术语表</h2>`)
 		for _, g := range snap.cfg.Glossary {
@@ -168,7 +172,7 @@ func (ws *wikiServe) modulePage(snap *wikiSnapshot, wm *domain.WikiModule) strin
 	if d := snap.meta[wm.Name].desc; d != "" {
 		b.WriteString("<blockquote>" + htmlEsc(d) + "</blockquote>")
 	}
-	b.WriteString(renderModuleHTML(wm, 0, snap.tableAlias, snap.hidden, snap.cfg, snap.meta[wm.Name].desc))
+	b.WriteString(renderModuleHTML(wm, 0, snap.eg, snap.tableAlias, snap.hidden, snap.cfg, snap.meta[wm.Name].desc))
 	b.WriteString("</section>\n")
 	return ws.pageHTML(snap, "/wiki/mod/"+wm.ShortName, b.String())
 }

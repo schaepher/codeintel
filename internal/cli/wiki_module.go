@@ -46,8 +46,9 @@ func moduleDesc(wm *domain.WikiModule, metaDesc string) string {
 	return wikiAutoDesc(wm)
 }
 
-// renderModulePage 模块页六区块 + 架构图 + 流程时序。
-func renderModulePage(wm *domain.WikiModule, desc string, tableAlias map[string]string, hidden map[string]bool, cfg wikiConfig) string {
+// renderModulePage 模块页六区块 + 架构图 + 流程时序（R9：内部调用链
+// 渲染为实体协作子图——函数级时序图太大；细节用 query callees）。
+func renderModulePage(wm *domain.WikiModule, eg *domain.EntityGraph, desc string, tableAlias map[string]string, hidden map[string]bool, cfg wikiConfig) string {
 	var b strings.Builder
 	b.WriteString("# " + wm.Name + "\n\n")
 	if desc != "" {
@@ -133,11 +134,15 @@ func renderModulePage(wm *domain.WikiModule, desc string, tableAlias map[string]
 		hasSeq = true
 	}
 	if len(wm.Flows) > 0 {
-		b.WriteString("（自动生成：内部调用链——代码事实，帮助理解模块怎么运转；业务时序见上方 yaml flows）\n\n")
+		b.WriteString("（自动生成：内部调用链（实体协作视角）——代码事实，帮助理解模块怎么运转；业务时序见上方 yaml flows；函数级细节用 `codeintel query callees`）\n\n")
 	}
 	for _, fl := range wm.Flows {
 		b.WriteString("### 内部调用链：" + fl.Title + "\n\n")
-		b.WriteString("```mermaid\n" + sequenceMermaid(fl.Steps) + "\n```\n\n")
+		if sub := entitySubgraphMermaid(eg, fl.Steps); sub != "" {
+			b.WriteString("```mermaid\n" + sub + "\n```\n\n")
+		} else {
+			b.WriteString("```mermaid\n" + sequenceMermaid(fl.Steps) + "\n```\n\n")
+		}
 		hasSeq = true
 	}
 	if !hasSeq {

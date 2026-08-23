@@ -35,6 +35,7 @@ type wikiSnapshot struct {
 	buildID      string
 	commitSHA    string
 	degradeStats string // R6：构建降级统计
+	eg           *domain.EntityGraph // R9：实体协作图（概览/模块页渲染）
 	yamlMod    int64
 	data       []*domain.WikiModule
 	ordered    []*domain.WikiModule
@@ -158,10 +159,14 @@ func (ws *wikiServe) load(buildID, commitSHA, degradeStats string, yamlMod int64
 		}
 		return ordered[i].Name < ordered[j].Name
 	})
+	eg, egErr := ws.acts.Entities() // R9：实体协作图（可失败——轻量测试库无 build_metadata）
+	if egErr != nil {
+		eg = nil
+	}
 	return &wikiSnapshot{
 		buildID: buildID, commitSHA: commitSHA, degradeStats: degradeStats, yamlMod: yamlMod, data: data, ordered: ordered,
 		cfg: cfg, meta: meta, tableAlias: tableAlias, hidden: hidden,
-		tableCfgs: tableCfgsFrom(cfg), cols: cols, rels: rels,
+		tableCfgs: tableCfgsFrom(cfg), cols: cols, rels: rels, eg: eg,
 	}, nil
 }
 

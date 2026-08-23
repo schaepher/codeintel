@@ -99,11 +99,17 @@ func symbolPkg(id string) string {
 	return rest
 }
 
-// renderProcessesMD 流程页 Markdown（每流程：命令 + 调用链 mermaid +
-// 涉及包）。
+// renderProcessesMD 流程页 Markdown（每流程：命令 + 实体协作子图 +
+// 涉及包）。R9：函数级时序图替换为实体协作子图（Q7）——入口深度 2
+// 调用链（GetCallees）映射到实体（类型/包门面），cmdWiki 52 函数
+// → ~8 实体；函数级细节可用 query callees 查。
 func renderProcessesMD(acts *action.Actions) string {
 	var b strings.Builder
-	b.WriteString("# 系统流程\n\n> 数据源：命令入口（root.go Main switch 事实映射）+ 索引调用链\n> （GetCallees 深度 2）——看每个命令跑起来调用什么。\n\n")
+	b.WriteString("# 系统流程\n\n> 数据源：命令入口（root.go Main switch 事实映射）+ 索引调用链\n> （GetCallees 深度 2）——实体协作视角看每个命令涉及的对象交互。\n\n")
+	eg, err := acts.Entities()
+	if err != nil {
+		eg = nil
+	}
 	for _, pe := range processEntries {
 		chain := queryChain(acts, pe.Entry)
 		b.WriteString("## " + pe.Cmd + "\n\n")
@@ -112,7 +118,11 @@ func renderProcessesMD(acts *action.Actions) string {
 			continue
 		}
 		b.WriteString("入口：`" + chain.Entry + "`\n\n")
-		b.WriteString("```mermaid\n" + sequenceMermaid(chain.Steps) + "\n```\n\n")
+		if sub := entitySubgraphMermaid(eg, chain.Steps); sub != "" {
+			b.WriteString("```mermaid\n" + sub + "\n```\n\n")
+		} else {
+			b.WriteString("```mermaid\n" + sequenceMermaid(chain.Steps) + "\n```\n\n")
+		}
 		if len(chain.Pkgs) > 0 {
 			b.WriteString("涉及包：`" + strings.Join(chain.Pkgs, "`、`") + "`\n\n")
 		}
@@ -120,10 +130,14 @@ func renderProcessesMD(acts *action.Actions) string {
 	return b.String()
 }
 
-// renderProcessesHTML 流程页 html 内容。
+// renderProcessesHTML 流程页 html 内容（实体协作子图版）。
 func renderProcessesHTML(acts *action.Actions) string {
 	var b strings.Builder
-	b.WriteString(`<section id="processes"><h2>系统流程</h2><p class="muted">数据源：命令入口 + 索引调用链——每个命令跑起来调用什么。</p>`)
+	b.WriteString(`<section id="processes"><h2>系统流程</h2><p class="muted">数据源：命令入口 + 索引调用链——实体协作视角看每个命令涉及的对象交互。</p>`)
+	eg, err := acts.Entities()
+	if err != nil {
+		eg = nil
+	}
 	for _, pe := range processEntries {
 		chain := queryChain(acts, pe.Entry)
 		b.WriteString(fmt.Sprintf("<h3>%s</h3>", htmlEsc(pe.Cmd)))
@@ -132,7 +146,11 @@ func renderProcessesHTML(acts *action.Actions) string {
 			continue
 		}
 		b.WriteString("<p class=\"muted\">入口：" + htmlEsc(chain.Entry) + "</p>")
-		b.WriteString("<pre class=\"mermaid\">" + htmlEsc(sequenceMermaid(chain.Steps)) + "</pre>")
+		if sub := entitySubgraphMermaid(eg, chain.Steps); sub != "" {
+			b.WriteString("<pre class=\"mermaid\">" + htmlEsc(sub) + "</pre>")
+		} else {
+			b.WriteString("<pre class=\"mermaid\">" + htmlEsc(sequenceMermaid(chain.Steps)) + "</pre>")
+		}
 		if len(chain.Pkgs) > 0 {
 			b.WriteString("<p class=\"muted\">涉及包：" + htmlEsc(strings.Join(chain.Pkgs, "、")) + "</p>")
 		}

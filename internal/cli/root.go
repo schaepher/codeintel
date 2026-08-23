@@ -104,6 +104,11 @@ const usageText = `codeintel - Go 代码库智能索引与查询（MVP）
   codeintel query table-path <A> <B> [--max-hops N] [--json]
                                   表 A → 表 B 数据通路（跨 mapping 表，
                                   每步 表.列 → [类型] → 表.列）
+  codeintel query enums [--include-untyped] [--repo <path>]
+                                  枚举权威清单（默认只返回有类型枚举）
+  codeintel query entities [--format mermaid] [--json]
+                                  实体协作图 + 设计诊断（高耦合/循环/
+                                  上帝对象/游离函数占比）
   codeintel precompute relations --repo <path>
                                   全量预计算表间关联（进度写 db，查询
                                   直接命中缓存；serve 首次请求自动兜底）

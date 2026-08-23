@@ -122,6 +122,16 @@ func registerQueryTools(server *mcp.Server, env *mcpEnv, r *sqlite.Repo, repoAbs
 			out := extractEnums(repoAbs, !args.IncludeUntyped)
 			return toolJSON(out), out, nil
 		}))
+	// R9：实体协作图 + 设计诊断（Agent 了解对象协作与设计信号，
+	// 避免在不了解结构时盲目加新类型/依赖方向）
+	mcp.AddTool(server, &mcp.Tool{Name: "entities", Description: "实体协作图 + 设计诊断（类型实体 + 包门面 + 方法互调聚合边 + 高耦合/循环/上帝对象/游离函数占比）——新增类型或依赖前先查协作结构"},
+		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args entitiesParams) (*mcp.CallToolResult, *domain.EntityGraph, error) {
+			g, err := a.Entities()
+			if err != nil {
+				return toolErr(err.Error()), nil, nil
+			}
+			return toolJSON(g), g, nil
+		})))
 }
 
 // registerTableTools 注册工具子集（Q252：registerMCPTools 按组拆分——行数治理 ≤300）。

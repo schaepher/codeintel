@@ -46,6 +46,7 @@ type Reader interface {
 	GetAllCalls() ([]*domain.Fact, error) // Q251-A wiki 包间调用图聚合
 	TablesWrittenByModule(prefix string) ([]string, error) // #238 wiki 相关表
 	TopLevelEntries() ([]*domain.CodeEntity, error) // #238 wiki 入口（main+服务，不含框架回调）
+	GetEntityRaw() (*domain.EntityRaw, error) // R9 实体协作图原始数据（类型/函数/has_method/calls）
 	GetUncalledFunctions() ([]*domain.UnusedFunc, error)
 	GetIsolatedChains() ([][]*domain.UnusedFunc, error)
 	GetPath(from, to domain.CanonicalID, maxDepth int, viaCalls bool) ([]*domain.TraceRow, error)

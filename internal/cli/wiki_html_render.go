@@ -34,6 +34,9 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 		return ordered[i].Name < ordered[j].Name
 	})
 
+	eg, egErr := acts.Entities() // R9：实体协作图（模块页/概览渲染）
+	_ = egErr
+
 	title := filepath.Base(repoAbs) + " 业务 wiki"
 	var nav strings.Builder  // 左侧目录
 	var main strings.Builder // 内容区
@@ -58,7 +61,7 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 		if desc != "" {
 			main.WriteString("<blockquote>" + htmlEsc(desc) + "</blockquote>")
 		}
-		main.WriteString(renderModuleHTML(wm, i, tableAlias, hidden, cfg, desc))
+		main.WriteString(renderModuleHTML(wm, i, eg, tableAlias, hidden, cfg, desc))
 		main.WriteString("</section>\n")
 	}
 
@@ -93,6 +96,11 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	}
 	main.WriteString("</section>\n")
 	nav.WriteString(`<li><a href="#er">ER 图</a></li>`)
+	// R9：实体协作区块（对象设计视角）
+	if sec := renderEntitiesSectionHTML(eg); sec != "" {
+		main.WriteString(sec)
+		nav.WriteString(`<li><a href="#entities">实体协作</a></li>`)
+	}
 
 	tableCfgs := tableCfgsFrom(cfg)
 	tables := collectTables(data, tableAlias, tableCfgs)

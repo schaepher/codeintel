@@ -33,8 +33,9 @@ func moduleAnchors(wm *domain.WikiModule) []moduleAnchor {
 	return out
 }
 
-// renderModuleHTML 模块内容（区块标题可折叠，默认展开）。
-func renderModuleHTML(wm *domain.WikiModule, i int, tableAlias map[string]string, hidden map[string]bool, cfg wikiConfig, desc string) string {
+// renderModuleHTML 模块内容（区块标题可折叠，默认展开；R9：内部
+// 调用链渲染为实体协作子图）。
+func renderModuleHTML(wm *domain.WikiModule, i int, eg *domain.EntityGraph, tableAlias map[string]string, hidden map[string]bool, cfg wikiConfig, desc string) string {
 	var b strings.Builder
 	sec := func(key, title string) string {
 		return fmt.Sprintf(`<h3 class="fold-btn" data-target="%s-%d" data-label="1">▾ %s</h3><div class="sec-body" id="%s-%d">`,
@@ -129,11 +130,15 @@ func renderModuleHTML(wm *domain.WikiModule, i int, tableAlias map[string]string
 		hasSeq = true
 	}
 	if len(wm.Flows) > 0 {
-		b.WriteString("<p class=\"muted\">（自动生成：内部调用链——代码事实；业务时序见上方 yaml flows）</p>")
+		b.WriteString("<p class=\"muted\">（自动生成：内部调用链（实体协作视角）——代码事实；业务时序见上方 yaml flows；函数级细节用 codeintel query callees）</p>")
 	}
 	for _, fl := range wm.Flows {
 		b.WriteString("<h4>内部调用链：" + htmlEsc(fl.Title) + "</h4>")
-		b.WriteString("<pre class=\"mermaid\">" + htmlEsc(sequenceMermaid(fl.Steps)) + "</pre>")
+		if sub := entitySubgraphMermaid(eg, fl.Steps); sub != "" {
+			b.WriteString("<pre class=\"mermaid\">" + htmlEsc(sub) + "</pre>")
+		} else {
+			b.WriteString("<pre class=\"mermaid\">" + htmlEsc(sequenceMermaid(fl.Steps)) + "</pre>")
+		}
 		hasSeq = true
 	}
 	if !hasSeq {

@@ -43,7 +43,7 @@ func cmdQuery(args []string) int {
 	f := parseQueryFlags(rest)
 	target := ""
 
-	if sub != "unused" && sub != "module-calls" && sub != "enums" && !(sub == "relations" && f.all) {
+	if sub != "unused" && sub != "module-calls" && sub != "enums" && sub != "entities" && !(sub == "relations" && f.all) {
 		if len(f.positional) < 1 {
 			fmt.Fprintf(os.Stderr, "error: 缺少符号参数\n")
 			return 2
@@ -79,6 +79,10 @@ func cmdQuery(args []string) int {
 	// 重复定义枚举值）
 	if sub == "enums" {
 		return cmdEnums(abs, f)
+	}
+	// R9：实体协作图 + 设计诊断（不依赖符号参数）
+	if sub == "entities" {
+		return cmdEntities(acts, outputOpts{json: f.json, compact: f.compact, repoPath: f.repoPath}, f.format)
 	}
 
 	opts := outputOpts{json: f.json, compact: f.compact, repoPath: f.repoPath}

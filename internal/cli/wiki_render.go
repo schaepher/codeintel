@@ -18,6 +18,8 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	logger := zap.L()
 	logger.Debug("enter renderWiki", zap.Int("modules", len(data)))
 	defer logger.Debug("exit renderWiki")
+	eg, egErr := acts.Entities() // R9：实体协作图（概览/模块页渲染）
+	_ = egErr
 
 	if err := os.RemoveAll(outDir); err != nil {
 		return err
@@ -87,6 +89,10 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	idx.WriteString("\n## 表\n\n")
 	idx.WriteString("- [ER 图（表间关系）](er.md)\n")
 	idx.WriteString("- [表清单](tables.md)\n")
+	// R9：实体协作区块（对象设计视角）
+	if sec := renderEntitiesSectionMD(eg); sec != "" {
+		idx.WriteString(sec)
+	}
 
 	idx.WriteString("\n## 命令与接口\n\n")
 	idx.WriteString("- [命令清单](commands.md)\n")
@@ -102,7 +108,7 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 		}
 	}
 	for _, wm := range data {
-		page := renderModulePage(wm, meta[wm.Name].desc, tableAlias, hidden, cfg)
+		page := renderModulePage(wm, eg, meta[wm.Name].desc, tableAlias, hidden, cfg)
 		if err := os.WriteFile(filepath.Join(outDir, wm.ShortName+".md"), []byte(page), 0o644); err != nil {
 			return err
 		}

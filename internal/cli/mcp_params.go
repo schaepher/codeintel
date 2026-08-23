@@ -93,3 +93,10 @@ type enumsParams struct {
 }
 
 func (p enumsParams) getRepo() string { return p.Repo }
+
+// entitiesParams 实体协作图查询参数（R9）。
+type entitiesParams struct {
+	Repo string `json:"repo"` // 目标仓库（缺省用默认仓库）
+}
+
+func (p entitiesParams) getRepo() string { return p.Repo }
