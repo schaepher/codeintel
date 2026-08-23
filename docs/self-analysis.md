@@ -227,6 +227,46 @@ update 全量降级），核心是 SQL 解析（最易静默）。实施：
   启发式已能提取表，兜底正确；量小不换库，分支 G）
 - heur_other 持续可观测（未来新增非预期形态时关注）
 
+### R8（2026-08-24）——枚举类型化收尾（无类型常量 → 带类型常量）
+
+**触发**：用户用枚举检测器检查未被识别为枚举的常量——"是不是应该
+定义为常量类型？"（R5 检测器发现 20 个无类型常量 8 组，本轮处理
+其中 4 组真枚举）。
+
+**分析**：4 组无类型常量（BuildStatus/ToolSource/RelationType/
+SummaryAccessKind）全是 DB 列值（build_metadata.status / edges.
+tool_source / table_relations.type / function_field_summary.
+access_kind），跨包引用多、值易重复定义——类型化的价值最高。
+
+**改进方案**：
+- domain 定义 4 个 string 类型 + 常量带类型（entity.go 2 组 +
+  ports.go 2 组）；字段类型化（Fact.ToolSource/BuildMeta.Status/
+  TableRelation.Type/FunctionFieldSummary.AccessKind/
+  BuildResult.Status）
+- **编译器驱动转换**：改类型后 go build 列出全部类型不匹配点，
+  逐一 string() 转换（map 键/slice/字符串拼接/比较）——不靠
+  grep 猜，编译器 100% 覆盖引用点
+- 测试辅助函数 findSummary 签名直接接受 SummaryAccessKind——
+  比 N 个调用点逐个转换更稳（一次改动）
+- 顺手修：precompute 计数、测试字符串拼接等字面量残留改常量
+  引用（grep 复查编译通过但风格不一致的漏网之鱼）
+- 顺手修：wiki html 单文件渲染遗漏构建降级统计（R6 三通道
+  md/serve/html 对齐）
+
+**实施结果**：commit `d8f4f7e`（28 文件）+ `36e6e5a`（1 文件）；
+build + vet + 全量 -race 全绿；检测器实测默认识别 4 组
+（--include-untyped 多出 8 组无类型）；索引 update 符号 33974；
+wiki html 重新生成发送验收。
+
+**AI 杠杆点**（R8 实证）：
+- 枚举检测器（R5 工具）→ 找出候选 → 用户判定类型化——工具
+  产出 + 人工决策，AI 零猜测
+- 编译器驱动替换：误改风险最低的机械替换方式（gopls 对类型
+  转换无一键重构，编译器错误清单即最可靠完备性证明；gopls
+  references 可复核引用点）
+- 遗漏检查：grep 字面量（编译通过但未用常量）找"漏网之鱼"——
+  纯工具可发现非编译错误类的不一致
+
 ## 候选方向（未定优先级）
 
 - yaml 语义层：术语表（glossary）、表列说明（50 列无 comment）、
