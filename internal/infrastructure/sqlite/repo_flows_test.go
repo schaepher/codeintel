@@ -180,3 +180,40 @@ func TestValueTraceCycle(t *testing.T) {
 		t.Errorf("value-trace 环行数爆炸: %d", len(rows))
 	}
 }
+
+// TestGetAllCalls：Q251-A 全量 calls 边（wiki 包级调用图聚合数据源）。
+func TestGetAllCalls(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	r := NewRepo(db)
+	if _, err := r.SaveBatchStats([]*domain.CodeEntity{
+		{ID: "symbol:go:m:a", Kind: domain.KindFunction, Name: "a"},
+		{ID: "symbol:go:m/b:b", Kind: domain.KindFunction, Name: "b"},
+		{ID: "symbol:go:m/c:c", Kind: domain.KindFunction, Name: "c"},
+	}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.SaveBatchStats(nil, []*domain.Fact{
+		{SourceID: "symbol:go:m:a", TargetID: "symbol:go:m/b:b", Kind: domain.FactCalls, Confidence: 0.9},
+		{SourceID: "symbol:go:m/b:b", TargetID: "symbol:go:m/c:c", Kind: domain.FactCalls, Confidence: 0.8},
+		{SourceID: "symbol:go:m:a", TargetID: "symbol:go:m/c:c", Kind: domain.FactCalls, Confidence: 0.7},
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.GetAllCalls()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("GetAllCalls = %d 条, want 3", len(got))
+	}
+	for _, f := range got {
+		if f.Kind != domain.FactCalls {
+			t.Errorf("边应为 calls kind，got %v", f.Kind)
+		}
+	}
+}

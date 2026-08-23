@@ -249,7 +249,7 @@ func renderModuleHTML(wm *domain.WikiModule, i int, tableAlias map[string]string
 		b.WriteString("</div>\n")
 	}
 	// 架构图（#241）：yaml 覆盖优先，否则自动模块间调用图
-	b.WriteString(sec("arch", "架构图（模块间调用）"))
+	b.WriteString(sec("arch", "架构图（包间调用）"))
 	arch := moduleArchMermaid(wm)
 	if arch != "" {
 		b.WriteString("<pre class=\"mermaid\">" + htmlEsc(arch) + "</pre>")

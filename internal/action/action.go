@@ -42,6 +42,7 @@ type Reader interface {
 	SymbolsAt(file string, line int) ([]*domain.CodeEntity, error) // #229 file:line 定位符号
 	RecentChanges(limit int) ([]*domain.RecentChange, error) // #237 最近变更
 	TopCallersInModule(prefix string, limit int) ([]*domain.WikiSymbol, error) // #238 wiki 核心符号
+	GetAllCalls() ([]*domain.Fact, error) // Q251-A wiki 包间调用图聚合
 	TablesWrittenByModule(prefix string) ([]string, error) // #238 wiki 相关表
 	TopLevelEntries() ([]*domain.CodeEntity, error) // #238 wiki 入口（main+服务，不含框架回调）
 	GetUncalledFunctions() ([]*domain.UnusedFunc, error)

@@ -87,6 +87,12 @@ func TestWikiGenerate(t *testing.T) {
 			t.Errorf("模块页应含 %q:\n%s", want, ms)
 		}
 	}
+	// Q251-A：模块页架构图区块 = 包间调用图（util→m x2、m→svc x1）
+	for _, want := range []string{"包间调用", "[util] -->|2| [m]", "[m] -->|1| [svc]"} {
+		if !strings.Contains(ms, want) {
+			t.Errorf("模块页包间调用图应含 %q:\n%s", want, ms)
+		}
+	}
 	// 核心符号排序：main（callers=2）应在 (Svc).Run 前
 	iMain := strings.Index(ms, "main")
 	iRun := strings.Index(ms, "(Svc).Run")
@@ -346,5 +352,23 @@ func TestWikiERPage(t *testing.T) {
 	// 无关联提示
 	if p2 := renderERPage(nil, nil); !strings.Contains(p2, "无表间直接关联") {
 		t.Errorf("空关系应提示无关联:\n%s", p2)
+	}
+}
+
+// TestWikiPkgArch：Q251-A 模块页架构图改包级调用——线上标次数，
+// 空调用返回空（区块显示提示）。
+func TestWikiPkgArch(t *testing.T) {
+	wm := &domain.WikiModule{PkgCalls: []*domain.WikiPkgCall{
+		{From: "cli", To: "action", Count: 42},
+		{From: "action", To: "sqlite", Count: 7},
+	}}
+	m := moduleArchMermaid(wm)
+	for _, want := range []string{"graph LR", "[cli] -->|42| [action]", "[action] -->|7| [sqlite]"} {
+		if !strings.Contains(m, want) {
+			t.Errorf("包级架构图应含 %q:\n%s", want, m)
+		}
+	}
+	if e := moduleArchMermaid(&domain.WikiModule{}); e != "" {
+		t.Errorf("空调用应返回空串，got %q", e)
 	}
 }

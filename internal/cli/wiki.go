@@ -462,7 +462,7 @@ func renderModulePage(wm *domain.WikiModule, desc string, tableAlias map[string]
 		b.WriteString("\n")
 	}
 	// 架构图（#248：yaml 全局图在 index；模块页只渲染自动模块间调用图）
-	b.WriteString("## 架构图（模块间调用）\n\n")
+	b.WriteString("## 架构图（包间调用）\n\n")
 	arch := moduleArchMermaid(wm)
 	if arch != "" {
 		b.WriteString("```mermaid\n" + arch + "\n```\n\n")
@@ -492,22 +492,16 @@ func renderModulePage(wm *domain.WikiModule, desc string, tableAlias map[string]
 	return b.String()
 }
 
-// moduleArchMermaid 自动模块架构图（模块间调用，graph LR）。
+// moduleArchMermaid 模块页架构图（Q251-A：包间调用图——calls 边按
+// 包聚合，线上标调用次数；替代空模块级 gRPC 图）。
 func moduleArchMermaid(wm *domain.WikiModule) string {
+	if len(wm.PkgCalls) == 0 {
+		return ""
+	}
 	var b strings.Builder
 	b.WriteString("graph LR\n")
-	seen := map[string]bool{}
-	for _, m := range wm.OutCalls {
-		if !seen[m] {
-			seen[m] = true
-			b.WriteString("  " + archNode(wm.ShortName) + " --> " + archNode(shortMod(m)) + "\n")
-		}
-	}
-	for _, m := range wm.InCalls {
-		if !seen["in:"+m] {
-			seen["in:"+m] = true
-			b.WriteString("  " + archNode(shortMod(m)) + " --> " + archNode(wm.ShortName) + "\n")
-		}
+	for _, c := range wm.PkgCalls {
+		b.WriteString(fmt.Sprintf("  %s -->|%d| %s\n", archNode(c.From), c.Count, archNode(c.To)))
 	}
 	return b.String()
 }

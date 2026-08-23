@@ -12,8 +12,16 @@ type WikiModule struct {
 	CoreSymbols []*WikiSymbol `json:"core_symbols"`        // 核心符号（callers 降序 Top N）
 	OutCalls    []string     `json:"out_calls,omitempty"`  // 调用的模块
 	InCalls     []string     `json:"in_calls,omitempty"`   // 被哪些模块调用
-	Tables      []string     `json:"tables,omitempty"`     // 相关表（该模块代码写入的表）
-	Flows       []WikiFlow   `json:"flows,omitempty"`      // 自动时序（每个一级调用分支单独一个图）
+	Tables      []string      `json:"tables,omitempty"`     // 相关表（该模块代码写入的表）
+	Flows       []WikiFlow    `json:"flows,omitempty"`      // 自动时序（每个一级调用分支单独一个图）
+	PkgCalls    []*WikiPkgCall `json:"pkg_calls,omitempty"` // 模块内包间调用（Q251-A：模块页架构图）
+}
+
+// WikiPkgCall 模块内一条包间调用（Q251-A）：调用方包 → 被调包 + 次数。
+type WikiPkgCall struct {
+	From  string `json:"from"`  // 调用方包短名
+	To    string `json:"to"`    // 被调包短名
+	Count int    `json:"count"` // 调用次数
 }
 
 // WikiFlow 一条流程的时序数据（单独画一张 sequenceDiagram）。

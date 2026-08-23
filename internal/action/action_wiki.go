@@ -29,6 +29,10 @@ func (a *Actions) WikiData(mods []string) ([]*domain.WikiModule, error) {
 	if err != nil {
 		return nil, err
 	}
+	allCalls, err := a.repo.GetAllCalls()
+	if err != nil {
+		return nil, err
+	}
 	out := make([]*domain.WikiModule, 0, len(mods))
 	for _, mod := range mods {
 		wm := &domain.WikiModule{Name: mod, ShortName: shortModName(mod)}
@@ -65,9 +69,51 @@ func (a *Actions) WikiData(mods []string) ([]*domain.WikiModule, error) {
 			return nil, err
 		}
 		wm.Tables = tableNames(tables)
+		wm.PkgCalls = a.pkgCallsForModule(mod, allCalls)
 		out = append(out, wm)
 	}
 	return out, nil
+}
+
+// pkgCallsForModule 模块内包间调用聚合（Q251-A）：calls 边两端包都
+// 属于该模块且不同包 → (fromPkg, toPkg) 计数（次数降序 + 键序确定性；
+// 同包调用不画——图语义 = 包间）。
+func (a *Actions) pkgCallsForModule(mod string, calls []*domain.Fact) []*domain.WikiPkgCall {
+	prefix := "symbol:go:" + mod
+	counts := map[string]int{}
+	for _, c := range calls {
+		if c.Kind != domain.FactCalls {
+			continue
+		}
+		src, dst := string(c.SourceID), string(c.TargetID)
+		if !strings.HasPrefix(src, prefix) || !strings.HasPrefix(dst, prefix) {
+			continue
+		}
+		from, to := pkgOfID(c.SourceID), pkgOfID(c.TargetID)
+		if from == "" || to == "" || from == to {
+			continue
+		}
+		counts[from+"|"+to]++
+	}
+	if len(counts) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(counts))
+	for k := range counts {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if counts[keys[i]] != counts[keys[j]] {
+			return counts[keys[i]] > counts[keys[j]]
+		}
+		return keys[i] < keys[j]
+	})
+	out := make([]*domain.WikiPkgCall, 0, len(keys))
+	for _, k := range keys {
+		p := strings.SplitN(k, "|", 2)
+		out = append(out, &domain.WikiPkgCall{From: shortModName(p[0]), To: shortModName(p[1]), Count: counts[k]})
+	}
+	return out
 }
 
 // shortModName module 路径末段。

@@ -182,3 +182,30 @@ func newModuleActions(t *testing.T, dir string) *Actions {
 	t.Cleanup(func() { db.Close() })
 	return New(sqlite.NewRepo(db))
 }
+
+// TestPkgCallsForModule：Q251-A 模块内包间调用聚合——calls 边按包
+// 聚合计数（次数降序 + 键序确定性）；同包调用/跨模块边跳过；包短名。
+func TestPkgCallsForModule(t *testing.T) {
+	a := &Actions{}
+	calls := []*domain.Fact{
+		{Kind: domain.FactCalls, SourceID: "symbol:go:example.com/m/util:F1", TargetID: "symbol:go:example.com/m:main"},
+		{Kind: domain.FactCalls, SourceID: "symbol:go:example.com/m/util:F2", TargetID: "symbol:go:example.com/m:main"},
+		{Kind: domain.FactCalls, SourceID: "symbol:go:example.com/m:main", TargetID: "symbol:go:example.com/m/svc:(Svc).Run"},
+		// 同包（m→m）与跨模块（other.com）跳过
+		{Kind: domain.FactCalls, SourceID: "symbol:go:example.com/m:main", TargetID: "symbol:go:example.com/m:main"},
+		{Kind: domain.FactCalls, SourceID: "symbol:go:other.com/x:F", TargetID: "symbol:go:example.com/m:main"},
+	}
+	got := a.pkgCallsForModule("example.com/m", calls)
+	want := []*domain.WikiPkgCall{{From: "util", To: "m", Count: 2}, {From: "m", To: "svc", Count: 1}}
+	if len(got) != len(want) {
+		t.Fatalf("pkgCalls = %+v, want %+v", got, want)
+	}
+	for i, w := range want {
+		if got[i].From != w.From || got[i].To != w.To || got[i].Count != w.Count {
+			t.Errorf("pkgCalls[%d] = %+v, want %+v", i, got[i], w)
+		}
+	}
+	if e := a.pkgCallsForModule("example.com/m", nil); e != nil {
+		t.Errorf("空 calls 应返回 nil，got %+v", e)
+	}
+}
