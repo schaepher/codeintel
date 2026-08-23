@@ -1,0 +1,52 @@
+{
+  "name": "codeintel",
+  "displayName": "codeintel",
+  "description": "Go 代码库智能查询——符号详情/调用者/被调用者/影响分析/增量更新索引",
+  "version": "0.1.0",
+  "publisher": "schaepher",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:codeintel.querySymbol",
+    "onCommand:codeintel.impact",
+    "onCommand:codeintel.updateIndex"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "codeintel.querySymbol",
+        "title": "codeintel: 查询符号（详情/调用者/被调用者）"
+      },
+      {
+        "command": "codeintel.impact",
+        "title": "codeintel: 影响分析（改前预判）"
+      },
+      {
+        "command": "codeintel.updateIndex",
+        "title": "codeintel: 增量更新索引"
+      }
+    ],
+    "configuration": {
+      "title": "codeintel",
+      "properties": {
+        "codeintel.binaryPath": {
+          "type": "string",
+          "default": "codeintel",
+          "description": "codeintel 可执行文件路径（PATH 中或绝对路径；安装见 https://github.com/schaepher/codeintel#安装）"
+        },
+        "codeintel.repoPath": {
+          "type": "string",
+          "default": "",
+          "description": "目标仓库根目录（空 = 当前工作区根目录；须已 codeintel init）"
+        }
+      }
+    }
+  }
+}
