@@ -93,6 +93,9 @@ func (ext *fieldExtractor) applySQLSummary(cc *ssa.CallCommon, calleeID domain.C
 				if i >= len(whereCols) {
 					break
 				}
+				if !validSQLColumn(whereCols[i]) {
+					continue // #247 SQL 截断片段噪音
+				}
 				name := table + "." + whereCols[i]
 				id := domain.CanonicalID(string(ext.funcID) + "#ext.sql." + name + ".filter@" + fmt.Sprintf("%d", line))
 				if err := ext.emit(domain.Item{Node: &domain.CodeEntity{
@@ -347,3 +350,36 @@ var whereCondRe = regexp.MustCompile(`(?i)\s+(AND|OR)\s+`)
 // LIKE / BETWEEN / IS / IN），操作符后须接空白或占位符/数字（兼容
 // "ad_id=$1" 无空格、"? " 与 "0" 字面量）。列名支持表前缀（b.id）。
 var whereColLeadRe = regexp.MustCompile(`(?i)^([A-Za-z_][A-Za-z0-9_.]*)\s*(?:=|<>|<=|>=|<|>|LIKE|BETWEEN|IS|IN)(?:\s|[$\?0-9])`)
+
+// validSQLColumn SQL 列名合法性（#247）：标识符形态（字母开头 + 字母/
+// 数字/下划线）+ 非 SQL 关键字 + 非纯数字——SQL 摘要把截断片段
+// （nodes.access_kind')、DISTINCT、0/1 等）当列引用的噪音过滤。
+func validSQLColumn(name string) bool {
+	if name == "" {
+		return false
+	}
+	c0 := name[0]
+	if !(c0 == '_' || ('a' <= c0 && c0 <= 'z') || ('A' <= c0 && c0 <= 'Z')) {
+		return false // 数字/符号开头（0、1、'）等）
+	}
+	for i := 1; i < len(name); i++ {
+		c := name[i]
+		ok := c == '_' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || ('0' <= c && c <= '9')
+		if !ok {
+			return false
+		}
+	}
+	return !sqlKeyword[name]
+}
+
+// sqlKeyword SQL 关键字黑名单（#247：DISTINCT/SELECT 等被误当列名）。
+var sqlKeyword = map[string]bool{
+	"select": true, "from": true, "where": true, "and": true, "or": true,
+	"not": true, "in": true, "on": true, "join": true, "left": true,
+	"right": true, "inner": true, "outer": true, "limit": true, "offset": true,
+	"order": true, "group": true, "by": true, "having": true, "distinct": true,
+	"as": true, "case": true, "when": true, "then": true, "else": true,
+	"end": true, "null": true, "true": true, "false": true, "count": true,
+	"sum": true, "avg": true, "max": true, "min": true, "exists": true,
+	"like": true, "between": true, "is": true, "desc": true, "asc": true,
+}

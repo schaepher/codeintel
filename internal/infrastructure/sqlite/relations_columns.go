@@ -159,6 +159,9 @@ func (r *Repo) GetAllTableColumns() ([]*domain.TableColumn, error) {
 			continue
 		}
 		seen[name] = true
+		if !validTableColumn(name) {
+			continue // #247 SQL 截断/关键字/字面量噪音
+		}
 		var m map[string]any
 		if err := json.Unmarshal([]byte(props), &m); err != nil {
 			return nil, err
@@ -170,4 +173,52 @@ func (r *Repo) GetAllTableColumns() ([]*domain.TableColumn, error) {
 		out = append(out, &domain.TableColumn{Name: name, ColType: colType, Access: access, LineStart: line})
 	}
 	return out, rows.Err()
+}
+
+// validTableColumn 表列名合法性（#247）：「表.列」两部分均为合法
+// 标识符（字母开头 + 非 SQL 关键字）——与 ssa validSQLColumn 同规则，
+// 查询层兜底（旧库已落噪音节点）。
+func validTableColumn(name string) bool {
+	dot := strings.Index(name, ".")
+	if dot <= 0 || dot == len(name)-1 {
+		return false
+	}
+	return validColPart(name[:dot]) && validColPart(name[dot+1:])
+}
+
+// validColPart 单段标识符校验（与 ssa.validSQLColumn 同规则）。
+func validColPart(s string) bool {
+	if s == "" {
+		return false
+	}
+	c0 := s[0]
+	if !(c0 == '_' || ('a' <= c0 && c0 <= 'z') || ('A' <= c0 && c0 <= 'Z')) {
+		return false
+	}
+	for i := 1; i < len(s); i++ {
+		c := s[i]
+		ok := c == '_' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || ('0' <= c && c <= '9')
+		if !ok {
+			return false
+		}
+	}
+	l := strings.ToLower(s)
+	for kw := range sqlKeywords {
+		if l == kw {
+			return false
+		}
+	}
+	return true
+}
+
+// sqlKeywords 关键字黑名单（查询层兜底版）。
+var sqlKeywords = map[string]bool{
+	"select": true, "from": true, "where": true, "and": true, "or": true,
+	"not": true, "in": true, "on": true, "join": true, "left": true,
+	"right": true, "inner": true, "outer": true, "limit": true, "offset": true,
+	"order": true, "group": true, "by": true, "having": true, "distinct": true,
+	"as": true, "case": true, "when": true, "then": true, "else": true,
+	"end": true, "null": true, "true": true, "false": true, "count": true,
+	"sum": true, "avg": true, "max": true, "min": true, "exists": true,
+	"like": true, "between": true, "is": true, "desc": true, "asc": true,
 }
