@@ -3,6 +3,7 @@
 // 子命令：
 //
 //	asttool analyze <file...>                      列出顶层声明清单
+//	asttool funcsize <file...>                     函数/方法行数统计（降序）
 //	asttool split <src.go> <out1.go:name1,name2> ... 按声明分组拆分文件
 //	asttool migrate [--pkg <name>] <out_prefix> <src...> 测试迁移（fixture/查询/断言变换）
 //
@@ -38,6 +39,8 @@ func main() {
 		migrateMain(os.Args[2:])
 	case "orphan":
 		orphanMain(os.Args[2:])
+	case "funcsize":
+		funcsizeMain(os.Args[2:])
 	case "rename":
 		renameMain(os.Args[2:])
 	default:

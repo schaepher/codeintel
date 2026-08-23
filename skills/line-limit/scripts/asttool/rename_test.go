@@ -262,3 +262,52 @@ func TestRenameScopePkg(t *testing.T) {
 		t.Error("默认不碰 _test.go")
 	}
 }
+
+// TestFuncSize：funcsize 子命令——函数/方法行数统计降序（方法含
+// receiver；行数 = 结束行 - 起始行 + 1）。
+func TestFuncSize(t *testing.T) {
+	src := `package m
+
+// small 小函数。
+func small() {}
+
+// big 大函数。
+func big() {
+	a := 1
+	b := 2
+	_ = a + b
+}
+
+// method 方法（带 receiver）。
+func (r *Repo) method() {
+	_ = r
+	_ = r
+}
+`
+	p := writeTemp(t, "sample.go", src)
+	sizes := funcSizes(p)
+	if len(sizes) != 3 {
+		t.Fatalf("应统计 3 个函数/方法，got %d: %+v", len(sizes), sizes)
+	}
+	// 降序：method(5) > big(5)? method 5 行（func 行到 } 行）
+	// method: func 行 + 2 体行 + } = 4 行；big: func 行 + 3 体行 + } = 5 行
+	if sizes[0].name != "big" {
+		t.Errorf("最大应是 big（%d 行），got %s（%d 行）", sizes[0].lines, sizes[0].name, sizes[0].lines)
+	}
+	if sizes[0].lines != 5 {
+		t.Errorf("big 应为 5 行，got %d", sizes[0].lines)
+	}
+	if sizes[2].name != "small" {
+		t.Errorf("最小应是 small，got %s", sizes[2].name)
+	}
+	// 方法名含 receiver
+	foundMethod := false
+	for _, s := range sizes {
+		if s.name == "(Repo).method" {
+			foundMethod = true
+		}
+	}
+	if !foundMethod {
+		t.Errorf("方法应以 (Repo).method 命名: %+v", sizes)
+	}
+}

@@ -38,6 +38,10 @@ line-limit` 仅用于 skill 发现（Claude 读取 SKILL.md）；go run 须用�
 # 1) 查看声明清单，规划按主题分组
 go run ./skills/line-limit/scripts/asttool analyze <pkg>/<file>.go
 
+# 0) 先看函数/方法行数分布（哪个是大头——决定拆文件还是拆函数）
+go run ./skills/line-limit/scripts/asttool funcsize <pkg>/<file.go...>
+# 输出：行数降序 | 名称（方法为 (Receiver).Name）| 起止行
+
 # 2) 按主题分组拆分（out 文件新建；保留原文件的声明）
 go run ./skills/line-limit/scripts/asttool split <src.go> \
   <out1.go>:Name1,Name2 <out2.go>:Name3,...
