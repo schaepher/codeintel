@@ -63,3 +63,24 @@ func (r *Repo) TablesWrittenByModule(prefix string) ([]string, error) {
 	}
 	return out, rows.Err()
 }
+
+// TopLevelEntries 模块入口（#238 wiki：main + serves 服务，不含框架
+// 回调 struct——那是 serve 图探索的顶层入口展示，wiki 不需要）。
+func (r *Repo) TopLevelEntries() ([]*domain.CodeEntity, error) {
+	logger := zap.L()
+	logger.Debug("enter (Repo).TopLevelEntries")
+	defer logger.Debug("exit (Repo).TopLevelEntries")
+	rows, err := r.Query(`
+SELECT id, kind, name, file_path, line_start, line_end, properties FROM nodes
+WHERE file_path IS NOT NULL
+  AND file_path NOT LIKE '%_test.go'
+  AND ((name = 'main' AND kind = 'function' AND id NOT LIKE '%.test:main')
+   OR json_extract(properties, '$.serves_http') = 'true'
+   OR json_extract(properties, '$.serves_grpc') = 'true')
+ORDER BY kind, name LIMIT 200`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanNodes(rows)
+}

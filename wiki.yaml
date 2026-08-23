@@ -1,0 +1,12 @@
+project:
+  description: codeintel —— Go 代码库智能索引与查询系统（静态分析产出 SQLite 代码图，CLI/服务/MCP 查询）
+modules:
+  - name: github.com/schaepher/codeintel
+    description: 核心：索引构建（ssa/ast/scip/git 四适配器）+ 查询（symbol/字段追溯/表关联/意图命令）+ 服务（serve/MCP/CLI）
+tables:
+  - name: nodes
+    alias: 代码节点
+  - name: edges
+    alias: 关系边
+  - name: build_metadata
+    alias: 构建元数据

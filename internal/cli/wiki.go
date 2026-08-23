@@ -118,6 +118,20 @@ func cmdWiki(args []string) int {
 			return 1
 		}
 	}
+	// yaml 模块白名单：列出则只生成这些模块（fixture/子模块噪音过滤）
+	if len(cfg.Modules) > 0 {
+		want := map[string]bool{}
+		for _, m := range cfg.Modules {
+			want[m.Name] = true
+		}
+		var filtered []*domain.WikiModule
+		for _, wm := range data {
+			if want[wm.Name] {
+				filtered = append(filtered, wm)
+			}
+		}
+		data = filtered
+	}
 	if err := renderWiki(abs, outDir, data, cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
@@ -131,6 +145,10 @@ func renderWiki(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiConfi
 	logger := zap.L()
 	logger.Debug("enter renderWiki", zap.Int("modules", len(data)))
 	defer logger.Debug("exit renderWiki")
+	// 全量覆盖语义：清空输出目录（防旧模块页残留）
+	if err := os.RemoveAll(outDir); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return err
 	}
