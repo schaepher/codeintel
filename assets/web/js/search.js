@@ -1,7 +1,7 @@
 // 入口选择（原 app.js 1.2 节）：加载顶层入口 + 搜索框全库搜索
 import { state } from './state.js';
 import { addNode } from './graph-ops.js';
-import { closePanel } from './panel.js';
+import { showNodePanel } from './panel.js';
 
 // loadEntries 加载全部顶层入口作为搜索数据源（不放入图中）
 export function loadEntries() {
@@ -75,7 +75,8 @@ function renderEntryList(items) {
   state.entryList.style.display = 'block';
 }
 
-// 选择入口：清空图，仅展示该节点（双击展开依赖）
+// 选择入口：清空图，仅展示该节点（双击展开依赖），并直接在信息栏
+// 展示出入边（#230：搜索结果即看信息，免再点一次）
 export function selectEntry(e) {
   state.entryList.style.display = 'none';
   state.entryInput.value = '';
@@ -89,12 +90,15 @@ export function selectEntry(e) {
   state.graph.updateNodeData([{ id: e.id, style: { x: w / 2, y: h / 2 } }]);
   state.graph.layout();
   state.tip.textContent = '已选择 ' + e.name + ' · 双击节点展开依赖';
-  closePanel();
+  showNodePanel(e.id);
 }
 
 function entryLabel(e) {
   var label = e.name;
-  if (e.file) label += ' · ' + e.file;
+  if (e.file) {
+    label += ' · ' + e.file;
+    if (e.line) label += ':' + e.line; // #230：结果带行号，定位更精确
+  }
   if (e.flags && e.flags.length) label += '  [' + e.flags.join(', ') + ']';
   return label;
 }
