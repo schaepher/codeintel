@@ -5,6 +5,7 @@ package cli
 // collectTables/wikiTablesSectionHTML）与 wikiHTMLPage 模板。
 
 import (
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -46,14 +47,46 @@ func (ws *wikiServe) navHTML(snap *wikiSnapshot, current string) string {
 	return nav.String()
 }
 
-// pageHTML 组装整页（标题/导航/内容 + 图探索返回链接 + 新鲜度标注）。
+// pageHTML 组装整页（标题/导航/内容 + 图探索返回链接 + 新鲜度标注 +
+// 跨页搜索索引）。
 func (ws *wikiServe) pageHTML(snap *wikiSnapshot, current string, main string) string {
 	title := filepath.Base(ws.repoAbs) + " 业务 wiki"
 	freshNote := ""
 	if snap.commitSHA != "" {
 		freshNote = "索引 commit: " + shortSHA(snap.commitSHA) + "（增量 update 后自动刷新）"
 	}
-	return wikiHTMLPage(title, snap.cfg.Project.Description, wikiGuide, ws.navHTML(snap, current), main, "/", freshNote)
+	return wikiHTMLPage(title, snap.cfg.Project.Description, wikiGuide, ws.navHTML(snap, current), main,
+		wikiPageOpts{exploreLink: "/", freshNote: freshNote, searchIndex: searchIndexJSON(snap)})
+}
+
+// searchIndexJSON 跨页搜索索引（模块/表/术语——前端输入即达，不依赖
+// 服务端接口；字段量大多不索引，进表页后可见）。
+func searchIndexJSON(snap *wikiSnapshot) string {
+	type item struct {
+		T string `json:"t"` // 类型：模块/表/术语
+		N string `json:"n"` // 名称
+		D string `json:"d"` // 描述（可为空）
+		H string `json:"h"` // 跳转 href
+	}
+	var items []item
+	for _, wm := range snap.ordered {
+		d := snap.meta[wm.Name].desc
+		if d == "" {
+			d = wm.Desc
+		}
+		items = append(items, item{"模块", wm.Name, d, "/wiki/mod/" + wm.ShortName})
+	}
+	for _, t := range collectTables(snap.data, snap.tableAlias, snap.tableCfgs) {
+		items = append(items, item{"表", t.name, t.alias, "/wiki/tables#tbl-" + t.name})
+	}
+	for _, g := range snap.cfg.Glossary {
+		items = append(items, item{"术语", g.Term, g.Definition, "/wiki/overview#glossary"})
+	}
+	b, err := json.Marshal(items)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 // overviewPage 概览页：架构图 + 模块目录 + 术语表。

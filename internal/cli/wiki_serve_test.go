@@ -72,6 +72,12 @@ func TestWikiServe(t *testing.T) {
 	if !strings.Contains(body, "图探索") || !strings.Contains(body, `href="/"`) {
 		t.Errorf("overview 应含图探索返回链接")
 	}
+	// C：跨页搜索索引内嵌（模块/表条目 + 跳转 href）
+	for _, want := range []string{"var WIKI_IDX", `"t":"模块"`, "/wiki/mod/m", `"t":"表"`, "/wiki/tables#tbl-orders"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("overview 应含搜索索引 %q", want)
+		}
+	}
 
 	// 模块页（短名 m）
 	resp, body = get("/wiki/mod/m")

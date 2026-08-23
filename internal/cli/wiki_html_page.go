@@ -1,10 +1,15 @@
 package cli
 
+// wikiPageOpts 页面可选元素（serve 场景注入；单文件 html 全空）。
+type wikiPageOpts struct {
+	exploreLink string // 非空时侧栏顶部"图探索"返回链接
+	freshNote   string // 非空时页面底部新鲜度标注（索引 commit）
+	searchIndex string // 搜索索引 JSON（模块/表/术语；serve 版跨页搜索）
+}
+
 // wikiHTMLPage 组装完整页面（内嵌 CSS/JS）。guide 是快速开始引导块
-// （单文件用 #锚点，wiki serve 多页用 /wiki/ 路径链接）。exploreLink
-// 非空时侧栏顶部显示"图探索"返回链接（serve 场景）；freshNote 非空时
-// 页面底部显示新鲜度标注（基于索引 commit）。
-func wikiHTMLPage(title, desc, guide, nav, main string, exploreLink, freshNote string) string {
+// （单文件用 #锚点，wiki serve 多页用 /wiki/ 路径链接）。
+func wikiHTMLPage(title, desc, guide, nav, main string, opts wikiPageOpts) string {
 	return `<!DOCTYPE html>
 <html lang="zh">
 <head>
@@ -48,6 +53,12 @@ body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
 html { scroll-behavior: smooth; }
 #sidebar .mod-head.active { color: #1677ff; background: #e5e6eb; }
 #sidebar .mod-sec a.active { color: #1677ff; font-weight: 600; }
+#search-results { padding: 4px 12px; display: flex; flex-direction: column; gap: 2px; }
+#search-results .sr-item { display: flex; gap: 6px; align-items: baseline; padding: 3px 8px;
+  font-size: 12px; color: #4e5969; text-decoration: none; border-radius: 4px; }
+#search-results .sr-item:hover { background: #e5e6eb; color: #1677ff; }
+#search-results .sr-t { flex: 0 0 28px; font-size: 11px; color: #86909c; }
+#search-results .sr-d { color: #86909c; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 768px) {
   #sidebar { position: static; width: auto; border-right: none; border-bottom: 1px solid #e5e6eb; max-height: 40vh; }
   #main { margin-left: 0; padding: 16px; }
@@ -57,8 +68,8 @@ html { scroll-behavior: smooth; }
 <body>
 <div id="sidebar">
 ` + (func() string {
-		if exploreLink != "" {
-			return `<div style="padding:0 16px 8px"><a href="` + htmlEsc(exploreLink) + `" style="font-size:12px;color:#1677ff">← 图探索</a></div>`
+		if opts.exploreLink != "" {
+			return `<div style="padding:0 16px 8px"><a href="` + htmlEsc(opts.exploreLink) + `" style="font-size:12px;color:#1677ff">← 图探索</a></div>`
 		}
 		return ""
 	}()) + `<h2>目录</h2>
@@ -68,6 +79,7 @@ html { scroll-behavior: smooth; }
   <button id="nav-collapse-all" title="全部收起">全部收起</button>
 </div>
 <ul id="nav">` + nav + `</ul>
+<div id="search-results"></div>
 </div>
 <div id="main">
 <h1>` + htmlEsc(title) + `</h1>
@@ -79,13 +91,18 @@ html { scroll-behavior: smooth; }
 		return ""
 	}()) + main + `
 ` + (func() string {
-		if freshNote != "" {
-			return `<p class="muted" style="margin-top:24px;font-size:12px">` + htmlEsc(freshNote) + `</p>`
+		if opts.freshNote != "" {
+			return `<p class="muted" style="margin-top:24px;font-size:12px">` + htmlEsc(opts.freshNote) + `</p>`
 		}
 		return ""
 	}()) + `
 </div>
-<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+` + (func() string {
+		if opts.searchIndex != "" {
+			return "<script>var WIKI_IDX = " + opts.searchIndex + ";</script>\n"
+		}
+		return "<script>var WIKI_IDX = [];</script>\n"
+	}()) + `<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 <script>
 mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
 // 目录当前模块高亮（scrollspy）
@@ -157,6 +174,24 @@ mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
           if (btn) apply(btn);
         }
       }
+    });
+    // C：跨页搜索索引（模块/表/术语；空 = 单文件 html 不启用）
+    var box = document.getElementById('search-results');
+    if (!box) return;
+    var idx = typeof WIKI_IDX !== 'undefined' ? WIKI_IDX : [];
+    box.innerHTML = '';
+    if (!q || !idx.length) return;
+    var hits = [];
+    idx.forEach(function (it) {
+      if ((it.n + ' ' + (it.d || '')).toLowerCase().indexOf(q) >= 0) hits.push(it);
+    });
+    hits.slice(0, 20).forEach(function (it) {
+      var a = document.createElement('a');
+      a.href = it.h;
+      a.className = 'sr-item';
+      a.innerHTML = '<span class="sr-t">' + it.t + '</span>' + (it.n.replace(/(<)/g, '&lt;')) +
+        (it.d ? '<span class="sr-d">' + (it.d.slice(0, 40).replace(/(<)/g, '&lt;')) + '</span>' : '');
+      box.appendChild(a);
     });
   });
 })();

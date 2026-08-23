@@ -98,7 +98,7 @@ func renderWikiHTML(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiC
 	}
 
 	guide := `<strong>快速开始：</strong>① 看<a href="#arch">架构图</a>了解系统组成 → ② 按顺序读各模块（职责 → 入口 → 核心符号 → 相关表）→ ③ 查<a href="#tables">表清单</a>看字段与建表语句。`
-	html := wikiHTMLPage(title, cfg.Project.Description, guide, nav.String(), main.String(), "", freshNote)
+	html := wikiHTMLPage(title, cfg.Project.Description, guide, nav.String(), main.String(), wikiPageOpts{freshNote: freshNote})
 	return os.WriteFile(filepath.Join(outDir, "index.html"), []byte(html), 0o644)
 }
 
