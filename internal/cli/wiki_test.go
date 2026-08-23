@@ -183,3 +183,44 @@ func TestWikiHTML(t *testing.T) {
 		t.Error("默认 format 应生成 index.md")
 	}
 }
+
+// TestWikiMermaid：架构图 + 流程时序——md 输出含 mermaid 代码块
+// （graph/sequenceDiagram），yaml 可覆盖架构 + 追加业务时序。
+func TestWikiMermaid(t *testing.T) {
+	dir := seedWikiRepo(t)
+	out := filepath.Join(t.TempDir(), "wiki")
+	yamlPath := filepath.Join(t.TempDir(), "wiki.yaml")
+	yaml := `modules:
+  - name: example.com/m
+architecture: |
+  graph LR
+    A[用户] --> B[系统]
+flows:
+  - title: 下单流程
+    mermaid: |
+      sequenceDiagram
+        User->>System: 下单
+        System->>DB: 写订单
+`
+	if err := os.WriteFile(yamlPath, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code := cmdWiki([]string{"--repo", dir, "--out", out, "--yaml", yamlPath}); code != 0 {
+		t.Fatalf("cmdWiki exit = %d", code)
+	}
+	mod, err := os.ReadFile(filepath.Join(out, "m.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms := string(mod)
+	// 自动架构图（模块间调用）——fixture 单模块无跨模块边，显示提示或空
+	for _, want := range []string{"```mermaid", "sequenceDiagram", "下单流程", "graph LR"} {
+		if !strings.Contains(ms, want) {
+			t.Errorf("模块页应含 %q:\n%s", want, ms)
+		}
+	}
+	// 自动时序：核心符号第一名（main）的调用链
+	if !strings.Contains(ms, "main->>") && !strings.Contains(ms, "main->") {
+		t.Errorf("应含自动时序（main 调用链）:\n%s", ms)
+	}
+}

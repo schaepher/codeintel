@@ -63,7 +63,7 @@ func renderWikiHTML(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiC
 		if desc != "" {
 			main.WriteString("<blockquote>" + htmlEsc(desc) + "</blockquote>")
 		}
-		main.WriteString(renderModuleHTML(wm, i, tableAlias, hidden))
+		main.WriteString(renderModuleHTML(wm, i, tableAlias, hidden, cfg))
 		main.WriteString("</section>\n")
 	}
 	// 表清单 section
@@ -113,7 +113,7 @@ func moduleAnchors(wm *domain.WikiModule) []moduleAnchor {
 }
 
 // renderModuleHTML 模块内容（区块标题可折叠，默认展开）。
-func renderModuleHTML(wm *domain.WikiModule, i int, tableAlias map[string]string, hidden map[string]bool) string {
+func renderModuleHTML(wm *domain.WikiModule, i int, tableAlias map[string]string, hidden map[string]bool, cfg wikiConfig) string {
 	var b strings.Builder
 	sec := func(key, title string) string {
 		return fmt.Sprintf(`<h3 class="fold-btn" data-target="%s-%d" data-label="1">▾ %s</h3><div class="sec-body" id="%s-%d">`,
@@ -182,6 +182,36 @@ func renderModuleHTML(wm *domain.WikiModule, i int, tableAlias map[string]string
 		}
 		b.WriteString("</div>\n")
 	}
+	// 架构图（#241）：yaml 覆盖优先，否则自动模块间调用图
+	b.WriteString(sec("arch", "架构图"))
+	arch := ""
+	if cfg.Architecture != "" {
+		arch = cfg.Architecture
+	} else {
+		arch = moduleArchMermaid(wm)
+	}
+	if arch != "" {
+		b.WriteString("<pre class=\"mermaid\">" + htmlEsc(arch) + "</pre>")
+	} else {
+		b.WriteString("<p class=\"muted\">（单模块或无线索——yaml architecture 可手写）</p>")
+	}
+	b.WriteString("</div>\n")
+	// 流程时序（#241）：yaml 业务时序 + 自动核心符号调用链
+	b.WriteString(sec("seq", "流程时序"))
+	hasSeq := false
+	for _, f := range cfg.Flows {
+		b.WriteString("<h4>" + htmlEsc(f.Title) + "</h4>")
+		b.WriteString("<pre class=\"mermaid\">" + htmlEsc(f.Mermaid) + "</pre>")
+		hasSeq = true
+	}
+	if len(wm.Sequence) > 0 {
+		b.WriteString("<pre class=\"mermaid\">" + htmlEsc(sequenceMermaid(wm.Sequence)) + "</pre>")
+		hasSeq = true
+	}
+	if !hasSeq {
+		b.WriteString("<p class=\"muted\">（无调用链——yaml flows 可手写业务时序）</p>")
+	}
+	b.WriteString("</div>\n")
 	return b.String()
 }
 
@@ -268,8 +298,11 @@ body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
 		return ""
 	}()) + main + `
 </div>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 <script>
-// 折叠交互：data-target 指向目标元素，data-label=1 时切换 ▸/▾
+mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
+document.addEventListener('click', function (ev) {
+  var btn = ev.target.closest('.fold-btn');
 document.addEventListener('click', function (ev) {
   var btn = ev.target.closest('.fold-btn');
   if (!btn) return;

@@ -35,6 +35,13 @@ type wikiConfig struct {
 		Alias string `yaml:"alias"`
 	} `yaml:"tables"`
 	HiddenSymbols []string `yaml:"hidden_symbols"`
+	// 架构图（mermaid 代码块；为空时自动从模块间调用生成）
+	Architecture string `yaml:"architecture"`
+	// 业务流程时序（业务语义，代码画不出——维护者模式访谈产出）
+	Flows []struct {
+		Title  string `yaml:"title"`
+		Mermaid string `yaml:"mermaid"`
+	} `yaml:"flows"`
 }
 
 // wikiMeta 渲染用的模块增强信息（yaml 合并结果）。
@@ -197,7 +204,7 @@ func renderWiki(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiConfi
 	idx.WriteString("\n## 表\n\n")
 	idx.WriteString("- [表清单](tables.md)\n")
 	for _, wm := range data {
-		page := renderModulePage(wm, meta[wm.Name].desc, tableAlias, hidden)
+		page := renderModulePage(wm, meta[wm.Name].desc, tableAlias, hidden, cfg)
 		if err := os.WriteFile(filepath.Join(outDir, wm.ShortName+".md"), []byte(page), 0o644); err != nil {
 			return err
 		}
@@ -211,8 +218,8 @@ func renderWiki(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiConfi
 	return os.WriteFile(filepath.Join(outDir, "tables.md"), []byte(tables), 0o644)
 }
 
-// renderModulePage 模块页六区块。
-func renderModulePage(wm *domain.WikiModule, desc string, tableAlias map[string]string, hidden map[string]bool) string {
+// renderModulePage 模块页六区块 + 架构图 + 流程时序。
+func renderModulePage(wm *domain.WikiModule, desc string, tableAlias map[string]string, hidden map[string]bool, cfg wikiConfig) string {
 	var b strings.Builder
 	b.WriteString("# " + wm.Name + "\n\n")
 	if desc != "" {
@@ -272,6 +279,79 @@ func renderModulePage(wm *domain.WikiModule, desc string, tableAlias map[string]
 			b.WriteString(line + "\n")
 		}
 		b.WriteString("\n")
+	}
+	// 架构图（#241）：yaml 覆盖优先，否则自动模块间调用图
+	b.WriteString("## 架构图\n\n")
+	if cfg.Architecture != "" {
+		b.WriteString("```mermaid\n" + cfg.Architecture + "\n```\n\n")
+	} else if len(wm.OutCalls) > 0 || len(wm.InCalls) > 0 {
+		arch := moduleArchMermaid(wm)
+		if arch != "" {
+			b.WriteString("```mermaid\n" + arch + "\n```\n\n")
+		}
+	} else {
+		b.WriteString("（单模块或无线索——yaml architecture 可手写）\n\n")
+	}
+	// 流程时序（#241）：yaml 业务时序 + 自动核心符号调用链
+	b.WriteString("## 流程时序\n\n")
+	hasSeq := false
+	for _, f := range cfg.Flows {
+		b.WriteString("### " + f.Title + "\n\n")
+		b.WriteString("```mermaid\n" + f.Mermaid + "\n```\n\n")
+		hasSeq = true
+	}
+	if len(wm.Sequence) > 0 {
+		if !hasSeq {
+			b.WriteString("（自动生成：核心符号调用链，深度 3）\n\n")
+		}
+		b.WriteString("```mermaid\n" + sequenceMermaid(wm.Sequence) + "\n```\n\n")
+		hasSeq = true
+	}
+	if !hasSeq {
+		b.WriteString("（无调用链——yaml flows 可手写业务时序）\n\n")
+	}
+	return b.String()
+}
+
+// moduleArchMermaid 自动模块架构图（模块间调用，graph LR）。
+func moduleArchMermaid(wm *domain.WikiModule) string {
+	var b strings.Builder
+	b.WriteString("graph LR\n")
+	seen := map[string]bool{}
+	for _, m := range wm.OutCalls {
+		if !seen[m] {
+			seen[m] = true
+			b.WriteString("  " + archNode(wm.ShortName) + " --> " + archNode(shortMod(m)) + "\n")
+		}
+	}
+	for _, m := range wm.InCalls {
+		if !seen["in:"+m] {
+			seen["in:"+m] = true
+			b.WriteString("  " + archNode(shortMod(m)) + " --> " + archNode(wm.ShortName) + "\n")
+		}
+	}
+	return b.String()
+}
+
+// archNode mermaid 节点（短名做 id，中文/特殊字符安全：用短名 id + 标签）。
+func archNode(name string) string {
+	return "[" + name + "]"
+}
+
+// shortMod module 路径末段（渲染用）。
+func shortMod(mod string) string {
+	if i := strings.LastIndex(mod, "/"); i >= 0 {
+		return mod[i+1:]
+	}
+	return mod
+}
+
+// sequenceMermaid 调用链 → sequenceDiagram（参与者 + 边，确定性排序）。
+func sequenceMermaid(steps []domain.WikiSeqStep) string {
+	var b strings.Builder
+	b.WriteString("sequenceDiagram\n")
+	for _, st := range steps {
+		b.WriteString("  " + st.Caller + "->>" + st.Callee + ": call\n")
 	}
 	return b.String()
 }

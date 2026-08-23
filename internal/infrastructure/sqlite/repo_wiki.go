@@ -17,7 +17,7 @@ func (r *Repo) TopCallersInModule(prefix string, limit int) ([]*domain.WikiSymbo
 	if limit <= 0 {
 		limit = 5
 	}
-	rows, err := r.Query(`SELECT n.name, n.kind, n.file_path, n.line_start, COUNT(e.target_id) AS c
+	rows, err := r.Query(`SELECT n.id, n.name, n.kind, n.file_path, n.line_start, COUNT(e.target_id) AS c
 		FROM nodes n LEFT JOIN edges e ON e.kind = 'calls' AND e.target_id = n.id
 		WHERE (n.id LIKE ? OR n.id LIKE ?) AND n.kind IN ('function','method')
 		GROUP BY n.id ORDER BY c DESC, n.id LIMIT ?`, prefix+":%", prefix+"/%", limit)
@@ -28,7 +28,7 @@ func (r *Repo) TopCallersInModule(prefix string, limit int) ([]*domain.WikiSymbo
 	var out []*domain.WikiSymbol
 	for rows.Next() {
 		var s domain.WikiSymbol
-		if err := rows.Scan(&s.Name, &s.Kind, &s.File, &s.Line, &s.Callers); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &s.Kind, &s.File, &s.Line, &s.Callers); err != nil {
 			return nil, err
 		}
 		out = append(out, &s)

@@ -13,10 +13,18 @@ type WikiModule struct {
 	OutCalls    []string     `json:"out_calls,omitempty"`  // 调用的模块
 	InCalls     []string     `json:"in_calls,omitempty"`   // 被哪些模块调用
 	Tables      []string     `json:"tables,omitempty"`     // 相关表（该模块代码写入的表）
+	Sequence    []WikiSeqStep `json:"sequence,omitempty"`  // 核心符号调用链（自动时序图数据）
+}
+
+// WikiSeqStep 时序图一步（调用者 → 被调用者短名）。
+type WikiSeqStep struct {
+	Caller string `json:"caller"`
+	Callee string `json:"callee"`
 }
 
 // WikiSymbol 核心符号条目。
 type WikiSymbol struct {
+	ID      string `json:"id"`
 	Name    string `json:"name"`
 	Kind    string `json:"kind"`
 	Callers int    `json:"callers"`

@@ -10,3 +10,31 @@ tables:
     alias: 关系边
   - name: build_metadata
     alias: 构建元数据
+architecture: |
+  graph LR
+    SRC[Go 源码] --> A1[ssa 适配器]
+    SRC --> A2[ast 适配器]
+    SRC --> A3[scip 索引]
+    SRC --> A4[git 历史]
+    A1 --> DB[(codeintel.db)]
+    A2 --> DB
+    A3 --> DB
+    A4 --> DB
+    DB --> CLI[CLI 查询]
+    DB --> WEB[serve 网页]
+    DB --> MCP[MCP 服务]
+flows:
+  - title: init 构建流程
+    mermaid: |
+      sequenceDiagram
+        用户->>CLI: codeintel init --repo
+        CLI->>分析器: 并行分析（ssa/ast/scip/git）
+        分析器->>DB: 写入节点与边
+        CLI->>用户: 构建报告与引导示例
+  - title: 字段追溯流程
+    mermaid: |
+      sequenceDiagram
+        用户->>CLI: query trace-backward 字段
+        CLI->>DB: 值流全链查询
+        DB->>CLI: 产生点/写入方（带行号）
+        CLI->>用户: 追溯链展示

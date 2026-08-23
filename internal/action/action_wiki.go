@@ -39,6 +39,19 @@ func (a *Actions) WikiData(mods []string) ([]*domain.WikiModule, error) {
 			return nil, err
 		}
 		wm.CoreSymbols = syms
+		// 自动时序：入口 main 优先（系统流程），无入口用核心符号第一名；
+		// 一律用 canonical ID（名称多匹配——本仓库 12 个 main 实测）
+		anchorID := moduleEntryID(roots, mod)
+		if anchorID == "" && len(syms) > 0 {
+			anchorID = domain.CanonicalID(syms[0].ID)
+		}
+		if anchorID != "" {
+			seq, err := a.wikiSequenceByID(anchorID)
+			if err != nil {
+				return nil, err
+			}
+			wm.Sequence = seq
+		}
 		for _, c := range calls {
 			if c.FromModule == mod && !containsStr(wm.OutCalls, c.ToModule) {
 				wm.OutCalls = append(wm.OutCalls, c.ToModule)
@@ -169,4 +182,53 @@ func containsStr(xs []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// moduleEntryID 模块入口（main）的 canonical ID（roots 中第一个 main）。
+func moduleEntryID(roots []*domain.CodeEntity, mod string) domain.CanonicalID {
+	p1 := "symbol:go:" + mod + ":"
+	p2 := "symbol:go:" + mod + "/"
+	for _, r := range roots {
+		if r.Name != "main" {
+			continue
+		}
+		if strings.HasPrefix(string(r.ID), p1) || strings.HasPrefix(string(r.ID), p2) {
+			return r.ID
+		}
+	}
+	return ""
+}
+
+// wikiSequenceByID 锚点符号调用链（#241 自动时序图数据）：Callees
+// 深度 3 的调用边集合（caller/callee 短名，确定性排序）。
+func (a *Actions) wikiSequenceByID(id domain.CanonicalID) ([]domain.WikiSeqStep, error) {
+	facts, err := a.Callees(id, 3)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[[2]string]bool{}
+	var out []domain.WikiSeqStep
+	for _, f := range facts {
+		pair := [2]string{seqShort(string(f.SourceID)), seqShort(string(f.TargetID))}
+		if seen[pair] {
+			continue
+		}
+		seen[pair] = true
+		out = append(out, domain.WikiSeqStep{Caller: pair[0], Callee: pair[1]})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Caller != out[j].Caller {
+			return out[i].Caller < out[j].Caller
+		}
+		return out[i].Callee < out[j].Callee
+	})
+	return out, nil
+}
+
+// seqShort canonical ID → 短名（保留方法形态 (T).m）。
+func seqShort(id string) string {
+	if i := strings.LastIndex(id, ":"); i >= 0 {
+		return id[i+1:]
+	}
+	return id
 }
