@@ -40,7 +40,9 @@ func TestParseSQLStmt(t *testing.T) {
 		// Q251：fmt.Sprintf 动态 SQL 的 %s 占位符——`%s = ?` 的 s
 		// （% 后标识符片段）不得当列名
 		{"SELECT * FROM edges WHERE %s = ? AND kind = 'calls' AND confidence >= ?", "edges", nil, []string{"confidence"}},
-		{"SELECT DISTINCT s.id, a.name FROM sys_sub_station s INNER JOIN sys_district a ON a.code = s.city_code", "sys_sub_station", []string{"id", "name"}, nil},
+		// R4：别名列归属——a.name 属 sys_district（别名 a），不得归主表
+		// sys_sub_station（此前错误期望 [id name]）
+		{"SELECT DISTINCT s.id, a.name FROM sys_sub_station s INNER JOIN sys_district a ON a.code = s.city_code", "sys_sub_station", []string{"id"}, nil},
 		// Q250：多行 SQL（\n\t\tFROM）——FROM 前是 tab/换行非空格，
 		// " FROM " 子串匹配不到
 		{"SELECT function_id, access_kind, field_path\n\t\tFROM function_field_summary ORDER BY field_path", "function_field_summary", []string{"function_id", "access_kind", "field_path"}, nil},
@@ -246,3 +248,30 @@ func TestParseSQLSubqueryParen(t *testing.T) {
 
 
 
+
+// TestParseSQLStmtAliasColOwnership：R4——SELECT 别名列归属。
+// `SELECT e.source_id, n.name FROM edges e JOIN nodes n`——n.name 属
+// nodes（别名 n），不得归主表 edges（此前去限定符全归第一表，生成
+// 假表.列 edges.name 噪音——R3 edges「待确认」字段根因）。
+func TestParseSQLStmtAliasColOwnership(t *testing.T) {
+	sql := "SELECT e.source_id, n.name FROM edges e JOIN nodes n ON n.id = e.target_id"
+	table, _, cols, _, _ := parseSQLStmt(sql)
+	if table != "edges" {
+		t.Fatalf("table = %q, want edges", table)
+	}
+	for _, c := range cols {
+		if c == "name" {
+			t.Errorf("别名列 n.name 不得归主表 edges: %v", cols)
+		}
+	}
+	// 主表自身别名列（e.source_id）保留
+	found := false
+	for _, c := range cols {
+		if c == "source_id" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("主表别名列 e.source_id 应保留: %v", cols)
+	}
+}

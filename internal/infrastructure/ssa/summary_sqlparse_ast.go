@@ -62,7 +62,18 @@ func astSelect(s *sqlparser.Select, cte map[string]bool) (string, string, []stri
 		return "", "", nil, nil, nil, false
 	}
 	table, alias := tables[0].name, tables[0].alias
-	// SELECT 列（AliasedExpr.ColName；* / 函数 / 子查询跳过）
+	// 别名映射（JOIN ON 列前缀解析 + SELECT 列归属）
+	aliases := map[string]string{}
+	for _, t := range tables {
+		aliases[t.name] = t.name
+		if t.alias != "" {
+			aliases[t.alias] = t.name
+		}
+	}
+	// SELECT 列（AliasedExpr.ColName；* / 函数 / 子查询跳过）。
+	// R4：别名列归属——限定符映射到非主表时跳过（n.name 属 nodes，
+	// 不得归主表 edges——去限定符全归第一表生成假表.列噪音）；
+	// 主表自身别名列（e.source_id）保留
 	var cols []string
 	if s.SelectExprs != nil {
 		for _, e := range s.SelectExprs.Exprs {
@@ -70,17 +81,16 @@ func astSelect(s *sqlparser.Select, cte map[string]bool) (string, string, []stri
 			if !ok {
 				continue
 			}
-			if cn, ok := ae.Expr.(*sqlparser.ColName); ok {
-				cols = append(cols, cn.Name.String())
+			cn, ok := ae.Expr.(*sqlparser.ColName)
+			if !ok {
+				continue
 			}
-		}
-	}
-	// 别名映射（JOIN ON 列前缀解析）
-	aliases := map[string]string{}
-	for _, t := range tables {
-		aliases[t.name] = t.name
-		if t.alias != "" {
-			aliases[t.alias] = t.name
+			if q := cn.Qualifier.Name.String(); q != "" {
+				if aliases[q] != "" && aliases[q] != table {
+					continue
+				}
+			}
+			cols = append(cols, cn.Name.String())
 		}
 	}
 	whereCols := astWhereCols(s.Where, aliases, cteQual)
@@ -93,7 +103,7 @@ func astInsert(s *sqlparser.Insert) (string, string, []string, []string, []sqlJo
 	if s.Table == nil {
 		return "", "", nil, nil, nil, false
 	}
-	if tn, ok := s.Table.Expr.(*sqlparser.TableName); ok {
+	if tn, ok := s.Table.Expr.(sqlparser.TableName); ok {
 		table := tn.Name.String()
 		if table == "" {
 			return "", "", nil, nil, nil, false

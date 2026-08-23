@@ -1,6 +1,10 @@
 package ssa
 
-import "vitess.io/vitess/go/vt/sqlparser"
+import (
+	"strings"
+
+	"vitess.io/vitess/go/vt/sqlparser"
+)
 
 // astCollectTables 遍历 TableExprs 收集真实表（子查询 JOIN/派生表跳过，
 // CTE 名跳过）。返回 (表列表, CTE 限定符集合（名+别名，Q252：WHERE
@@ -14,8 +18,13 @@ func astCollectTables(exprs sqlparser.TableExprs, cte map[string]bool) ([]astTab
 	walk = func(e sqlparser.TableExpr) {
 		switch t := e.(type) {
 		case *sqlparser.AliasedTableExpr:
-			if tn, ok := t.Expr.(*sqlparser.TableName); ok {
+			if tn, ok := t.Expr.(sqlparser.TableName); ok {
 				name := tn.Name.String()
+				// R4：vitess 对无 FROM 的 SELECT 隐式加 dual 伪表——
+				// 不当真实表（子查询内表提取降级启发式保留）
+				if strings.EqualFold(name, "dual") {
+					return
+				}
 				if cte[name] {
 
 					cteQual[name] = true
@@ -75,8 +84,13 @@ func astWhereCols(w *sqlparser.Where, aliases map[string]string, cteQual map[str
 		default:
 			return true, nil
 		}
+		// Q158 补（R4）：vitess 把 PostgreSQL $N 占位符解析为
+		// ColName（Name="$1"）而非 Argument——$N 形态的 filter 列
+		// 识别（AST 激活后此路径才走到；此前整体降级启发式）
 		if _, ok := ce.Right.(*sqlparser.Argument); !ok {
-			return true, nil
+			if cn, ok := ce.Right.(*sqlparser.ColName); !ok || !strings.HasPrefix(cn.Name.String(), "$") {
+				return true, nil
+			}
 		}
 		cn, ok := ce.Left.(*sqlparser.ColName)
 		if !ok {
@@ -103,22 +117,12 @@ func astJoinPairs(from sqlparser.TableExprs, aliases map[string]string) []sqlJoi
 			return
 		}
 
-		lt, lOK := jt.LeftExpr.(*sqlparser.AliasedTableExpr)
-		rt, rOK := jt.RightExpr.(*sqlparser.AliasedTableExpr)
-		if !lOK || !rOK {
-			walk(jt.LeftExpr)
-			walk(jt.RightExpr)
-			return
-		}
-		lTn, lTbl := lt.Expr.(*sqlparser.TableName)
-		rTn, rTbl := rt.Expr.(*sqlparser.TableName)
-		if !lTbl || !rTbl {
-			return
-		}
-		lTable, rTable := lTn.Name.String(), rTn.Name.String()
-		if lTable == "" || rTable == "" {
-			return
-		}
+		walk(jt.LeftExpr)
+		walk(jt.RightExpr)
+
+		// R4：ON 提取不依赖左右都是 AliasedTableExpr——多层 JOIN 链
+		// （(A JOIN B) JOIN C）的外层 ON 此前被跳过（只取到最内层）；
+		// 递归后提取——内层 ON 按书写顺序在前
 		if jt.Condition != nil && jt.Condition.On != nil {
 			sqlparser.Walk(func(node sqlparser.SQLNode) (bool, error) {
 				// P2a：子查询作用域——ON 内 (SELECT…) 的等值比较属子查询
@@ -136,8 +140,8 @@ func astJoinPairs(from sqlparser.TableExprs, aliases map[string]string) []sqlJoi
 					return true, nil
 				}
 
-				from := resolveTable(lc, lTable, rTable, aliases)
-				to := resolveTable(rc, lTable, rTable, aliases)
+				from := resolveTable(lc, aliases)
+				to := resolveTable(rc, aliases)
 				if from == "" || to == "" {
 					return true, nil
 				}
@@ -145,9 +149,6 @@ func astJoinPairs(from sqlparser.TableExprs, aliases map[string]string) []sqlJoi
 				return true, nil
 			}, jt.Condition.On)
 		}
-
-		walk(jt.LeftExpr)
-		walk(jt.RightExpr)
 	}
 	for _, e := range from {
 		walk(e)
@@ -155,9 +156,9 @@ func astJoinPairs(from sqlparser.TableExprs, aliases map[string]string) []sqlJoi
 	return pairs
 }
 
-// resolveTable JOIN ON 列前缀 → 真实表名（无前缀/未知前缀 → 取 JOIN
-// 对侧默认——启发式行为：无别名 JOIN 用表名本身）。
-func resolveTable(cn *sqlparser.ColName, lTable, rTable string, aliases map[string]string) string {
+// resolveTable JOIN ON 列前缀 → 真实表名（未知前缀 → 空，键对丢弃——
+// 相关子查询/未识别别名不当 JOIN 键）。
+func resolveTable(cn *sqlparser.ColName, aliases map[string]string) string {
 	if cn.Qualifier.Name.String() != "" {
 		if t := aliases[cn.Qualifier.Name.String()]; t != "" {
 			return t

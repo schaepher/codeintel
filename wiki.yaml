@@ -47,12 +47,6 @@ tables:
     comment: 终点节点（外键 → nodes.id）
   - name: tool_source
     comment: 产生边的分析工具（ssa/ast/scip/git）
-  - name: name
-    comment: （解析噪音——非真实列，别名列 n.name 错误归属；真实列见 schema）
-    hidden: true
-  - name: file_path
-    comment: （解析噪音——非真实列，别名列 caller_n.file_path 错误归属）
-    hidden: true
   indexes:
   - idx_edges_source_kind(source_id, kind)
   - idx_edges_target_kind(target_id, kind)
