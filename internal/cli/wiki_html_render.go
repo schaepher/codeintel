@@ -11,8 +11,9 @@ import (
 	"go.uber.org/zap"
 )
 
-// renderWikiHTML 生成单文件自包含 index.html（全量覆盖）。
-func renderWikiHTML(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiConfig, cols []*domain.TableColumn, rels []*domain.TableRelation) error {
+// renderWikiHTML 生成单文件自包含 index.html（全量覆盖）。freshNote
+// 是新鲜度标注（基于索引 commit，空则省略）。
+func renderWikiHTML(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiConfig, cols []*domain.TableColumn, rels []*domain.TableRelation, freshNote string) error {
 	logger := zap.L()
 	logger.Debug("enter renderWikiHTML", zap.Int("modules", len(data)))
 	defer logger.Debug("exit renderWikiHTML")
@@ -97,7 +98,7 @@ func renderWikiHTML(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiC
 	}
 
 	guide := `<strong>快速开始：</strong>① 看<a href="#arch">架构图</a>了解系统组成 → ② 按顺序读各模块（职责 → 入口 → 核心符号 → 相关表）→ ③ 查<a href="#tables">表清单</a>看字段与建表语句。`
-	html := wikiHTMLPage(title, cfg.Project.Description, guide, nav.String(), main.String())
+	html := wikiHTMLPage(title, cfg.Project.Description, guide, nav.String(), main.String(), "", freshNote)
 	return os.WriteFile(filepath.Join(outDir, "index.html"), []byte(html), 0o644)
 }
 

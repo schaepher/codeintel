@@ -1,8 +1,10 @@
 package cli
 
 // wikiHTMLPage 组装完整页面（内嵌 CSS/JS）。guide 是快速开始引导块
-// （单文件用 #锚点，wiki serve 多页用 /wiki/ 路径链接）。
-func wikiHTMLPage(title, desc, guide, nav, main string) string {
+// （单文件用 #锚点，wiki serve 多页用 /wiki/ 路径链接）。exploreLink
+// 非空时侧栏顶部显示"图探索"返回链接（serve 场景）；freshNote 非空时
+// 页面底部显示新鲜度标注（基于索引 commit）。
+func wikiHTMLPage(title, desc, guide, nav, main string, exploreLink, freshNote string) string {
 	return `<!DOCTYPE html>
 <html lang="zh">
 <head>
@@ -54,7 +56,12 @@ html { scroll-behavior: smooth; }
 </head>
 <body>
 <div id="sidebar">
-<h2>目录</h2>
+` + (func() string {
+		if exploreLink != "" {
+			return `<div style="padding:0 16px 8px"><a href="` + htmlEsc(exploreLink) + `" style="font-size:12px;color:#1677ff">← 图探索</a></div>`
+		}
+		return ""
+	}()) + `<h2>目录</h2>
 <div class="nav-tools">
   <input id="nav-search" type="text" placeholder="搜索模块 / 章节 / 表…" autocomplete="off">
   <button id="nav-expand-all" title="全部展开">全部展开</button>
@@ -71,6 +78,12 @@ html { scroll-behavior: smooth; }
 		}
 		return ""
 	}()) + main + `
+` + (func() string {
+		if freshNote != "" {
+			return `<p class="muted" style="margin-top:24px;font-size:12px">` + htmlEsc(freshNote) + `</p>`
+		}
+		return ""
+	}()) + `
 </div>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 <script>

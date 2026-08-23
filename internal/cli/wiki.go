@@ -129,14 +129,19 @@ func cmdWiki(args []string) int {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
+	// 新鲜度标注：基于索引 commit（wiki 产物是索引快照，注明版本）
+	freshNote := ""
+	if latest, err := acts.Latest(); err == nil && latest.CommitSHA != "" {
+		freshNote = "索引 commit: " + shortSHA(latest.CommitSHA)
+	}
 	switch format {
 	case "html":
-		if err := renderWikiHTML(abs, outDir, data, cfg, cols, rels); err != nil {
+		if err := renderWikiHTML(abs, outDir, data, cfg, cols, rels, freshNote); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
 		}
 	case "md", "":
-		if err := renderWiki(abs, outDir, data, cfg, cols, rels); err != nil {
+		if err := renderWiki(abs, outDir, data, cfg, cols, rels, freshNote); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
 		}
@@ -152,7 +157,8 @@ func cmdWiki(args []string) int {
 
 
 // renderWiki 生成 index.md + 模块页 + tables.md + er.md（全量覆盖）。
-func renderWiki(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiConfig, cols []*domain.TableColumn, rels []*domain.TableRelation) error {
+// freshNote 是新鲜度标注（基于索引 commit，空则省略）。
+func renderWiki(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiConfig, cols []*domain.TableColumn, rels []*domain.TableRelation, freshNote string) error {
 	logger := zap.L()
 	logger.Debug("enter renderWiki", zap.Int("modules", len(data)))
 	defer logger.Debug("exit renderWiki")
@@ -227,7 +233,12 @@ func renderWiki(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiConfi
 		}
 	}
 	// 表附录
-	idx.WriteString("\n---\n\n由 codeintel wiki 生成 · 重新生成前请确认 wiki.yaml\n")
+	idx.WriteString("\n---\n\n由 codeintel wiki 生成 · 重新生成前请确认 wiki.yaml")
+	if freshNote != "" {
+		idx.WriteString("\n（" + freshNote + "）\n")
+	} else {
+		idx.WriteString("\n")
+	}
 	if err := os.WriteFile(filepath.Join(outDir, "index.md"), []byte(idx.String()), 0o644); err != nil {
 		return err
 	}

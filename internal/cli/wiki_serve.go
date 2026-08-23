@@ -33,6 +33,7 @@ type wikiServe struct {
 // wikiSnapshot 一次有效数据快照（渲染入参，与 renderWikiHTML 同源）。
 type wikiSnapshot struct {
 	buildID    string
+	commitSHA  string
 	yamlMod    int64
 	data       []*domain.WikiModule
 	ordered    []*domain.WikiModule
@@ -96,15 +97,15 @@ func serveWikiHTML(w http.ResponseWriter, html string) {
 func (ws *wikiServe) snapshot() (*wikiSnapshot, error) {
 	ws.mu.Lock()
 	defer ws.mu.Unlock()
-	buildID := ""
+	buildID, commitSHA := "", ""
 	if latest, err := ws.acts.Latest(); err == nil {
-		buildID = latest.BuildID
+		buildID, commitSHA = latest.BuildID, latest.CommitSHA
 	}
 	yamlMod := wikiYAMLModTime(ws.repoAbs)
 	if ws.snap != nil && ws.snap.buildID == buildID && ws.snap.yamlMod == yamlMod {
 		return ws.snap, nil
 	}
-	snap, err := ws.load(buildID, yamlMod)
+	snap, err := ws.load(buildID, commitSHA, yamlMod)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +114,7 @@ func (ws *wikiServe) snapshot() (*wikiSnapshot, error) {
 }
 
 // load 收集全部 wiki 数据（与 cmdWiki 同源，yaml 自动发现）。
-func (ws *wikiServe) load(buildID string, yamlMod int64) (*wikiSnapshot, error) {
+func (ws *wikiServe) load(buildID, commitSHA string, yamlMod int64) (*wikiSnapshot, error) {
 	logger := zap.L()
 	logger.Debug("load wiki snapshot", zap.String("build_id", buildID))
 	repo, err := buildRepo(ws.repoAbs)
@@ -148,7 +149,7 @@ func (ws *wikiServe) load(buildID string, yamlMod int64) (*wikiSnapshot, error) 
 		return ordered[i].Name < ordered[j].Name
 	})
 	return &wikiSnapshot{
-		buildID: buildID, yamlMod: yamlMod, data: data, ordered: ordered,
+		buildID: buildID, commitSHA: commitSHA, yamlMod: yamlMod, data: data, ordered: ordered,
 		cfg: cfg, meta: meta, tableAlias: tableAlias, hidden: hidden,
 		tableCfgs: tableCfgsFrom(cfg), cols: cols, rels: rels,
 	}, nil

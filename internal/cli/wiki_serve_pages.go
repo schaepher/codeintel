@@ -46,10 +46,14 @@ func (ws *wikiServe) navHTML(snap *wikiSnapshot, current string) string {
 	return nav.String()
 }
 
-// pageHTML 组装整页（标题/导航/内容）。
+// pageHTML 组装整页（标题/导航/内容 + 图探索返回链接 + 新鲜度标注）。
 func (ws *wikiServe) pageHTML(snap *wikiSnapshot, current string, main string) string {
 	title := filepath.Base(ws.repoAbs) + " 业务 wiki"
-	return wikiHTMLPage(title, snap.cfg.Project.Description, wikiGuide, ws.navHTML(snap, current), main)
+	freshNote := ""
+	if snap.commitSHA != "" {
+		freshNote = "索引 commit: " + shortSHA(snap.commitSHA) + "（增量 update 后自动刷新）"
+	}
+	return wikiHTMLPage(title, snap.cfg.Project.Description, wikiGuide, ws.navHTML(snap, current), main, "/", freshNote)
 }
 
 // overviewPage 概览页：架构图 + 模块目录 + 术语表。

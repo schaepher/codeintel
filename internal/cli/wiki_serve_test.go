@@ -68,6 +68,10 @@ func TestWikiServe(t *testing.T) {
 			t.Errorf("overview 应含 %q", want)
 		}
 	}
+	// A：serve 场景侧栏有"图探索"返回链接
+	if !strings.Contains(body, "图探索") || !strings.Contains(body, `href="/"`) {
+		t.Errorf("overview 应含图探索返回链接")
+	}
 
 	// 模块页（短名 m）
 	resp, body = get("/wiki/mod/m")
