@@ -377,3 +377,37 @@ func TestMCPToolStale(t *testing.T) {
 		t.Errorf("content[0] 应为契约 JSON: %v", err)
 	}
 }
+
+// TestMCPOutputSchema：#235 全部工具输出 schema 自描述（tools/list 可见，
+// Agent 零猜测字段）。
+func TestMCPOutputSchema(t *testing.T) {
+	cs := mcpDial(t, seedRepo(t))
+	res, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	tools := res.Tools
+	if len(tools) < 19 {
+		t.Fatalf("工具数 = %d, want >= 19", len(tools))
+	}
+	for _, tl := range tools {
+		if tl.OutputSchema == nil {
+			t.Errorf("工具 %s 缺输出 schema", tl.Name)
+		}
+	}
+	// symbol schema 应含嵌套字段（callers/confidence）
+	for _, tl := range tools {
+		if tl.Name != "symbol" || tl.OutputSchema == nil {
+			continue
+		}
+		b, err := json.Marshal(tl.OutputSchema)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, key := range []string{"callers", "confidence", "name", "signature"} {
+			if !strings.Contains(string(b), key) {
+				t.Errorf("symbol schema 应含 %s: %s", key, b)
+			}
+		}
+	}
+}
