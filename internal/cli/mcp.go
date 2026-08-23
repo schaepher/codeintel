@@ -18,6 +18,7 @@ import (
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 	"github.com/schaepher/codeintel/internal/logging"
+	"github.com/schaepher/codeintel/internal/orchestrator"
 	"go.uber.org/zap"
 )
 
@@ -65,6 +66,24 @@ type summaryParams struct {
 }
 type moduleCallsParams struct {
 	Module string `json:"module"` // module 名过滤（可选）
+}
+// #228 写操作工具参数：batch_symbols 批量概览；update/init 重建索引
+// （stale 自愈——Agent 一条消息从「过期」到「可用」）。
+type batchParams struct {
+	Symbols []string `json:"symbols"` // 符号名列表（单输入失败跳过，部分成功）
+}
+type updateParams struct{}
+
+// buildResult 重建结果摘要（update/init 工具输出，snake_case 契约）。
+type buildResult struct {
+	Status       string `json:"status"`                  // success/degraded/failed/up_to_date/needs_full_build
+	ChangedFiles int    `json:"changed_files,omitempty"` // 变更文件数（init 为 0）
+	Nodes        int    `json:"nodes,omitempty"`
+	Edges        int    `json:"edges,omitempty"`
+	SkippedEdges int    `json:"skipped_edges,omitempty"`
+	DurationMs   int64  `json:"duration_ms,omitempty"`
+	CommitSHA    string `json:"commit_sha,omitempty"`
+	Message      string `json:"message,omitempty"` // 提示信息（无变更/需全量重建等）
 }
 
 // toolErr 错误结果（isError=true，文本为错误信息）。
@@ -260,6 +279,98 @@ func registerMCPTools(server *mcp.Server, acts *action.Actions, r *sqlite.Repo, 
 			}
 			return toolJSON(map[string]any{"calls": calls}), nil, nil
 		}))
+	// #228 写操作工具（不包 staleWrap——写后索引即最新，无需标注）。
+	// batch_symbols：批量概览（复用 action.BatchSymbols，契约同 CLI batch --json）。
+	mcp.AddTool(server, &mcp.Tool{Name: "batch_symbols", Description: "批量符号概览（多符号一次返回；单输入失败跳过，部分成功）"},
+		func(ctx context.Context, req *mcp.CallToolRequest, args batchParams) (*mcp.CallToolResult, any, error) {
+			res, err := acts.BatchSymbols(args.Symbols)
+			if err != nil {
+				return toolErr(err.Error()), nil, nil
+			}
+			return toolJSON(map[string]any{"results": res}), nil, nil
+		})
+	// update：增量更新（git 检测变更文件；stale 时调用自愈）。
+	mcp.AddTool(server, &mcp.Tool{Name: "update", Description: "增量更新索引（git 检测变更的 .go 文件重建；索引 stale 时调用自愈）"},
+		func(ctx context.Context, req *mcp.CallToolRequest, args updateParams) (*mcp.CallToolResult, any, error) {
+			return runBuildTool(ctx, repoAbs, false), nil, nil
+		})
+	// init：全量重建（schema/分析逻辑变更后；大仓库耗时较长）。
+	mcp.AddTool(server, &mcp.Tool{Name: "init", Description: "全量重建索引（schema/分析逻辑变更后；大仓库耗时较长）"},
+		func(ctx context.Context, req *mcp.CallToolRequest, args updateParams) (*mcp.CallToolResult, any, error) {
+			return runBuildTool(ctx, repoAbs, true), nil, nil
+		})
+}
+
+// runBuildTool 增量（full=false）/全量（full=true）重建，输出 JSON 摘要
+// （#228 写操作工具；复用 CLI update/init 同款核心调用）。
+func runBuildTool(ctx context.Context, abs string, full bool) *mcp.CallToolResult {
+	logger := zap.L()
+	logger.Debug("enter runBuildTool", zap.Bool("full", full))
+	defer logger.Debug("exit runBuildTool")
+	if full {
+		repo, err := buildRepo(abs)
+		if err != nil {
+			return toolErr(err.Error())
+		}
+		db, err := sqlite.Open(abs)
+		if err != nil {
+			return toolErr(err.Error())
+		}
+		defer db.Close()
+		orch := orchestrator.New(repo, db)
+		result, err := orch.FullBuild(ctx)
+		if err != nil {
+			return toolErr(err.Error())
+		}
+		if result.CommitSHA != "" {
+			refreshRepoAfterUpdate(abs, result.CommitSHA)
+		}
+		return toolJSON(buildSummary(result, 0))
+	}
+	changed, err := detectChangedGoFiles(abs)
+	if err != nil {
+		return toolErr(err.Error())
+	}
+	// module 级文件变更：影响模块范围，提示全量重建
+	for _, f := range changed {
+		if f == "go.mod" || f == "go.work" {
+			return toolJSON(buildResult{Status: "needs_full_build", Message: "go.mod/go.work 已变更，影响模块范围，请用 init 全量重建"})
+		}
+	}
+	if len(changed) == 0 {
+		return toolJSON(buildResult{Status: "up_to_date", Message: "无变更的 .go 文件（索引已是最新）"})
+	}
+	repo, err := buildRepo(abs)
+	if err != nil {
+		return toolErr(err.Error())
+	}
+	db, err := sqlite.Open(abs)
+	if err != nil {
+		return toolErr(err.Error())
+	}
+	defer db.Close()
+	orch := orchestrator.New(repo, db)
+	result, err := orch.IncrementalBuild(ctx, changed)
+	if err != nil {
+		return toolErr(err.Error())
+	}
+	if result.CommitSHA != "" {
+		refreshRepoAfterUpdate(abs, result.CommitSHA)
+	}
+	return toolJSON(buildSummary(result, len(changed)))
+}
+
+// buildSummary 构建结果转契约摘要。
+func buildSummary(result *orchestrator.BuildResult, changed int) buildResult {
+	return buildResult{
+		Status:       string(result.Status),
+		ChangedFiles: changed,
+		Nodes:        result.Nodes,
+		Edges:        result.Edges,
+		SkippedEdges: result.SkippedEdges,
+		DurationMs:   result.Duration.Milliseconds(),
+		CommitSHA:    result.CommitSHA,
+	}
 }
 
 // graphTool callers/callees 共用 handler。
