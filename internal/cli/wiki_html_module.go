@@ -49,7 +49,11 @@ func renderModuleHTML(wm *domain.WikiModule, i int, tableAlias map[string]string
 		b.WriteString("<p>" + htmlEsc(wm.Desc) + " <span class=\"muted\">（来源：包注释）</span></p>")
 	}
 	if desc == "" && wm.Desc == "" {
-		b.WriteString("<p class=\"muted\">（无描述——维护者可在 wiki.yaml modules.description 补充）</p>")
+		if ad := wikiAutoDesc(wm); ad != "" {
+			b.WriteString("<p>" + htmlEsc(ad) + "</p>")
+		} else {
+			b.WriteString("<p class=\"muted\">（无描述——维护者可在 wiki.yaml modules.description 补充）</p>")
+		}
 	}
 	b.WriteString("</div>\n")
 

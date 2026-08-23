@@ -7,6 +7,44 @@ import (
 	"github.com/schaepher/codeintel/internal/domain"
 )
 
+// wikiAutoDesc 自动推断描述（F）：yaml 描述/包注释都空时的结构化
+// fallback——只陈述代码事实（核心符号/调用方向），不编造业务含义。
+// 渲染层三处共用（md/html/serve 导航）。
+func wikiAutoDesc(wm *domain.WikiModule) string {
+	var parts []string
+	if len(wm.CoreSymbols) > 0 {
+		names := make([]string, 0, 3)
+		for i, s := range wm.CoreSymbols {
+			if i >= 3 {
+				break
+			}
+			names = append(names, s.Name)
+		}
+		parts = append(parts, "核心符号 "+strings.Join(names, "、"))
+	}
+	if len(wm.OutCalls) > 0 {
+		parts = append(parts, fmt.Sprintf("调用 %d 个模块", len(wm.OutCalls)))
+	}
+	if len(wm.InCalls) > 0 {
+		parts = append(parts, fmt.Sprintf("被 %d 个模块调用", len(wm.InCalls)))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "（自动推断）" + strings.Join(parts, "；")
+}
+
+// moduleDesc 模块描述三级取用（yaml → 包注释 → 自动推断）。
+func moduleDesc(wm *domain.WikiModule, metaDesc string) string {
+	if metaDesc != "" {
+		return metaDesc
+	}
+	if wm.Desc != "" {
+		return wm.Desc
+	}
+	return wikiAutoDesc(wm)
+}
+
 // renderModulePage 模块页六区块 + 架构图 + 流程时序。
 func renderModulePage(wm *domain.WikiModule, desc string, tableAlias map[string]string, hidden map[string]bool, cfg wikiConfig) string {
 	var b strings.Builder
@@ -22,7 +60,11 @@ func renderModulePage(wm *domain.WikiModule, desc string, tableAlias map[string]
 		b.WriteString(wm.Desc + "（来源：包注释）\n\n")
 	}
 	if desc == "" && wm.Desc == "" {
-		b.WriteString("（无描述——维护者可在 wiki.yaml modules.description 补充）\n\n")
+		if ad := wikiAutoDesc(wm); ad != "" {
+			b.WriteString(ad + "\n\n")
+		} else {
+			b.WriteString("（无描述——维护者可在 wiki.yaml modules.description 补充）\n\n")
+		}
 	}
 	if len(wm.Entries) > 0 {
 		b.WriteString("## 入口\n\n")

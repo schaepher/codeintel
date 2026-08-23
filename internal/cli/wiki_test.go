@@ -156,3 +156,29 @@ hidden_symbols:
 
 
 
+
+// TestWikiAutoDesc：F——模块描述自动推断 fallback（yaml/包注释都空
+// 时只陈述代码事实，不编造业务含义）。
+func TestWikiAutoDesc(t *testing.T) {
+	wm := &domain.WikiModule{
+		Name: "x",
+		CoreSymbols: []*domain.WikiSymbol{
+			{Name: "Run", Kind: "method", Callers: 5},
+			{Name: "Init", Kind: "func", Callers: 3},
+			{Name: "Close", Kind: "func", Callers: 1},
+			{Name: "Extra", Kind: "func", Callers: 0},
+		},
+		OutCalls: []string{"a", "b"},
+		InCalls:  []string{"c"},
+	}
+	got := wikiAutoDesc(wm)
+	for _, want := range []string{"自动推断", "核心符号 Run、Init、Close", "调用 2 个模块", "被 1 个模块调用"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("wikiAutoDesc 应含 %q: %s", want, got)
+		}
+	}
+	// 无数据：空（不显示"无描述"以外的提示）
+	if wikiAutoDesc(&domain.WikiModule{Name: "empty"}) != "" {
+		t.Errorf("空模块自动推断应为空")
+	}
+}

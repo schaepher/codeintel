@@ -27,7 +27,7 @@ func (ws *wikiServe) navHTML(snap *wikiSnapshot, current string) string {
 			cls = ` class="active"`
 		}
 		label := wm.Name
-		if d := snap.meta[wm.Name].desc; d != "" {
+		if d := moduleDesc(wm, snap.meta[wm.Name].desc); d != "" {
 			label += " — " + d
 		}
 		nav.WriteString(fmt.Sprintf(`<li><a%s href="%s">%s</a></li>`, cls, href, htmlEsc(label)))
@@ -93,11 +93,7 @@ func searchIndexJSON(snap *wikiSnapshot) string {
 	}
 	var items []item
 	for _, wm := range snap.ordered {
-		d := snap.meta[wm.Name].desc
-		if d == "" {
-			d = wm.Desc
-		}
-		items = append(items, item{"模块", wm.Name, d, "/wiki/mod/" + wm.ShortName})
+		items = append(items, item{"模块", wm.Name, moduleDesc(wm, snap.meta[wm.Name].desc), "/wiki/mod/" + wm.ShortName})
 	}
 	for _, t := range collectTables(snap.data, snap.tableAlias, snap.tableCfgs) {
 		items = append(items, item{"表", t.name, t.alias, "/wiki/tables#tbl-" + t.name})
@@ -125,7 +121,7 @@ func (ws *wikiServe) overviewPage(snap *wikiSnapshot) string {
 		b.WriteString("<ul>")
 		for _, wm := range snap.ordered {
 			label := wm.Name
-			if d := snap.meta[wm.Name].desc; d != "" {
+			if d := moduleDesc(wm, snap.meta[wm.Name].desc); d != "" {
 				label += " — " + d
 			}
 			b.WriteString(fmt.Sprintf(`<li><a href="/wiki/mod/%s">%s</a></li>`, htmlEsc(wm.ShortName), htmlEsc(label)))
