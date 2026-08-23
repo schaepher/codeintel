@@ -24,7 +24,10 @@ code --install-extension .   # 或 F5 启动扩展开发宿主
 | `codeintel: 影响分析` | 输入符号名 → 改前影响节点列表 |
 | `codeintel: 更新索引` | 增量重建（改了代码先更新再查询） |
 
-输出面板「codeintel」查看结果。
+输出面板「codeintel」查看结果文本；**跳到定义（#236）**：
+查询后自动弹出 QuickPick 导航——选中「跳转定义」打开符号文件定位行；
+选中调用者/被调用者项先解析位置再跳转（点哪个查哪个）；影响分析
+节点同样可跳转。重名符号多匹配时先 QuickPick 选择 canonical ID。
 
 ## 配置（settings.json）
 

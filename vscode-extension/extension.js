@@ -89,16 +89,41 @@ async function querySymbol() {
   });
   if (!sym) return;
   const c = cfg();
-  const r = await runCli(['query', 'symbol', sym, '--repo', c.repo, '--json'], true);
+  let r = await runCli(['query', 'symbol', sym, '--repo', c.repo, '--json'], true);
+  // #236：多匹配（重名符号）→ QuickPick 候选 → 用 canonical ID 重查
+  if (r.error) {
+    const cands = parseCandidates(r.error);
+    if (cands.length > 0) {
+      const pick = await vscode.window.showQuickPick(cands.map(function (id) {
+        return { label: shortID(id), description: id };
+      }), { placeHolder: '多个匹配，选择符号（' + cands.length + ' 个）' });
+      if (!pick) return;
+      r = await runCli(['query', 'symbol', pick.description, '--repo', c.repo, '--json'], true);
+    }
+  }
   channel.clear();
   channel.appendLine('codeintel query symbol ' + sym + ' (repo: ' + c.repo + ')');
   channel.appendLine('='.repeat(50));
   if (r.error) {
     channel.appendLine('✗ ' + r.error);
-  } else {
-    channel.appendLine(renderSymbol(r.data));
+    channel.show();
+    return;
   }
+  channel.appendLine(renderSymbol(r.data));
   channel.show();
+  // #236：QuickPick 导航（符号定义 + 调用者/被调用者）→ 选中跳转
+  const d = r.data;
+  const items = [
+    { label: '$(file-code) ' + d.name, description: '跳转定义', jump: function () { return openAt(d.file, d.line); } }
+  ];
+  (d.callers || []).forEach(function (f) {
+    items.push({ label: '$(arrow-up) ' + shortID(f.id), description: '调用者', jump: function () { return resolveAndJump(f.id); } });
+  });
+  (d.callees || []).forEach(function (f) {
+    items.push({ label: '$(arrow-down) ' + shortID(f.id), description: '被调用者', jump: function () { return resolveAndJump(f.id); } });
+  });
+  const pick = await vscode.window.showQuickPick(items, { placeHolder: '选择跳转目标' });
+  if (pick && pick.jump) await pick.jump();
 }
 
 async function queryImpact() {
@@ -114,16 +139,67 @@ async function queryImpact() {
   channel.appendLine('='.repeat(50));
   if (r.error) {
     channel.appendLine('✗ ' + r.error);
-  } else {
-    const d = r.data;
-    channel.appendLine('目标: ' + d.target);
-    const nodes = d.nodes || [];
-    channel.appendLine('影响节点（' + nodes.length + ' 个）:');
-    nodes.forEach(function (n) {
-      channel.appendLine('  [' + n.kind + '] ' + n.name + (n.file ? '  ' + n.file + (n.line ? ':' + n.line : '') : ''));
-    });
+    channel.show();
+    return;
   }
+  const d = r.data;
+  channel.appendLine('目标: ' + d.target);
+  const nodes = d.nodes || [];
+  channel.appendLine('影响节点（' + nodes.length + ' 个）:');
+  nodes.forEach(function (n) {
+    channel.appendLine('  [' + n.kind + '] ' + n.name + (n.file ? '  ' + n.file + (n.line ? ':' + n.line : '') : ''));
+  });
   channel.show();
+  // #236：影响节点 QuickPick 跳转（impact 输出自带 file/line，直接跳）
+  const items = nodes.filter(function (n) { return n.file; }).map(function (n) {
+    return {
+      label: '[' + n.kind + '] ' + n.name,
+      description: n.file + (n.line ? ':' + n.line : ''),
+      jump: function () { return openAt(n.file, n.line); }
+    };
+  });
+  if (!items.length) return;
+  const pick = await vscode.window.showQuickPick(items, { placeHolder: '选择影响节点跳转（' + items.length + ' 个）' });
+  if (pick && pick.jump) await pick.jump();
+}
+
+// ---- #236 跳到定义 ----
+
+// openAt 打开文件并定位行（绝对路径或相对仓库根）。
+async function openAt(file, line) {
+  if (!file) return;
+  const c = cfg();
+  const abs = path.isAbsolute(file) ? file : path.join(c.repo, file);
+  const doc = await vscode.workspace.openTextDocument(abs);
+  const editor = await vscode.window.showTextDocument(doc);
+  if (line) {
+    const r = new vscode.Range(line - 1, 0, line - 1, 0);
+    editor.revealRange(r);
+    editor.selection = new vscode.Selection(r.start, r.start);
+  }
+}
+
+// resolveAndJump 调用者/被调用者跳转：fact 只有 canonical ID（无
+// file/line）→ 按需二次解析 symbol 拿位置再跳（点哪个查哪个）。
+async function resolveAndJump(id) {
+  const c = cfg();
+  const r = await runCli(['query', 'symbol', id, '--repo', c.repo, '--json'], true);
+  if (r.error || !r.data) {
+    vscode.window.showWarningMessage('codeintel: 无法解析 ' + shortID(id) + '（' + (r.error || '无结果') + '）');
+    return;
+  }
+  await openAt(r.data.file, r.data.line);
+}
+
+// parseCandidates 从 CLI 多匹配错误文本提取候选 canonical ID 列表。
+function parseCandidates(errText) {
+  const out = [];
+  const re = /(symbol:go:[^\s，,；;]+)/g;
+  let m;
+  while ((m = re.exec(String(errText || ''))) !== null) {
+    if (out.indexOf(m[1]) < 0) out.push(m[1]);
+  }
+  return out;
 }
 
 async function updateIndex() {
@@ -173,4 +249,4 @@ function shortID(id) {
   return i >= 0 ? String(id).slice(i + 1) : String(id);
 }
 
-module.exports = { activate, deactivate, renderSymbol, shortID, shouldAutoUpdateFileName };
+module.exports = { activate, deactivate, renderSymbol, shortID, shouldAutoUpdateFileName, parseCandidates, openAt };
