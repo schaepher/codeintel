@@ -80,6 +80,30 @@ func renderTablesPage(data []*domain.WikiModule, tableAlias map[string]string, t
 	return b.String()
 }
 
+// wikiGapReport 描述补全缺口统计（D）：无描述模块数、无别名表数、
+// 无 comment 表列数——生成/浏览时提示用户补 wiki.yaml。
+func wikiGapReport(data []*domain.WikiModule, cfg wikiConfig, cols []*domain.TableColumn) (modsNoDesc, tablesNoAlias, colsNoComment int) {
+	meta, tableAlias, _ := wikiMetaIndex(cfg)
+	for _, wm := range data {
+		if meta[wm.Name].desc == "" && wm.Desc == "" {
+			modsNoDesc++
+		}
+	}
+	tableCfgs := tableCfgsFrom(cfg)
+	for _, t := range collectTables(data, tableAlias, tableCfgs) {
+		if t.alias == "" {
+			tablesNoAlias++
+		}
+		tc := tableCfgs[t.name]
+		for _, r := range mergeTableColumns(t.name, cols, tc.Columns) {
+			if r.comment == "" {
+				colsNoComment++
+			}
+		}
+	}
+	return
+}
+
 // wikiMetaIndex 从 yaml 构建渲染索引（模块描述/顺序、表别名、隐藏符号）。
 func wikiMetaIndex(cfg wikiConfig) (map[string]wikiMeta, map[string]string, map[string]bool) {
 	meta := map[string]wikiMeta{}

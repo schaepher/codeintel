@@ -32,6 +32,7 @@ func cmdWiki(args []string) int {
 	outDir := "docs/wiki"
 	yamlPath := ""
 	format := "md"
+	initOnly := false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
@@ -55,8 +56,10 @@ func cmdWiki(args []string) int {
 			i++
 		case strings.HasPrefix(a, "--format="):
 			format = strings.TrimPrefix(a, "--format=")
+		case a == "--init":
+			initOnly = true
 		case a == "--help" || a == "-h":
-			fmt.Println("用法: codeintel wiki [--repo <path>] [--out <dir=docs/wiki>] [--yaml <file>] [--format md|html]\n  从代码生成业务 wiki（Markdown 或单文件 HTML）——wiki.yaml 可补充业务描述/别名/隐藏符号")
+			fmt.Println("用法: codeintel wiki [--repo <path>] [--out <dir=docs/wiki>] [--yaml <file>] [--format md|html] [--init]\n  从代码生成业务 wiki（Markdown 或单文件 HTML）——wiki.yaml 可补充业务描述/别名/隐藏符号；--init 生成 wiki.yaml 骨架（已存在则不覆盖）")
 			return 0
 		default:
 			fmt.Fprintf(os.Stderr, "error: 未知参数 %q\n", a)
@@ -70,6 +73,9 @@ func cmdWiki(args []string) int {
 			printRepoHint()
 		}
 		return 1
+	}
+	if initOnly {
+		return cmdWikiInit(abs)
 	}
 	if err := logging.ToFile(abs); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: 日志切换失败: %v\n", err)
@@ -157,11 +163,12 @@ func cmdWiki(args []string) int {
 		return 2
 	}
 	fmt.Printf("wiki 已生成: %s（%d 个模块）\n", outDir, len(data))
+	// D：描述补全引导——缺口统计提示（无描述模块/无别名表/无说明表列）
+	if mods, tbls, cc := wikiGapReport(data, cfg, cols); mods+tbls+cc > 0 {
+		fmt.Printf("wiki 补全提示：%d 个模块无描述、%d 张表无别名、%d 个表列无说明——在 wiki.yaml 补充后重新生成\n", mods, tbls, cc)
+	}
 	return 0
 }
-
-
-
 
 // renderWiki 生成 index.md + 模块页 + tables.md + er.md（全量覆盖）。
 // freshNote 是新鲜度标注（基于索引 commit，空则省略）。

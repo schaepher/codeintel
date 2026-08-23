@@ -48,15 +48,38 @@ func (ws *wikiServe) navHTML(snap *wikiSnapshot, current string) string {
 }
 
 // pageHTML 组装整页（标题/导航/内容 + 图探索返回链接 + 新鲜度标注 +
-// 跨页搜索索引）。
+// 跨页搜索索引 + 补全引导横幅）。
 func (ws *wikiServe) pageHTML(snap *wikiSnapshot, current string, main string) string {
 	title := filepath.Base(ws.repoAbs) + " 业务 wiki"
 	freshNote := ""
 	if snap.commitSHA != "" {
 		freshNote = "索引 commit: " + shortSHA(snap.commitSHA) + "（增量 update 后自动刷新）"
 	}
-	return wikiHTMLPage(title, snap.cfg.Project.Description, wikiGuide, ws.navHTML(snap, current), main,
+	return wikiHTMLPage(title, snap.cfg.Project.Description, wikiGuide, ws.navHTML(snap, current),
+		gapBannerHTML(snap)+main,
 		wikiPageOpts{exploreLink: "/", freshNote: freshNote, searchIndex: searchIndexJSON(snap)})
+}
+
+// gapBannerHTML 描述补全引导横幅（D）：缺口数 + 一键关闭（localStorage
+// 持久化；wiki.yaml 更新后重新显示）。
+func gapBannerHTML(snap *wikiSnapshot) string {
+	mods, tbls, cc := wikiGapReport(snap.data, snap.cfg, snap.cols)
+	if mods+tbls+cc == 0 {
+		return ""
+	}
+	var parts []string
+	if mods > 0 {
+		parts = append(parts, fmt.Sprintf("%d 个模块无描述", mods))
+	}
+	if tbls > 0 {
+		parts = append(parts, fmt.Sprintf("%d 张表无别名", tbls))
+	}
+	if cc > 0 {
+		parts = append(parts, fmt.Sprintf("%d 个表列无说明", cc))
+	}
+	return `<div id="gap-banner" class="guide" style="background:#fff7e6;border-left-color:#fa8c16">` +
+		"<strong>wiki 内容待补全：</strong>" + strings.Join(parts, "、") +
+		`（编辑仓库根 wiki.yaml 后刷新）<a href="#" onclick="document.getElementById('gap-banner').style.display='none';try{localStorage.setItem('codeintel-wiki-gap','1')}catch(e){};return false" style="float:right">知道了</a></div>`
 }
 
 // searchIndexJSON 跨页搜索索引（模块/表/术语——前端输入即达，不依赖

@@ -121,6 +121,12 @@ mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
   window.addEventListener('scroll', onScroll, { passive: true });
   onScroll();
 })();
+// D：补全引导横幅——已关闭（localStorage）则不显示
+(function () {
+  var b = document.getElementById('gap-banner');
+  if (!b) return;
+  try { if (localStorage.getItem('codeintel-wiki-gap')) b.style.display = 'none'; } catch (e) {}
+})();
 // 折叠交互（#246：状态 localStorage 持久化）+ 全部展开/收起 + 搜索
 (function () {
   var KEY = 'codeintel-wiki-fold';
