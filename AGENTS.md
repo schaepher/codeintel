@@ -8,6 +8,10 @@
   改动交付前逐项自查**（Q235）
 - [`docs/runbook.md`](docs/runbook.md)：故障模式速查表（/tmp 满、WAL、
   端口冲突、schema 迁移等 14 条，Q235）
+- [`docs/troubleshooting-tree.md`](docs/troubleshooting-tree.md)：**事后树**——
+  排障思路树（五步定位法 + 症状分支，怎么找到问题；Q242–Q244 沉淀）
+- [`docs/prevention-tree.md`](docs/prevention-tree.md)：**事前树**——
+  防错思路树（五层预防，怎么让问题不发生；由事后树反推）
 - `docs/design-q235.md` 已归档：Q235 六项借鉴设计已实施并落档
   field_trace.md §64–§66（设计文档已删除）
 - [`docs/field_trace.md`](docs/field_trace.md)：逐 Q 实现记录（§63 起为
