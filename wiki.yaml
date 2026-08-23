@@ -15,6 +15,8 @@ tables:
     comment: 构建耗时（毫秒）
   - name: edges_count
     comment: 构建产物边数
+  - name: degrade_stats
+    comment: 构建 SQL 解析降级统计（JSON：sql_ast_ok/fail + heur_*，R6 降级可观测）
   - name: error_message
     comment: 构建失败错误信息
   - name: nodes_count
@@ -122,6 +124,8 @@ tables:
 - name: relation_progress
   alias: 关联计算进度
   columns:
+  - name: build_id
+    comment: 计算中的构建 ID（进度记录归属）
   - name: done_count
     comment: 已完成表数
   - name: status
@@ -194,6 +198,42 @@ glossary:
   definition: Model Context Protocol——AI 代理调用 codeintel 查询能力的接口
 - term: 意图命令
   definition: before（改前影响预判）/ trace（数据来龙去脉）等业务语义查询
+- term: 索引
+  definition: 静态分析构建产物（SQLite 代码图：nodes 符号/边关系），codeintel init/update 生成
+- term: 降级（degraded）
+  definition: 解析器（vitess AST）失败时退回启发式（正则/模式匹配）近似解析——降级可观测（R6 计数器）
+- term: 启发式解析
+  definition: 正则/关键字扫描的近似 SQL 解析（残缺/动态 SQL 尽量提取，保守不误报）
+- term: AST 主路径
+  definition: vitess sqlparser 完整解析 SQL 的精确提取路径（表/列/WHERE/JOIN）——比启发式精确
+- term: 字段追溯（field trace）
+  definition: 结构体字段写入→读取的跨函数追踪（query fields/trace-backward/trace-forward）
+- term: 值流（value-trace）
+  definition: 数据值的全链路追踪（跨函数，含条件/动态派发标注）
+- term: 摘要（summary）
+  definition: 函数字段读写预计算表（function_field_summary：direct_read/write + indirect_write）
+- term: 表关联（relation）
+  definition: 表间数据流关系（fk 值流验证/query WHERE 键关联/write 同源写/read 间接读）
+- term: 实体协作图
+  definition: 对象设计视角的调用抽象——类型实体 + 包门面 + 方法互调聚合边（R9）
+- term: 门面实体（pkg-face）
+  definition: 包内游离函数（未绑定类型）聚合的实体——门面 N = 游离函数数
+- term: 上帝对象
+  definition: 设计诊断：方法数过多或出边过广的实体——职责过载信号
+- term: 增量构建
+  definition: git 变更检测 + 只分析变更文件的部分重建（codeintel update / POST /incremental）
+- term: 新鲜度（stale）
+  definition: 索引基于的 commit 与仓库 HEAD 的对比——落后时查询提示 warning
+- term: 动态派发（dispatch）
+  definition: 接口调用 → 候选实现方法（dispatch_to 边 + 注册点标注，置信度）
+- term: 置信度（confidence）
+  definition: 边的可信度（SCIP=1.0 / AST=0.8 / 动态派发 0.7~0.9）
+- term: 降级统计（degrade stats）
+  definition: 构建期 SQL 解析成功/失败计数（sql_ast_ok/fail + heur_dynamic/dialect/other）——提前发现一直降级
+- term: 全局注册表（registry）
+  definition: ~/.codeintel 仓库台账（repos 表）——init 自动注册，list/workspace 管理
+- term: 跨层摘要（summary chain）
+  definition: 入口→计算→写入→消费主链（query summary）——生命周期视角
 architecture: "graph LR\n  SRC[Go 源码] --> A1[ssa 适配器]\n  SRC --> A2[ast 适配器]\n  SRC\
   \ --> A3[scip 索引]\n  SRC --> A4[git 历史]\n  A1 --> DB[(codeintel.db)]\n  A2 --> DB\n\
   \  A3 --> DB\n  A4 --> DB\n  DB --> CLI[CLI 查询]\n  DB --> WEB[serve 网页]\n  DB -->\
