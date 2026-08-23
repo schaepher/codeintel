@@ -56,7 +56,14 @@
       color: #333; padding: 3px 0; cursor: pointer;
     }
     #hide-legend input { cursor: pointer; }
-    #search-box { position: relative; flex: 1; max-width: 420px; margin: 0 16px; }
+    #search-box { position: relative; flex: 1; max-width: 480px; margin: 0 16px; display: flex; align-items: center; gap: 6px; }
+    /* #234 类型过滤选择器 */
+    #search-kind {
+      padding: 6px 6px; border-radius: 6px; border: 1px solid #43435c;
+      background: #2a2a3d; color: #fff; font-size: 12px; outline: none;
+      flex-shrink: 0; max-width: 110px;
+    }
+    #search-kind option { background: #fff; color: #333; }
     #entry-input {
       width: 100%; padding: 6px 12px; border-radius: 6px; border: 1px solid #43435c;
       background: #2a2a3d; color: #fff; font-size: 13px; outline: none;
@@ -73,6 +80,11 @@
     }
     #entry-list li:hover { background: #e6f0ff; }
     #entry-list li .flags { color: #86909c; margin-left: 6px; }
+    /* #234 搜索结果类型标签 */
+    #entry-list li .k-tag {
+      display: inline-block; margin-right: 6px; padding: 1px 6px; border-radius: 3px;
+      font-size: 11px; color: #fff; background: #86909c; vertical-align: 1px;
+    }
     /* G6 v5 会给 #container 设内联 position:relative，故外层 #main-area
        承担定位（右侧让出 --panel-w 给信息栏），容器内部 100% 填充 */
     :root { --panel-w: 320px; }
@@ -186,6 +198,15 @@
   <div id="header">
     <h1>codeintel · 依赖探索 <a href="/modules.html" style="font-size:12px;font-weight:400;color:#1677ff;margin-left:10px">模块间调用 →</a><a href="/er.html" style="font-size:12px;font-weight:400;color:#1677ff;margin-left:10px">数据库 ER →</a></h1>
     <div id="search-box">
+      <select id="search-kind" title="按类型搜索（默认全部）">
+        <option value="">全部类型</option>
+        <option value="function">函数</option>
+        <option value="method">方法</option>
+        <option value="struct">结构体</option>
+        <option value="interface">接口</option>
+        <option value="package">包</option>
+        <option value="object">对象</option>
+      </select>
       <input id="entry-input" type="text" placeholder="搜索顶层入口（main / 服务 / 框架回调）…" autocomplete="off">
       <ul id="entry-list"></ul>
     </div>

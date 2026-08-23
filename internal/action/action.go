@@ -16,6 +16,7 @@ const MinConfidence = 0.8
 type Reader interface {
 	GetSymbol(id domain.CanonicalID) (*domain.CodeEntity, error)
 	GetSymbolByName(name string) ([]*domain.CodeEntity, error)
+	SearchKind(name, kind string) ([]*domain.CodeEntity, error) // #234 搜索按类型过滤（kind 空=不过滤）
 	GetCallers(id domain.CanonicalID, depth int, minConfidence float64) ([]*domain.Fact, error)
 	GetCallees(id domain.CanonicalID, depth int, minConfidence float64) ([]*domain.Fact, error)
 	GetImpact(id domain.CanonicalID, depth int) ([]*domain.CodeEntity, error)
@@ -168,12 +169,16 @@ func (a *Actions) Roots() ([]*domain.CodeEntity, error) {
 	return a.repo.GetRoots()
 }
 
-// Search 全库符号搜索（名称/ID 模糊匹配，上限由仓储实现决定）。
-func (a *Actions) Search(q string) ([]*domain.CodeEntity, error) {
+// Search 全库符号搜索（名称/ID 模糊匹配，上限由仓储实现决定；#234
+// kind 非空时按类型过滤——页面搜索类型选择）。
+func (a *Actions) Search(q, kind string) ([]*domain.CodeEntity, error) {
 	logger := zap.L()
-	logger.Info("enter (Actions).Search", zap.String("q", q))
+	logger.Info("enter (Actions).Search", zap.String("q", q), zap.String("kind", kind))
 	defer logger.Info("exit (Actions).Search")
-	return a.repo.GetSymbolByName(q)
+	if kind == "" {
+		return a.repo.GetSymbolByName(q)
+	}
+	return a.repo.SearchKind(q, kind)
 }
 
 // Expand 返回节点的直接邻居（facts + 邻居节点）；返回当前节点供存在性检查。

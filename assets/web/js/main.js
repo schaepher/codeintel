@@ -3,7 +3,7 @@ import {
   state, KIND_COLOR, FLAG_COLOR, EDGE_KIND_LINE, EDGE_KIND_LABEL,
   EDGE_OUT_COLOR, EDGE_IN_COLOR, EDGE_DEFAULT_COLOR
 } from './state.js';
-import { loadEntries, bindSearch } from './search.js';
+import { loadEntries, bindSearch, rebindSearchKind } from './search.js';
 import { bindInteractions } from './interact.js';
 import { bindPanelActions } from './panel-actions.js';
 import { bindConfig } from './config.js';
@@ -78,4 +78,5 @@ bindInteractions();
 bindPanelActions();
 bindConfig();
 bindSearch();
+rebindSearchKind(); // #234 类型选择变化时重搜
 loadEntries();

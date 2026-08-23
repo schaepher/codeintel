@@ -86,6 +86,7 @@ export const state = {
   tip: document.getElementById('tip'),
   entryInput: document.getElementById('entry-input'),
   entryList: document.getElementById('entry-list'),
+  searchKind: document.getElementById('search-kind'), // #234 类型过滤选择器
   panel: document.getElementById('sidepanel'),
   panelBody: document.getElementById('panel-body'),
   modal: document.getElementById('modal'),

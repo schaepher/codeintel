@@ -61,3 +61,57 @@ func names(ns []*domain.CodeEntity) []string {
 	}
 	return out
 }
+
+// TestSearchKind：#234 搜索按类型过滤——kind 命中/不命中/LIKE 退化 +
+// 空 kind 不过滤。
+func TestSearchKind(t *testing.T) {
+	repo := newTestRepo(t)
+	nodes := []*domain.CodeEntity{
+		{ID: "symbol:go:example.com/m:main", Kind: domain.KindFunction, Name: "main", FilePath: "main.go"},
+		{ID: "symbol:go:example.com/m:Svc", Kind: domain.KindStruct, Name: "Svc", FilePath: "svc.go"},
+	}
+	if _, err := repo.SaveBatchStats(nodes, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// kind=function → 命中 main
+	got, err := repo.SearchKind("main", "function")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "main" {
+		t.Errorf("SearchKind(main, function) = %v, want [main]", names(got))
+	}
+	// kind=struct → main 匹配但类型不符 → 空
+	got, err = repo.SearchKind("main", "struct")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Errorf("SearchKind(main, struct) = %v, want 空", names(got))
+	}
+	// 空 kind → 不过滤（精确命中 main）
+	got, err = repo.SearchKind("main", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "main" {
+		t.Errorf("SearchKind(main, '') = %v, want [main]", names(got))
+	}
+	// LIKE 退化 + kind 过滤：子串 "vc" 命中 Svc（struct）
+	got, err = repo.SearchKind("vc", "struct")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "Svc" {
+		t.Errorf("SearchKind(vc, struct) = %v, want [Svc]", names(got))
+	}
+	// LIKE 退化 + kind 不符 → 空
+	got, err = repo.SearchKind("vc", "function")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Errorf("SearchKind(vc, function) = %v, want 空", names(got))
+	}
+}

@@ -33,6 +33,15 @@ func TestAPIEndpoints(t *testing.T) {
 	if nodes, _ := m["nodes"].([]any); len(nodes) != 1 {
 		t.Errorf("search Greet = %v", nodes)
 	}
+	// #234：type 参数过滤（function 命中 / struct 空 / 未知 type 空）
+	_, m = get(t, ts, "/api/search?q=Greet&type=function")
+	if nodes, _ := m["nodes"].([]any); len(nodes) != 1 {
+		t.Errorf("search Greet type=function = %v, want 1", nodes)
+	}
+	_, m = get(t, ts, "/api/search?q=Greet&type=struct")
+	if nodes, _ := m["nodes"].([]any); len(nodes) != 0 {
+		t.Errorf("search Greet type=struct = %v, want 0", nodes)
+	}
 
 	if resp, _ := get(t, ts, "/api/expand"); resp.StatusCode != 400 {
 		t.Errorf("expand without id status = %d", resp.StatusCode)

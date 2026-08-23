@@ -34,12 +34,14 @@ export function bindSearch() {
 
 function doSearch(q) {
   var seq = ++state.searchSeq;
+  var kind = state.searchKind ? state.searchKind.value : ''; // #234 类型过滤
   var matched = state.allEntries.filter(function (e) {
+    if (kind && e.kind !== kind) return false; // 本地入口也按类型过滤
     return (e.name + ' ' + e.id + ' ' + (e.file || '') + ' ' + (e.flags || []).join(' '))
       .toLowerCase().indexOf(q) >= 0;
   });
   // 全库符号搜索补充（入口之外的符号，如任意函数/方法）
-  fetch('/api/search?q=' + encodeURIComponent(q))
+  fetch('/api/search?q=' + encodeURIComponent(q) + (kind ? '&type=' + encodeURIComponent(kind) : ''))
     .then(function (res) { return res.json(); })
     .then(function (data) {
       if (seq !== state.searchSeq) return; // 丢弃过期结果
@@ -57,6 +59,19 @@ function doSearch(q) {
     });
 }
 
+// 类型过滤变化时重新搜索（输入框有值时）
+export function rebindSearchKind() {
+  if (state.searchKind) {
+    state.searchKind.addEventListener('change', function () {
+      var q = state.entryInput.value.trim().toLowerCase();
+      if (q) {
+        clearTimeout(state.searchTimer);
+        state.searchTimer = setTimeout(function () { doSearch(q); }, 50);
+      }
+    });
+  }
+}
+
 function renderEntryList(items) {
   if (!items.length) {
     state.entryList.style.display = 'none';
@@ -65,7 +80,12 @@ function renderEntryList(items) {
   state.entryList.innerHTML = '';
   items.forEach(function (e) {
     var li = document.createElement('li');
-    li.textContent = entryLabel(e);
+    // #234：每项前加类型标签
+    var tag = document.createElement('span');
+    tag.className = 'k-tag';
+    tag.textContent = e.kind || '';
+    li.appendChild(tag);
+    li.appendChild(document.createTextNode(entryLabel(e)));
     li.addEventListener('mousedown', function (evt) {
       evt.preventDefault();
       selectEntry(e);

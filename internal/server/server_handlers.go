@@ -13,14 +13,15 @@ import (
 	"go.uber.org/zap"
 )
 
-// handleSearch 全库符号搜索（名称/ID/文件模糊匹配，上限 50）。
+// handleSearch 全库符号搜索（名称/ID/文件模糊匹配，上限 50；#234 type
+// 参数按类型过滤，空 = 全部）。
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query().Get("q")
 	if q == "" {
 		writeErr(w, http.StatusBadRequest, "missing q")
 		return
 	}
-	found, err := s.acts.Search(q)
+	found, err := s.acts.Search(q, r.URL.Query().Get("type"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

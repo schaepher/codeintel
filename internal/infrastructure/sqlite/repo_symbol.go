@@ -138,6 +138,43 @@ func shortNameFromID(id string) string {
 	return id
 }
 
+// SearchKind 按名称 + 类型过滤查找（#234 页面搜索类型选择；kind 空 =
+// 不过滤）。逻辑同 GetSymbolByName：先精确，无结果时 LIKE 退化。
+func (r *Repo) SearchKind(name, kind string) ([]*domain.CodeEntity, error) {
+	logger := zap.L()
+	logger.Debug("enter (Repo).SearchKind", zap.String("name", name), zap.String("kind", kind))
+	defer logger.Debug("exit (Repo).SearchKind")
+	const exclude = "kind NOT IN ('field_access','ssa_value','external_summary')"
+	kindClause := ""
+	args := []any{name}
+	if kind != "" {
+		kindClause = " AND kind = ?"
+		args = append(args, kind)
+	}
+	rows, err := r.Query(
+		"SELECT id, kind, name, file_path, line_start, line_end, properties FROM nodes WHERE name = ? AND "+exclude+kindClause+" ORDER BY name LIMIT 50",
+		args...)
+	if err != nil {
+		return nil, err
+	}
+	nodes, err := scanNodes(rows)
+	if err != nil || len(nodes) > 0 {
+		return nodes, err
+	}
+	likeArgs := []any{"%" + name + "%", "%" + name + "%"}
+	if kind != "" {
+		likeArgs = append(likeArgs, kind) // kindClause 的 ? 在 LIKE 之后
+	}
+	rows, err = r.Query(
+		"SELECT id, kind, name, file_path, line_start, line_end, properties FROM nodes WHERE (name LIKE ? OR id LIKE ?) AND "+exclude+kindClause+" ORDER BY name LIMIT 50",
+		likeArgs...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanNodes(rows)
+}
+
 // SymbolsAt 定位文件某行命中的符号（#229 file:line 报错栈 → 符号；
 // 排除字段追溯内部节点；未命中返回空切片）。
 func (r *Repo) SymbolsAt(file string, line int) ([]*domain.CodeEntity, error) {

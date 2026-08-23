@@ -128,7 +128,7 @@ func TestValueTraceSearchExpandFlows(t *testing.T) {
 	if err != nil || len(vt) == 0 {
 		t.Errorf("value-trace = %v, %v", vt, err)
 	}
-	s, err := a.Search("main")
+	s, err := a.Search("main", "")
 	if err != nil || len(s) == 0 {
 		t.Errorf("search = %v, %v", s, err)
 	}
