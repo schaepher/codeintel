@@ -12,8 +12,33 @@ import (
 	"github.com/schaepher/codeintel/internal/domain"
 )
 
-// renderEntitiesSectionMD 概览「实体协作」区块（md）：全图 + 设计诊断
-// 清单——新人第一眼看到对象协作与设计信号。
+// entityDiagExplain 诊断类型 → （含义, 怎么看/怎么处理）——把设计
+// 信号闭环到行动（R10：新人可理解的解读层）。
+var entityDiagExplain = map[string][2]string{
+	domain.DiagCoupled: {
+		"两个实体方法互调密集（≥20 次）——可能职责重叠或边界不清",
+		"用 `query callees` 看具体调用方向，考虑接口隔离或职责重分配",
+	},
+	domain.DiagCycle: {
+		"跨包实体循环依赖（A 依赖 B，B 又依赖 A）——分层被破坏",
+		"抽公共依赖到第三包，或反转依赖方向（依赖抽象而非实现）",
+	},
+	domain.DiagGodObject: {
+		"方法数过多（≥40）或出边过广（≥20）——职责过载",
+		"按职责拆分为多个类型，或抽离被频繁调用的协作对象",
+	},
+	domain.DiagFaceHeavy: {
+		"包内游离函数（未绑定类型）多于方法——缺少类型封装",
+		"将相关游离函数归入合适的类型（方法），或定义新类型承载",
+	},
+}
+
+// entityLegend 图例（图怎么读）。
+const entityLegend = "图例：节点 = 实体（`类型名`；`门面 N` = 包内 N 个游离函数聚合，`内 N` = 实体内方法互调）；" +
+	"边 `--|N|-->` = 方法互调 N 次（聚合计数）。"
+
+// renderEntitiesSectionMD 概览「实体协作」区块（md）：全图 + 图例 +
+// 设计诊断清单（含解读与行动建议）——新人第一眼看到对象协作与设计信号。
 func renderEntitiesSectionMD(g *domain.EntityGraph) string {
 	if g == nil || len(g.Nodes) == 0 {
 		return ""
@@ -21,9 +46,10 @@ func renderEntitiesSectionMD(g *domain.EntityGraph) string {
 	var b strings.Builder
 	b.WriteString("\n## 实体协作（对象设计视角）\n\n")
 	b.WriteString("> 类型（有行为）为实体 + 游离函数按包聚合为门面；边 = 方法互调聚合计数。\n\n")
+	b.WriteString(entityLegend + "\n\n")
 	b.WriteString("```mermaid\n" + entityMermaid(g) + "\n```\n\n")
 	if len(g.Diags) > 0 {
-		b.WriteString("**设计诊断**（阈值见 `codeintel query entities`）：\n\n")
+		b.WriteString("**设计诊断**（信号 → 行动；阈值见 `codeintel query entities`）：\n\n")
 		labels := map[string]string{
 			domain.DiagCoupled:   "高耦合对",
 			domain.DiagCycle:     "循环依赖",
@@ -31,9 +57,14 @@ func renderEntitiesSectionMD(g *domain.EntityGraph) string {
 			domain.DiagFaceHeavy: "游离函数占比",
 		}
 		for _, d := range g.Diags {
+			exp := entityDiagExplain[d.Kind]
 			b.WriteString(fmt.Sprintf("- **[%s]** %s：%s\n", labels[d.Kind], d.Target, d.Detail))
+			if exp[0] != "" {
+				b.WriteString(fmt.Sprintf("  - 含义：%s\n", exp[0]))
+				b.WriteString(fmt.Sprintf("  - 建议：%s\n", exp[1]))
+			}
 		}
-		b.WriteString("\n")
+		b.WriteString("\n诊断是设计信号不是结论——先核实具体调用（`query callees <符号>`）再重构。\n\n")
 	}
 	return b.String()
 }
@@ -44,7 +75,7 @@ func renderEntitiesSectionHTML(g *domain.EntityGraph) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString(`<section id="entities"><h2>实体协作（对象设计视角）</h2><p class="muted">类型（有行为）为实体 + 游离函数按包聚合为门面；边 = 方法互调聚合计数。</p>`)
+	b.WriteString(`<section id="entities"><h2>实体协作（对象设计视角）</h2><p class="muted">类型（有行为）为实体 + 游离函数按包聚合为门面；边 = 方法互调聚合计数。</p><p class="muted">` + htmlEsc(entityLegend) + `</p>`)
 	b.WriteString("<pre class=\"mermaid\">" + htmlEsc(entityMermaid(g)) + "</pre>")
 	if len(g.Diags) > 0 {
 		labels := map[string]string{
@@ -53,11 +84,13 @@ func renderEntitiesSectionHTML(g *domain.EntityGraph) string {
 			domain.DiagGodObject: "上帝对象",
 			domain.DiagFaceHeavy: "游离函数占比",
 		}
-		b.WriteString("<h3>设计诊断</h3><ul>")
+		b.WriteString("<h3>设计诊断（信号 → 行动）</h3><ul>")
 		for _, d := range g.Diags {
-			b.WriteString(fmt.Sprintf("<li><strong>%s</strong> %s：%s</li>", labels[d.Kind], htmlEsc(d.Target), htmlEsc(d.Detail)))
+			exp := entityDiagExplain[d.Kind]
+			b.WriteString(fmt.Sprintf("<li><strong>%s</strong> %s：%s<br><span class=\"muted\">含义：%s；建议：%s</span></li>",
+				labels[d.Kind], htmlEsc(d.Target), htmlEsc(d.Detail), htmlEsc(exp[0]), htmlEsc(exp[1])))
 		}
-		b.WriteString("</ul>")
+		b.WriteString("</ul><p class=\"muted\">诊断是设计信号不是结论——先核实具体调用（query callees &lt;符号&gt;）再重构。</p>")
 	}
 	b.WriteString("</section>")
 	return b.String()

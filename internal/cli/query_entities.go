@@ -48,7 +48,7 @@ func cmdEntities(acts *action.Actions, opts outputOpts, format string) int {
 	return 0
 }
 
-// printEntityDiags 设计诊断清单（默认文本输出首块）。
+// printEntityDiags 设计诊断清单（默认文本输出首块，含解读与行动建议）。
 func printEntityDiags(g *domain.EntityGraph) {
 	if len(g.Diags) == 0 {
 		fmt.Println("设计诊断: 无（全部阈值内）")
@@ -60,10 +60,16 @@ func printEntityDiags(g *domain.EntityGraph) {
 		domain.DiagGodObject: "上帝对象",
 		domain.DiagFaceHeavy: "游离函数占比",
 	}
-	fmt.Println("设计诊断:")
+	fmt.Println("设计诊断（信号 → 行动）:")
 	for _, d := range g.Diags {
 		fmt.Printf("  [%s] %s: %s\n", labels[d.Kind], d.Target, d.Detail)
+		exp := entityDiagExplain[d.Kind]
+		if exp[0] != "" {
+			fmt.Printf("     含义: %s\n", exp[0])
+			fmt.Printf("     建议: %s\n", exp[1])
+		}
 	}
+	fmt.Println("  诊断是设计信号不是结论——先核实具体调用（query callees）再重构")
 }
 
 // entityMermaid 实体协作图 mermaid（graph LR：节点 + 聚合计数边）。
