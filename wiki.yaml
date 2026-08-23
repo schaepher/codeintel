@@ -1,125 +1,211 @@
 project:
   description: codeintel —— Go 代码库智能索引与查询系统（静态分析产出 SQLite 代码图，CLI/服务/MCP 查询）
 modules:
-  - name: github.com/schaepher/codeintel
-    description: 核心：索引构建（ssa/ast/scip/git 四适配器）+ 查询（symbol/字段追溯/表关联/意图命令）+ 服务（serve/MCP/CLI）
+- name: github.com/schaepher/codeintel
+  description: 核心：索引构建（ssa/ast/scip/git 四适配器）+ 查询（symbol/字段追溯/表关联/意图命令）+ 服务（serve/MCP/CLI）
 tables:
-  - name: nodes
-    alias: 代码节点
-  - name: edges
-    alias: 关系边
-  - name: build_metadata
-    alias: 构建元数据
-  - name: nodes
-    columns:
-      - name: id
-        type: TEXT
-        comment: Canonical ID（主键）
-      - name: kind
-        type: TEXT
-        comment: 节点类型（function/method/struct/package 等）
-      - name: name
-        type: TEXT
-        comment: 符号名
-      - name: file_path
-        type: TEXT
-        comment: 源文件相对路径
-      - name: line_start
-        type: INTEGER
-        comment: 定义起始行
-      - name: line_end
-        type: INTEGER
-        comment: 定义结束行
-      - name: properties
-        type: JSON
-        comment: 扩展属性（签名/文档/服务标记等）
-    indexes:
-      - idx_nodes_name(name)
-      - idx_nodes_file_kind(file_path, kind)
-      - idx_nodes_signature(signature_text)
-    ddl: |
-      CREATE TABLE nodes (
-        id TEXT PRIMARY KEY,
-        kind TEXT NOT NULL,
-        name TEXT NOT NULL,
-        file_path TEXT,
-        line_start INTEGER,
-        line_end INTEGER,
-        properties JSON
-      )
-  - name: edges
-    columns:
-      - name: id
-        type: INTEGER
-        comment: 自增主键
-      - name: source_id
-        type: TEXT
-        comment: 起点节点（外键 → nodes.id）
-      - name: target_id
-        type: TEXT
-        comment: 终点节点（外键 → nodes.id）
-      - name: kind
-        type: TEXT
-        comment: 边类型（calls/imports/modified_by 等）
-      - name: confidence
-        type: REAL
-        comment: 置信度（SCIP=1.0 / AST=0.8 / Git=1.0）
-      - name: metadata
-        type: JSON
-        comment: 扩展属性（调用点/条件等）
-    indexes:
-      - idx_edges_source_kind(source_id, kind)
-      - idx_edges_target_kind(target_id, kind)
-    ddl: |
-      CREATE TABLE edges (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        source_id TEXT NOT NULL,
-        target_id TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        confidence REAL NOT NULL DEFAULT 0.5,
-        metadata JSON,
-        FOREIGN KEY (source_id) REFERENCES nodes(id) ON DELETE CASCADE,
-        FOREIGN KEY (target_id) REFERENCES nodes(id) ON DELETE CASCADE,
-        UNIQUE(source_id, target_id, kind)
-      )
+- name: build_metadata
+  alias: 构建元数据
+  columns:
+  - name: build_id
+    comment: 构建唯一 ID（UUID）
+  - name: commit_sha
+    comment: 构建对应的 git commit SHA
+  - name: duration_ms
+    comment: 构建耗时（毫秒）
+  - name: edges_count
+    comment: 构建产物边数
+  - name: error_message
+    comment: 构建失败错误信息
+  - name: nodes_count
+    comment: 构建产物节点数（缓存判断用）
+  - name: status
+    comment: 构建状态（success/degraded/failed）
+  - name: timestamp
+    comment: 构建时间戳（Unix 秒）
+  - name: tool_name
+    comment: 构建工具（all 全量 / incremental 增量）
+- name: edges
+  columns:
+  - name: confidence
+    type: REAL
+    comment: 置信度（SCIP=1.0 / AST=0.8 / Git=1.0）
+  - name: file_path
+    comment: 边所在源文件（待确认：部分边无文件）
+  - name: id
+    type: INTEGER
+    comment: 自增主键
+  - name: kind
+    type: TEXT
+    comment: 边类型（calls/imports/modified_by 等）
+  - name: metadata
+    type: JSON
+    comment: 扩展属性（调用点/条件等）
+  - name: name
+    comment: 边显示名（待确认）
+  - name: source_id
+    type: TEXT
+    comment: 起点节点（外键 → nodes.id）
+  - name: target_id
+    type: TEXT
+    comment: 终点节点（外键 → nodes.id）
+  - name: tool_source
+    comment: 产生边的分析工具（ssa/ast/scip/git）
+  indexes:
+  - idx_edges_source_kind(source_id, kind)
+  - idx_edges_target_kind(target_id, kind)
+  ddl: "CREATE TABLE edges (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  source_id\
+    \ TEXT NOT NULL,\n  target_id TEXT NOT NULL,\n  kind TEXT NOT NULL,\n  confidence\
+    \ REAL NOT NULL DEFAULT 0.5,\n  metadata JSON,\n  FOREIGN KEY (source_id) REFERENCES\
+    \ nodes(id) ON DELETE CASCADE,\n  FOREIGN KEY (target_id) REFERENCES nodes(id)\
+    \ ON DELETE CASCADE,\n  UNIQUE(source_id, target_id, kind)\n)\n"
+  alias: 关系边（calls/imports/data_flows_to 等）
+- name: function_field_summary
+  alias: 函数字段摘要（预计算）
+  columns:
+  - name: access_kind
+    comment: 访问类型（direct_read/direct_write/indirect_write）
+  - name: code_snippet
+    comment: 访问代码片段
+  - name: field_path
+    comment: 字段路径（类型限定）
+  - name: function_id
+    comment: 函数 Canonical ID
+  - name: instance_path
+    comment: 实例路径（m.cfg.APIKey 形态）
+  - name: line_start
+    comment: 访问行号
+- name: nodes
+  columns:
+  - name: file_path
+    type: TEXT
+    comment: 源文件相对路径
+  - name: id
+    type: TEXT
+    comment: Canonical ID（主键）
+  - name: kind
+    type: TEXT
+    comment: 节点类型（function/method/struct/package 等）
+  - name: line_end
+    type: INTEGER
+    comment: 定义结束行
+  - name: line_start
+    type: INTEGER
+    comment: 定义起始行
+  - name: name
+    type: TEXT
+    comment: 符号名
+  - name: properties
+    type: JSON
+    comment: 扩展属性（签名/文档/服务标记等）
+  indexes:
+  - idx_nodes_name(name)
+  - idx_nodes_file_kind(file_path, kind)
+  - idx_nodes_signature(signature_text)
+  ddl: "CREATE TABLE nodes (\n  id TEXT PRIMARY KEY,\n  kind TEXT NOT NULL,\n  name\
+    \ TEXT NOT NULL,\n  file_path TEXT,\n  line_start INTEGER,\n  line_end INTEGER,\n\
+    \  properties JSON\n)\n"
+  alias: 代码节点（符号/字段访问/虚拟节点）
+- name: relation_candidates
+  alias: 表间关联候选（预计算缓存）
+  columns:
+  - name: build_id
+    comment: 计算时的构建 ID（缓存失效键）
+  - name: from_col
+    comment: 起点列
+  - name: from_table
+    comment: 起点表
+  - name: hops
+    comment: 关联跳数（BFS 最短路径）
+  - name: to_col
+    comment: 终点列
+  - name: to_table
+    comment: 终点表
+  - name: type
+    comment: 关联类型（fk/query/write/read）
+- name: relation_progress
+  alias: 关联计算进度
+  columns:
+  - name: done_count
+    comment: 已完成表数
+  - name: status
+    comment: 计算状态（running/done）
+  - name: total_count
+    comment: 总表数
+  - name: updated_at
+    comment: 更新时间
+- name: relation_rules
+  alias: 用户连线规则（ER 页面配置）
+  columns:
+  - name: created_at
+    comment: 创建时间
+  - name: from_col
+    comment: 起点列
+  - name: from_table
+    comment: 起点表
+  - name: id
+    comment: 规则 ID
+  - name: to_col
+    comment: 终点列
+  - name: to_table
+    comment: 终点表
+- name: repos
+  alias: 全局注册台账（~/.codeintel）
+  columns:
+  - name: build_id
+    comment: 最近一次构建 ID
+  - name: go_mod_count
+    comment: go.mod 数量（多模块仓库）
+  - name: head_commit
+    comment: 最近构建时的 HEAD commit
+  - name: is_worktree
+    comment: 是否为 worktree
+  - name: last_built_at
+    comment: 最近构建时间
+  - name: module
+    comment: go module 名
+  - name: path
+    comment: 仓库绝对路径
+  - name: registered_at
+    comment: 注册时间
+  - name: workspace
+    comment: workspace 目录（worktree 模式）
+  - name: worktree_of
+    comment: 所属主仓库（worktree 模式）
+- name: summary_origins
+  alias: 摘要来源明细（间接写/动态派发追溯）
+  columns:
+  - name: access_kind
+    comment: 访问类型
+  - name: call_line
+    comment: 调用行号
+  - name: callee_id
+    comment: 被调函数 ID
+  - name: field_path
+    comment: 字段路径
+  - name: function_id
+    comment: 函数 ID
 glossary:
-  - term: ssa
-    definition: 静态单赋值——编译器中间表示，用于字段级数据流追溯（谁写入/谁读取）
-  - term: ast
-    definition: 抽象语法树——源码结构分析（调用关系/服务入口标记）
-  - term: scip
-    definition: 代码索引协议（scip-go 生成符号定义索引）
-  - term: ER
-    definition: 实体关系——数据库表与列、表间关联的可视化
-  - term: MCP
-    definition: Model Context Protocol——AI 代理调用 codeintel 查询能力的接口
-  - term: 意图命令
-    definition: before（改前影响预判）/ trace（数据来龙去脉）等业务语义查询
-architecture: |
-  graph LR
-    SRC[Go 源码] --> A1[ssa 适配器]
-    SRC --> A2[ast 适配器]
-    SRC --> A3[scip 索引]
-    SRC --> A4[git 历史]
-    A1 --> DB[(codeintel.db)]
-    A2 --> DB
-    A3 --> DB
-    A4 --> DB
-    DB --> CLI[CLI 查询]
-    DB --> WEB[serve 网页]
-    DB --> MCP[MCP 服务]
+- term: ssa
+  definition: 静态单赋值——编译器中间表示，用于字段级数据流追溯（谁写入/谁读取）
+- term: ast
+  definition: 抽象语法树——源码结构分析（调用关系/服务入口标记）
+- term: scip
+  definition: 代码索引协议（scip-go 生成符号定义索引）
+- term: ER
+  definition: 实体关系——数据库表与列、表间关联的可视化
+- term: MCP
+  definition: Model Context Protocol——AI 代理调用 codeintel 查询能力的接口
+- term: 意图命令
+  definition: before（改前影响预判）/ trace（数据来龙去脉）等业务语义查询
+architecture: "graph LR\n  SRC[Go 源码] --> A1[ssa 适配器]\n  SRC --> A2[ast 适配器]\n  SRC\
+  \ --> A3[scip 索引]\n  SRC --> A4[git 历史]\n  A1 --> DB[(codeintel.db)]\n  A2 --> DB\n\
+  \  A3 --> DB\n  A4 --> DB\n  DB --> CLI[CLI 查询]\n  DB --> WEB[serve 网页]\n  DB -->\
+  \ MCP[MCP 服务]\n"
 flows:
-  - title: init 构建流程
-    mermaid: |
-      sequenceDiagram
-        用户->>CLI: codeintel init --repo
-        CLI->>分析器: 并行分析（ssa/ast/scip/git）
-        分析器->>DB: 写入节点与边
-        CLI->>用户: 构建报告与引导示例
-  - title: 字段追溯流程
-    mermaid: |
-      sequenceDiagram
-        用户->>CLI: query trace-backward 字段
-        CLI->>DB: 值流全链查询
-        DB->>CLI: 产生点/写入方（带行号）
-        CLI->>用户: 追溯链展示
+- title: init 构建流程
+  mermaid: "sequenceDiagram\n  用户->>CLI: codeintel init --repo\n  CLI->>分析器: 并行分析（ssa/ast/scip/git）\n\
+    \  分析器->>DB: 写入节点与边\n  CLI->>用户: 构建报告与引导示例\n"
+- title: 字段追溯流程
+  mermaid: "sequenceDiagram\n  用户->>CLI: query trace-backward 字段\n  CLI->>DB: 值流全链查询\n\
+    \  DB->>CLI: 产生点/写入方（带行号）\n  CLI->>用户: 追溯链展示\n"
