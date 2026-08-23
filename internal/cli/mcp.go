@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/schaepher/codeintel/internal/action"
@@ -25,59 +26,76 @@ import (
 
 // 工具参数结构体（json tag = inputSchema 字段名，snake_case）。
 type symbolParams struct {
-	ID string `json:"id"` // 符号名或 canonical ID
+	Repo string `json:"repo,omitempty"` // #232 多仓库：空=默认仓库；否则短名/路径/module（Q238）
+	ID   string `json:"id"`             // 符号名或 canonical ID
 }
 type fieldsParams struct {
-	Func string `json:"func"` // 函数名或 canonical ID
+	Repo string `json:"repo,omitempty"` // #232 多仓库：空=默认仓库；否则短名/路径/module（Q238）
+	Func string `json:"func"`           // 函数名或 canonical ID
 }
 type graphParams struct {
-	Symbol string `json:"symbol"` // 符号名或 canonical ID
-	Depth  int    `json:"depth"`  // 深度（默认 1/3）
+	Repo   string `json:"repo,omitempty"` // #232 多仓库：空=默认仓库；否则短名/路径/module（Q238）
+	Symbol string `json:"symbol"`         // 符号名或 canonical ID
+	Depth  int    `json:"depth"`          // 深度（默认 1/3）
 }
 type traceParams struct {
-	Field    string `json:"field"`     // 类型限定字段路径（如 example.com/m.T.A）
-	Func     string `json:"func"`      // 函数名
-	Dir      string `json:"dir"`       // backward（产生点）或 forward（使用点）
-	MaxDepth int    `json:"max_depth"` // 深度（默认 8）
+	Repo     string `json:"repo,omitempty"` // #232 多仓库：空=默认仓库；否则短名/路径/module（Q238）
+	Field    string `json:"field"`          // 类型限定字段路径（如 example.com/m.T.A）
+	Func     string `json:"func"`           // 函数名
+	Dir      string `json:"dir"`            // backward（产生点）或 forward（使用点）
+	MaxDepth int    `json:"max_depth"`      // 深度（默认 8）
 }
 type valueTraceParams struct {
-	Node     string  `json:"node"`      // 节点 ID（如 symbol:go:...:main#t.A.read@5）
-	MaxDepth int     `json:"max_depth"` // 深度（默认 8）
-	MinConf  float64 `json:"min_conf"`  // 候选边置信度剪枝（默认 1.0）
+	Repo     string  `json:"repo,omitempty"` // #232 多仓库：空=默认仓库；否则短名/路径/module（Q238）
+	Node     string  `json:"node"`           // 节点 ID（如 symbol:go:...:main#t.A.read@5）
+	MaxDepth int     `json:"max_depth"`      // 深度（默认 8）
+	MinConf  float64 `json:"min_conf"`       // 候选边置信度剪枝（默认 1.0）
 }
 type contextParams struct {
-	Node string `json:"node"` // 符号/字段路径
+	Repo string `json:"repo,omitempty"` // #232 多仓库：空=默认仓库；否则短名/路径/module（Q238）
+	Node string `json:"node"`           // 符号/字段路径
 }
 type tableParams struct {
-	Name string `json:"name"` // 表名
+	Repo string `json:"repo,omitempty"` // #232 多仓库：空=默认仓库；否则短名/路径/module（Q238）
+	Name string `json:"name"`           // 表名
 }
 type relationsParams struct {
-	Table      string `json:"table"`       // 表名
-	Type       string `json:"type"`        // 关联类型（逗号分隔，默认 query,write）
-	MaxHops    int    `json:"max_hops"`    // 跳数上限
-	MaxResults int    `json:"max_results"` // 条数上限
+	Repo       string `json:"repo,omitempty"` // #232 多仓库：空=默认仓库；否则短名/路径/module（Q238）
+	Table      string `json:"table"`          // 表名
+	Type       string `json:"type"`           // 关联类型（逗号分隔，默认 query,write）
+	MaxHops    int    `json:"max_hops"`       // 跳数上限
+	MaxResults int    `json:"max_results"`    // 条数上限
 }
 type tablePathParams struct {
-	From    string `json:"from"`     // 起始表名
-	To      string `json:"to"`       // 目标表名
-	MaxHops int    `json:"max_hops"` // 跳数上限（默认 6）
+	Repo    string `json:"repo,omitempty"` // #232 多仓库：空=默认仓库；否则短名/路径/module（Q238）
+	From    string `json:"from"`           // 起始表名
+	To      string `json:"to"`             // 目标表名
+	MaxHops int    `json:"max_hops"`       // 跳数上限（默认 6）
 }
 type summaryParams struct {
-	Node string `json:"node"` // 锚点（符号/字段路径）
+	Repo string `json:"repo,omitempty"` // #232 多仓库：空=默认仓库；否则短名/路径/module（Q238）
+	Node string `json:"node"`           // 锚点（符号/字段路径）
 }
 type moduleCallsParams struct {
-	Module string `json:"module"` // module 名过滤（可选）
+	Repo   string `json:"repo,omitempty"` // #232 多仓库：空=默认仓库；否则短名/路径/module（Q238）
+	Module string `json:"module"`         // module 名过滤（可选）
 }
+
 // #228 写操作工具参数：batch_symbols 批量概览；update/init 重建索引
 // （stale 自愈——Agent 一条消息从「过期」到「可用」）。
 type batchParams struct {
-	Symbols []string `json:"symbols"` // 符号名列表（单输入失败跳过，部分成功）
+	Repo    string   `json:"repo,omitempty"` // #232 多仓库：空=默认仓库；否则短名/路径/module（Q238）
+	Symbols []string `json:"symbols"`        // 符号名列表（单输入失败跳过，部分成功）
 }
-type updateParams struct{}
+type updateParams struct {
+	Repo string `json:"repo,omitempty"` // #232 多仓库：空=默认仓库；否则短名/路径/module（Q238）
+}
+
 // #229 file:line 定位参数。
 type fileSymbolsParams struct {
-	File string `json:"file"` // 文件路径（精确或相对/省略前缀）
-	Line int    `json:"line"` // 行号（1 起）
+	Repo string `json:"repo,omitempty"` // #232 多仓库：空=默认仓库；否则短名/路径/module（Q238）
+	File string `json:"file"`           // 文件路径（精确或相对/省略前缀）
+	Line int    `json:"line"`           // 行号（1 起）
 }
 
 // buildResult 重建结果摘要（update/init 工具输出，snake_case 契约）。
@@ -92,12 +110,92 @@ type buildResult struct {
 	Message      string `json:"message,omitempty"` // 提示信息（无变更/需全量重建等）
 }
 
+func (p symbolParams) getRepo() string      { return p.Repo }
+func (p fieldsParams) getRepo() string      { return p.Repo }
+func (p graphParams) getRepo() string       { return p.Repo }
+func (p traceParams) getRepo() string       { return p.Repo }
+func (p valueTraceParams) getRepo() string  { return p.Repo }
+func (p contextParams) getRepo() string     { return p.Repo }
+func (p tableParams) getRepo() string       { return p.Repo }
+func (p relationsParams) getRepo() string   { return p.Repo }
+func (p tablePathParams) getRepo() string   { return p.Repo }
+func (p summaryParams) getRepo() string     { return p.Repo }
+func (p moduleCallsParams) getRepo() string { return p.Repo }
+func (p batchParams) getRepo() string       { return p.Repo }
+func (p fileSymbolsParams) getRepo() string { return p.Repo }
+func (p updateParams) getRepo() string      { return p.Repo }
+
 // toolErr 错误结果（isError=true，文本为错误信息）。
 func toolErr(msg string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: msg}},
 		IsError: true,
 	}
+}
+
+// #232 多仓库：mcpEnv 持有默认仓库 + 已解析仓库缓存（ref → 条目）。
+type mcpEnv struct {
+	defaultActs *action.Actions
+	cache       map[string]mcpRepoEntry
+	mu          sync.Mutex
+}
+
+// mcpRepoEntry 已解析仓库的 acts + 仓库路径 + repo（stale 标注用）。
+type mcpRepoEntry struct {
+	acts *action.Actions
+	abs  string
+	repo *sqlite.Repo
+}
+
+// mcpRepoArg 参数结构体须提供仓库引用（getRepo 由脚本生成）。
+type mcpRepoArg interface {
+	getRepo() string
+}
+
+// mcpRepo 包装工具 handler：args.Repo 非空时解析目标仓库（#232——
+// Q238 短名/路径后缀/module）并切到对应 Actions；跨仓库结果追加目标
+// 仓库 stale 标注（默认仓库的 stale 标注由外层 staleWrap 负责）。
+func mcpRepo[In mcpRepoArg, Out any](env *mcpEnv, inner func(*action.Actions, context.Context, *mcp.CallToolRequest, In) (*mcp.CallToolResult, Out, error)) func(context.Context, *mcp.CallToolRequest, In) (*mcp.CallToolResult, Out, error) {
+	return func(ctx context.Context, req *mcp.CallToolRequest, args In) (*mcp.CallToolResult, Out, error) {
+		a := env.defaultActs
+		if ref := args.getRepo(); ref != "" {
+			entry, err := mcpResolveRepo(env, ref)
+			if err != nil {
+				var z Out
+				return toolErr(err.Error()), z, nil
+			}
+			a = entry.acts
+			res, out, err := inner(a, ctx, req, args)
+			if err == nil && res != nil && !res.IsError {
+				if tip := staleInfo(entry.abs, entry.repo); tip != "" {
+					res.Content = append(res.Content, &mcp.TextContent{Text: "[stale] " + tip})
+				}
+			}
+			return res, out, err
+		}
+		return inner(a, ctx, req, args)
+	}
+}
+
+// mcpResolveRepo 解析仓库引用并打开对应库（结果缓存，并发加锁）。
+func mcpResolveRepo(env *mcpEnv, ref string) (mcpRepoEntry, error) {
+	env.mu.Lock()
+	defer env.mu.Unlock()
+	if e, ok := env.cache[ref]; ok {
+		return e, nil
+	}
+	abs, _, err := resolveRepo(ResolveRepoRef(ref))
+	if err != nil {
+		return mcpRepoEntry{}, err
+	}
+	db, err := sqlite.Open(abs)
+	if err != nil {
+		return mcpRepoEntry{}, err
+	}
+	repo := sqlite.NewRepo(db)
+	e := mcpRepoEntry{acts: action.New(repo), abs: abs, repo: repo}
+	env.cache[ref] = e
+	return e, nil
 }
 
 // staleWrap 包装工具 handler（Q243 新鲜度）：结果非错误且索引过期时，
@@ -123,12 +221,12 @@ func toolJSON(v any) *mcp.CallToolResult {
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}
 }
 
-// registerMCPTools 注册全部工具（handler 闭包捕获 acts；staleWrap 追加
-// [stale] 标注——Q243 新鲜度显式化）。
-func registerMCPTools(server *mcp.Server, acts *action.Actions, r *sqlite.Repo, repoAbs string) {
+// registerMCPTools 注册全部工具（handler 闭包捕获 env；staleWrap 追加
+// [stale] 标注——Q243 新鲜度显式化；mcpRepo 支持 #232 多仓库）。
+func registerMCPTools(server *mcp.Server, env *mcpEnv, r *sqlite.Repo, repoAbs string) {
 	mcp.AddTool(server, &mcp.Tool{Name: "symbol", Description: "符号详情（调用者/被调用者/动态派发候选）"},
-		staleWrap(r, repoAbs, func(ctx context.Context, req *mcp.CallToolRequest, args symbolParams) (*mcp.CallToolResult, any, error) {
-			d, err := acts.SymbolDetail(args.ID)
+		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args symbolParams) (*mcp.CallToolResult, any, error) {
+			d, err := a.SymbolDetail(args.ID)
 			if err != nil {
 				return toolErr(err.Error()), nil, nil
 			}
@@ -144,26 +242,26 @@ func registerMCPTools(server *mcp.Server, acts *action.Actions, r *sqlite.Repo, 
 				"callees":   factIDs(d.Callees, "target"),
 			}
 			return toolJSON(out), nil, nil
-		}))
+		})))
 	mcp.AddTool(server, &mcp.Tool{Name: "fields", Description: "函数字段读写摘要（direct_read/write + indirect_write）"},
-		staleWrap(r, repoAbs, func(ctx context.Context, req *mcp.CallToolRequest, args fieldsParams) (*mcp.CallToolResult, any, error) {
-			n, rows, err := acts.FunctionFields(args.Func)
+		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args fieldsParams) (*mcp.CallToolResult, any, error) {
+			n, rows, err := a.FunctionFields(args.Func)
 			if err != nil {
 				return toolErr(err.Error()), nil, nil
 			}
 			return toolJSON(map[string]any{"func": n.Name, "rows": rows}), nil, nil
-		}))
+		})))
 	mcp.AddTool(server, &mcp.Tool{Name: "callers", Description: "调用者（depth 默认 1）"},
-		staleWrap(r, repoAbs, func(ctx context.Context, req *mcp.CallToolRequest, args graphParams) (*mcp.CallToolResult, any, error) {
-			return graphTool(acts, args, "callers"), nil, nil
-		}))
+		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args graphParams) (*mcp.CallToolResult, any, error) {
+			return graphTool(a, args, "callers"), nil, nil
+		})))
 	mcp.AddTool(server, &mcp.Tool{Name: "callees", Description: "被调用者（depth 默认 1）"},
-		staleWrap(r, repoAbs, func(ctx context.Context, req *mcp.CallToolRequest, args graphParams) (*mcp.CallToolResult, any, error) {
-			return graphTool(acts, args, "callees"), nil, nil
-		}))
+		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args graphParams) (*mcp.CallToolResult, any, error) {
+			return graphTool(a, args, "callees"), nil, nil
+		})))
 	mcp.AddTool(server, &mcp.Tool{Name: "impact", Description: "影响分析（depth 默认 3）"},
-		staleWrap(r, repoAbs, func(ctx context.Context, req *mcp.CallToolRequest, args graphParams) (*mcp.CallToolResult, any, error) {
-			n, err := acts.ResolveSymbol(args.Symbol)
+		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args graphParams) (*mcp.CallToolResult, any, error) {
+			n, err := a.ResolveSymbol(args.Symbol)
 			if err != nil {
 				return toolErr(err.Error()), nil, nil
 			}
@@ -171,29 +269,29 @@ func registerMCPTools(server *mcp.Server, acts *action.Actions, r *sqlite.Repo, 
 			if depth <= 0 {
 				depth = 3
 			}
-			nodes, err := acts.Impact(n.ID, depth)
+			nodes, err := a.Impact(n.ID, depth)
 			if err != nil {
 				return toolErr(err.Error()), nil, nil
 			}
 			return toolJSON(map[string]any{"target": string(n.ID), "nodes": nodeBriefs(nodes)}), nil, nil
-		}))
+		})))
 	mcp.AddTool(server, &mcp.Tool{Name: "trace", Description: "字段追溯（dir=backward/forward，max_depth 默认 8）"},
-		staleWrap(r, repoAbs, func(ctx context.Context, req *mcp.CallToolRequest, args traceParams) (*mcp.CallToolResult, any, error) {
+		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args traceParams) (*mcp.CallToolResult, any, error) {
 			depth := args.MaxDepth
 			if depth <= 0 {
 				depth = 8
 			}
-			_, rows, err := acts.Trace(action.TraceParams{
+			_, rows, err := a.Trace(action.TraceParams{
 				Field: args.Field, Func: args.Func, Forward: args.Dir == "forward", MaxDepth: depth,
 			})
 			if err != nil {
 				return toolErr(err.Error()), nil, nil
 			}
 			return toolJSON(map[string]any{"steps": rows}), nil, nil
-		}))
+		})))
 	mcp.AddTool(server, &mcp.Tool{Name: "value_trace", Description: "数据值全链（跨函数；node 为节点 ID）"},
-		staleWrap(r, repoAbs, func(ctx context.Context, req *mcp.CallToolRequest, args valueTraceParams) (*mcp.CallToolResult, any, error) {
-			id, err := acts.ResolveAnchor(args.Node)
+		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args valueTraceParams) (*mcp.CallToolResult, any, error) {
+			id, err := a.ResolveAnchor(args.Node)
 			if err != nil {
 				return toolErr(err.Error()), nil, nil
 			}
@@ -205,31 +303,31 @@ func registerMCPTools(server *mcp.Server, acts *action.Actions, r *sqlite.Repo, 
 			if minConf <= 0 {
 				minConf = 1.0
 			}
-			rows, err := acts.ValueTrace(id, depth, minConf, false)
+			rows, err := a.ValueTrace(id, depth, minConf, false)
 			if err != nil {
 				return toolErr(err.Error()), nil, nil
 			}
 			return toolJSON(map[string]any{"flows": rows}), nil, nil
-		}))
+		})))
 	mcp.AddTool(server, &mcp.Tool{Name: "context", Description: "跨层聚合上下文（symbol+callers/callees+fields+chain+traces）"},
-		staleWrap(r, repoAbs, func(ctx context.Context, req *mcp.CallToolRequest, args contextParams) (*mcp.CallToolResult, any, error) {
-			c, err := acts.Context(args.Node)
+		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args contextParams) (*mcp.CallToolResult, any, error) {
+			c, err := a.Context(args.Node)
 			if err != nil {
 				return toolErr(err.Error()), nil, nil
 			}
 			return toolJSON(c), nil, nil
-		}))
+		})))
 	mcp.AddTool(server, &mcp.Tool{Name: "table", Description: "表级数据流聚合（列 + 写入方/读取方）"},
-		staleWrap(r, repoAbs, func(ctx context.Context, req *mcp.CallToolRequest, args tableParams) (*mcp.CallToolResult, any, error) {
-			cols, err := acts.Table(args.Name)
+		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args tableParams) (*mcp.CallToolResult, any, error) {
+			cols, err := a.Table(args.Name)
 			if err != nil {
 				return toolErr(err.Error()), nil, nil
 			}
 			return toolJSON(cols), nil, nil
-		}))
+		})))
 	mcp.AddTool(server, &mcp.Tool{Name: "relations", Description: "表间关联（type 过滤 query/write/read/fk）"},
-		staleWrap(r, repoAbs, func(ctx context.Context, req *mcp.CallToolRequest, args relationsParams) (*mcp.CallToolResult, any, error) {
-			rels, err := acts.Relations(args.Table, "")
+		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args relationsParams) (*mcp.CallToolResult, any, error) {
+			rels, err := a.Relations(args.Table, "")
 			if err != nil {
 				return toolErr(err.Error()), nil, nil
 			}
@@ -243,14 +341,14 @@ func registerMCPTools(server *mcp.Server, acts *action.Actions, r *sqlite.Repo, 
 				rels = rels[:args.MaxResults]
 			}
 			return toolJSON(rels), nil, nil
-		}))
+		})))
 	mcp.AddTool(server, &mcp.Tool{Name: "table_path", Description: "表 A → 表 B 数据通路（跨 mapping 表）"},
-		staleWrap(r, repoAbs, func(ctx context.Context, req *mcp.CallToolRequest, args tablePathParams) (*mcp.CallToolResult, any, error) {
-			from, _, err := acts.ResolveTableName(args.From)
+		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args tablePathParams) (*mcp.CallToolResult, any, error) {
+			from, _, err := a.ResolveTableName(args.From)
 			if err != nil {
 				return toolErr("起始表: " + err.Error()), nil, nil
 			}
-			to, _, err := acts.ResolveTableName(args.To)
+			to, _, err := a.ResolveTableName(args.To)
 			if err != nil {
 				return toolErr("目标表: " + err.Error()), nil, nil
 			}
@@ -258,75 +356,75 @@ func registerMCPTools(server *mcp.Server, acts *action.Actions, r *sqlite.Repo, 
 			if maxHops <= 0 {
 				maxHops = 6
 			}
-			res, err := acts.TablePath(from, to, maxHops)
+			res, err := a.TablePath(from, to, maxHops)
 			if err != nil {
 				return toolErr(err.Error()), nil, nil
 			}
 			capTablePathCandidates(res) // Q244：候选默认截断（防爆炸）
 			return toolJSON(res), nil, nil
-		}))
+		})))
 	mcp.AddTool(server, &mcp.Tool{Name: "summary", Description: "跨层生命周期摘要（entry/compute/write/consume 主链）"},
-		staleWrap(r, repoAbs, func(ctx context.Context, req *mcp.CallToolRequest, args summaryParams) (*mcp.CallToolResult, any, error) {
-			id, err := acts.ResolveAnchor(args.Node)
+		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args summaryParams) (*mcp.CallToolResult, any, error) {
+			id, err := a.ResolveAnchor(args.Node)
 			if err != nil {
 				return toolErr(err.Error()), nil, nil
 			}
-			steps, err := acts.SummaryChain(id)
+			steps, err := a.SummaryChain(id)
 			if err != nil {
 				return toolErr(err.Error()), nil, nil
 			}
 			return toolJSON(steps), nil, nil
-		}))
+		})))
 	mcp.AddTool(server, &mcp.Tool{Name: "module_calls", Description: "模块间调用（gRPC/HTTP）"},
-		staleWrap(r, repoAbs, func(ctx context.Context, req *mcp.CallToolRequest, args moduleCallsParams) (*mcp.CallToolResult, any, error) {
-			calls, err := acts.ModuleCalls(args.Module)
+		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args moduleCallsParams) (*mcp.CallToolResult, any, error) {
+			calls, err := a.ModuleCalls(args.Module)
 			if err != nil {
 				return toolErr(err.Error()), nil, nil
 			}
 			return toolJSON(map[string]any{"calls": calls}), nil, nil
-		}))
+		})))
 	// #228 写操作工具（不包 staleWrap——写后索引即最新，无需标注）。
 	// batch_symbols：批量概览（复用 action.BatchSymbols，契约同 CLI batch --json）。
 	mcp.AddTool(server, &mcp.Tool{Name: "batch_symbols", Description: "批量符号概览（多符号一次返回；单输入失败跳过，部分成功）"},
-		func(ctx context.Context, req *mcp.CallToolRequest, args batchParams) (*mcp.CallToolResult, any, error) {
-			res, err := acts.BatchSymbols(args.Symbols)
+		mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args batchParams) (*mcp.CallToolResult, any, error) {
+			res, err := a.BatchSymbols(args.Symbols)
 			if err != nil {
 				return toolErr(err.Error()), nil, nil
 			}
 			return toolJSON(map[string]any{"results": res}), nil, nil
-		})
+		}))
 	// update：增量更新（git 检测变更文件；stale 时调用自愈）。
 	mcp.AddTool(server, &mcp.Tool{Name: "update", Description: "增量更新索引（git 检测变更的 .go 文件重建；索引 stale 时调用自愈）"},
-		func(ctx context.Context, req *mcp.CallToolRequest, args updateParams) (*mcp.CallToolResult, any, error) {
+		mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args updateParams) (*mcp.CallToolResult, any, error) {
 			return runBuildTool(ctx, repoAbs, false), nil, nil
-		})
+		}))
 	// init：全量重建（schema/分析逻辑变更后；大仓库耗时较长）。
 	mcp.AddTool(server, &mcp.Tool{Name: "init", Description: "全量重建索引（schema/分析逻辑变更后；大仓库耗时较长）"},
-		func(ctx context.Context, req *mcp.CallToolRequest, args updateParams) (*mcp.CallToolResult, any, error) {
+		mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args updateParams) (*mcp.CallToolResult, any, error) {
 			return runBuildTool(ctx, repoAbs, true), nil, nil
-		})
+		}))
 	// #229 概览与定位工具（读工具，包 staleWrap）。
 	// roots：顶层入口（main + 服务入口）——Agent 面对陌生仓库先看入口。
 	mcp.AddTool(server, &mcp.Tool{Name: "roots", Description: "顶层入口（main + 服务入口）——陌生仓库先看入口再深入"},
-		staleWrap(r, repoAbs, func(ctx context.Context, req *mcp.CallToolRequest, args updateParams) (*mcp.CallToolResult, any, error) {
-			roots, err := acts.Roots()
+		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args updateParams) (*mcp.CallToolResult, any, error) {
+			roots, err := a.Roots()
 			if err != nil {
 				return toolErr(err.Error()), nil, nil
 			}
 			return toolJSON(map[string]any{"roots": nodeBriefs(roots)}), nil, nil
-		}))
+		})))
 	// repo_summary：仓库概览（规模 + 表数 + 最新构建）。
 	mcp.AddTool(server, &mcp.Tool{Name: "repo_summary", Description: "仓库概览（节点/边/表规模 + 最新构建状态）"},
-		staleWrap(r, repoAbs, func(ctx context.Context, req *mcp.CallToolRequest, args updateParams) (*mcp.CallToolResult, any, error) {
-			nodes, edges, err := acts.Counts()
+		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args updateParams) (*mcp.CallToolResult, any, error) {
+			nodes, edges, err := a.Counts()
 			if err != nil {
 				return toolErr(err.Error()), nil, nil
 			}
-			tables, err := acts.GetTables()
+			tables, err := a.GetTables()
 			if err != nil {
 				return toolErr(err.Error()), nil, nil
 			}
-			latest, err := acts.Latest()
+			latest, err := a.Latest()
 			if err != nil && !errors.Is(err, domain.ErrNotFound) {
 				return toolErr(err.Error()), nil, nil
 			}
@@ -339,16 +437,16 @@ func registerMCPTools(server *mcp.Server, acts *action.Actions, r *sqlite.Repo, 
 				out["build"] = latest // domain.BuildMeta 自带 snake_case 契约
 			}
 			return toolJSON(out), nil, nil
-		}))
+		})))
 	// file_symbols：file:line → 符号（Agent 从编译报错/日志栈定位）。
 	mcp.AddTool(server, &mcp.Tool{Name: "file_symbols", Description: "file:line 定位符号（报错栈/日志行 → 候选符号列表）"},
-		staleWrap(r, repoAbs, func(ctx context.Context, req *mcp.CallToolRequest, args fileSymbolsParams) (*mcp.CallToolResult, any, error) {
-			syms, err := acts.SymbolsAt(args.File, args.Line)
+		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args fileSymbolsParams) (*mcp.CallToolResult, any, error) {
+			syms, err := a.SymbolsAt(args.File, args.Line)
 			if err != nil {
 				return toolErr(err.Error()), nil, nil
 			}
 			return toolJSON(map[string]any{"symbols": nodeBriefs(syms)}), nil, nil
-		}))
+		})))
 }
 
 // runBuildTool 增量（full=false）/全量（full=true）重建，输出 JSON 摘要
@@ -465,10 +563,11 @@ func filterRels(rels []*domain.TableRelation, keep func(*domain.TableRelation) b
 	return out
 }
 
-// mcpServer 组装 MCP server（工具注册）。
+// mcpServer 组装 MCP server（工具注册；#232 多仓库 env）。
 func mcpServer(acts *action.Actions, r *sqlite.Repo, repoAbs string) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "codeintel", Version: "0.1.0"}, nil)
-	registerMCPTools(server, acts, r, repoAbs)
+	env := &mcpEnv{defaultActs: acts, cache: map[string]mcpRepoEntry{}}
+	registerMCPTools(server, env, r, repoAbs)
 	return server
 }
 

@@ -7,6 +7,8 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +18,28 @@ import (
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
+
+// seedRepoM2 第二个仓库（module example.com/m2，含 main 节点）——#232
+// 多仓库跨库查询测试。
+func seedRepoM2(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/m2\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer db.Close()
+	r := sqlite.NewRepo(db)
+	if _, err := r.SaveBatchStats([]*domain.CodeEntity{
+		{ID: "symbol:go:example.com/m2:main", Kind: domain.KindFunction, Name: "main", FilePath: "main.go"},
+	}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
 
 // mcpDial 起 server（内存 transport）+ client 连接，返回 client session。
 func mcpDial(t *testing.T, dir string) *mcp.ClientSession {
@@ -271,6 +295,46 @@ func TestMCPToolFileSymbols(t *testing.T) {
 	}
 	if m.Symbols[0].Name != "main" {
 		t.Errorf("首个命中应为 main，got %v", m.Symbols)
+	}
+}
+
+// TestMCPToolMultiRepo：#232 多仓库——repo 参数（路径）解析目标仓库；
+// 空 repo 用默认仓库；不存在仓库 isError。
+func TestMCPToolMultiRepo(t *testing.T) {
+	dir2 := seedRepoM2(t)
+	cs := mcpDial(t, seedRepo(t)) // 默认仓库 example.com/m
+
+	// 跨仓库：repo=dir2 → 命中 m2 的 main
+	text, isErr := mcpCallTool(t, cs, "symbol", map[string]any{"id": "main", "repo": dir2})
+	if isErr {
+		t.Fatalf("跨仓库 symbol 调用报错: %s", text)
+	}
+	var m struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(text), &m); err != nil {
+		t.Fatalf("content 应为 JSON: %v\n%s", err, text)
+	}
+	if !strings.Contains(m.ID, "example.com/m2:main") {
+		t.Errorf("应命中 m2 仓库 main，got id=%s", m.ID)
+	}
+
+	// 空 repo → 默认仓库
+	text, isErr = mcpCallTool(t, cs, "symbol", map[string]any{"id": "main"})
+	if isErr {
+		t.Fatalf("默认仓库 symbol 调用报错: %s", text)
+	}
+	if err := json.Unmarshal([]byte(text), &m); err != nil {
+		t.Fatalf("content 应为 JSON: %v\n%s", err, text)
+	}
+	if !strings.Contains(m.ID, "example.com/m:main") {
+		t.Errorf("空 repo 应命中默认仓库 main，got id=%s", m.ID)
+	}
+
+	// 不存在仓库 → isError
+	_, isErr = mcpCallTool(t, cs, "symbol", map[string]any{"id": "main", "repo": "/nope/nope"})
+	if !isErr {
+		t.Error("不存在的仓库应 isError")
 	}
 }
 
