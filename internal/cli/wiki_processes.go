@@ -123,6 +123,11 @@ func renderProcessesMD(acts *action.Actions) string {
 		} else {
 			b.WriteString("```mermaid\n" + sequenceMermaid(chain.Steps) + "\n```\n\n")
 		}
+		// R12：实体间调用时序图（顺序视角——谁先调谁）
+		if seq := entitySequenceMermaid(eg, chain.Steps); seq != "" {
+			b.WriteString("**实体间调用时序**（连续同向调用合并计数）：\n\n")
+			b.WriteString("```mermaid\n" + seq + "\n```\n\n")
+		}
 		if len(chain.Pkgs) > 0 {
 			b.WriteString("涉及包：`" + strings.Join(chain.Pkgs, "`、`") + "`\n\n")
 		}
@@ -150,6 +155,11 @@ func renderProcessesHTML(acts *action.Actions) string {
 			b.WriteString("<pre class=\"mermaid\">" + htmlEsc(sub) + "</pre>")
 		} else {
 			b.WriteString("<pre class=\"mermaid\">" + htmlEsc(sequenceMermaid(chain.Steps)) + "</pre>")
+		}
+		// R12：实体间调用时序图
+		if seq := entitySequenceMermaid(eg, chain.Steps); seq != "" {
+			b.WriteString("<p class=\"muted\">实体间调用时序（连续同向调用合并计数）：</p>")
+			b.WriteString("<pre class=\"mermaid\">" + htmlEsc(seq) + "</pre>")
 		}
 		if len(chain.Pkgs) > 0 {
 			b.WriteString("<p class=\"muted\">涉及包：" + htmlEsc(strings.Join(chain.Pkgs, "、")) + "</p>")

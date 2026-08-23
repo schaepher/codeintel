@@ -139,6 +139,10 @@ func renderModuleHTML(wm *domain.WikiModule, i int, eg *domain.EntityGraph, tabl
 		} else {
 			b.WriteString("<pre class=\"mermaid\">" + htmlEsc(sequenceMermaid(fl.Steps)) + "</pre>")
 		}
+		if seq := entitySequenceMermaid(eg, fl.Steps); seq != "" {
+			b.WriteString("<p class=\"muted\">实体间调用时序（连续同向调用合并计数）：</p>")
+			b.WriteString("<pre class=\"mermaid\">" + htmlEsc(seq) + "</pre>")
+		}
 		hasSeq = true
 	}
 	if !hasSeq {

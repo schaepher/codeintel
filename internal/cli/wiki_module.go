@@ -143,6 +143,10 @@ func renderModulePage(wm *domain.WikiModule, eg *domain.EntityGraph, desc string
 		} else {
 			b.WriteString("```mermaid\n" + sequenceMermaid(fl.Steps) + "\n```\n\n")
 		}
+		if seq := entitySequenceMermaid(eg, fl.Steps); seq != "" {
+			b.WriteString("**实体间调用时序**（连续同向调用合并计数）：\n\n")
+			b.WriteString("```mermaid\n" + seq + "\n```\n\n")
+		}
 		hasSeq = true
 	}
 	if !hasSeq {
