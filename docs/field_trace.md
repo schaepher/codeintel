@@ -3312,6 +3312,48 @@ table-path BFS 复查：adj/preds 值为 slice，顺序确定（无 map range）
 **测试**：action 层（形态分派 symbol/field + Before 聚合 + TraceFlow）
 + cli 层（before 符号/字段/表文本 + JSON 契约 + trace 文本/JSON）。
 
+## §81 排障树脚本化 + 防忘机制（Q245，2026-08-23）
+
+**背景**：本会话排障经验拆为双文档——「事后树」
+docs/troubleshooting-tree.md（怎么找问题，五步定位法 + 症状分支）
+与「事前树」docs/prevention-tree.md（怎么让问题不发生，五层拦截）。
+本 Q 把树中可脚本化条目固化为 scripts/ 工具（AI 直接调用不再
+现写），并用「pre-commit 硬拦截 + PostToolUse 软提醒」双机制防止
+AI 忘记验证。细节引两棵树/runbook，此处不重复。
+
+**交付**：
+- `scripts/verify.sh`——全量验证基线（事后树主干步骤 5 固化）：
+  TMPDIR 自动切换（runbook #1）+ build + vet + -race -count=1 -p 1
+  逐包 timeout 300s（挂起自动终止，事后树分支 B）；`--quick` 供
+  提交前（build + vet + 非 race 单测）。失败退出非零。
+- `scripts/dbdiag.sh`——sqlite 库健康诊断（事后树分支 D1 固化）：
+  表行数 / build_metadata 最新 3 条 / relation_candidates marker 行
+  提示。查询结果不对时先跑它确认数据在不在，免临时写 sqlite3
+  查询或临时 diag 测试。
+- `scripts/assert_replace.py`——带断言文本替换（runbook #10 固化）：
+  默认断言恰好 1 次，`--all`（≥1 次）/ `--count N` 变体；不满足
+  退出非零，杜绝 str.replace 静默失败。
+- `scripts/install-precommit.sh`——安装 pre-commit hook：commit 前
+  自动跑 verify.sh --quick，失败拒绝提交（防忘硬拦截；本仓库已装，
+  含 GIT_* 环境变量防护）。
+- `.claude/hooks/verify-remind.sh` + settings.json PostToolUse——
+  改 Go 文件后提醒跑 verify.sh（防忘软兜底，覆盖未装 pre-commit
+  场景；与 impact-check.sh 同模式）。
+- AGENTS.md 强制流程第 4 条注册 + 两棵树对应条目标注「已固化」；
+  runbook 新增 #17。
+
+**实战抓到真坑（runbook #17）**：机制首次运行即拦截一次提交——
+git commit 的 pre-commit 阶段设置 GIT_INDEX_FILE 指向提交用 index，
+hook 内嵌套 git 命令（workspace 测试的 git worktree add、增量构建
+的 git 检测）继承后报 "index file open failed: Not a directory"
+（cli 包 workspace 测试 6 个失败 + server 增量构建 409→202 快速
+失败）。修复：hook 开头 unset GIT_INDEX_FILE/GIT_DIR/GIT_WORK_TREE
+（verify.sh 内双保险）。
+
+**验证**：assert_replace 5 用例（恰好 1 次 / --count / --all /
+拒绝路径）；dbdiag 对仓库自索引正常；quick 与全量（13 包 -race）
+基线通过；commit 触发 pre-commit 实战全绿。commit 1b95890。
+
 ---
 
-**文档结束**。本版由 go-cpg v1.0 设计文档（2026-08-13 之前版本）整体适配而来：保留全部 SSA 语义与映射规则，重塑为 codeintel 适配器形态；§1–§12 为设计正文（Q1–Q73），§14 为 2026-08-14 实现阶段需求增补（Q74–Q83），§15 起为实现记录（Q84–Q240，逐 Q 编号 + 日期）。
+**文档结束**。本版由 go-cpg v1.0 设计文档（2026-08-13 之前版本）整体适配而来：保留全部 SSA 语义与映射规则，重塑为 codeintel 适配器形态；§1–§12 为设计正文（Q1–Q73），§14 为 2026-08-14 实现阶段需求增补（Q74–Q83），§15 起为实现记录（Q84–Q245，逐 Q 编号 + 日期）。

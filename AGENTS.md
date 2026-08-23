@@ -16,7 +16,7 @@
   field_trace.md §64–§66（设计文档已删除）
 - [`docs/field_trace.md`](docs/field_trace.md)：逐 Q 实现记录（§63 起为
   Q234/Q235/Q238 系列；§77 = Q238 全局注册表 + worktree/workspace，
-  design-q238.md 已归档）
+  design-q238.md 已归档；§81 = 排障树脚本化 + 防忘机制 Q245）
 
 ## 项目一句话
 
