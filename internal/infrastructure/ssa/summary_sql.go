@@ -34,12 +34,36 @@ func (ext *fieldExtractor) applySQLSummary(cc *ssa.CallCommon, calleeID domain.C
 	table, tableAlias, cols, whereCols, joinPairs := parseSQLStmt(sqlStr)
 	line := ext.prog.Fset.PositionFor(cc.Pos(), false).Line
 
+	// Q250：语句类型覆盖方法名判定——Prepare(INSERT) 场景（内置配置
+	// SQLWrite 按 fn=="Exec" 判定，Prepare 恒读）强制走写分支。
+	if sqlStmtIsWrite(sqlStr) {
+		spec.SQLWrite = true
+	}
+
 	if !spec.SQLWrite {
 		if table == "" {
 			return nil
 		}
-		if len(cols) == 0 {
-			cols = []string{""}
+		// Q250：表节点无条件产出（SELECT 具体列也识别表——relations/ER
+		// 表完整性）；列节点只在有列时产出。
+		tableID := domain.CanonicalID(string(ext.funcID) + "#ext.sql." + table + ".read@" + fmt.Sprintf("%d", line))
+		if err := ext.emit(domain.Item{Node: &domain.CodeEntity{
+			ID:        tableID,
+			Kind:      domain.KindFieldAccess,
+			Name:      table,
+			FilePath:  ext.currentFile,
+			LineStart: line,
+			Properties: map[string]any{
+				"full_path":     table,
+				"instance_path": table,
+				"access_kind":   "read",
+				"code_snippet":  sqlStr,
+				"type_string":   "sql",
+				"is_external":   "true",
+				"func_id":       string(ext.funcID),
+			},
+		}}); err != nil {
+			return err
 		}
 		var callID domain.CanonicalID
 		// Q201：Query(sql, callback) 形态——读出值进入回调闭包的形参
@@ -52,11 +76,19 @@ func (ext *fieldExtractor) applySQLSummary(cc *ssa.CallCommon, calleeID domain.C
 		} else if callVal != nil {
 			callID, _ = ext.emitValue(callVal)
 		}
-		for _, col := range cols {
-			name := table
-			if col != "" {
-				name = table + "." + col
+		if len(cols) == 0 {
+			// 纯表级访问（SELECT * / COUNT(*)）——表节点带读出边（旧行为）
+			if callID != "" {
+				if err := ext.emitEdgeKindLine(tableID, domain.CanonicalID(callID), domain.FactSummaryIO, line); err != nil {
+					return err
+				}
 			}
+		}
+		for _, col := range cols {
+			if col == "" || !validSQLColumn(col) {
+				continue // Q250：噪音列（DISTINCT/引号残留）不产出
+			}
+			name := table + "." + col
 			id := domain.CanonicalID(string(ext.funcID) + "#ext.sql." + name + ".read@" + fmt.Sprintf("%d", line))
 			if err := ext.emit(domain.Item{Node: &domain.CodeEntity{
 				ID:        id,
@@ -184,9 +216,61 @@ func (ext *fieldExtractor) applySQLSummary(cc *ssa.CallCommon, calleeID domain.C
 	}
 
 	access := "write"
+	// Q250：表级 write 节点无条件产出（Prepare 批量写无值实参——
+	// 旧逻辑按值循环空转，写目标表完全缺失）。
+	if table != "" {
+		tableID := domain.CanonicalID(string(ext.funcID) + "#ext.sql." + table + "." + access + "@" + fmt.Sprintf("%d", line))
+		if err := ext.emit(domain.Item{Node: &domain.CodeEntity{
+			ID:        tableID,
+			Kind:      domain.KindFieldAccess,
+			Name:      table,
+			FilePath:  ext.currentFile,
+			LineStart: line,
+			Properties: map[string]any{
+				"full_path":     table,
+				"instance_path": table,
+				"access_kind":   access,
+				"code_snippet":  sqlStr,
+				"type_string":   "sql",
+				"is_external":   "true",
+				"func_id":       string(ext.funcID),
+			},
+		}}); err != nil {
+			return err
+		}
+	}
 	values := []ssa.Value{}
 	for i := sqlArg + 1; i < len(cc.Args); i++ {
 		values = append(values, variadicElems(cc.Args[i])...)
+	}
+	// 无值实参的列节点（Prepare 形态）——写目标列仍可产出（无边；
+	// 值流不可得）。有值实参时走下方带边循环。
+	if len(values) == 0 {
+		for _, col := range cols {
+			if col == "" || !validSQLColumn(col) {
+				continue
+			}
+			name := table + "." + col
+			id := domain.CanonicalID(string(ext.funcID) + "#ext.sql." + name + "." + access + "@" + fmt.Sprintf("%d", line))
+			if err := ext.emit(domain.Item{Node: &domain.CodeEntity{
+				ID:        id,
+				Kind:      domain.KindFieldAccess,
+				Name:      name,
+				FilePath:  ext.currentFile,
+				LineStart: line,
+				Properties: map[string]any{
+					"full_path":     name,
+					"instance_path": name,
+					"access_kind":   access,
+					"code_snippet":  sqlStr,
+					"type_string":   "sql",
+					"is_external":   "true",
+					"func_id":       string(ext.funcID),
+				},
+			}}); err != nil {
+				return err
+			}
+		}
 	}
 	for i, arg := range values {
 		col := ""

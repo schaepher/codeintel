@@ -43,6 +43,30 @@ func nextToken(s string) (tok, rest string) {
 	return s[:i], strings.TrimSpace(s[i:])
 }
 
+// splitTopLevelComma 顶层逗号拆分（Q250：括号内不切——COALESCE(a,b)
+// 的内部逗号不得把函数段劈成列名残片）。
+func splitTopLevelComma(s string) []string {
+	var parts []string
+	depth := 0
+	start := 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		case ',':
+			if depth == 0 {
+				parts = append(parts, strings.TrimSpace(s[start:i]))
+				start = i + 1
+			}
+		}
+	}
+	return append(parts, strings.TrimSpace(s[start:]))
+}
+
 // splitSQLCond 按 AND/OR 拆分 ON 条件（顶层；括号内不拆——简单扫描）。
 func splitSQLCond(cond string) []string {
 	var parts []string
@@ -230,38 +254,69 @@ func extractWhereCols(rest string) []string {
 //	SELECT * FROM t                   → t, [], nil（表级）
 //	... WHERE y = ?                   → ..., [], [y]（表关联：值实参按 ? 顺序映射）
 
+// sqlStmtRe 语句类型词边界匹配（Q250：子串 Contains 会把列名
+// updated_at 误判为 UPDATE——词边界后 SELECT/DDL 里的 updated_at
+// 不再切出假表 d_at）。
+var (
+	reInsertInto = regexp.MustCompile(`(?i)\bINSERT\s+INTO\b`)
+	reUpdate     = regexp.MustCompile(`(?i)\bUPDATE\b`)
+	reDeleteFrom = regexp.MustCompile(`(?i)\bDELETE\s+FROM\b`)
+	// reFrom 词边界 FROM（Q250：多行 SQL 的 \n\t\tFROM 前是 tab/换行，
+	// " FROM " 子串匹配不到——SELECT 列表多列时表识别缺失）。
+	reFrom = regexp.MustCompile(`(?i)\bFROM\b`)
+	// reInsertOrReplace：SQLite INSERT OR REPLACE/IGNORE 与 REPLACE INTO
+	// 形态（repo_write 批量写；REPLACE 词边界防 replace_xxx 列误命中）。
+	reInsertOrReplace = regexp.MustCompile(`(?i)\b(?:REPLACE|INSERT\s+(?:OR\s+(?:REPLACE|IGNORE|ABORT|ROLLBACK|FAIL)\s+)?)\s+INTO\b`)
+	// reWriteStmt 语句级写判定（Q250：Prepare(INSERT) 场景——内置配置
+	// 按方法名判 SQLWrite（Exec→写），Prepare 恒读；改按语句类型强制
+	// 修正。词边界匹配防 updated_at/replace_xxx 列名误命中）。
+	reWriteStmt = regexp.MustCompile(`(?i)\b(?:INSERT\s+(?:OR\s+(?:REPLACE|IGNORE|ABORT|ROLLBACK|FAIL)\s+)?INTO|REPLACE\s+INTO|UPDATE|DELETE\s+FROM)`)
+)
+
+// sqlStmtIsWrite SQL 语句是否为写（INSERT/REPLACE/UPDATE/DELETE）。
+func sqlStmtIsWrite(sql string) bool {
+	return reWriteStmt.MatchString(sql)
+}
+
 func parseSQLStmt(sql string) (table, alias string, cols []string, whereCols []string, joinPairs []sqlJoinPair) {
 	upper := strings.ToUpper(sql)
 	rest := ""
 	switch {
-	case strings.Contains(upper, "INSERT INTO"):
-		rest = sql[strings.Index(upper, "INSERT INTO")+len("INSERT INTO"):]
-	case strings.Contains(upper, "UPDATE"):
-		rest = sql[strings.Index(upper, "UPDATE")+len("UPDATE"):]
-	case strings.Contains(upper, "DELETE FROM"):
-		rest = sql[strings.Index(upper, "DELETE FROM")+len("DELETE FROM"):]
-	case strings.Contains(upper, " FROM "):
+	case reInsertOrReplace.MatchString(upper):
+		rest = sql[reInsertOrReplace.FindStringIndex(upper)[1]:]
+	case reInsertInto.MatchString(upper):
+		rest = sql[reInsertInto.FindStringIndex(upper)[1]:]
+	case reUpdate.MatchString(upper):
+		rest = sql[reUpdate.FindStringIndex(upper)[1]:]
+	case reDeleteFrom.MatchString(upper):
+		rest = sql[reDeleteFrom.FindStringIndex(upper)[1]:]
+	case reFrom.MatchString(upper):
 
-		fromIdx := strings.Index(upper, " FROM ")
-		rest = sql[fromIdx+len(" FROM "):]
+		fromIdx := reFrom.FindStringIndex(upper)[0]
+		rest = sql[fromIdx+len("FROM"):]
 		joinPairs = extractJoinPairs(rest)
 		if strings.Contains(upper, "SELECT ") {
 			selPart := strings.TrimSpace(sql[strings.Index(upper, "SELECT ")+len("SELECT ") : fromIdx])
-			if selPart != "" && !strings.Contains(strings.ToUpper(selPart), "*") {
-
-				for _, c := range strings.Split(selPart, ",") {
-					c = strings.TrimSpace(c)
+			// Q250：DISTINCT/ALL 前缀剥离（DISTINCT 关键字不得并进列名）
+			selUp := strings.ToUpper(selPart)
+			for _, kw := range []string{"DISTINCT ", "ALL "} {
+				if strings.HasPrefix(selUp, kw) {
+					selPart = strings.TrimSpace(selPart[len(kw):])
+					selUp = strings.ToUpper(selPart)
+					break
+				}
+			}
+			if selPart != "" && !strings.Contains(selUp, "*") {
+				for _, c := range splitTopLevelComma(selPart) {
 					if i := strings.Index(c, " "); i >= 0 {
 						c = c[:i]
 					}
 					if i := strings.LastIndex(c, "."); i >= 0 {
 						c = c[i+1:]
 					}
-					c = strings.Trim(c, "`\"[]")
-					if c != "" {
-						if c != "" && !strings.Contains(c, "(") {
-							cols = append(cols, c)
-						}
+					c = strings.Trim(c, "`\"[]'")
+					if c != "" && !strings.Contains(c, "(") && validSQLColumn(c) {
+						cols = append(cols, c)
 					}
 				}
 			}

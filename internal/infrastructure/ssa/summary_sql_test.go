@@ -28,6 +28,23 @@ func TestParseSQLStmt(t *testing.T) {
 		{"SELECT * FROM users", "users", nil, nil},
 
 		{"SELECT x FROM table_a WHERE id = ?", "table_a", []string{"x"}, []string{"id"}},
+		// Q250：UPDATE 子串误命中——updated_at 含 "UPDATE"，SELECT 列/
+		// DDL 里的 updated_at 不得切出假表 d_at
+		{"SELECT updated_at FROM relation_progress WHERE build_id = ?", "relation_progress", []string{"updated_at"}, []string{"build_id"}},
+		{"UPDATE users SET updated_at = ? WHERE id = ?", "users", []string{"updated_at"}, []string{"id"}},
+		{"CREATE TABLE IF NOT EXISTS relation_progress (updated_at INTEGER)", "", nil, nil},
+		// Q250：SELECT 列段——DISTINCT 前缀剥离 + 括号内逗号不切分
+		// （COALESCE 内部逗号）+ 引号/函数残留过滤
+		{"SELECT DISTINCT callee_id FROM summary_origins WHERE function_id = ?", "summary_origins", []string{"callee_id"}, []string{"function_id"}},
+		{"SELECT COALESCE(commit_sha,''), timestamp FROM build_metadata ORDER BY timestamp DESC, rowid DESC LIMIT 1", "build_metadata", []string{"timestamp"}, nil},
+		{"SELECT DISTINCT s.id, a.name FROM sys_sub_station s INNER JOIN sys_district a ON a.code = s.city_code", "sys_sub_station", []string{"id", "name"}, nil},
+		// Q250：多行 SQL（\n\t\tFROM）——FROM 前是 tab/换行非空格，
+		// " FROM " 子串匹配不到
+		{"SELECT function_id, access_kind, field_path\n\t\tFROM function_field_summary ORDER BY field_path", "function_field_summary", []string{"function_id", "access_kind", "field_path"}, nil},
+		{"SELECT *\nFROM nodes", "nodes", nil, nil},
+		// Q250：SQLite INSERT OR REPLACE / REPLACE INTO 形态（repo_write 批量写）
+		{"INSERT OR REPLACE INTO function_field_summary(function_id, access_kind) VALUES(?, ?)", "function_field_summary", []string{"function_id", "access_kind"}, nil},
+		{"REPLACE INTO users(name) VALUES(?)", "users", []string{"name"}, nil},
 		{"SELECT * FROM table_b WHERE y = ?", "table_b", nil, []string{"y"}},
 		{"SELECT * FROM table_b WHERE a.y = ? AND z = ?", "table_b", nil, []string{"y", "z"}},
 		{"SELECT * FROM t WHERE id = ? ORDER BY id", "t", nil, []string{"id"}},
@@ -373,6 +390,105 @@ func TestParseSQLJoinPairsMultiline(t *testing.T) {
 		if pairs[i] != w {
 			t.Errorf("pair[%d] = %+v, want %+v", i, pairs[i], w)
 		}
+	}
+}
+
+// TestSQLSelectColEmitsTable：Q250——SELECT 具体列（非 *）也产出表节点
+// （relations/ER 表完整性），且列段噪音（DISTINCT 前缀/函数内逗号/
+// 引号残留）不产出列节点。
+func TestSQLSelectColEmitsTable(t *testing.T) {
+	nodes, _ := indexFixture(t, map[string]string{
+		"go.mod": moduleGoMod,
+		"field-summary.yaml": `
+summaries:
+  - iface: example.com/mtest.Conn
+    method: Query
+    kind: sql
+    sql_write: false
+    where_arg: 0
+`,
+		"main.go": `package m
+
+type Rows struct{}
+
+type Conn interface {
+	Query(sql string, cb func(*Rows), args ...any)
+}
+
+func latest(c Conn) {
+	c.Query("SELECT COALESCE(commit_sha,''), timestamp FROM build_metadata ORDER BY timestamp DESC LIMIT 1", func(r *Rows) {})
+}
+
+func origins(c Conn) {
+	c.Query("SELECT DISTINCT callee_id FROM summary_origins WHERE function_id = ?", func(r *Rows) {}, "f")
+}
+`,
+	})
+	got := map[string]string{}
+	for _, n := range nodes {
+		if n.Kind == domain.KindFieldAccess && n.Property("type_string") == "sql" {
+			got[n.Name] = n.Property("access_kind")
+		}
+	}
+	if got["build_metadata"] != "read" {
+		t.Errorf("SELECT 列查询未产出表节点 build_metadata（got %v）", got["build_metadata"])
+	}
+	if got["summary_origins"] != "read" {
+		t.Errorf("SELECT DISTINCT 查询未产出表节点 summary_origins（got %v）", got["summary_origins"])
+	}
+	if got["build_metadata.timestamp"] != "read" {
+		t.Errorf("缺列节点 build_metadata.timestamp（got %v）", got["build_metadata.timestamp"])
+	}
+	if got["summary_origins.callee_id"] != "read" {
+		t.Errorf("缺列节点 summary_origins.callee_id（got %v）", got["summary_origins.callee_id"])
+	}
+	if got["summary_origins.function_id"] != "filter" {
+		t.Errorf("WHERE 过滤列节点缺失：summary_origins.function_id（got %v）", got["summary_origins.function_id"])
+	}
+	for _, noise := range []string{"summary_origins.DISTINCT", "build_metadata.''", "build_metadata.'')"} {
+		if got[noise] != "" {
+			t.Errorf("噪音列节点不应产出：%s（got %v）", noise, got[noise])
+		}
+	}
+}
+
+// TestSQLPrepareWriteByStmtType：Q250——Prepare 批量写形态。内置配置
+// 按方法名判 SQLWrite（Exec→写），Prepare 恒读；语句类型 INSERT
+// （INSERT OR REPLACE）强制修正为写（write 节点）。
+func TestSQLPrepareWriteByStmtType(t *testing.T) {
+	nodes, _ := indexFixture(t, map[string]string{
+		"go.mod": moduleGoMod,
+		"field-summary.yaml": `
+summaries:
+  - iface: example.com/mtest.Conn
+    method: Prepare
+    kind: sql
+    sql_write: false
+`,
+		"main.go": `package m
+
+type Stmt struct{}
+
+type Conn interface {
+	Prepare(sql string) *Stmt
+}
+
+func save(c Conn) {
+	c.Prepare("INSERT OR REPLACE INTO users(name, email) VALUES(?, ?)")
+}
+`,
+	})
+	got := map[string]string{}
+	for _, n := range nodes {
+		if n.Kind == domain.KindFieldAccess && n.Property("type_string") == "sql" {
+			got[n.Name] = n.Property("access_kind")
+		}
+	}
+	if got["users"] != "write" {
+		t.Errorf("Prepare(INSERT) 应产出 write 表节点（got %v）", got["users"])
+	}
+	if got["users.name"] != "write" || got["users.email"] != "write" {
+		t.Errorf("Prepare(INSERT) 列节点应为 write（got %v/%v）", got["users.name"], got["users.email"])
 	}
 }
 

@@ -3357,3 +3357,40 @@ hook 内嵌套 git 命令（workspace 测试的 git worktree add、增量构建
 ---
 
 **文档结束**。本版由 go-cpg v1.0 设计文档（2026-08-13 之前版本）整体适配而来：保留全部 SSA 语义与映射规则，重塑为 codeintel 适配器形态；§1–§12 为设计正文（Q1–Q73），§14 为 2026-08-14 实现阶段需求增补（Q74–Q83），§15 起为实现记录（Q84–Q245，逐 Q 编号 + 日期）。
+
+## §82 表识别完整性修复（Q250，2026-08-23）
+
+自举验证触发：用户问「检查数据库里的表，是否都被正确识别到」。
+自查流程（沉淀为方法论）：重建索引 → 提取 SQL 表级节点（type_string=
+sql 且无点/括号/中括号的 field_access）→ 与代码 CREATE TABLE 定义 +
+SQL 引用对比 → 4 个形态缺口逐项 test-first 修复：
+
+1. **UPDATE 子串误命中**（最隐蔽）：分支判断 `Contains(upper, "UPDATE")`
+   对 `SELECT updated_at FROM relation_progress` 先命中 UPDATE 分支，
+   从 `D_AT` 处切出假表 `d_at`（#249 只修了 WHERE 别名，漏了分支）。
+   同理 CREATE TABLE DDL 里的 updated_at。修复：语句类型改词边界正则
+   `\bUPDATE\b`（updated_at 的 update 后是 word char，词边界不成立）。
+2. **SELECT 列段噪音**：`SELECT DISTINCT callee_id` → DISTINCT 并进列名；
+   `COALESCE(a,''), b` 内部逗号把函数段劈成 `'')` 残片。修复：顶层逗号
+   拆分（括号内不切）+ DISTINCT/ALL 前缀剥离 + validSQLColumn 过滤
+   （emit 层 read/write 列节点兜底同规则）。
+3. **多行 SQL FROM 不识别**：`SELECT ...\n\t\tFROM function_field_summary`
+   ——`" FROM "` 子串匹配不到 tab 前导。修复：`\bFROM\b` 词边界。
+4. **Prepare 批量写恒判读**：内置配置 `SQLWrite: fn=="Exec"`——批量写
+   走 `tx.Prepare(insertSQL)` + `stmt.Exec(args)`，SQL 在 Prepare 处解析
+   恒 read。修复：语句类型覆盖方法名判定（sqlStmtIsWrite：INSERT OR
+   REPLACE/IGNORE、REPLACE INTO、UPDATE、DELETE FROM 词边界）；写分支
+   补表级 write 节点 + 无值实参列节点（Prepare 无值也可知写目标列）。
+
+配套：INSERT OR REPLACE / REPLACE INTO 语句形态（repo_write 批量写）
+原不识别，并入 reInsertOrReplace 分支正则。
+
+**验证证据**：13 包 -race 全绿 + verify.sh OK；重建索引后 10 张真实表
+（build_metadata/edges/function_field_summary/nodes/relation_candidates/
+relation_progress/relation_rules/repos/summary_origins + registry repos）
+全部 read+write 双向识别（修前 3 张表无表节点、2 处噪音）；噪音扫描
+（DISTINCT/引号残留/括号残留/d_at）归零。测试新增 4 组用例。
+
+**方法论沉淀**：功能交付后主动做「表识别完整性」自检——真实表集合
+从 CREATE TABLE + SQL 引用双向收集（词边界），与索引表节点对账；
+噪音面（子串误命中/关键字/引号/括号/CTE 名）显式扫描归零。
