@@ -66,7 +66,10 @@ func usage() {
 	logger := zap.L()
 	logger.Debug("enter usage")
 	defer logger.Debug("exit usage")
-	fmt.Fprint(os.Stderr, `codeintel - Go 代码库智能索引与查询（MVP）
+	fmt.Fprint(os.Stderr, usageText)
+}
+
+const usageText = `codeintel - Go 代码库智能索引与查询（MVP）
 
 用法:
   （--repo <path> 缺省 = 当前工作目录，Q237；也接受已注册仓库的短名/
@@ -109,5 +112,4 @@ func usage() {
 符号可用 canonical ID（symbol:go:<pkg>:<name>）或名称精确/模糊查找。
 
 任意位置加 --verbose（或 --debug）输出 debug 级日志（默认 info 级）。
-`)
-}
+`

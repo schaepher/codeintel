@@ -11,9 +11,9 @@ import (
 	"go.uber.org/zap"
 )
 
-// renderWikiHTML 生成单文件自包含 index.html（全量覆盖）。freshNote
-// 是新鲜度标注（基于索引 commit，空则省略）。
-func renderWikiHTML(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiConfig, cols []*domain.TableColumn, rels []*domain.TableRelation, freshNote string) error {
+// renderWikiHTML 生成单文件自包含 index.html（全量覆盖）。
+func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
+	data, cfg, cols, rels, freshNote, pkgs := rc.data, rc.cfg, rc.cols, rc.rels, rc.freshNote, rc.pkgs
 	logger := zap.L()
 	logger.Debug("enter renderWikiHTML", zap.Int("modules", len(data)))
 	defer logger.Debug("exit renderWikiHTML")
@@ -87,6 +87,15 @@ func renderWikiHTML(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiC
 	tables := collectTables(data, tableAlias, tableCfgs)
 	main.WriteString(wikiTablesSectionHTML(tables, tableCfgs, cols))
 	nav.WriteString(`<li><a href="#tables">表清单</a></li>`)
+	// R1：命令/接口/包结构区块（单文件 html 全量包含）
+	main.WriteString(renderCommandsHTML())
+	nav.WriteString(`<li><a href="#commands">命令清单</a></li>`)
+	main.WriteString(renderAPIHTML(repoAbs))
+	nav.WriteString(`<li><a href="#api">HTTP 接口</a></li>`)
+	if len(pkgs) > 0 {
+		main.WriteString(renderPackagesHTML(pkgs))
+		nav.WriteString(`<li><a href="#packages">包结构</a></li>`)
+	}
 
 	if len(cfg.Glossary) > 0 {
 		main.WriteString(`<section id="glossary"><h2>术语表</h2>`)

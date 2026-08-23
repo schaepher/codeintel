@@ -157,3 +157,23 @@ func TestGetFrameworkStructs(t *testing.T) {
 		t.Errorf("framework property missing: %+v", n.Properties)
 	}
 }
+
+// TestGetPackages：R1——包节点查询（包职责地图数据源）：只返回当前
+// module 的 package 节点（含 doc_comment），外部模块排除。
+func TestGetPackages(t *testing.T) {
+	r := newTestRepo(t)
+	nodes := []*domain.CodeEntity{
+		node("symbol:go:example.com/m:a", "package", "a", "a.go"),
+		node("symbol:go:example.com/m/b:b", "package", "b", "b.go"),
+		// 外部模块包（go2o 等）不返回（仓库外路径）
+		node("symbol:go:github.com/else/x:x", "package", "x", "../x/x.go"),
+	}
+	save(t, r, nodes, nil)
+	pkgs, err := r.GetPackages()
+	if err != nil {
+		t.Fatalf("GetPackages: %v", err)
+	}
+	if len(pkgs) != 2 {
+		t.Errorf("GetPackages = %d 个（应排除外部模块包）: %+v", len(pkgs), pkgs)
+	}
+}

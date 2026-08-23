@@ -35,6 +35,8 @@ func (ws *wikiServe) navHTML(snap *wikiSnapshot, current string) string {
 	nav.WriteString("</ul></li>\n")
 	for _, item := range []struct{ href, label string }{
 		{"/wiki/overview", "概览"},
+		{"/wiki/commands", "命令清单"},
+		{"/wiki/api", "HTTP 接口"},
 		{"/wiki/er", "ER 图（表间关系）"},
 		{"/wiki/tables", "表清单"},
 	} {
@@ -101,6 +103,9 @@ func searchIndexJSON(snap *wikiSnapshot) string {
 	for _, g := range snap.cfg.Glossary {
 		items = append(items, item{"术语", g.Term, g.Definition, "/wiki/overview#glossary"})
 	}
+	items = append(items,
+		item{"工具", "命令清单", "全部 CLI 命令", "/wiki/commands"},
+		item{"工具", "HTTP 接口", "全部 /api 与 /wiki 路由", "/wiki/api"})
 	b, err := json.Marshal(items)
 	if err != nil {
 		return ""

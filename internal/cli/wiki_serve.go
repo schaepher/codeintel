@@ -81,6 +81,10 @@ func wikiServeHandler(repoAbs string, acts *action.Actions) http.Handler {
 			serveWikiHTML(w, ws.erPage(snap, r.URL.Query().Get("mod")))
 		case path == "tables":
 			serveWikiHTML(w, ws.tablesPage(snap))
+		case path == "commands":
+			serveWikiHTML(w, ws.pageHTML(snap, "/wiki/commands", renderCommandsHTML()))
+		case path == "api":
+			serveWikiHTML(w, ws.pageHTML(snap, "/wiki/api", renderAPIHTML(ws.repoAbs)))
 		default:
 			http.NotFound(w, r)
 		}

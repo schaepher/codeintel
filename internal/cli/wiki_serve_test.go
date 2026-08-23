@@ -122,6 +122,16 @@ func TestWikiServe(t *testing.T) {
 		t.Errorf("ER 过滤页应含模块相关表说明，body 前 300: %.300s", body)
 	}
 
+	// R1：命令页 / HTTP 接口页
+	resp, body = get("/wiki/commands")
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "codeintel init") {
+		t.Errorf("/wiki/commands status = %d（应含命令清单）", resp.StatusCode)
+	}
+	resp, body = get("/wiki/api")
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "HTTP 接口") {
+		t.Errorf("/wiki/api status = %d（应含接口页；内容依赖仓库源码——真实仓库冒烟验证）", resp.StatusCode)
+	}
+
 	// 未知路径 → 404
 	resp, _ = get("/wiki/unknown")
 	if resp.StatusCode != http.StatusNotFound {

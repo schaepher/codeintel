@@ -180,3 +180,40 @@ ORDER BY kind, name LIMIT 200`)
 	}
 	return roots, nil
 }
+
+// GetPackages 全部包节点（R1 自举分析：包职责地图——包注释即职责）。
+// 排除外部模块包（无 file_path/仓库外路径——与 GetRoots 同模式）。
+func (r *Repo) GetPackages() ([]*domain.CodeEntity, error) {
+	logger := zap.L()
+	logger.Debug("enter (Repo).GetPackages")
+	defer logger.Debug("exit (Repo).GetPackages")
+	rows, err := r.Query(`
+SELECT id, kind, name, file_path, line_start, line_end, properties FROM nodes
+WHERE kind = 'package'
+  AND file_path IS NOT NULL
+  AND file_path NOT LIKE '../%'
+  AND file_path NOT LIKE 'tmp/%'
+  AND file_path NOT LIKE 'integration/%'
+  AND file_path NOT LIKE 'examples/%'
+  AND file_path NOT LIKE 'e2e/%'
+  AND file_path NOT LIKE 'skills/%'
+ORDER BY name`)
+	if err != nil {
+		return nil, fmt.Errorf("get packages: %w", err)
+	}
+	pkgs, err := scanNodes(rows)
+	if err != nil {
+		return nil, err
+	}
+	// 去重（同包多文件？包节点每包一个）按 id
+	seen := map[domain.CanonicalID]bool{}
+	var out []*domain.CodeEntity
+	for _, p := range pkgs {
+		if seen[p.ID] {
+			continue
+		}
+		seen[p.ID] = true
+		out = append(out, p)
+	}
+	return out, nil
+}

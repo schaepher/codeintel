@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/schaepher/codeintel/internal/action"
@@ -19,9 +18,6 @@ import (
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
-
-
-
 
 // cmdWiki 实现 `codeintel wiki [--repo <path>] [--out <dir>] [--yaml <file>]`。
 func cmdWiki(args []string) int {
@@ -142,19 +138,26 @@ func cmdWiki(args []string) int {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
+	// R1：包职责地图（包节点 doc_comment）
+	pkgs, err := acts.Packages()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
 	// 新鲜度标注：基于索引 commit（wiki 产物是索引快照，注明版本）
 	freshNote := ""
 	if latest, err := acts.Latest(); err == nil && latest.CommitSHA != "" {
 		freshNote = "索引 commit: " + shortSHA(latest.CommitSHA)
 	}
+	rc := &wikiRenderCtx{data: data, cfg: cfg, cols: cols, rels: rels, pkgs: pkgs, freshNote: freshNote}
 	switch format {
 	case "html":
-		if err := renderWikiHTML(abs, outDir, data, cfg, cols, rels, freshNote); err != nil {
+		if err := renderWikiHTML(abs, outDir, rc); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
 		}
 	case "md", "":
-		if err := renderWiki(abs, outDir, data, cfg, cols, rels, freshNote); err != nil {
+		if err := renderWiki(abs, outDir, rc); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
 		}
@@ -170,100 +173,18 @@ func cmdWiki(args []string) int {
 	return 0
 }
 
-// renderWiki 生成 index.md + 模块页 + tables.md + er.md（全量覆盖）。
-// freshNote 是新鲜度标注（基于索引 commit，空则省略）。
-func renderWiki(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiConfig, cols []*domain.TableColumn, rels []*domain.TableRelation, freshNote string) error {
-	logger := zap.L()
-	logger.Debug("enter renderWiki", zap.Int("modules", len(data)))
-	defer logger.Debug("exit renderWiki")
-	// 全量覆盖语义：清空输出目录（防旧模块页残留）
-	if err := os.RemoveAll(outDir); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
-		return err
-	}
-	// yaml 索引：模块描述/顺序、表别名、隐藏符号（md/html 共用）
-	meta, tableAlias, hidden := wikiMetaIndex(cfg)
-	tableCfgs := tableCfgsFrom(cfg)
-	// #245 表噪音过滤：hidden 表从模块相关表与表清单移除
-	hideTable := map[string]bool{}
-	for _, t := range cfg.Tables {
-		if t.Hidden {
-			hideTable[t.Name] = true
-		}
-	}
-	if len(hideTable) > 0 {
-		for _, wm := range data {
-			var kept []string
-			for _, t := range wm.Tables {
-				if !hideTable[t] {
-					kept = append(kept, t)
-				}
-			}
-			wm.Tables = kept
-		}
-	}
-	// 模块页（按 order 排序）
-	ordered := append([]*domain.WikiModule(nil), data...)
-	sort.SliceStable(ordered, func(i, j int) bool {
-		oi, oj := meta[ordered[i].Name].order, meta[ordered[j].Name].order
-		if oi != oj {
-			return oi != 0 && (oj == 0 || oi < oj)
-		}
-		return ordered[i].Name < ordered[j].Name
-	})
-	var idx strings.Builder
-	idx.WriteString("# " + filepath.Base(repoAbs) + " 业务 wiki\n\n")
-	if cfg.Project.Description != "" {
-		idx.WriteString(cfg.Project.Description + "\n\n")
-	}
-	idx.WriteString("**快速开始**：① 看[架构图](#整体架构图)了解系统组成 → ② 按顺序读各模块（职责 → 入口 → 核心符号 → 相关表）→ ③ 查[表清单](tables.md)看字段与建表语句。\n\n")
-	if cfg.Architecture != "" {
-		idx.WriteString("## 整体架构图\n\n> 来源：wiki.yaml architecture\n\n```mermaid\n" + cfg.Architecture + "\n```\n\n")
-	}
-	idx.WriteString("由 `codeintel wiki` 生成（全量覆盖；业务描述/别名维护在 wiki.yaml）\n\n")
-	idx.WriteString("## 模块\n\n")
-	for _, wm := range ordered {
-		idx.WriteString(fmt.Sprintf("- [%s](%s.md)", wm.Name, wm.ShortName))
-		if d := meta[wm.Name].desc; d != "" {
-			idx.WriteString(" — " + d)
-		}
-		idx.WriteString("\n")
-	}
-	idx.WriteString("\n## 表\n\n")
-	idx.WriteString("- [ER 图（表间关系）](er.md)\n")
-	idx.WriteString("- [表清单](tables.md)\n")
-	if len(cfg.Glossary) > 0 {
-		idx.WriteString("\n## 术语表\n\n")
-		for _, g := range cfg.Glossary {
-			idx.WriteString(fmt.Sprintf("- **%s**：%s\n", g.Term, g.Definition))
-		}
-	}
-	for _, wm := range data {
-		page := renderModulePage(wm, meta[wm.Name].desc, tableAlias, hidden, cfg)
-		if err := os.WriteFile(filepath.Join(outDir, wm.ShortName+".md"), []byte(page), 0o644); err != nil {
-			return err
-		}
-	}
-	// 表附录
-	idx.WriteString("\n---\n\n由 codeintel wiki 生成 · 重新生成前请确认 wiki.yaml")
-	if freshNote != "" {
-		idx.WriteString("\n（" + freshNote + "）\n")
-	} else {
-		idx.WriteString("\n")
-	}
-	if err := os.WriteFile(filepath.Join(outDir, "index.md"), []byte(idx.String()), 0o644); err != nil {
-		return err
-	}
-	tables := renderTablesPage(data, tableAlias, tableCfgs, cols)
-	if err := os.WriteFile(filepath.Join(outDir, "tables.md"), []byte(tables), 0o644); err != nil {
-		return err
-	}
-	// ER 图页面（Q251）
-	er := renderERPage(rels, hideTable)
-	return os.WriteFile(filepath.Join(outDir, "er.md"), []byte(er), 0o644)
+// wikiRenderCtx 渲染上下文（R1 起统一：模块/配置/表列/关系/包地图/新鲜度）。
+type wikiRenderCtx struct {
+	data      []*domain.WikiModule
+	cfg       wikiConfig
+	cols      []*domain.TableColumn
+	rels      []*domain.TableRelation
+	pkgs      []*domain.CodeEntity // R1：包职责地图（GetPackages）
+	freshNote string
 }
+
+// renderWiki 生成 index.md + 模块页 + tables.md + er.md + commands.md +
+// api.md（全量覆盖）。
 
 // tableCfgsFrom 从 yaml 构建表配置索引（name → 配置）。
 func tableCfgsFrom(cfg wikiConfig) map[string]wikiTableConfig {
@@ -273,12 +194,3 @@ func tableCfgsFrom(cfg wikiConfig) map[string]wikiTableConfig {
 	}
 	return out
 }
-
-
-
-
-
-
-
-
-

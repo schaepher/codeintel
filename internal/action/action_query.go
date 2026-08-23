@@ -237,3 +237,11 @@ func (a *Actions) GetAllTableColumns() ([]*domain.TableColumn, error) {
 	defer logger.Info("exit (Actions).GetAllTableColumns")
 	return a.repo.GetAllTableColumns()
 }
+
+// Packages 全部包节点（R1 自举分析：包职责地图——包注释即职责）。
+func (a *Actions) Packages() ([]*domain.CodeEntity, error) {
+	logger := zap.L()
+	logger.Info("enter (Actions).Packages")
+	defer logger.Info("exit (Actions).Packages")
+	return a.repo.GetPackages()
+}
