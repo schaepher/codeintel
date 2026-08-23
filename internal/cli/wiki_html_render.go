@@ -101,6 +101,9 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	// R2：系统流程区块（进程视角）
 	main.WriteString(renderProcessesHTML(acts))
 	nav.WriteString(`<li><a href="#processes">系统流程</a></li>`)
+	// R5：枚举与工具函数区块（AI 权威值）
+	main.WriteString(renderEnumsHTML(repoAbs))
+	nav.WriteString(`<li><a href="#enums">枚举与工具函数</a></li>`)
 	if len(pkgs) > 0 {
 		main.WriteString(renderPackagesHTML(pkgs))
 		nav.WriteString(`<li><a href="#packages">包结构</a></li>`)

@@ -227,3 +227,39 @@ func TestMergeTableColumnsHidden(t *testing.T) {
 		t.Errorf("rows = %+v, want 仅 id", rows)
 	}
 }
+
+// TestExtractEnums：R5——枚举提取（类型化/字符串 const + 注释 +
+// 长文本过滤 + 测试文件排除）。
+func TestExtractEnums(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "internal", "demo", "kinds.go"), `package demo
+
+// EdgeKind 边类型。
+type EdgeKind string
+
+const (
+	EdgeCalls  EdgeKind = "calls"
+	EdgeAlias  EdgeKind = "alias" // 指针别名
+	LongText            = "这是一个非常长的文本常量，用来测试长文本过滤逻辑是否正确工作，应该被过滤掉不当作枚举展示出来"
+)
+`)
+	entries := extractEnums(dir)
+	found := map[string]bool{}
+	for _, e := range entries {
+		found[e.Name] = true
+		if e.Name == "EdgeCalls" {
+			if e.Type != "EdgeKind" || e.Value != "calls" || e.Pkg != "demo" {
+				t.Errorf("EdgeCalls 提取 = %+v", e)
+			}
+		}
+		if e.Name == "EdgeAlias" && e.Comment != "指针别名" {
+			t.Errorf("EdgeAlias 注释 = %q", e.Comment)
+		}
+	}
+	if !found["EdgeCalls"] || !found["EdgeAlias"] {
+		t.Errorf("应提取 EdgeCalls/EdgeAlias: %v", found)
+	}
+	if found["LongText"] {
+		t.Errorf("长文本常量不应提取: %v", found)
+	}
+}

@@ -114,6 +114,13 @@ func registerQueryTools(server *mcp.Server, env *mcpEnv, r *sqlite.Repo, repoAbs
 			}
 			return toolJSON(c), c, nil
 		})))
+	// R5：枚举权威清单（源码提取，不依赖索引——Agent 直接获取，
+	// 避免重复定义枚举值导致转换成本）
+	mcp.AddTool(server, &mcp.Tool{Name: "enums", Description: "枚举常量权威清单（源码提取：类型/名称/值/注释/位置）——写代码引用枚举时先查此工具"},
+		mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args updateParams) (*mcp.CallToolResult, []enumEntry, error) {
+			out := extractEnums(repoAbs)
+			return toolJSON(out), out, nil
+		}))
 }
 
 // registerTableTools 注册工具子集（Q252：registerMCPTools 按组拆分——行数治理 ≤300）。

@@ -125,5 +125,9 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 		return err
 	}
 	// R2：系统流程页（进程视角）
-	return os.WriteFile(filepath.Join(outDir, "processes.md"), []byte(renderProcessesMD(acts)), 0o644)
+	if err := os.WriteFile(filepath.Join(outDir, "processes.md"), []byte(renderProcessesMD(acts)), 0o644); err != nil {
+		return err
+	}
+	// R5：枚举与工具函数（源码事实——AI 权威值来源）
+	return os.WriteFile(filepath.Join(outDir, "enums.md"), []byte(renderEnumsMD(repoAbs)), 0o644)
 }

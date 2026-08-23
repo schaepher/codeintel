@@ -43,7 +43,7 @@ func cmdQuery(args []string) int {
 	f := parseQueryFlags(rest)
 	target := ""
 
-	if sub != "unused" && sub != "module-calls" && !(sub == "relations" && f.all) {
+	if sub != "unused" && sub != "module-calls" && sub != "enums" && !(sub == "relations" && f.all) {
 		if len(f.positional) < 1 {
 			fmt.Fprintf(os.Stderr, "error: 缺少符号参数\n")
 			return 2
@@ -73,6 +73,12 @@ func cmdQuery(args []string) int {
 
 	if tip := staleInfo(abs, sqlite.NewRepo(db)); tip != "" {
 		fmt.Fprintf(os.Stderr, "warning: %s\n", tip)
+	}
+
+	// R5：枚举权威清单（源码提取，不依赖索引——AI/Agent 获取避免
+	// 重复定义枚举值）
+	if sub == "enums" {
+		return cmdEnums(abs, f)
 	}
 
 	opts := outputOpts{json: f.json, compact: f.compact, repoPath: f.repoPath}
