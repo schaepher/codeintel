@@ -205,3 +205,25 @@ func TestArchMermaidFallback(t *testing.T) {
 		t.Errorf("空数据 fallback 应为空")
 	}
 }
+
+// TestMergeTableColumnsHidden：R3——yaml 列 hidden 同时过滤自动列
+// （解析噪音列：别名列错误归属产生的表.列虚拟节点）。
+func TestMergeTableColumnsHidden(t *testing.T) {
+	cols := []*domain.TableColumn{
+		{Name: "edges.name", ColType: "TEXT"},
+		{Name: "edges.id", ColType: "INTEGER"},
+	}
+	yamlCols := []wikiTableColumn{
+		{Name: "id", Comment: "自增主键"},
+		{Name: "name", Comment: "噪音", Hidden: true},
+	}
+	rows := mergeTableColumns("edges", cols, yamlCols)
+	for _, r := range rows {
+		if r.name == "name" {
+			t.Errorf("hidden 列 name 不应渲染: %+v", rows)
+		}
+	}
+	if len(rows) != 1 || rows[0].name != "id" {
+		t.Errorf("rows = %+v, want 仅 id", rows)
+	}
+}

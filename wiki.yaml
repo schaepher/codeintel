@@ -30,8 +30,6 @@ tables:
   - name: confidence
     type: REAL
     comment: 置信度（SCIP=1.0 / AST=0.8 / Git=1.0）
-  - name: file_path
-    comment: 边所在源文件（待确认：部分边无文件）
   - name: id
     type: INTEGER
     comment: 自增主键
@@ -41,8 +39,6 @@ tables:
   - name: metadata
     type: JSON
     comment: 扩展属性（调用点/条件等）
-  - name: name
-    comment: 边显示名（待确认）
   - name: source_id
     type: TEXT
     comment: 起点节点（外键 → nodes.id）
@@ -51,6 +47,12 @@ tables:
     comment: 终点节点（外键 → nodes.id）
   - name: tool_source
     comment: 产生边的分析工具（ssa/ast/scip/git）
+  - name: name
+    comment: （解析噪音——非真实列，别名列 n.name 错误归属；真实列见 schema）
+    hidden: true
+  - name: file_path
+    comment: （解析噪音——非真实列，别名列 caller_n.file_path 错误归属）
+    hidden: true
   indexes:
   - idx_edges_source_kind(source_id, kind)
   - idx_edges_target_kind(target_id, kind)

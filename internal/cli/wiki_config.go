@@ -28,18 +28,23 @@ type wikiConfig struct {
 
 // wikiTableConfig 表结构契约（#243 表详情：字段定义/索引/建表语句——
 // 业务表 schema 在外部库，代码分析不出，AI 调研产出 + 人工确认）。
-type wikiTableConfig struct {
+// wikiTableColumn 表列配置（yaml tables.columns；Hidden 为 R3 列级
+// 噪音隐藏——解析噪音列等不渲染）。
+type wikiTableColumn struct {
 	Name    string `yaml:"name"`
-	Alias   string `yaml:"alias"`
-	Hidden  bool   `yaml:"hidden"` // #245 噪音表隐藏（fixture 等）
-	Columns []struct {
-		Name    string `yaml:"name"`
-		Type    string `yaml:"type"`
-		Default string `yaml:"default"`
-		Comment string `yaml:"comment"`
-	} `yaml:"columns"`
-	Indexes []string `yaml:"indexes"`
-	DDL     string   `yaml:"ddl"`
+	Type    string `yaml:"type"`
+	Default string `yaml:"default"`
+	Comment string `yaml:"comment"`
+	Hidden  bool   `yaml:"hidden"`
+}
+
+type wikiTableConfig struct {
+	Name    string            `yaml:"name"`
+	Alias   string            `yaml:"alias"`
+	Hidden  bool              `yaml:"hidden"` // #245 噪音表隐藏（fixture 等）
+	Columns []wikiTableColumn `yaml:"columns"`
+	Indexes []string          `yaml:"indexes"`
+	DDL     string            `yaml:"ddl"`
 }
 
 // wikiMeta 渲染用的模块增强信息（yaml 合并结果）。

@@ -140,6 +140,23 @@ fallback）；实测 init 流程 18 参与者完整链路；无配置场景自�
 - 结论：语义层是「AI 少帮助高效果」的主战场——前提是工具先
   给出结构化上下文（列名/读写函数），AI 只做推断不查代码
 
+### R3 补（2026-08-24）——edges「待确认」字段溯源 + 列级噪音隐藏
+
+用户指出 edges 表两个「待确认」字段（name/file_path）应查设计。
+**答案**：设计文档 + schema（db.go:47）定义 edges 仅 7 列
+（id/source_id/target_id/kind/tool_source/confidence/metadata）
+——name/file_path **不存在**，是 SQL 摘要的**别名列归属 bug**
+产物：GetGrpcCalls 的 `n.name`、GetFrameworkStructs 的
+`caller_n.file_path`（nodes 别名列）在列提取时去限定符后全部
+归到 FROM 第一表 edges。
+
+处理：
+- wiki.yaml：两列标「解析噪音」+ hidden（新增 yaml columns
+  列级 hidden 支持——mergeTableColumns hidden 集同时过滤自动列）
+- 验证：edges 表清单恢复 7 真实列；TestMergeTableColumnsHidden
+- **遗留**：解析器别名列归属 bug 本身未修（R4 候选——astSelect
+  列提取需保留限定符映射回真实表）
+
 ## 候选方向（未定优先级）
 
 - yaml 语义层：术语表（glossary）、表列说明（50 列无 comment）、

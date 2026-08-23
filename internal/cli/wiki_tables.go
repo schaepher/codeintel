@@ -132,16 +132,16 @@ type tableColRow struct {
 // mergeTableColumns 表字段合并（#243 自动初稿 + yaml 覆盖）：
 // 自动列（ER 表列虚拟节点：列名 + gorm tag 类型）为底，yaml columns
 // 覆盖同名（type/default/comment 各自覆盖），自动列未列出的补全。
-func mergeTableColumns(table string, cols []*domain.TableColumn, yamlCols []struct {
-	Name    string `yaml:"name"`
-	Type    string `yaml:"type"`
-	Default string `yaml:"default"`
-	Comment string `yaml:"comment"`
-}) []tableColRow {
+func mergeTableColumns(table string, cols []*domain.TableColumn, yamlCols []wikiTableColumn) []tableColRow {
 
 	byName := map[string]tableColRow{}
 	var order []string
+	hidden := map[string]bool{}
 	for _, c := range yamlCols {
+		if c.Hidden {
+			hidden[c.Name] = true // R3：yaml 显式隐藏的列（解析噪音等）自动列也过滤
+			continue
+		}
 		byName[c.Name] = tableColRow{name: c.Name, typ: c.Type, def: c.Default, comment: c.Comment}
 		order = append(order, c.Name)
 	}
@@ -152,6 +152,9 @@ func mergeTableColumns(table string, cols []*domain.TableColumn, yamlCols []stru
 			continue
 		}
 		col := strings.TrimPrefix(c.Name, prefix)
+		if hidden[col] {
+			continue
+		}
 		if r, ok := byName[col]; ok {
 			if r.typ == "" {
 				r.typ = c.ColType
