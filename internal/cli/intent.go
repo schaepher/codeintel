@@ -203,3 +203,52 @@ func cmdTrace(args []string) int {
 	}
 	return 0
 }
+
+// cmdBatch 实现 `codeintel batch <符号1> <符号2> ...`（Q244：批量符号
+// 概览——多输入一次返回，Agent 减少往返）。
+func cmdBatch(args []string) int {
+	logger := zap.L()
+	logger.Debug("enter cmdBatch")
+	defer logger.Debug("exit cmdBatch")
+	targets := []string{}
+	f := intentFlags{repoPath: ".", json: false}
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--repo" && i+1 < len(args):
+			f.repoPath = ResolveRepoRef(args[i+1])
+			i++
+		case strings.HasPrefix(a, "--repo="):
+			f.repoPath = ResolveRepoRef(strings.TrimPrefix(a, "--repo="))
+		case a == "--json":
+			f.json = true
+		case strings.HasPrefix(a, "-"):
+			fmt.Fprintf(os.Stderr, "error: 未知参数 %q\n", a)
+			return 2
+		default:
+			targets = append(targets, a)
+		}
+	}
+	if len(targets) == 0 {
+		fmt.Fprintln(os.Stderr, "用法: codeintel batch <符号1> <符号2> ... [--json] [--repo <path>]")
+		return 2
+	}
+	acts, _, code := intentActs(f.repoPath)
+	if acts == nil {
+		return code
+	}
+	res, err := acts.BatchSymbols(targets)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	if f.json {
+		encodeJSON(map[string]any{"results": res})
+		return 0
+	}
+	fmt.Printf("批量符号（%d/%d 命中）:\n", len(res), len(targets))
+	for _, r := range res {
+		fmt.Printf("  %s %s  调用者 %d / 被调用 %d\n", r.Kind, r.Name, r.Callers, r.Callees)
+	}
+	return 0
+}

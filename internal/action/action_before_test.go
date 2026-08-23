@@ -118,3 +118,21 @@ func TestTraceFlow(t *testing.T) {
 		t.Errorf("trace 应含值流链: %+v", flow)
 	}
 }
+
+// TestBatchSymbols：批量符号详情（Q244）——多输入一次返回。
+func TestBatchSymbols(t *testing.T) {
+	a, _ := beforeActs(t)
+	res, err := a.BatchSymbols([]string{"main", "start"})
+	if err != nil {
+		t.Fatalf("BatchSymbols: %v", err)
+	}
+	if len(res) != 2 {
+		t.Fatalf("results = %d, want 2", len(res))
+	}
+	if res[0].Name != "main" || res[1].Name != "start" {
+		t.Errorf("顺序应保持输入: %+v", res)
+	}
+	if res[0].Callers == 0 {
+		t.Errorf("main 应有调用者（start → main）: %+v", res[0])
+	}
+}

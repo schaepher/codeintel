@@ -155,3 +155,38 @@ func relSteps(rels []*domain.TableRelation) []SummaryStep {
 	}
 	return steps
 }
+
+// BatchResult 批量符号详情（Q244）：单符号概览（名称/类型/调用者数）。
+type BatchResult struct {
+	Name    string `json:"name"`
+	Kind    string `json:"kind"`
+	ID      string `json:"id"`
+	Callers int    `json:"callers"`
+	Callees int    `json:"callees"`
+}
+
+// BatchSymbols 批量符号详情（Q244）：多输入一次返回（Agent 减少往返）。
+// 解析失败的单输入跳过（部分成功）；顺序保持输入顺序。
+func (a *Actions) BatchSymbols(inputs []string) ([]*BatchResult, error) {
+	logger := zap.L()
+	logger.Info("enter (Actions).BatchSymbols", zap.Int("inputs", len(inputs)))
+	defer logger.Info("exit (Actions).BatchSymbols")
+	out := make([]*BatchResult, 0, len(inputs))
+	for _, in := range inputs {
+		n, err := a.ResolveSymbol(in)
+		if err != nil {
+			continue // 单输入失败跳过（部分成功）
+		}
+		callers, err1 := a.Callers(n.ID, 1)
+		callees, err2 := a.Callees(n.ID, 1)
+		r := &BatchResult{Name: n.Name, Kind: string(n.Kind), ID: string(n.ID)}
+		if err1 == nil {
+			r.Callers = len(callers)
+		}
+		if err2 == nil {
+			r.Callees = len(callees)
+		}
+		out = append(out, r)
+	}
+	return out, nil
+}

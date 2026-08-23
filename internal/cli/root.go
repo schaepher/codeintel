@@ -46,6 +46,8 @@ func Main(ctx context.Context, args []string) int {
 		return cmdBefore(args[1:])
 	case "trace":
 		return cmdTrace(args[1:])
+	case "batch":
+		return cmdBatch(args[1:])
 	case "version", "--version", "-v":
 		return cmdVersion(args[1:])
 	case "help", "-h", "--help":
@@ -82,6 +84,7 @@ func usage() {
                                   字段读写方或表关联，一次聚合）
   codeintel trace <字段|符号|表>    数据来龙去脉（Q244：值流全链 + 生命周期
                                   主链）
+  codeintel batch <符号1> <符号2>… 批量符号概览（Q244：多输入一次返回）
   codeintel query <symbol|name>    查询符号详情（含调用者/被调用者）
   codeintel query callers <sym>    查询调用者（--depth N，默认 1，置信度阈值 0.8）
   codeintel query callees <sym>    查询被调用者（--depth N，默认 1）
