@@ -3,7 +3,6 @@ package action
 // #238 wiki 数据聚合：六区块（职责/入口/核心符号/模块间调用/相关表）。
 
 import (
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -145,30 +144,6 @@ func modDir(mod string) string {
 }
 
 // readPackageDoc 读目录下 doc.go（若有）或首个 .go 的 package 注释。
-func readPackageDoc(dir string) string {
-	for _, name := range []string{"doc.go"} {
-		if b, err := os.ReadFile(filepath.Join(dir, name)); err == nil {
-			if d := extractPackageDoc(string(b)); d != "" {
-				return d
-			}
-		}
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return ""
-	}
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
-			continue
-		}
-		if b, err := os.ReadFile(filepath.Join(dir, e.Name())); err == nil {
-			if d := extractPackageDoc(string(b)); d != "" {
-				return d
-			}
-		}
-	}
-	return ""
-}
 
 // extractPackageDoc 提取 "package X" 前的注释块（Go 惯例）。
 func extractPackageDoc(src string) string {
@@ -186,40 +161,8 @@ func extractPackageDoc(src string) string {
 // moduleEntries 模块内入口（roots 节点 ID 前缀匹配）。
 // moduleEntries 模块入口：只取 main（去重）——启动入口语义清晰；
 // serves_http/grpc 标记过宽（辅助函数也被标），不适合 wiki 入口展示。
-func moduleEntries(roots []*domain.CodeEntity, mod string) []string {
-	p1 := "symbol:go:" + mod + ":"
-	p2 := "symbol:go:" + mod + "/"
-	seen := map[string]bool{}
-	var out []string
-	for _, r := range roots {
-		if r.Name != "main" || seen[r.Name] {
-			continue
-		}
-		if strings.HasPrefix(string(r.ID), p1) || strings.HasPrefix(string(r.ID), p2) {
-			seen[r.Name] = true
-			out = append(out, r.Name)
-		}
-	}
-	return out
-}
 
 // tableNames 列名（表.列）→ 表名去重排序。
-func tableNames(cols []string) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, c := range cols {
-		table := c
-		if i := strings.Index(table, "."); i >= 0 {
-			table = table[:i]
-		}
-		if !seen[table] {
-			seen[table] = true
-			out = append(out, table)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
 
 func containsStr(xs []string, s string) bool {
 	for _, x := range xs {
@@ -231,19 +174,6 @@ func containsStr(xs []string, s string) bool {
 }
 
 // moduleEntryID 模块入口（main）的 canonical ID（roots 中第一个 main）。
-func moduleEntryID(roots []*domain.CodeEntity, mod string) domain.CanonicalID {
-	p1 := "symbol:go:" + mod + ":"
-	p2 := "symbol:go:" + mod + "/"
-	for _, r := range roots {
-		if r.Name != "main" {
-			continue
-		}
-		if strings.HasPrefix(string(r.ID), p1) || strings.HasPrefix(string(r.ID), p2) {
-			return r.ID
-		}
-	}
-	return ""
-}
 
 // wikiSequenceByID 锚点调用链分组（#242 每个流程单独画）：入口的每条
 // 一级调用 = 一条流程（一个命令/服务），各自一张图；组内 = 锚点 →
@@ -264,20 +194,31 @@ func (a *Actions) wikiSequenceByID(id domain.CanonicalID) ([]domain.WikiFlow, er
 			return nil, err
 		}
 		seen := map[[2]string]bool{{seqShort(string(id)), title}: true}
+		var subSteps []domain.WikiSeqStep
 		for _, sf := range sub {
 			pair := [2]string{seqShort(string(sf.SourceID)), seqShort(string(sf.TargetID))}
 			if seen[pair] {
 				continue
 			}
 			seen[pair] = true
-			steps = append(steps, domain.WikiSeqStep{Caller: pair[0], Callee: pair[1]})
+			subSteps = append(subSteps, domain.WikiSeqStep{Caller: pair[0], Callee: pair[1]})
 		}
-		sort.Slice(steps, func(i, j int) bool {
-			if steps[i].Caller != steps[j].Caller {
-				return steps[i].Caller < steps[j].Caller
+		// R4：入口边保持最前（调用链从上到下读），后续链按
+		// 源深度优先（一级被调者的边在前，链连续）+ (Caller,
+		// Callee) 确定性排序——此前整体字典序把链尾
+		// （ResolveRepoRefQuiet…）排到入口（main）前，sequence
+		// 图从上到下是反向链
+		sort.Slice(subSteps, func(i, j int) bool {
+			li, lj := subSteps[i].Caller == title, subSteps[j].Caller == title
+			if li != lj {
+				return li
 			}
-			return steps[i].Callee < steps[j].Callee
+			if subSteps[i].Caller != subSteps[j].Caller {
+				return subSteps[i].Caller < subSteps[j].Caller
+			}
+			return subSteps[i].Callee < subSteps[j].Callee
 		})
+		steps = append(steps, subSteps...)
 		out = append(out, domain.WikiFlow{Title: title, Steps: steps})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Title < out[j].Title })
@@ -285,9 +226,3 @@ func (a *Actions) wikiSequenceByID(id domain.CanonicalID) ([]domain.WikiFlow, er
 }
 
 // seqShort canonical ID → 短名（保留方法形态 (T).m）。
-func seqShort(id string) string {
-	if i := strings.LastIndex(id, ":"); i >= 0 {
-		return id[i+1:]
-	}
-	return id
-}
