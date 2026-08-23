@@ -44,6 +44,8 @@ type procChain struct {
 }
 
 // queryChain 查询入口符号的深度 2 调用链 + 涉及包（短名展示）。
+// R13：steps 按源码调用行号排序（sortChainByCallLine）——顺序与
+// 实际代码一一对应（此前 SQL 遍历序与源码序不一致）。
 func queryChain(acts *action.Actions, entryName string) *procChain {
 	// action 层：ResolveSymbol 名称解析 + Callees 调用链
 	entry, err := acts.ResolveSymbol(entryName)
@@ -55,15 +57,10 @@ func queryChain(acts *action.Actions, entryName string) *procChain {
 		return nil
 	}
 	chain := &procChain{Entry: shortSymbolName(entry)}
+	chain.Steps = sortChainByCallLine(string(entry.ID), facts)
 	pkgs := map[string]bool{}
 	pkgs[symbolPkg(string(entry.ID))] = true
-	seen := map[string]bool{}
 	for _, f := range facts {
-		caller, callee := shortSymbolNameID(string(f.SourceID)), shortSymbolNameID(string(f.TargetID))
-		if !seen[caller+"->"+callee] {
-			seen[caller+"->"+callee] = true
-			chain.Steps = append(chain.Steps, domain.WikiSeqStep{Caller: caller, Callee: callee})
-		}
 		pkgs[symbolPkg(string(f.SourceID))] = true
 		pkgs[symbolPkg(string(f.TargetID))] = true
 	}

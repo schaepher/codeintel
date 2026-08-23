@@ -33,94 +33,17 @@ var entityDiagExplain = map[string][2]string{
 	},
 }
 
+// chainLineNum 调用边行号（metadata.line_num——AST 发射时记录调用
+// 位置；缺失返回 -1）。
+
+// sortChainByCallLine 调用链按源码调用行号排序（R13）：深度 1（入口
+// 直接调用）按入口内行号；深度 2（被调者内部）按被调者在入口中的
+// 调用位置 + 内部行号——还原源码书写顺序（"顺序与代码一一对应"）。
+// 无行号边 fallback 排最后。
+
 // entitySequenceMermaid 实体级时序图（R12）：函数级调用链（有序）
 // 投影到实体——保留调用顺序、连续相同实体对合并计数（×N）、实体
 // 内调用折叠（内互调已在节点标注）。参与者带包前缀消歧。
-func entitySequenceMermaid(g *domain.EntityGraph, steps []domain.WikiSeqStep) string {
-	if g == nil || len(g.ByName) == 0 {
-		return ""
-	}
-	// 1. steps → 实体对序列（保留顺序；无映射/实体内调用跳过）
-	type pair struct{ from, to string }
-	var seq []pair
-	firstEntity := func(sym string) string {
-		for _, eid := range g.ByName[sym] {
-			return eid
-		}
-		return ""
-	}
-	for _, st := range steps {
-		from, to := firstEntity(st.Caller), firstEntity(st.Callee)
-		if from == "" || to == "" || from == to {
-			continue
-		}
-		seq = append(seq, pair{from, to})
-	}
-	if len(seq) == 0 {
-		return ""
-	}
-	// 2. 合并连续重复（保留顺序）
-	var merged []struct {
-		pair
-		count int
-	}
-	for _, p := range seq {
-		if n := len(merged); n > 0 && merged[n-1].pair == p {
-			merged[n-1].count++
-		} else {
-			merged = append(merged, struct {
-				pair
-				count int
-			}{p, 1})
-		}
-	}
-	// 3. sequenceDiagram 渲染（参与者按出现顺序别名化）
-	entityShort := func(id string) string {
-		for _, n := range g.Nodes {
-			if n.ID == id {
-				if n.Kind == domain.EntityKindPkgFace {
-					return shortMod(n.Pkg) + "（门面" + fmt.Sprint(n.FreeFuncs) + "）"
-				}
-				return shortMod(n.Pkg) + ":" + n.Name
-			}
-		}
-		return id
-	}
-	alias := map[string]string{}
-	var order []string
-	aliasOf := func(id string) string {
-		if a, ok := alias[id]; ok {
-			return a
-		}
-		a := fmt.Sprintf("P%d", len(order))
-		alias[id] = a
-		order = append(order, id)
-		return a
-	}
-	var b strings.Builder
-	b.WriteString("sequenceDiagram\n")
-	// 收集参与者（声明必须在消息行前）
-	seen := map[string]bool{}
-	for _, m := range merged {
-		for _, id := range []string{m.from, m.to} {
-			if !seen[id] {
-				seen[id] = true
-				aliasOf(id)
-			}
-		}
-	}
-	for _, id := range order {
-		b.WriteString(fmt.Sprintf("  participant %s as \"%s\"\n", alias[id], entityShort(id)))
-	}
-	for _, m := range merged {
-		label := "call"
-		if m.count > 1 {
-			label = fmt.Sprintf("call ×%d", m.count)
-		}
-		b.WriteString(fmt.Sprintf("  %s->>%s: %s\n", alias[m.from], alias[m.to], label))
-	}
-	return b.String()
-}
 
 // entityLegend 图例（图怎么读）。
 const entityLegend = "图例：节点 = 实体（`类型名`；`门面 N` = 包内 N 个游离函数聚合，`内 N` = 实体内方法互调）；" +
@@ -140,10 +63,10 @@ func renderEntitiesSectionMD(g *domain.EntityGraph) string {
 	if len(g.Diags) > 0 {
 		b.WriteString("**设计诊断**（信号 → 行动；阈值见 `codeintel query entities`）：\n\n")
 		labels := map[string]string{
-			domain.DiagCoupled:   "高耦合对",
-			domain.DiagCycle:     "循环依赖",
-			domain.DiagGodObject: "上帝对象",
-			domain.DiagFaceHeavy: "游离函数占比",
+			domain.DiagCoupled:	"高耦合对",
+			domain.DiagCycle:	"循环依赖",
+			domain.DiagGodObject:	"上帝对象",
+			domain.DiagFaceHeavy:	"游离函数占比",
 		}
 		for _, d := range g.Diags {
 			exp := entityDiagExplain[d.Kind]
@@ -168,10 +91,10 @@ func renderEntitiesSectionHTML(g *domain.EntityGraph) string {
 	b.WriteString("<pre class=\"mermaid\">" + htmlEsc(entityMermaid(g)) + "</pre>")
 	if len(g.Diags) > 0 {
 		labels := map[string]string{
-			domain.DiagCoupled:   "高耦合对",
-			domain.DiagCycle:     "循环依赖",
-			domain.DiagGodObject: "上帝对象",
-			domain.DiagFaceHeavy: "游离函数占比",
+			domain.DiagCoupled:	"高耦合对",
+			domain.DiagCycle:	"循环依赖",
+			domain.DiagGodObject:	"上帝对象",
+			domain.DiagFaceHeavy:	"游离函数占比",
 		}
 		b.WriteString("<h3>设计诊断（信号 → 行动）</h3><ul>")
 		for _, d := range g.Diags {

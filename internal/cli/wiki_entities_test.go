@@ -58,12 +58,12 @@ func TestEntitySequenceMermaid(t *testing.T) {
 	if !strings.Contains(out, `participant P2 as "sqlite:Repo"`) {
 		t.Errorf("缺 Repo 参与者:\n%s", out)
 	}
-	// 顺序保留 + 连续重复合并：cli→Actions ×2 → Actions→Repo ×2
-	if !strings.Contains(out, "P0->>P1: call ×2") {
-		t.Errorf("连续 cli→Actions 应合并为 call ×2:\n%s", out)
+	// 顺序保留 + 连续重复合并：消息行展示被调函数名
+	if !strings.Contains(out, "P0->>P1: (Actions).WikiData, (Actions).Packages ×2") {
+		t.Errorf("连续 cli→Actions 应合并并展示函数名:\n%s", out)
 	}
-	if !strings.Contains(out, "P1->>P2: call ×2") {
-		t.Errorf("连续 Actions→Repo 应合并为 call ×2:\n%s", out)
+	if !strings.Contains(out, "P1->>P2: (Repo).GetAllCalls, (Repo).GetTables ×2") {
+		t.Errorf("连续 Actions→Repo 应合并并展示函数名:\n%s", out)
 	}
 	// 实体内调用（Actions→Actions）不出现
 	if strings.Contains(out, "P1->>P1") {

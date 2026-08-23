@@ -193,36 +193,82 @@ func (a *Actions) wikiSequenceByID(id domain.CanonicalID) ([]domain.WikiFlow, er
 		if err != nil {
 			return nil, err
 		}
-		seen := map[[2]string]bool{{seqShort(string(id)), title}: true}
-		var subSteps []domain.WikiSeqStep
-		for _, sf := range sub {
-			pair := [2]string{seqShort(string(sf.SourceID)), seqShort(string(sf.TargetID))}
-			if seen[pair] {
-				continue
-			}
-			seen[pair] = true
-			subSteps = append(subSteps, domain.WikiSeqStep{Caller: pair[0], Callee: pair[1]})
-		}
-		// R4：入口边保持最前（调用链从上到下读），后续链按
-		// 源深度优先（一级被调者的边在前，链连续）+ (Caller,
-		// Callee) 确定性排序——此前整体字典序把链尾
-		// （ResolveRepoRefQuiet…）排到入口（main）前，sequence
-		// 图从上到下是反向链
-		sort.Slice(subSteps, func(i, j int) bool {
-			li, lj := subSteps[i].Caller == title, subSteps[j].Caller == title
-			if li != lj {
-				return li
-			}
-			if subSteps[i].Caller != subSteps[j].Caller {
-				return subSteps[i].Caller < subSteps[j].Caller
-			}
-			return subSteps[i].Callee < subSteps[j].Callee
-		})
+		// R13：按源码调用行号排序（入口边 = 自身行号；子链 = 入口
+		// 调用行号 + 内部行号）——替换 R4 的字典序近似（行号更精确，
+		// 顺序与实际代码一一对应）
+		subSteps := sortWikiSubByCallLine(string(id), title, sub)
 		steps = append(steps, subSteps...)
 		out = append(out, domain.WikiFlow{Title: title, Steps: steps})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Title < out[j].Title })
 	return out, nil
+}
+
+// sortWikiSubByCallLine 子链按源码调用行号排序（R13，与 cli 包
+// sortChainByCallLine 同逻辑）：入口边（source=入口）按入口内行号；
+// 子链边按 source 在入口中的调用行号 + 内部行号——链连续、顺序与
+// 代码一一对应。
+func sortWikiSubByCallLine(entryID, title string, facts []*domain.Fact) []domain.WikiSeqStep {
+	pos := map[string]int{} // 被调者 → 入口内调用行号
+	for _, f := range facts {
+		if string(f.SourceID) == entryID {
+			if ln := factLineNum(f); ln > 0 {
+				pos[string(f.TargetID)] = ln
+			}
+		}
+	}
+	const noLine = 1 << 30
+	key := func(f *domain.Fact) (int, int) {
+		if string(f.SourceID) == entryID {
+			if ln := factLineNum(f); ln > 0 {
+				return ln, 0
+			}
+			return noLine, 0
+		}
+		p, ok := pos[string(f.SourceID)]
+		if !ok {
+			return noLine, noLine
+		}
+		if ln := factLineNum(f); ln > 0 {
+			return p, ln
+		}
+		return p, noLine
+	}
+	sorted := append([]*domain.Fact(nil), facts...)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		ki1, ki2 := key(sorted[i])
+		kj1, kj2 := key(sorted[j])
+		if ki1 != kj1 {
+			return ki1 < kj1
+		}
+		return ki2 < kj2
+	})
+	var out []domain.WikiSeqStep
+	seen := map[[2]string]bool{{seqShort(entryID), title}: true}
+	for _, f := range sorted {
+		pair := [2]string{seqShort(string(f.SourceID)), seqShort(string(f.TargetID))}
+		if seen[pair] {
+			continue
+		}
+		seen[pair] = true
+		out = append(out, domain.WikiSeqStep{Caller: pair[0], Callee: pair[1]})
+	}
+	return out
+}
+
+// factLineNum 调用边行号（metadata.line_num）。
+func factLineNum(f *domain.Fact) int {
+	if v, ok := f.Metadata["line_num"]; ok {
+		switch n := v.(type) {
+		case float64:
+			return int(n)
+		case int:
+			return n
+		case int64:
+			return int(n)
+		}
+	}
+	return -1
 }
 
 // seqShort canonical ID → 短名（保留方法形态 (T).m）。
