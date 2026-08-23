@@ -3458,3 +3458,36 @@ warning）。md/html 同目录互覆盖问题：html 生成清目录会删 md—
 13 包 -race 全绿。测试新增 TestWikiSeqMermaidAlias + archNode 断言
 更新。教训：**图类生成物交付前必须过真实渲染器语法检查**（结构
 断言 ≠ 渲染正确）。
+
+## §84 SQL 解析换专业库（Q252，2026-08-23）——混合方案根治形态 bug
+
+用户提出：SQL 解析犯了多次错误（Q220a/Q247/Q249/Q250/Q251），换
+专业解析库能否更好解决。分析结论：8 类错误中 7 类是「解析器本该做
+的事」（词边界/列段拆分/CTE 作用域/语句类型判定）——启发式在重新
+发明解析器。但两个约束专业库也解决不了：Go 动态 SQL 残留 %s（非
+合法 SQL，解析器全有全无）、SQLite 特有语法（INSERT OR REPLACE/
+GLOB，vitess 是 MySQL 方言）。实施**混合方案**：
+
+- **主路径**：vitess.io/vitess v0.24.0 sqlparser——完整 SQL 解析为
+  AST 精确提取（表/别名/SELECT·INSERT·UPDATE·DELETE 列/WHERE 过滤
+  列（比较运算符 + 右操作数占位符 Argument）/JOIN ON 等值键对/CTE
+  定义名天然作用域）。新增 summary_sqlparse_ast.go。
+- **降级路径**：parse error → 现有启发式 parseSQLStmtHeuristic
+  （动态 SQL %s 残留、INSERT OR REPLACE、GLOB 场景）。
+- **接口不变**：parseSQLStmt 输出契约（table/alias/cols/whereCols/
+  joinPairs）原样——emit 层零改动，全部现有测试断言一次通过
+  （AST 主路径与启发式输出等价）。
+
+**版本坑**（runbook 新增）：vitess v0.24.2 要求 go >= 1.26.4（本机
+/usr/local/go 是 1.26.3；GOTOOLCHAIN=auto 只对当前进程生效，
+codeintel 运行时 go/packages 子进程用 PATH 的 go 报错）；v0.22/v0.23
+有 go/hack/ensure_swiss_map.go 与 go 1.26 不兼容的编译错误。选定
+**v0.24.0**（要求 go 1.26.2，系统 1.26.3 直接可用）。go get 会把
+go.mod 的 go 版本自动提升（1.26 → 1.26.2）——预期内，examples
+子模块需同步 go mod tidy。
+
+**验证证据**：13 包 -race 全绿 + verify.sh OK；全部 SQL 形态测试
+（15 基础 + CTE/别名/子查询/JOIN/%s 降级/Prepare）一次通过；重建
+索引后 9 张真实表全识别、噪音（DISTINCT/引号/括号/d_at/CTE 名）
+归零，与启发式结果一致。探测：vitess 对项目 18 种 SQL 形态覆盖
+15（83%），失败 3 种正是降级场景。

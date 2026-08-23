@@ -319,7 +319,20 @@ func sqlStmtIsWrite(sql string) bool {
 	return reWriteStmt.MatchString(sql)
 }
 
+// parseSQLStmt 混合解析（Q252）：vitess 专业解析器 AST 主路径——
+// 完整 SQL 精确提取（词边界/列段/CTE 作用域/语句类型是解析器本职）；
+// parse error（动态 SQL %s 残留、SQLite 特有语法 INSERT OR REPLACE/
+// GLOB）降级启发式（残缺 SQL 尽量提取，保守不误报）。
 func parseSQLStmt(sql string) (table, alias string, cols []string, whereCols []string, joinPairs []sqlJoinPair) {
+	if t, a, c, wc, jp, ok := parseSQLStmtAST(sql); ok {
+		return t, a, c, wc, jp
+	}
+	return parseSQLStmtHeuristic(sql)
+}
+
+// parseSQLStmtHeuristic 启发式降级路径（Q97 起逐例修补的形态解析；
+// Q252 后只服务 AST 覆盖不了的 SQL——动态拼接残留/SQLite 方言）。
+func parseSQLStmtHeuristic(sql string) (table, alias string, cols []string, whereCols []string, joinPairs []sqlJoinPair) {
 	upper := strings.ToUpper(sql)
 	// Q251：CTE 定义名（递归引用不得当表）
 	cte := extractCTENames(sql)
