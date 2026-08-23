@@ -51,6 +51,7 @@ func cmdWiki(args []string) int {
 	repoPath := "."
 	outDir := "docs/wiki"
 	yamlPath := ""
+	format := "md"
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
@@ -69,8 +70,13 @@ func cmdWiki(args []string) int {
 			i++
 		case strings.HasPrefix(a, "--yaml="):
 			yamlPath = strings.TrimPrefix(a, "--yaml=")
+		case a == "--format" && i+1 < len(args):
+			format = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--format="):
+			format = strings.TrimPrefix(a, "--format=")
 		case a == "--help" || a == "-h":
-			fmt.Println("用法: codeintel wiki [--repo <path>] [--out <dir=docs/wiki>] [--yaml <file>]\n  从代码生成业务 wiki（Markdown）——wiki.yaml 可补充业务描述/别名/隐藏符号")
+			fmt.Println("用法: codeintel wiki [--repo <path>] [--out <dir=docs/wiki>] [--yaml <file>] [--format md|html]\n  从代码生成业务 wiki（Markdown 或单文件 HTML）——wiki.yaml 可补充业务描述/别名/隐藏符号")
 			return 0
 		default:
 			fmt.Fprintf(os.Stderr, "error: 未知参数 %q\n", a)
@@ -132,9 +138,20 @@ func cmdWiki(args []string) int {
 		}
 		data = filtered
 	}
-	if err := renderWiki(abs, outDir, data, cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
+	switch format {
+	case "html":
+		if err := renderWikiHTML(abs, outDir, data, cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+	case "md", "":
+		if err := renderWiki(abs, outDir, data, cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+	default:
+		fmt.Fprintf(os.Stderr, "error: 未知 format %q（支持 md|html）\n", format)
+		return 2
 	}
 	fmt.Printf("wiki 已生成: %s（%d 个模块）\n", outDir, len(data))
 	return 0
@@ -152,19 +169,8 @@ func renderWiki(repoAbs, outDir string, data []*domain.WikiModule, cfg wikiConfi
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return err
 	}
-	// yaml 索引：模块描述/顺序、表别名、隐藏符号
-	meta := map[string]wikiMeta{}
-	tableAlias := map[string]string{}
-	hidden := map[string]bool{}
-	for _, m := range cfg.Modules {
-		meta[m.Name] = wikiMeta{desc: m.Description, order: m.Order}
-	}
-	for _, t := range cfg.Tables {
-		tableAlias[t.Name] = t.Alias
-	}
-	for _, s := range cfg.HiddenSymbols {
-		hidden[s] = true
-	}
+	// yaml 索引：模块描述/顺序、表别名、隐藏符号（md/html 共用）
+	meta, tableAlias, hidden := wikiMetaIndex(cfg)
 	// 模块页（按 order 排序）
 	ordered := append([]*domain.WikiModule(nil), data...)
 	sort.SliceStable(ordered, func(i, j int) bool {
@@ -304,4 +310,21 @@ func renderTablesPage(data []*domain.WikiModule, tableAlias map[string]string) s
 		b.WriteString(fmt.Sprintf("| %s | %s | %s |\n", t, alias, strings.Join(mods, ", ")))
 	}
 	return b.String()
+}
+
+// wikiMetaIndex 从 yaml 构建渲染索引（模块描述/顺序、表别名、隐藏符号）。
+func wikiMetaIndex(cfg wikiConfig) (map[string]wikiMeta, map[string]string, map[string]bool) {
+	meta := map[string]wikiMeta{}
+	tableAlias := map[string]string{}
+	hidden := map[string]bool{}
+	for _, m := range cfg.Modules {
+		meta[m.Name] = wikiMeta{desc: m.Description, order: m.Order}
+	}
+	for _, t := range cfg.Tables {
+		tableAlias[t.Name] = t.Alias
+	}
+	for _, s := range cfg.HiddenSymbols {
+		hidden[s] = true
+	}
+	return meta, tableAlias, hidden
 }

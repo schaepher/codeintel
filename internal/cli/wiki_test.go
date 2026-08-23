@@ -143,3 +143,43 @@ hidden_symbols:
 		t.Errorf("隐藏符号 F1 不应出现:\n%s", ms)
 	}
 }
+
+// TestWikiHTML：--format html 单文件自包含——目录导航 + 折叠标记 +
+// 六区块内容。
+func TestWikiHTML(t *testing.T) {
+	dir := seedWikiRepo(t)
+	out := filepath.Join(t.TempDir(), "wiki")
+	if code := cmdWiki([]string{"--repo", dir, "--out", out, "--format", "html"}); code != 0 {
+		t.Fatalf("cmdWiki html exit = %d", code)
+	}
+	html, err := os.ReadFile(filepath.Join(out, "index.html"))
+	if err != nil {
+		t.Fatalf("index.html 未生成: %v", err)
+	}
+	s := string(html)
+	for _, want := range []string{
+		"<title>",           // 页面标题
+		"id=\"sidebar\"",    // 左侧目录栏
+		"example.com/m",     // 模块名（目录 + 内容）
+		"fold",              // 折叠交互标记
+		"id=\"tables\"",     // 表清单区块
+		"orders",            // 相关表
+		"<style>",           // 内嵌 CSS
+		"<script>",          // 内嵌 JS
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("html 应含 %q", want)
+		}
+	}
+	if strings.Contains(s, "## ") {
+		t.Error("html 不应含 markdown 标题")
+	}
+	// 无 --format 时默认 md（回归）
+	out2 := filepath.Join(t.TempDir(), "wiki2")
+	if code := cmdWiki([]string{"--repo", dir, "--out", out2}); code != 0 {
+		t.Fatalf("cmdWiki md exit = %d", code)
+	}
+	if _, err := os.Stat(filepath.Join(out2, "index.md")); err != nil {
+		t.Error("默认 format 应生成 index.md")
+	}
+}
