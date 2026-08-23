@@ -40,6 +40,78 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	title := filepath.Base(repoAbs) + " 业务 wiki"
 	var nav strings.Builder  // 左侧目录
 	var main strings.Builder // 内容区
+	archMermaid := cfg.Architecture
+	archNote := "（来源：wiki.yaml architecture）"
+	if archMermaid == "" {
+		archMermaid = archMermaidFallback(data)
+		archNote = "（自动生成：包间调用聚合——yaml architecture 可覆盖）"
+	}
+	if archMermaid != "" {
+		main.WriteString(`<section id="arch"><h2>架构图</h2><p class="muted">` + archNote + `</p><pre class="mermaid">` + htmlEsc(archMermaid) + `</pre></section>` + "\n")
+		nav.WriteString(`<li><a href="#arch">架构图</a></li>`)
+	}
+	// R7：AI 整理架构图（过滤基础包 + 分层分组）
+	if curated := archMermaidCurated(data); curated != "" {
+		main.WriteString(`<section id="arch-curated"><h2>架构图（AI 整理）</h2><p class="muted">过滤基础工具包（logging 等）+ 临时包（seed），分层分组（入口/核心/支撑）。</p><pre class="mermaid">` + htmlEsc(curated) + `</pre></section>` + "\n")
+		nav.WriteString(`<li><a href="#arch-curated">架构图（AI 整理）</a></li>`)
+	}
+
+	// R9：实体协作区块（对象设计视角）
+	if sec := renderEntitiesSectionHTML(eg); sec != "" {
+		main.WriteString(sec)
+		nav.WriteString(`<li><a href="#entities">实体协作</a></li>`)
+	}
+	// R14：核心业务流程图（yaml flows 手写——AI 只排位不生成内容）
+	if sec := renderBusinessFlowsSectionHTML(cfg); sec != "" {
+		main.WriteString(sec)
+		nav.WriteString(`<li><a href="#flows">核心业务流程图</a></li>`)
+	}
+
+	// R1：命令/接口区块（单文件 html 全量包含——怎么用，靠前）
+	main.WriteString(renderCommandsHTML())
+	nav.WriteString(`<li><a href="#commands">命令清单</a></li>`)
+	main.WriteString(renderAPIHTML(repoAbs))
+	nav.WriteString(`<li><a href="#api">HTTP 接口</a></li>`)
+	// R2：系统流程区块（进程视角）
+	main.WriteString(renderProcessesHTML(acts))
+	nav.WriteString(`<li><a href="#processes">系统流程</a></li>`)
+	// R5：枚举与工具函数区块（AI 权威值）
+	main.WriteString(renderEnumsHTML(repoAbs))
+	nav.WriteString(`<li><a href="#enums">枚举与工具函数</a></li>`)
+	if len(pkgs) > 0 {
+		main.WriteString(renderPackagesHTML(pkgs))
+		nav.WriteString(`<li><a href="#packages">包结构</a></li>`)
+	}
+	// R14：ER 图与表清单同属数据层，归位在实现细节区（认知路径靠后）
+	tableCfgs := tableCfgsFrom(cfg)
+	tables := collectTables(data, tableAlias, tableCfgs)
+	hideTable := map[string]bool{}
+	for _, t := range cfg.Tables {
+		if t.Hidden {
+			hideTable[t.Name] = true
+		}
+	}
+	erMermaid := renderERMermaid(rels, hideTable)
+	main.WriteString(`<section id="er"><h2>ER 图（表间关系）</h2>`)
+	if strings.Contains(erMermaid, "||--") {
+		main.WriteString(`<p class="muted">表间直接键关联（fk=值流验证的真实键 / query=WHERE 键关联），列级标注。字段定义见下方表清单。</p><pre class="mermaid">` + htmlEsc(erMermaid) + `</pre>`)
+	} else {
+		main.WriteString("<p class=\"muted\">（无表间直接关联）</p>")
+	}
+	main.WriteString("</section>\n")
+	nav.WriteString(`<li><a href="#er">ER 图</a></li>`)
+	main.WriteString(wikiTablesSectionHTML(tables, tableCfgs, cols))
+	nav.WriteString(`<li><a href="#tables">表清单</a></li>`)
+
+	if len(cfg.Glossary) > 0 {
+		main.WriteString(`<section id="glossary"><h2>术语表</h2>`)
+		for _, g := range cfg.Glossary {
+			main.WriteString(fmt.Sprintf("<p><strong>%s</strong>：%s</p>", htmlEsc(g.Term), htmlEsc(g.Definition)))
+		}
+		main.WriteString("</section>\n")
+		nav.WriteString(`<li><a href="#glossary">术语表</a></li>`)
+	}
+	// R14：模块（逐模块深入——认知路径靠后，比命令/流程细节深）
 	for i, wm := range ordered {
 		secID := fmt.Sprintf("sec-%d", i)
 		modID := fmt.Sprintf("mod-%d", i)
@@ -65,78 +137,12 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 		main.WriteString("</section>\n")
 	}
 
-	archMermaid := cfg.Architecture
-	archNote := "（来源：wiki.yaml architecture）"
-	if archMermaid == "" {
-		archMermaid = archMermaidFallback(data)
-		archNote = "（自动生成：包间调用聚合——yaml architecture 可覆盖）"
-	}
-	if archMermaid != "" {
-		main.WriteString(`<section id="arch"><h2>架构图</h2><p class="muted">` + archNote + `</p><pre class="mermaid">` + htmlEsc(archMermaid) + `</pre></section>` + "\n")
-		nav.WriteString(`<li><a href="#arch">架构图</a></li>`)
-	}
-	// R7：AI 整理架构图（过滤基础包 + 分层分组）
-	if curated := archMermaidCurated(data); curated != "" {
-		main.WriteString(`<section id="arch-curated"><h2>架构图（AI 整理）</h2><p class="muted">过滤基础工具包（logging 等）+ 临时包（seed），分层分组（入口/核心/支撑）。</p><pre class="mermaid">` + htmlEsc(curated) + `</pre></section>` + "\n")
-		nav.WriteString(`<li><a href="#arch-curated">架构图（AI 整理）</a></li>`)
-	}
-
-	hideTable := map[string]bool{}
-	for _, t := range cfg.Tables {
-		if t.Hidden {
-			hideTable[t.Name] = true
-		}
-	}
-	erMermaid := renderERMermaid(rels, hideTable)
-	main.WriteString(`<section id="er"><h2>ER 图（表间关系）</h2>`)
-	if strings.Contains(erMermaid, "||--") {
-		main.WriteString(`<p class="muted">表间直接键关联（fk=值流验证的真实键 / query=WHERE 键关联），列级标注。字段定义见下方表清单。</p><pre class="mermaid">` + htmlEsc(erMermaid) + `</pre>`)
-	} else {
-		main.WriteString("<p class=\"muted\">（无表间直接关联）</p>")
-	}
-	main.WriteString("</section>\n")
-	nav.WriteString(`<li><a href="#er">ER 图</a></li>`)
-	// R9：实体协作区块（对象设计视角）
-	if sec := renderEntitiesSectionHTML(eg); sec != "" {
-		main.WriteString(sec)
-		nav.WriteString(`<li><a href="#entities">实体协作</a></li>`)
-	}
-
-	tableCfgs := tableCfgsFrom(cfg)
-	tables := collectTables(data, tableAlias, tableCfgs)
-	main.WriteString(wikiTablesSectionHTML(tables, tableCfgs, cols))
-	nav.WriteString(`<li><a href="#tables">表清单</a></li>`)
-	// R1：命令/接口/包结构区块（单文件 html 全量包含）
-	main.WriteString(renderCommandsHTML())
-	nav.WriteString(`<li><a href="#commands">命令清单</a></li>`)
-	main.WriteString(renderAPIHTML(repoAbs))
-	nav.WriteString(`<li><a href="#api">HTTP 接口</a></li>`)
-	// R2：系统流程区块（进程视角）
-	main.WriteString(renderProcessesHTML(acts))
-	nav.WriteString(`<li><a href="#processes">系统流程</a></li>`)
-	// R5：枚举与工具函数区块（AI 权威值）
-	main.WriteString(renderEnumsHTML(repoAbs))
-	nav.WriteString(`<li><a href="#enums">枚举与工具函数</a></li>`)
-	if len(pkgs) > 0 {
-		main.WriteString(renderPackagesHTML(pkgs))
-		nav.WriteString(`<li><a href="#packages">包结构</a></li>`)
-	}
-
-	if len(cfg.Glossary) > 0 {
-		main.WriteString(`<section id="glossary"><h2>术语表</h2>`)
-		for _, g := range cfg.Glossary {
-			main.WriteString(fmt.Sprintf("<p><strong>%s</strong>：%s</p>", htmlEsc(g.Term), htmlEsc(g.Definition)))
-		}
-		main.WriteString("</section>\n")
-		nav.WriteString(`<li><a href="#glossary">术语表</a></li>`)
-	}
-
 	// R6：构建 SQL 解析降级统计（与 md/serve 三通道一致）
 	if degradeStats != "" {
 		main.WriteString(`<section id="degrade"><h2>构建 SQL 解析降级统计</h2><p class="muted">` + htmlEsc(">"+degradeStats) + `（AST 降级率异常高时检查解析器）</p></section>` + "\n")
 		nav.WriteString(`<li><a href="#degrade">构建降级统计</a></li>`)
 	}
-	guide := `<strong>快速开始：</strong>① 看<a href="#arch">架构图</a>了解系统组成 → ② 按顺序读各模块（职责 → 入口 → 核心符号 → 相关表）→ ③ 查<a href="#tables">表清单</a>看字段与建表语句。`
+	guide := `<strong>快速开始：</strong>① 看<a href="#arch">架构图</a>了解系统组成 → ② 看<a href="#entities">实体协作</a>了解对象怎么协作 → ③ 看<a href="#commands">命令清单</a>上手 → ④ 深入<a href="#mod-0">模块</a>与<a href="#tables">表</a>。`
 	html := wikiHTMLPage(title, cfg.Project.Description, guide, nav.String(), main.String(), wikiPageOpts{freshNote: freshNote})
 	return os.WriteFile(filepath.Join(outDir, "index.html"), []byte(html), 0o644)
 }

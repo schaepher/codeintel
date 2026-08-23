@@ -136,6 +136,14 @@ func (ws *wikiServe) overviewPage(snap *wikiSnapshot) string {
 	if curated := archMermaidCurated(snap.data); curated != "" {
 		b.WriteString(`<section id="arch-curated"><h2>架构图（AI 整理）</h2><p class="muted">过滤基础工具包（logging 等）+ 临时包（seed），分层分组（入口/核心/支撑）。</p><pre class="mermaid">` + htmlEsc(curated) + `</pre></section>` + "\n")
 	}
+	// R9：实体协作区块（对象设计视角）
+	if sec := renderEntitiesSectionHTML(snap.eg); sec != "" {
+		b.WriteString(sec)
+	}
+	// R14：核心业务流程图（yaml flows 手写）
+	if sec := renderBusinessFlowsSectionHTML(snap.cfg); sec != "" {
+		b.WriteString(sec)
+	}
 	b.WriteString(`<section id="modules"><h2>模块</h2>`)
 	if len(snap.ordered) == 0 {
 		b.WriteString("<p class=\"muted\">（未识别到模块）</p>")
@@ -151,10 +159,6 @@ func (ws *wikiServe) overviewPage(snap *wikiSnapshot) string {
 		b.WriteString("</ul>")
 	}
 	b.WriteString("</section>\n")
-	// R9：实体协作区块（对象设计视角）
-	if sec := renderEntitiesSectionHTML(snap.eg); sec != "" {
-		b.WriteString(sec)
-	}
 	if len(snap.cfg.Glossary) > 0 {
 		b.WriteString(`<section id="glossary"><h2>术语表</h2>`)
 		for _, g := range snap.cfg.Glossary {

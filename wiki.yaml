@@ -245,3 +245,9 @@ flows:
 - title: 字段追溯流程
   mermaid: "sequenceDiagram\n  用户->>CLI: query trace-backward 字段\n  CLI->>DB: 值流全链查询\n\
     \  DB->>CLI: 产生点/写入方（带行号）\n  CLI->>用户: 追溯链展示\n"
+- title: 增量更新流程
+  mermaid: "sequenceDiagram\n  用户->>CLI: codeintel update --repo\n  CLI->>Git: 变更文件检测（buildSHA..HEAD）\n  Git->>CLI: 变更文件列表\n  CLI->>分析器: 只分析变更文件（增量构建）\n  分析器->>DB: 更新节点与边\n  CLI->>用户: 构建报告（含 SQL 降级统计）\n"
+- title: 查询流程
+  mermaid: "sequenceDiagram\n  用户->>CLI: query symbol/fields/relations ...\n  CLI->>action: 解析符号（名称/ID）\n  action->>DB: 图查询（nodes/edges）\n  DB->>action: 结果集\n  CLI->>用户: 文本/JSON/Mermaid 输出\n"
+- title: serve 探索与自动更新流程
+  mermaid: "sequenceDiagram\n  用户->>serve: 浏览器打开 / 或 /wiki/\n  serve->>DB: 图/前端数据（AntV G6）\n  用户->>serve: POST /incremental\n  serve->>Git: 变更检测\n  serve->>分析器: 增量构建（异步）\n  分析器->>DB: 索引更新\n  serve->>用户: 新索引数据\n"

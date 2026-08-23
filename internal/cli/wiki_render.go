@@ -62,23 +62,39 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	if cfg.Project.Description != "" {
 		idx.WriteString(cfg.Project.Description + "\n\n")
 	}
-	idx.WriteString("**快速开始**：① 看[架构图](#整体架构图)了解系统组成 → ② 按顺序读各模块（职责 → 入口 → 核心符号 → 相关表）→ ③ 查[表清单](tables.md)看字段与建表语句。\n\n")
+	// R14 布局重排（新人认知路径）：架构图 → 实体协作 → 核心业务流程
+	// → 命令 → 系统流程 → 枚举/术语 → 模块 → 数据/实现细节
+	idx.WriteString("**快速开始**：① 看[架构图](#整体架构图)了解系统组成 → ② 看[实体协作](#实体协作对象设计视角)了解对象怎么协作 → ③ 看[命令清单](commands.md)上手 → ④ 深入[模块](index.md#模块)与[表](tables.md)。\n\n")
 	curated := archMermaidCurated(data)
 	if cfg.Architecture != "" {
 		idx.WriteString("## 整体架构图\n\n> 来源：wiki.yaml architecture\n\n```mermaid\n" + cfg.Architecture + "\n```\n\n")
 	} else if arch := archMermaidFallback(data); arch != "" {
 		idx.WriteString("## 整体架构图\n\n> 自动生成：包间调用聚合（yaml architecture 可覆盖）\n\n```mermaid\n" + arch + "\n```\n\n")
 	}
-	// R7：AI 整理架构图（过滤 logging/seed 等基础包 + 分层分组）——
-	// 自动图保留，整理图新增（结构更分明）
+	// R7：AI 整理架构图（过滤 logging/seed 等基础包 + 分层分组）
 	if curated != "" {
 		idx.WriteString("## 架构图（AI 整理）\n\n> 过滤基础工具包（logging 等）+ 临时包（seed），分层分组\n> （入口/核心/支撑）——快速建立分层心智模型。\n\n```mermaid\n" + curated + "\n```\n\n")
 	}
-	idx.WriteString("由 `codeintel wiki` 生成（全量覆盖；业务描述/别名维护在 wiki.yaml）\n\n")
-	if degradeStats != "" {
-		idx.WriteString("> 构建 SQL 解析降级统计：" + degradeStats + "（AST 降级率异常高时检查解析器）\n\n")
+	// R9：实体协作区块（对象设计视角——比数据层更先建立设计心智）
+	if sec := renderEntitiesSectionMD(eg); sec != "" {
+		idx.WriteString(sec)
 	}
-	idx.WriteString("## 模块\n\n")
+	// R14：核心业务流程图（yaml flows 手写，AI 只排位不生成内容）
+	if sec := renderBusinessFlowsSectionMD(cfg); sec != "" {
+		idx.WriteString(sec)
+	}
+	idx.WriteString("由 `codeintel wiki` 生成（全量覆盖；业务描述/别名维护在 wiki.yaml）\n\n")
+	idx.WriteString("\n## 命令与接口\n\n")
+	idx.WriteString("- [命令清单](commands.md)\n")
+	idx.WriteString("- [HTTP 接口](api.md)\n")
+	idx.WriteString("- [系统流程](processes.md)\n")
+	if len(cfg.Glossary) > 0 {
+		idx.WriteString("\n## 术语表\n\n")
+		for _, g := range cfg.Glossary {
+			idx.WriteString(fmt.Sprintf("- **%s**：%s\n", g.Term, g.Definition))
+		}
+	}
+	idx.WriteString("\n## 模块\n\n")
 	for _, wm := range ordered {
 		idx.WriteString(fmt.Sprintf("- [%s](%s.md)", wm.Name, wm.ShortName))
 		if d := meta[wm.Name].desc; d != "" {
@@ -86,26 +102,14 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 		}
 		idx.WriteString("\n")
 	}
-	idx.WriteString("\n## 表\n\n")
+	idx.WriteString("\n## 数据与实现细节\n\n")
 	idx.WriteString("- [ER 图（表间关系）](er.md)\n")
 	idx.WriteString("- [表清单](tables.md)\n")
-	// R9：实体协作区块（对象设计视角）
-	if sec := renderEntitiesSectionMD(eg); sec != "" {
-		idx.WriteString(sec)
-	}
-
-	idx.WriteString("\n## 命令与接口\n\n")
-	idx.WriteString("- [命令清单](commands.md)\n")
-	idx.WriteString("- [HTTP 接口](api.md)\n")
-	idx.WriteString("- [系统流程](processes.md)\n")
 	if len(pkgs) > 0 {
 		idx.WriteString("\n" + renderPackagesMD(pkgs))
 	}
-	if len(cfg.Glossary) > 0 {
-		idx.WriteString("\n## 术语表\n\n")
-		for _, g := range cfg.Glossary {
-			idx.WriteString(fmt.Sprintf("- **%s**：%s\n", g.Term, g.Definition))
-		}
+	if degradeStats != "" {
+		idx.WriteString("> 构建 SQL 解析降级统计：" + degradeStats + "（AST 降级率异常高时检查解析器）\n\n")
 	}
 	for _, wm := range data {
 		page := renderModulePage(wm, eg, meta[wm.Name].desc, tableAlias, hidden, cfg)
