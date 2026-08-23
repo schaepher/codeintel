@@ -188,6 +188,22 @@ func (a *Actions) Latest() (*domain.BuildMeta, error) {
 	return a.repo.GetLatest()
 }
 
+// SymbolsAt 定位文件某行命中的符号（#229 file:line 报错栈 → 符号）。
+func (a *Actions) SymbolsAt(file string, line int) ([]*domain.CodeEntity, error) {
+	logger := zap.L()
+	logger.Info("enter (Actions).SymbolsAt", zap.String("file", file), zap.Int("line", line))
+	defer logger.Info("exit (Actions).SymbolsAt")
+	return a.repo.SymbolsAt(file, line)
+}
+
+// GetTables 表名枚举（#229 repo_summary 规模概览用）。
+func (a *Actions) GetTables() ([]string, error) {
+	logger := zap.L()
+	logger.Info("enter (Actions).GetTables")
+	defer logger.Info("exit (Actions).GetTables")
+	return a.repo.GetTables()
+}
+
 // IndirectWriteSites 返回函数的 INDIRECT_WRITE 边（Q90 调用点回连：
 // metadata 含 call_line / call_args，fields 展示用）。
 func (a *Actions) IndirectWriteSites(funcID domain.CanonicalID) ([]*domain.Fact, error) {

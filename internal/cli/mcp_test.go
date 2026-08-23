@@ -207,6 +207,73 @@ func TestMCPToolInit(t *testing.T) {
 	}
 }
 
+// TestMCPToolRoots：#229 概览工具——roots 顶层入口（结构正确，可为空）。
+func TestMCPToolRoots(t *testing.T) {
+	cs := mcpDial(t, seedRepo(t))
+	text, isErr := mcpCallTool(t, cs, "roots", map[string]any{})
+	if isErr {
+		t.Fatalf("roots 调用报错: %s", text)
+	}
+	var m struct {
+		Roots []map[string]any `json:"roots"`
+	}
+	if err := json.Unmarshal([]byte(text), &m); err != nil {
+		t.Fatalf("content 应为 JSON: %v\n%s", err, text)
+	}
+	if m.Roots == nil {
+		t.Error("roots 应为数组（可为空）")
+	}
+}
+
+// TestMCPToolRepoSummary：#229 概览工具——repo_summary 规模 + 表数 +
+// 最新构建。
+func TestMCPToolRepoSummary(t *testing.T) {
+	cs := mcpDial(t, seedRepo(t))
+	text, isErr := mcpCallTool(t, cs, "repo_summary", map[string]any{})
+	if isErr {
+		t.Fatalf("repo_summary 调用报错: %s", text)
+	}
+	var m struct {
+		Nodes int `json:"nodes"`
+		Edges int `json:"edges"`
+	}
+	if err := json.Unmarshal([]byte(text), &m); err != nil {
+		t.Fatalf("content 应为 JSON: %v\n%s", err, text)
+	}
+	if m.Nodes < 2 || m.Edges < 1 {
+		t.Errorf("seedRepo 应有 2 节点 1 边，got nodes=%d edges=%d (%s)", m.Nodes, m.Edges, text)
+	}
+}
+
+// TestMCPToolFileSymbols：#229 file:line 解析——报错栈定位符号。
+func TestMCPToolFileSymbols(t *testing.T) {
+	dir := seedGitRepo(t) // git 仓库 + init 后 main.go 有真实行号
+	cs := mcpDial(t, dir)
+	text, isErr := mcpCallTool(t, cs, "init", map[string]any{})
+	if isErr {
+		t.Fatalf("init 调用报错: %s", text)
+	}
+	text, isErr = mcpCallTool(t, cs, "file_symbols", map[string]any{"file": "main.go", "line": 3})
+	if isErr {
+		t.Fatalf("file_symbols 调用报错: %s", text)
+	}
+	var m struct {
+		Symbols []struct {
+			Name string `json:"name"`
+			Kind string `json:"kind"`
+		} `json:"symbols"`
+	}
+	if err := json.Unmarshal([]byte(text), &m); err != nil {
+		t.Fatalf("content 应为 JSON: %v\n%s", err, text)
+	}
+	if len(m.Symbols) == 0 {
+		t.Fatalf("main.go:3 应命中 main: %s", text)
+	}
+	if m.Symbols[0].Name != "main" {
+		t.Errorf("首个命中应为 main，got %v", m.Symbols)
+	}
+}
+
 // TestMCPToolStale：索引过期（commit_sha ≠ HEAD）时工具结果追加
 // [stale] 标注（Agent 可见；content[0] 仍是契约 JSON）。
 func TestMCPToolStale(t *testing.T) {

@@ -138,6 +138,35 @@ func shortNameFromID(id string) string {
 	return id
 }
 
+// SymbolsAt 定位文件某行命中的符号（#229 file:line 报错栈 → 符号；
+// 排除字段追溯内部节点；未命中返回空切片）。
+func (r *Repo) SymbolsAt(file string, line int) ([]*domain.CodeEntity, error) {
+	logger := zap.L()
+	logger.Debug("enter (Repo).SymbolsAt", zap.String("file", file), zap.Int("line", line))
+	defer logger.Debug("exit (Repo).SymbolsAt")
+	const exclude = "kind NOT IN ('field_access','ssa_value','external_summary')"
+	// 先精确 file_path，无命中再按路径后缀（Agent 报错栈常为相对路径
+	// 或省略前缀）；排除虚拟节点（file_path 为空）。
+	rows, err := r.Query(
+		"SELECT id, kind, name, file_path, line_start, line_end, properties FROM nodes WHERE file_path = ? AND line_start <= ? AND line_end >= ? AND "+exclude+" ORDER BY line_start LIMIT 20",
+		file, line, line)
+	if err != nil {
+		return nil, err
+	}
+	nodes, err := scanNodes(rows)
+	if err != nil || len(nodes) > 0 {
+		return nodes, err
+	}
+	rows, err = r.Query(
+		"SELECT id, kind, name, file_path, line_start, line_end, properties FROM nodes WHERE file_path LIKE ? AND line_start <= ? AND line_end >= ? AND "+exclude+" ORDER BY line_start LIMIT 20",
+		"%"+file, line, line)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanNodes(rows)
+}
+
 // AllSymbolNames 全部可搜索符号名（Q244 相似名提示候选池；排除字段
 // 追溯内部节点）。
 func (r *Repo) AllSymbolNames(limit int) ([]string, error) {

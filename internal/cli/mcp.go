@@ -9,6 +9,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -73,6 +74,11 @@ type batchParams struct {
 	Symbols []string `json:"symbols"` // 符号名列表（单输入失败跳过，部分成功）
 }
 type updateParams struct{}
+// #229 file:line 定位参数。
+type fileSymbolsParams struct {
+	File string `json:"file"` // 文件路径（精确或相对/省略前缀）
+	Line int    `json:"line"` // 行号（1 起）
+}
 
 // buildResult 重建结果摘要（update/init 工具输出，snake_case 契约）。
 type buildResult struct {
@@ -299,6 +305,50 @@ func registerMCPTools(server *mcp.Server, acts *action.Actions, r *sqlite.Repo, 
 		func(ctx context.Context, req *mcp.CallToolRequest, args updateParams) (*mcp.CallToolResult, any, error) {
 			return runBuildTool(ctx, repoAbs, true), nil, nil
 		})
+	// #229 概览与定位工具（读工具，包 staleWrap）。
+	// roots：顶层入口（main + 服务入口）——Agent 面对陌生仓库先看入口。
+	mcp.AddTool(server, &mcp.Tool{Name: "roots", Description: "顶层入口（main + 服务入口）——陌生仓库先看入口再深入"},
+		staleWrap(r, repoAbs, func(ctx context.Context, req *mcp.CallToolRequest, args updateParams) (*mcp.CallToolResult, any, error) {
+			roots, err := acts.Roots()
+			if err != nil {
+				return toolErr(err.Error()), nil, nil
+			}
+			return toolJSON(map[string]any{"roots": nodeBriefs(roots)}), nil, nil
+		}))
+	// repo_summary：仓库概览（规模 + 表数 + 最新构建）。
+	mcp.AddTool(server, &mcp.Tool{Name: "repo_summary", Description: "仓库概览（节点/边/表规模 + 最新构建状态）"},
+		staleWrap(r, repoAbs, func(ctx context.Context, req *mcp.CallToolRequest, args updateParams) (*mcp.CallToolResult, any, error) {
+			nodes, edges, err := acts.Counts()
+			if err != nil {
+				return toolErr(err.Error()), nil, nil
+			}
+			tables, err := acts.GetTables()
+			if err != nil {
+				return toolErr(err.Error()), nil, nil
+			}
+			latest, err := acts.Latest()
+			if err != nil && !errors.Is(err, domain.ErrNotFound) {
+				return toolErr(err.Error()), nil, nil
+			}
+			out := map[string]any{
+				"nodes":  nodes,
+				"edges":  edges,
+				"tables": len(tables),
+			}
+			if err == nil && latest != nil {
+				out["build"] = latest // domain.BuildMeta 自带 snake_case 契约
+			}
+			return toolJSON(out), nil, nil
+		}))
+	// file_symbols：file:line → 符号（Agent 从编译报错/日志栈定位）。
+	mcp.AddTool(server, &mcp.Tool{Name: "file_symbols", Description: "file:line 定位符号（报错栈/日志行 → 候选符号列表）"},
+		staleWrap(r, repoAbs, func(ctx context.Context, req *mcp.CallToolRequest, args fileSymbolsParams) (*mcp.CallToolResult, any, error) {
+			syms, err := acts.SymbolsAt(args.File, args.Line)
+			if err != nil {
+				return toolErr(err.Error()), nil, nil
+			}
+			return toolJSON(map[string]any{"symbols": nodeBriefs(syms)}), nil, nil
+		}))
 }
 
 // runBuildTool 增量（full=false）/全量（full=true）重建，输出 JSON 摘要

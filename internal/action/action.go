@@ -38,6 +38,7 @@ type Reader interface {
 	GetTableRelations(table, memoryMode string) ([]*domain.TableRelation, error)
 	GetAllTableRelations(memoryMode string) ([]*domain.TableRelation, error) // Q160 全库聚合
 	GetTables() ([]string, error) // Q241 表名枚举（table-path 表名解析）
+	SymbolsAt(file string, line int) ([]*domain.CodeEntity, error) // #229 file:line 定位符号
 	GetUncalledFunctions() ([]*domain.UnusedFunc, error)
 	GetIsolatedChains() ([][]*domain.UnusedFunc, error)
 	GetPath(from, to domain.CanonicalID, maxDepth int, viaCalls bool) ([]*domain.TraceRow, error)
