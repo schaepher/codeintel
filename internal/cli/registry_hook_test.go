@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
@@ -113,5 +114,23 @@ func TestRegistryDirIsolation(t *testing.T) {
 	home, _ := os.UserHomeDir()
 	if registryDirFn() == filepath.Join(home, ".codeintel") {
 		t.Error("测试期间 registryDirFn 应指向临时目录（TestMain 注入）")
+	}
+}
+
+// TestInitTips：init 成功后打印「试试这些命令」示例（Q244 引导）。
+func TestInitTips(t *testing.T) {
+	isolateRegistryDir(t)
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "go.mod"), "module example.com/m\n\ngo 1.21\n")
+	writeTestFile(t, filepath.Join(dir, "main.go"), "package main\n\nfunc main() {}\n")
+	out := captureStdout(func() {
+		if code := cmdInit(context.Background(), []string{"--repo", dir}); code != 0 {
+			t.Fatalf("cmdInit exit = %d", code)
+		}
+	})
+	for _, want := range []string{"试试这些", "query table", "query relations", "before"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("init 输出应含引导示例 %q:\n%s", want, out)
+		}
 	}
 }

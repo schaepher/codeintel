@@ -108,6 +108,15 @@ func cmdInit(ctx context.Context, args []string) int {
 		fmt.Fprintln(os.Stderr, "警告：构建降级完成（部分工具失败，已保留可用数据）。")
 	}
 	fmt.Printf("数据库: %s/.codeintel/codeintel.db\n", abs)
+	// Q244：引导示例（普通程序员入口——before/trace/relations）
+	fmt.Println()
+	fmt.Println("试试这些：")
+	fmt.Printf("  codeintel query symbol %s       符号详情\n", repo.Module)
+	fmt.Printf("  codeintel before <符号|字段|表>   改前影响预判\n")
+	fmt.Printf("  codeintel trace <字段|符号>       数据来龙去脉\n")
+	fmt.Printf("  codeintel query table <表名>      表列数据流\n")
+	fmt.Printf("  codeintel query relations <表名>  表间关联\n")
+	fmt.Printf("  codeintel serve --repo %s   启动 Web 探索\n", abs)
 	// Q238：构建成功注册全局台账（路径/module/HEAD/worktree 归属）
 	registerRepoAfterBuild(abs, repo.Module, len(repo.Modules), result.CommitSHA)
 	return 0
