@@ -86,10 +86,10 @@ codeintel query table-path orders settlement --repo <你的仓库>
 | `codeintel query table <表>` / `relations <表>` | 表列数据流 / 表间关联 |
 | `codeintel query table-path <A> <B>` | 表间数据通路 |
 | `codeintel batch <符号1> <符号2> …` | 批量符号概览 |
-| `codeintel serve --repo <path>` | 网页图探索（默认 :8090） |
+| `codeintel serve --repo <path>` | 网页图探索 + wiki 网页版（/wiki/，默认 :8090） |
 | `codeintel mcp --repo <path>` | MCP server（AI Agent 直接调用） |
 | `codeintel list` | 已注册仓库台账（init 后自动注册） |
-| `codeintel wiki [--yaml wiki.yaml]` | 生成业务 wiki（Markdown，docs/wiki/） |
+| `codeintel wiki [--yaml wiki.yaml]` | 生成业务 wiki（Markdown/单文件 HTML，docs/wiki/；serve 下 /wiki/ 直接浏览） |
 
 全部查询支持 `--json`（结构化输出，契约见 docs/json-contract.md）与
 `--repo` 短名（已注册仓库可用短名/路径后缀/module 名）。

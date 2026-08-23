@@ -3550,3 +3550,48 @@ verify.sh --quick 前。实测 601 行临时文件被拦截。事前树分支 D
 **验证**：verify.sh 全过（build+vet+-race 13 包）；全项目 174 文件
 函数行数排名最大 127 行（(Actions).TablePath）；超行复查 0；
 DUP-DEF 清零。
+
+## §86 待办清理批次：索引落后检测 + SQL 子查询作用域 + wiki serve 网页版 + 编辑器 Hover + git diff 审计（2026-08-23）
+
+**索引落后检测修复**（待办 P0 自查发现）：`detectChangedGoFiles` 只检测
+工作区变更（git diff HEAD + 未跟踪文件），**索引 commit 落后于 HEAD 且
+工作区干净时 update 误报"无变更"**（真实触发：索引停在 609bd65、
+HEAD 7994bf3，phi 还原逻辑未 reindex）。修复：读 build_metadata 最新
+commit_sha 与 HEAD 比对，落后时补 `git diff buildSHA..HEAD`——与
+staleInfo 过期判定对齐（此前两套检测逻辑不一致）；serve /incremental
+与 MCP update 工具同步受益。测试 TestDetectChangedGoFilesIndexStale。
+
+**SQL 子查询作用域**（Q239 Step 3 残余）：AST 路径（astWhereCols /
+astJoinPairs）的 Walk 递归进子查询内部——EXISTS / IN / `= (SELECT…)`
+里的 `列 = ?` 或双 ColName 等值被误当外层 WHERE 过滤列 / JOIN 键对；
+启发式路径（whereColRe 全文正则）同样泄漏。修复：AST 遇 Subquery 节点
+跳过子树；启发式 `stripSubqueries` 按括号块剥离子查询（SELECT/WITH/
+VALUES 开头，等长空白替换保 ? 序对齐），JOIN ON 段同处理。测试 +4
+形态用例（EXISTS / IN / 子查询赋值 / %s 降级路径）+ ON 内 EXISTS 双
+路径（AST + 启发式）+ stripSubqueries 直接单测。
+
+**wiki serve 网页版**（待办 P2b）：`codeintel serve` 加 `/wiki/` 多页
+路由——overview（架构图 + 模块目录 + 术语表）/ 每模块一页 / ER 图 /
+表清单，左侧目录导航（折叠/搜索/持久化 JS 复用单文件 html 模板）；
+请求时内存渲染（永不 stale），快照按 build_id + wiki.yaml mtime 失效
+（增量 update 后自动跟上）；wiki.yaml 自动加载（仓库根存在即用）。
+架构：server 包 SetWikiHandler 注入点；cli 包 wiki_serve.go（数据快照）
++ wiki_serve_pages.go（页面渲染）按主题拆；wiki 命令与 serve 并存共用
+渲染原语（表清单 section 提取 wikiTablesSectionHTML 共用）。
+
+**VS Code 扩展 Hover**（#215 深化）：悬停 Go 标识符显示符号信息（名称/
+kind/签名/位置/调用者被调用者计数 + 「查看详情」命令入口），查询失败
+静默（hover 不阻塞编辑）；onLanguage:go 激活。querySymbol 重构抽
+queryAndShow（输入框与光标符号共用），新 querySymbolAt 命令；
+renderHoverMarkdown 纯函数（静态断言验证）。
+
+**git diff 解析审计**（分支 G 候选）：两盲区——`+++ b/` 前缀在
+`git diff.noprefix` 配置下整段静默丢失（--since 标注全失效）；deleted
+段（+++ /dev/null 不匹配）留下幽灵 key "-deleted-"。修复：`+++ `
+通用前缀匹配 + 剥 b/（覆盖默认/无前缀形态）；deleted 段 curFile 置空。
+审计结论：格式仍受 git 控制（--unified=0 输出稳定），出 bug 再换库。
+
+**验证**：全仓 -race 13 包全绿；wiki serve 真实冒烟（302 / 各页 200 /
+404）；真实 git 两种前缀模式冒烟；pre-commit 行数拦截实测生效
+（wiki_serve.go 306 行被拒 → 拆两文件）。commit：27d5b81 / f4fdb2e /
+5b0692a / 72279a2 / 966ed44。

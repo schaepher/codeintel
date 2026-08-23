@@ -122,8 +122,9 @@ internal/infrastructure/
   git/                    git log → COMMIT 节点 + MODIFIED_BY 边（conf 1.0）
   sqlite/                 nodes/edges/build_metadata 仓储；SaveBatchStats 分批提交；
                           GetRoots / Expand（图探索）
-internal/server/          HTTP API：/api/roots（顶层入口）、/api/expand（点击展开）
-internal/cli/             init / serve / query / clean 命令
+internal/server/          HTTP API：/api/roots（顶层入口）、/api/expand（点击展开）、
+                          /wiki/ wiki 网页版（cli 注入，P2b）
+internal/cli/             init / update / serve / query / wiki / mcp / export 命令
 assets/web/               AntV G6 v5 前端（go:embed 嵌入；index.html + app.js）
 scripts/entrylog/         AST 日志注入工具（见下）
 ```
