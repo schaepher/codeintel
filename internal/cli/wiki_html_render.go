@@ -13,7 +13,7 @@ import (
 
 // renderWikiHTML 生成单文件自包含 index.html（全量覆盖）。
 func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
-	data, cfg, cols, rels, freshNote, pkgs := rc.data, rc.cfg, rc.cols, rc.rels, rc.freshNote, rc.pkgs
+	acts, data, cfg, cols, rels, freshNote, pkgs := rc.acts, rc.data, rc.cfg, rc.cols, rc.rels, rc.freshNote, rc.pkgs
 	logger := zap.L()
 	logger.Debug("enter renderWikiHTML", zap.Int("modules", len(data)))
 	defer logger.Debug("exit renderWikiHTML")
@@ -92,6 +92,9 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	nav.WriteString(`<li><a href="#commands">命令清单</a></li>`)
 	main.WriteString(renderAPIHTML(repoAbs))
 	nav.WriteString(`<li><a href="#api">HTTP 接口</a></li>`)
+	// R2：系统流程区块（进程视角）
+	main.WriteString(renderProcessesHTML(acts))
+	nav.WriteString(`<li><a href="#processes">系统流程</a></li>`)
 	if len(pkgs) > 0 {
 		main.WriteString(renderPackagesHTML(pkgs))
 		nav.WriteString(`<li><a href="#packages">包结构</a></li>`)

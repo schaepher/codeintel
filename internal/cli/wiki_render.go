@@ -14,7 +14,7 @@ import (
 // renderWiki 生成 index.md + 模块页 + tables.md + er.md + commands.md +
 // api.md（全量覆盖）。
 func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
-	data, cfg, cols, rels, freshNote, pkgs := rc.data, rc.cfg, rc.cols, rc.rels, rc.freshNote, rc.pkgs
+	acts, data, cfg, cols, rels, freshNote, pkgs := rc.acts, rc.data, rc.cfg, rc.cols, rc.rels, rc.freshNote, rc.pkgs
 	logger := zap.L()
 	logger.Debug("enter renderWiki", zap.Int("modules", len(data)))
 	defer logger.Debug("exit renderWiki")
@@ -80,6 +80,7 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	idx.WriteString("\n## 命令与接口\n\n")
 	idx.WriteString("- [命令清单](commands.md)\n")
 	idx.WriteString("- [HTTP 接口](api.md)\n")
+	idx.WriteString("- [系统流程](processes.md)\n")
 	if len(pkgs) > 0 {
 		idx.WriteString("\n" + renderPackagesMD(pkgs))
 	}
@@ -118,5 +119,9 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	if err := os.WriteFile(filepath.Join(outDir, "commands.md"), []byte(renderCommandsMD()), 0o644); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(outDir, "api.md"), []byte(renderAPIMD(repoAbs)), 0o644)
+	if err := os.WriteFile(filepath.Join(outDir, "api.md"), []byte(renderAPIMD(repoAbs)), 0o644); err != nil {
+		return err
+	}
+	// R2：系统流程页（进程视角）
+	return os.WriteFile(filepath.Join(outDir, "processes.md"), []byte(renderProcessesMD(acts)), 0o644)
 }

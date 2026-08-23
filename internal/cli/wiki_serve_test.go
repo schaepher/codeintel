@@ -131,6 +131,11 @@ func TestWikiServe(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "HTTP 接口") {
 		t.Errorf("/wiki/api status = %d（应含接口页；内容依赖仓库源码——真实仓库冒烟验证）", resp.StatusCode)
 	}
+	// R2：系统流程页（依赖索引——fixture 无 cmdInit 符号则仅断言页面存在）
+	resp, body = get("/wiki/processes")
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "系统流程") {
+		t.Errorf("/wiki/processes status = %d（应含流程页）", resp.StatusCode)
+	}
 
 	// 未知路径 → 404
 	resp, _ = get("/wiki/unknown")

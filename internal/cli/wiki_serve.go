@@ -83,6 +83,8 @@ func wikiServeHandler(repoAbs string, acts *action.Actions) http.Handler {
 			serveWikiHTML(w, ws.tablesPage(snap))
 		case path == "commands":
 			serveWikiHTML(w, ws.pageHTML(snap, "/wiki/commands", renderCommandsHTML()))
+		case path == "processes":
+			serveWikiHTML(w, ws.pageHTML(snap, "/wiki/processes", renderProcessesHTML(ws.acts)))
 		case path == "api":
 			serveWikiHTML(w, ws.pageHTML(snap, "/wiki/api", renderAPIHTML(ws.repoAbs)))
 		default:

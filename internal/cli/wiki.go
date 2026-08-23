@@ -149,7 +149,7 @@ func cmdWiki(args []string) int {
 	if latest, err := acts.Latest(); err == nil && latest.CommitSHA != "" {
 		freshNote = "索引 commit: " + shortSHA(latest.CommitSHA)
 	}
-	rc := &wikiRenderCtx{data: data, cfg: cfg, cols: cols, rels: rels, pkgs: pkgs, freshNote: freshNote}
+	rc := &wikiRenderCtx{acts: acts, data: data, cfg: cfg, cols: cols, rels: rels, pkgs: pkgs, freshNote: freshNote}
 	switch format {
 	case "html":
 		if err := renderWikiHTML(abs, outDir, rc); err != nil {
@@ -175,6 +175,7 @@ func cmdWiki(args []string) int {
 
 // wikiRenderCtx 渲染上下文（R1 起统一：模块/配置/表列/关系/包地图/新鲜度）。
 type wikiRenderCtx struct {
+	acts      *action.Actions // R2：流程页调用链查询
 	data      []*domain.WikiModule
 	cfg       wikiConfig
 	cols      []*domain.TableColumn
