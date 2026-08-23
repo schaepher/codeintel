@@ -134,7 +134,7 @@ type RecentChangesOut struct {
 
 // recentChangesParams recent_changes 工具参数。
 type recentChangesParams struct {
-	Repo       string `json:"repo,omitempty"` // #232 多仓库：空=默认仓库
+	Repo       string `json:"repo,omitempty"`        // #232 多仓库：空=默认仓库
 	MaxCommits *int   `json:"max_commits,omitempty"` // 最近 N 个 commit（默认 10；省略时用默认）
 }
 
