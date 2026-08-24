@@ -133,19 +133,37 @@ func wikiAIFill(yamlPath string, cfg *wikiConfig, data []*domain.WikiModule, col
 			ok++
 		}
 	}
-	first := wikiAIBatchPrompt(mods, tbls, colGaps, rels)
-	out, err := aiCallOnce(agent, first, timeout, parseWikiBatch)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: AI 批量补缺失败: %v\n", err)
-		return 0, 0, len(mods) + len(tbls) + len(colGaps)
+	// 分批：缺口 ≤ aiBatchMax 一次全量；否则第一批模块+表别名、
+	// 第二批列说明+术语表（同会话 resume——AI 保留第一批上下文）
+	batches := []aiBatchGaps{{mods: mods, tbls: tbls, colGaps: colGaps}}
+	if len(mods)+len(tbls)+len(colGaps) > aiBatchMax {
+		batches = []aiBatchGaps{
+			{mods: mods, tbls: tbls},
+			{colGaps: colGaps},
+		}
 	}
-	apply(out)
+	for _, b := range batches {
+		out, err := aiCallOnce(agent, wikiAIBatchPrompt(b.mods, b.tbls, b.colGaps, rels), timeout, parseWikiBatch)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: AI 批量补缺失败: %v\n", err)
+			fail += len(b.mods) + len(b.tbls) + len(b.colGaps)
+			continue
+		}
+		apply(out)
+	}
 	if ok > 0 {
 		if err := e.save(yamlPath); err != nil {
 			fmt.Fprintf(os.Stderr, "error: 写回 %s: %v\n", yamlPath, err)
 		}
 	}
 	return ok, skip, fail
+}
+
+// aiBatchGaps 一批的缺口（分块用）。
+type aiBatchGaps struct {
+	mods    []aiModuleGap
+	tbls    []aiTableGap
+	colGaps []aiColGap
 }
 
 // aiCallOnce 调 AI 并解析：运行失败（CLI 缺失/超时）直接报错跳过；

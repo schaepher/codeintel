@@ -4,8 +4,10 @@ package cli
 // 首跑落盘（回归：--yaml 与 --out 同目录时 wiki.yaml 曾被删除）。
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -47,6 +49,52 @@ func TestCleanWikiOutDir(t *testing.T) {
 		}
 	}
 }
+
+// TestWikiAIFillSplitBatches：缺口 > aiBatchMax 分两批（第一批模块+
+// 表，第二批列）——第二批 prompt 不再带已处理的模块。
+func TestWikiAIFillSplitBatches(t *testing.T) {
+	var data []*domain.WikiModule
+	for i := 0; i < 61; i++ {
+		data = append(data, &domain.WikiModule{Name: fmt.Sprintf("example.com/m%02d", i), ShortName: fmt.Sprintf("m%02d", i)})
+	}
+	cfg := wikiConfig{}
+	cfg.Tables = []wikiTableConfig{{Name: "user_tab"}}
+	cols := []*domain.TableColumn{{Name: "user_tab.id", ColType: "INTEGER"}}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "wiki.yaml")
+	os.WriteFile(path, []byte(""), 0o644)
+	var prompts []string
+	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration) (string, error) {
+		prompts = append(prompts, prompt)
+		if strings.Contains(prompt, "表列中文说明") {
+			// 第二批：列 + 术语
+			return "tables:\n  - name: user_tab\n    columns:\n      - name: id\n        comment: 用户 ID\nglossary:\n  - term: ORM\n    definition: 对象关系映射", nil
+		}
+		// 第一批：61 个模块描述
+		var b strings.Builder
+		b.WriteString("modules:\n")
+		for i := 0; i < 61; i++ {
+			fmt.Fprintf(&b, "  - name: example.com/m%02d\n    description: 模块 %d\n", i, i)
+		}
+		return b.String(), nil
+	})
+	defer restore()
+	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second)
+	// 61 模块 + 1 表 + 1 列组
+	if ok != 63 || fail != 0 {
+		t.Fatalf("计数 = %d/%d; want 63/0", ok, fail)
+	}
+	if len(prompts) != 2 {
+		t.Fatalf("调用次数 = %d; want 2（分批）", len(prompts))
+	}
+	if !strings.Contains(prompts[0], "example.com/m00") {
+		t.Errorf("第一批应含模块缺口:\n%s", prompts[0][:200])
+	}
+	if strings.Contains(prompts[1], "example.com/m00") || !strings.Contains(prompts[1], "表列中文说明") {
+		t.Errorf("第二批不应带已处理模块、应只含列区:\n%s", prompts[1][:200])
+	}
+}
+
 
 // TestWikiAIFillSkipNoGaps：无缺口 → 全跳过。
 func TestWikiAIFillSkipNoGaps(t *testing.T) {

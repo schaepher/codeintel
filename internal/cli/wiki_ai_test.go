@@ -211,6 +211,7 @@ func TestWikiAIFillEndToEnd(t *testing.T) {
 	}
 }
 
+
 // aiSingleGapFixture 仅一个模块缺口（重试/失败测试用最小 fixture）。
 func aiSingleGapFixture() ([]*domain.WikiModule, wikiConfig, []*domain.TableColumn) {
 	data := []*domain.WikiModule{{Name: "example.com/app/internal/agent", ShortName: "agent", Desc: ""}}
