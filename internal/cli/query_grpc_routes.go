@@ -67,14 +67,14 @@ func grpcRoutes(repo *sqlite.Repo, repoAbs string) (*grpcRoutesResult, error) {
 
 	for _, sv := range svcs {
 		out := grpcRouteService{Name: sv.name, Methods: []grpcRouteMethod{}}
-		// 2. Register 函数（生成代码：RegisterXxxServer）
-		regName := "Register" + sv.name + "Server"
+		// 2. Register 函数（签名识别建立——按 registers_service 属性查，
+		// R30：不再按函数名 RegisterXxxServer 推导）
 		regFile := ""
-		if f, ok := nodeFile(repo, regName); ok {
+		if f, ok := registerNodeFile(repo, sv.name); ok {
 			regFile = f
 		}
 		// 3. 注册调用点：Register 函数的 calls 入边 → source 函数 file:line
-		if src, line, ok := registerCallSite(repo, regName); ok {
+		if src, line, ok := registerCallSite(repo, sv.name); ok {
 			out.Register = fmt.Sprintf("%s:%d", src, line)
 		}
 		// 4. 实现类型：grpc_impl 边（impl → 服务）
@@ -94,9 +94,10 @@ func grpcRoutes(repo *sqlite.Repo, repoAbs string) (*grpcRoutesResult, error) {
 	return res, nil
 }
 
-// nodeFile 按函数名查节点文件路径（Register 生成代码文件）。
-func nodeFile(repo *sqlite.Repo, name string) (string, bool) {
-	rows, err := repo.Query(`SELECT file_path FROM nodes WHERE name = ? AND kind = 'function' LIMIT 1`, name)
+// registerNodeFile 按 registers_service 属性查注册函数文件（R30：
+// 签名识别建立——属性查询，不依赖函数名）。
+func registerNodeFile(repo *sqlite.Repo, svcName string) (string, bool) {
+	rows, err := repo.Query(`SELECT file_path FROM nodes WHERE json_extract(properties, '$.registers_service') = ? LIMIT 1`, svcName)
 	if err != nil {
 		return "", false
 	}
@@ -111,9 +112,9 @@ func nodeFile(repo *sqlite.Repo, name string) (string, bool) {
 }
 
 // registerCallSite Register 函数的调用点（source 函数 file + 调用行）。
-func registerCallSite(repo *sqlite.Repo, regName string) (string, int, bool) {
-	// Register 函数 id
-	rows, err := repo.Query(`SELECT id FROM nodes WHERE name = ? AND kind = 'function' LIMIT 1`, regName)
+func registerCallSite(repo *sqlite.Repo, svcName string) (string, int, bool) {
+	// Register 函数 id（registers_service 属性——签名识别）
+	rows, err := repo.Query(`SELECT id FROM nodes WHERE json_extract(properties, '$.registers_service') = ? LIMIT 1`, svcName)
 	if err != nil {
 		return "", 0, false
 	}

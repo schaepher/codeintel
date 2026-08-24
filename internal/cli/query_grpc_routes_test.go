@@ -70,9 +70,10 @@ func _QueryService_PagingShops_Handler(srv interface{}, ctx interface{}) error {
 		// 服务实现（implements 边：接口 → 实现者）
 		{ID: "symbol:go:example.com/m/impl:queryServiceImpl", Kind: domain.KindStruct,
 			Name: "queryServiceImpl", FilePath: "impl/query.go", LineStart: 20},
-		// 注册函数（生成代码，collectRegisterServers 收集的形态）
+		// 注册函数（签名识别建立——registers_service 属性；R30 不再按名查）
 		{ID: "symbol:go:example.com/m/grpc:RegisterQueryServiceServer", Kind: domain.KindFunction,
-			Name: "RegisterQueryServiceServer", FilePath: "grpc/query_grpc.pb.go", LineStart: 41},
+			Name: "RegisterQueryServiceServer", FilePath: "grpc/query_grpc.pb.go", LineStart: 41,
+			Properties: map[string]any{"registers_service": "QueryService"}},
 		// 注册调用点函数（serves_grpc 标记的调用者——serviceFlags 写回）
 		{ID: "symbol:go:example.com/m/grpc:setupGrpc", Kind: domain.KindFunction,
 			Name: "setupGrpc", FilePath: "grpc/server.go", LineStart: 18,

@@ -734,6 +734,19 @@ enums ~140 条（订单状态/支付方式/钱包流水等 proto 枚举全带中
 - proto 词法解析 ~150 行替代 protoc（值号/注释/嵌套全支持）——
   分析型工具优先轻量实现，重依赖后置
 
+**R29 补遗（签名识别，用户当场要求）**：注册函数识别从"函数名
+RegisterXxxServer + .pb.go 后缀"改为**签名识别**（collectRegisterServers
+重写）——① 第一个参数类型是 grpc.ServiceRegistrar 接口或 *grpc.Server；
+② 函数体调用 RegisterService 方法（protoc 生成与手写通用，最强信号）；
+服务名从参数 2 类型去 Server 后缀提取（impl struct 形态回退
+RegisterService 第一实参 desc 名）。注册函数节点打 `registers_service`
+属性（nodeFor 的 extra 只支持 bool——直构节点存字符串），查询层按
+属性找 Register 函数（不再按名推导）。go2o 复验 30 服务全命中（与
+旧识别一致）；新测试 TestGrpcRegisterBySignature（手写 setupAll 形态）
++ TestGrpcNonRegisterNotMarked（普通函数不带属性）。旧 fixture 两处
+（TestGrpcClientCallEdge/TestIndexHTTPHandlerLeaves 的 `s any` 简化
+参数）更新为 Registrar + RegisterService 调用形态。
+
 ## 待办与候选方向（未定优先级）
 
 **高优先级待办**（2026-08-24 用户提出，6 项）：

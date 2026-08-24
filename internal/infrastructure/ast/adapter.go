@@ -59,7 +59,7 @@ func (a *Adapter) Name() string {
 
 // processFile 遍历单个 AST：定位每个调用点，连接调用者与被调用者。
 func (a *Adapter) processFile(repo *domain.Repository, pkg *packages.Package, f *ast.File, emit domain.EmitFunc,
-	serviceFlags map[domain.CanonicalID]map[string]bool, registerServers map[string]bool,
+	serviceFlags map[domain.CanonicalID]map[string]bool, registerServers map[string]string,
 	newClients map[string]string) error {
 	logger := zap.L()
 	logger.Debug("enter (Adapter).processFile")

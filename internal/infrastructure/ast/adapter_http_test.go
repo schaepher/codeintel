@@ -47,9 +47,14 @@ func main() {}
 
 		"pb/service.pb.go": `package pb
 
+type Registrar interface{ RegisterService(desc any, impl any) }
+
 type FooImpl struct{}
 
-func RegisterFooServer(s any, impl any) {}
+// R30：注册函数经签名识别（RegisterService 调用）——参数不再用 any
+func RegisterFooServer(s Registrar, impl any) {
+	s.RegisterService(nil, impl)
+}
 `,
 	})
 

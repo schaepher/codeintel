@@ -21,7 +21,7 @@ type fileCtx struct {
 	f               *ast.File
 	emit            domain.EmitFunc
 	serviceFlags    map[domain.CanonicalID]map[string]bool
-	registerServers map[string]bool
+	registerServers map[string]string
 	newClients      map[string]string
 
 	// 对象流追踪：变量名 → 对象 ID（同一函数内）；表达式 Pos → 对象 ID（去重）

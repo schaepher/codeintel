@@ -259,33 +259,15 @@ func (ctx *fileCtx) markServiceEntry(call *ast.CallExpr, callee *types.Func,
 			}
 		}
 	}
-	// gRPC 服务注册：protoc 生成的 RegisterXxxServer（定义在 .pb.go），
-	// 其第二个参数是服务实现，作为顶层服务入口
-	if ctx.registerServers[callee.Pkg().Path()+":"+callee.Name()] {
+	// gRPC 服务注册：按签名识别的注册函数（R30：不限 .pb.go/命名——
+	// grpc.ServiceRegistrar 参数或 RegisterService 调用），其第二个参数
+	// 是服务实现/接口，作为顶层服务入口
+	if svcName, ok := ctx.registerServers[callee.Pkg().Path()+":"+callee.Name()]; ok {
 		if !flags["serves_grpc"] {
 			flags["serves_grpc"] = true
 			marked = true
 		}
-		// §18：grpc_service 节点 + grpc_impl 边（实现类型 → 服务）
-		svcID := domain.CanonicalID("symbol:go:" + callee.Pkg().Path() + ":svc." + registerService(callee.Name()))
-		_ = ctx.emit(domain.Item{Node: &domain.CodeEntity{
-			ID:         svcID,
-			Kind:       domain.KindGrpcService,
-			Name:       "svc." + registerService(callee.Name()),
-			Properties: map[string]any{"service_name": registerService(callee.Name())},
-		}})
-		if impl := serviceImplNode(pkg, call, ctx.repo); impl != nil {
-			if err := ctx.emit(domain.Item{Node: impl}); err != nil {
-				return
-			}
-			_ = ctx.emit(domain.Item{Fact: &domain.Fact{
-				SourceID:   impl.ID,
-				TargetID:   svcID,
-				Kind:       domain.FactGrpcImpl,
-				ToolSource: domain.ToolCodeGraph,
-				Confidence: 1.0,
-			}})
-		}
+		ctx.emitGrpcServiceEntry(call, callee, svcName)
 	}
 	if marked {
 		if err := ctx.emit(domain.Item{Node: nodeFor(ctx.repo, pkg, caller, callerID, callerKind, ctx.serviceFlags[callerID])}); err != nil {

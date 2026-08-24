@@ -68,7 +68,7 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	return nil
 }
 func (a *Adapter) processPackage(repo *domain.Repository, pkg *packages.Package, emit domain.EmitFunc,
-	serviceFlags map[domain.CanonicalID]map[string]bool, registerServers map[string]bool,
+	serviceFlags map[domain.CanonicalID]map[string]bool, registerServers map[string]string,
 	newClients map[string]string) error {
 	logger := zap.L()
 	logger.Debug("enter (Adapter).processPackage")

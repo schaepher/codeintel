@@ -15,9 +15,15 @@ func TestGrpcClientCallEdge(t *testing.T) {
 		"go.mod": "module example.com/mtest\n\ngo 1.21\n",
 		"pb/greet.pb.go": `package pb
 
+type Registrar interface{ RegisterService(desc any, impl any) }
+
 type GreeterServer interface{ SayHello(string) string }
 
-func RegisterGreeterServer(s any, impl GreeterServer) {}
+// R30：注册函数经签名识别（RegisterService 调用）——不再依赖 .pb.go
+// 后缀与 RegisterXxxServer 命名
+func RegisterGreeterServer(s Registrar, impl GreeterServer) {
+	s.RegisterService(nil, impl)
+}
 
 type GreeterClient interface{ SayHello(string) string }
 

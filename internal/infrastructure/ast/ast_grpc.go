@@ -10,31 +10,41 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-// collectRegisterServers 遍历项目内包，收集定义在 .pb.go 中、函数名匹配
-// RegisterXxxServer 的注册函数（key: "pkgPath:funcName"）。
-func collectRegisterServers(pkgs []*packages.Package, modules []string) map[string]bool {
-	out := map[string]bool{}
-	for _, pkg := range pkgs {
-		if !isInModule(pkg.PkgPath, modules) {
-			continue
-		}
-		for _, f := range pkg.Syntax {
-			file := pkg.Fset.PositionFor(f.Pos(), false).Filename
-			if !strings.HasSuffix(file, ".pb.go") {
-				continue
-			}
-			for _, decl := range f.Decls {
-				fn, ok := decl.(*ast.FuncDecl)
-				if !ok || fn.Recv != nil {
-					continue
-				}
-				if isRegisterServerName(fn.Name.Name) {
-					out[pkg.PkgPath+":"+fn.Name.Name] = true
-				}
-			}
-		}
+// emitGrpcServiceEntry 注册函数调用点发射：grpc_service 节点 +
+// registers_service 属性（查询层数据源——query grpc-routes 按属性找
+// Register 函数）+ grpc_impl 边（实现类型 → 服务）。从 markServiceEntry
+// 拆出（行数治理；R30 签名识别后调用）。
+func (ctx *fileCtx) emitGrpcServiceEntry(call *ast.CallExpr, callee *types.Func, svcName string) {
+	pkg := ctx.pkg
+	// §18：grpc_service 节点
+	svcID := domain.CanonicalID("symbol:go:" + callee.Pkg().Path() + ":svc." + svcName)
+	_ = ctx.emit(domain.Item{Node: &domain.CodeEntity{
+		ID:         svcID,
+		Kind:       domain.KindGrpcService,
+		Name:       "svc." + svcName,
+		Properties: map[string]any{"service_name": svcName},
+	}})
+	// R30：注册函数节点打 registers_service 属性（nodeFor 的 extra 只
+	// 支持 bool 标记，服务名是字符串——直构）
+	if cid, ckind := fnID(callee); cid != "" {
+		pos := pkg.Fset.PositionFor(callee.Pos(), false)
+		_ = ctx.emit(domain.Item{Node: &domain.CodeEntity{
+			ID: cid, Kind: ckind, Name: callee.Name(),
+			FilePath:  relPath(ctx.repo.Path, pos.Filename),
+			LineStart: pos.Line, LineEnd: pos.Line,
+			Properties: map[string]any{"registers_service": svcName},
+		}})
 	}
-	return out
+	if impl := serviceImplNode(pkg, call, ctx.repo); impl != nil {
+		_ = ctx.emit(domain.Item{Node: impl})
+		_ = ctx.emit(domain.Item{Fact: &domain.Fact{
+			SourceID:   impl.ID,
+			TargetID:   svcID,
+			Kind:       domain.FactGrpcImpl,
+			ToolSource: domain.ToolCodeGraph,
+			Confidence: 1.0,
+		}})
+	}
 }
 
 // collectNewClients 遍历 .pb.go 收集 protoc 生成的 NewXxxClient 客户端
@@ -81,12 +91,6 @@ func clientTypeService(name string) (string, bool) {
 		return "", false
 	}
 	return strings.TrimSuffix(name, "Client"), true
-}
-
-// registerService 从 RegisterXxxServer 函数名提取服务名（RegisterGreeterServer
-// → Greeter）。
-func registerService(name string) string {
-	return strings.TrimSuffix(strings.TrimPrefix(name, "Register"), "Server")
 }
 
 // unquoteMethodPath 校验并还原字符串字面量为 gRPC 方法路径
