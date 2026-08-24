@@ -86,6 +86,11 @@ func (a *Adapter) processPackage(repo *domain.Repository, pkg *packages.Package,
 		return err
 	}
 
+	// R35：urfave/cli v2 命令树识别（不依赖文件路径——代码事实发现）
+	if err := a.markCLICommands(repo, pkg, emit); err != nil {
+		return err
+	}
+
 	for importPath := range pkg.Imports {
 		if !isInModule(importPath, repo.Modules) {
 			continue

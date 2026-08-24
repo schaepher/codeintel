@@ -927,6 +927,38 @@ prompt），并加导出命令。
 - "数据源统一、渲染分离"原则——领域归属一份数据，所有输出形态
   消费同一份，避免各页面规则分叉（R33 前缀 vs F2 目录的历史教训）
 
+### R35（2026-08-24）——urfave/cli/v2 命令树识别（待办 3）
+
+**分析**：待办 3——urfave/cli/v2 命令解析，不依赖具体文件路径。现状：
+commands/processes 页已从 main 入口生成（R28/F1），但 urfave/cli 注册的
+命令树（`cli.App{Commands: [...]}`）没被解析——命令清单页看不到真实
+命令。grilling 定案（Q1-Q4 全 A）：独立命令 `query cli-routes` +
+wiki commands 页消费；识别 App 字面量 Commands + 包级 Commands 变量
+（v2 主流两形态）；递归一层 Subcommands；与 main 入口调用链并存
+（补充不替换）。
+
+**改进方案**：
+- 构建期识别（markCLICommands——同 markGrpcServiceInterfaces 挂
+  processPackage）：types 判断 urfave/cli/v2 的 App/[]*cli.Command
+  类型 → 复合字面量提取 Name/Usage/Action/Subcommands（递归一层）→
+  发射 cli_command 节点（cli_name/cli_usage/cli_action/cli_parent/
+  register——嵌套父命令名拼接）
+- 查询命令 `query cli-routes`：读节点 → 命令树 JSON（subcommands
+  嵌套组织——parent 组装）
+- wiki commands 页：有 cli 命令树先展示命令清单（缩进树），后接
+  main 入口调用链
+
+**实施结果**：测试 TestCLICommandTree（urfave stub via replace——App
+字面量 + 包级变量 + 嵌套子命令 db.list 全识别）+ TestQueryCLIRoutes
+（节点 → 树 JSON）全绿；全仓 -race 13 包全绿。go2o/ana 均未用
+urfave/cli（识别机制由 fixture 验证，真实项目待观察）。
+
+**AI 杠杆点**（R35 实证）：
+- 识别模式复用：grpc 注册签名 → gin 路由 → urfave 命令树——同一
+  "types 类型判断 + 复合字面量字段提取"模式，识别类功能模板化
+- COALESCE 问题复发（NULL 属性 Scan 失败丢整行）——json_extract
+  取可选属性必须 COALESCE（R34/R35 两次同坑，应进 runbook）
+
 ## 待办与候选方向（未定优先级）
 
 **高优先级待办**（2026-08-24 用户提出，6 项）：

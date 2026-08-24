@@ -39,6 +39,7 @@ const (
 	KindResult          EntityKind = "result"           // 函数/方法返回值
 	KindGrpcService     EntityKind = "grpc_service"     // gRPC 服务标识（模块间调用，field_trace.md §18）
 	KindHTTPRoute       EntityKind = "http_route"       // HTTP 路由（人工路由表 routes.yaml，§18.7）
+	KindCLICommand      EntityKind = "cli_command"      // urfave/cli v2 命令树节点（R35）
 )
 
 // BuildStatus 构建状态，对应 build_metadata.status 列（R7：真枚举——

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/schaepher/codeintel/internal/action"
+	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
 
 type entrySymbol struct {
@@ -41,12 +42,31 @@ func entrySymbols(acts *action.Actions) []entrySymbol {
 	return out
 }
 
-// renderCommandsMD 命令与入口页 Markdown（目标仓库 main 入口 + 一级
-// 调用链——不再硬编码 codeintel 自身命令）。
-func renderCommandsMD(acts *action.Actions) string {
+// renderCommandsMD 命令与入口页 Markdown（R35：有 urfave/cli 命令树
+// 先展示命令清单；后接目标仓库 main 入口 + 一级调用链）。
+func renderCommandsMD(acts *action.Actions, repo *sqlite.Repo) string {
 	var b strings.Builder
 	b.WriteString("# 命令与入口\n\n")
-	b.WriteString("> 数据源：目标仓库 main 入口函数 + 一级调用链（索引事实）。\n\n")
+	b.WriteString("> 数据源：urfave/cli 命令树（代码事实）+ main 入口调用链（索引事实）。\n\n")
+	if res, err := cliRoutes(repo); err == nil && len(res.Commands) > 0 {
+		b.WriteString("## 命令清单\n\n")
+		var walk func(cmds []cliCommandEntry, depth int)
+		walk = func(cmds []cliCommandEntry, depth int) {
+			for _, c := range cmds {
+				line := "- `" + c.Name + "`"
+				if c.Usage != "" {
+					line += " — " + c.Usage
+				}
+				if c.Action != "" {
+					line += "（" + c.Action + "）"
+				}
+				b.WriteString(strings.Repeat("  ", depth) + line + "\n")
+				walk(c.Subcommands, depth+1)
+			}
+		}
+		walk(res.Commands, 0)
+		b.WriteString("\n")
+	}
 	entries := entrySymbols(acts)
 	if len(entries) == 0 {
 		b.WriteString("未找到 main 入口（库项目或入口不在索引中）。\n")
@@ -74,11 +94,35 @@ func renderCommandsMD(acts *action.Actions) string {
 	return b.String()
 }
 
-// renderCommandsHTML 命令与入口页 html 内容（目标仓库 main 入口 +
-// 一级调用链）。
-func renderCommandsHTML(acts *action.Actions) string {
+// renderCommandsHTML 命令与入口页 html 内容（R35：urfave/cli 命令树
+// 前置 + main 入口调用链）。
+func renderCommandsHTML(acts *action.Actions, repo *sqlite.Repo) string {
 	var b strings.Builder
-	b.WriteString(`<section id="commands"><h2>命令与入口</h2><p class="muted">数据源：目标仓库 main 入口函数 + 一级调用链（索引事实）。</p>`)
+	b.WriteString(`<section id="commands"><h2>命令与入口</h2><p class="muted">数据源：urfave/cli 命令树（代码事实）+ main 入口调用链（索引事实）。</p>`)
+	if res, err := cliRoutes(repo); err == nil && len(res.Commands) > 0 {
+		b.WriteString("<h3>命令清单</h3><ul>")
+		var walk func(cmds []cliCommandEntry)
+		walk = func(cmds []cliCommandEntry) {
+			for _, c := range cmds {
+				line := "<code>" + htmlEsc(c.Name) + "</code>"
+				if c.Usage != "" {
+					line += " — " + htmlEsc(c.Usage)
+				}
+				if c.Action != "" {
+					line += "（" + htmlEsc(c.Action) + "）"
+				}
+				b.WriteString("<li>" + line)
+				if len(c.Subcommands) > 0 {
+					b.WriteString("<ul>")
+					walk(c.Subcommands)
+					b.WriteString("</ul>")
+				}
+				b.WriteString("</li>")
+			}
+		}
+		walk(res.Commands)
+		b.WriteString("</ul>")
+	}
 	entries := entrySymbols(acts)
 	if len(entries) == 0 {
 		b.WriteString(`<p>未找到 main 入口（库项目或入口不在索引中）。</p></section>`)

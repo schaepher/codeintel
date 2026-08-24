@@ -43,7 +43,7 @@ func cmdQuery(args []string) int {
 	f := parseQueryFlags(rest)
 	target := ""
 
-	if sub != "unused" && sub != "module-calls" && sub != "enums" && sub != "entities" && sub != "grpc-routes" && sub != "http-routes" && !(sub == "relations" && f.all) {
+	if sub != "unused" && sub != "module-calls" && sub != "enums" && sub != "entities" && sub != "grpc-routes" && sub != "http-routes" && sub != "cli-routes" && !(sub == "relations" && f.all) {
 		if len(f.positional) < 1 {
 			fmt.Fprintf(os.Stderr, "error: 缺少符号参数\n")
 			return 2
@@ -91,6 +91,10 @@ func cmdQuery(args []string) int {
 	// R31：HTTP 路由清单（不依赖符号参数）
 	if sub == "http-routes" {
 		return cmdHTTPRoutes(abs, f)
+	}
+	// R35：urfave/cli 命令树（不依赖符号参数）
+	if sub == "cli-routes" {
+		return cmdCLIRoutes(abs, f)
 	}
 
 	opts := outputOpts{json: f.json, compact: f.compact, repoPath: f.repoPath}
