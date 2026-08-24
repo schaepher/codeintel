@@ -272,3 +272,12 @@ func factLineNum(f *domain.Fact) int {
 }
 
 // seqShort canonical ID → 短名（保留方法形态 (T).m）。
+
+// TableSchemas 表 schema 事实源（R19）：sqlite_master CREATE TABLE
+// 全量——列类型/默认值权威（不借助 AI 填类型）。
+func (a *Actions) TableSchemas() (map[string]string, error) {
+	logger := zap.L()
+	logger.Info("enter (Actions).TableSchemas")
+	defer logger.Info("exit (Actions).TableSchemas")
+	return a.repo.GetTableSchemas()
+}

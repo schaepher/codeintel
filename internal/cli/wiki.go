@@ -169,7 +169,7 @@ func cmdWiki(args []string) int {
 	}
 	fmt.Printf("wiki 已生成: %s（%d 个模块）\n", outDir, len(data))
 	// D：描述补全引导——缺口统计提示（无描述模块/无别名表/无说明表列）
-	if mods, tbls, cc := wikiGapReport(data, cfg, cols); mods+tbls+cc > 0 {
+	if mods, tbls, cc := wikiGapReport(data, cfg, cols, nil); mods+tbls+cc > 0 {
 		fmt.Printf("wiki 补全提示：%d 个模块无描述、%d 张表无别名、%d 个表列无说明——在 wiki.yaml 补充后重新生成\n", mods, tbls, cc)
 	}
 	return 0

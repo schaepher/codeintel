@@ -37,6 +37,7 @@ type wikiSnapshot struct {
 	degradeStats string // R6：构建降级统计
 	eg           *domain.EntityGraph // R9：实体协作图（概览/模块页渲染）
 	keyFlows     map[string][]wikiKeyFlow // R17：模块关键数据流（核心符号字段读写）
+	schemas      map[string]map[string]schemaCol // R19：表 schema 事实源（列类型/默认值）
 	yamlMod    int64
 	data       []*domain.WikiModule
 	ordered    []*domain.WikiModule
@@ -171,10 +172,12 @@ func (ws *wikiServe) load(buildID, commitSHA, degradeStats string, yamlMod int64
 			keyFlows[wm.Name] = f
 		}
 	}
+	// R19：表 schema 事实源（sqlite_master → 列类型/默认值）
+	schemas := wikiSchemas(ws.acts)
 	return &wikiSnapshot{
 		buildID: buildID, commitSHA: commitSHA, degradeStats: degradeStats, yamlMod: yamlMod, data: data, ordered: ordered,
 		cfg: cfg, meta: meta, tableAlias: tableAlias, hidden: hidden,
-		tableCfgs: tableCfgsFrom(cfg), cols: cols, rels: rels, eg: eg, keyFlows: keyFlows,
+		tableCfgs: tableCfgsFrom(cfg), cols: cols, rels: rels, eg: eg, keyFlows: keyFlows, schemas: schemas,
 	}, nil
 }
 

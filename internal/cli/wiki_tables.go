@@ -5,11 +5,12 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
 )
 
 // renderTablesPage 表清单 + 每表详情（字段定义表/索引/建表语句，#243）。
-func renderTablesPage(data []*domain.WikiModule, tableAlias map[string]string, tableCfgs map[string]wikiTableConfig, cols []*domain.TableColumn) string {
+func renderTablesPage(data []*domain.WikiModule, tableAlias map[string]string, tableCfgs map[string]wikiTableConfig, cols []*domain.TableColumn, schemas map[string]map[string]schemaCol) string {
 	var b strings.Builder
 	b.WriteString("# 表清单\n\n> 自动生成：gorm/xorm 写路径识别；别名与字段说明可在 wiki.yaml tables 补充。\n\n")
 	seen := map[string]bool{}
@@ -56,7 +57,7 @@ func renderTablesPage(data []*domain.WikiModule, tableAlias map[string]string, t
 			b.WriteString("> " + alias + "\n\n")
 		}
 		cfg := tableCfgs[t]
-		rows := mergeTableColumns(t, cols, cfg.Columns)
+		rows := mergeTableColumnsWithSchema(t, cols, cfg.Columns, schemas)
 		if len(rows) == 0 {
 			b.WriteString("（无字段信息——维护者可在 wiki.yaml tables.columns 补充）\n\n")
 		} else {
@@ -82,7 +83,7 @@ func renderTablesPage(data []*domain.WikiModule, tableAlias map[string]string, t
 
 // wikiGapReport 描述补全缺口统计（D）：无描述模块数、无别名表数、
 // 无 comment 表列数——生成/浏览时提示用户补 wiki.yaml。
-func wikiGapReport(data []*domain.WikiModule, cfg wikiConfig, cols []*domain.TableColumn) (modsNoDesc, tablesNoAlias, colsNoComment int) {
+func wikiGapReport(data []*domain.WikiModule, cfg wikiConfig, cols []*domain.TableColumn, schemas map[string]map[string]schemaCol) (modsNoDesc, tablesNoAlias, colsNoComment int) {
 	meta, tableAlias, _ := wikiMetaIndex(cfg)
 	for _, wm := range data {
 		if meta[wm.Name].desc == "" && wm.Desc == "" {
@@ -95,7 +96,7 @@ func wikiGapReport(data []*domain.WikiModule, cfg wikiConfig, cols []*domain.Tab
 			tablesNoAlias++
 		}
 		tc := tableCfgs[t.name]
-		for _, r := range mergeTableColumns(t.name, cols, tc.Columns) {
+		for _, r := range mergeTableColumnsWithSchema(t.name, cols, tc.Columns, schemas) {
 			if r.comment == "" {
 				colsNoComment++
 			}
@@ -129,6 +130,114 @@ type tableColRow struct {
 	comment string
 }
 
+// schemaCol 一个列的 schema 事实（R19：sqlite_master 解析）。
+type schemaCol struct {
+	Typ string
+	Def string
+}
+
+// parseCreateTableSchema 解析 CREATE TABLE DDL → 每表列类型/默认值
+// （R19：不借助 AI 填类型——SQLite schema 是权威事实源）。
+// 跳过 FOREIGN KEY/PRIMARY KEY/UNIQUE/CHECK 等约束行；列定义
+// `name TYPE [NOT NULL] [DEFAULT x]`——取第一个 token 为类型，
+// DEFAULT 后（去注释）为默认值。
+func parseCreateTableSchema(ddls map[string]string) map[string]map[string]schemaCol {
+	out := map[string]map[string]schemaCol{}
+	for table, ddl := range ddls {
+		cols := map[string]schemaCol{}
+		for _, line := range strings.Split(ddl, "\n") {
+			line = strings.TrimSpace(line)
+			line = strings.TrimSuffix(line, ",")
+			// ALTER 加列形态：`, degrade_stats TEXT)`——前导逗号
+			if strings.HasPrefix(line, ",") {
+				line = strings.TrimSpace(strings.TrimPrefix(line, ","))
+			}
+			if line == "" || line == "(" || line == ")" {
+				continue
+			}
+			up := strings.ToUpper(line)
+			if strings.HasPrefix(up, "CREATE TABLE") || strings.HasPrefix(up, "FOREIGN KEY") ||
+				strings.HasPrefix(up, "PRIMARY KEY") || strings.HasPrefix(up, "UNIQUE") ||
+				strings.HasPrefix(up, "CHECK") || strings.HasPrefix(up, "CONSTRAINT") {
+				continue
+			}
+			// 去行尾注释
+			if i := strings.Index(line, "--"); i >= 0 {
+				line = strings.TrimSpace(line[:i])
+			}
+			rawName := line
+			if i := strings.IndexAny(line, " \t"); i >= 0 {
+				rawName = line[:i]
+			}
+			// 先按原始名（含引号）算 rest 偏移，再 Trim 引号——
+			// 否则引号列 rest 错位（Typ 取到 `"`）；整行无空格
+			// （单 token 行）越界保护
+			name := strings.Trim(rawName, `"`+"`[]")
+			rest := ""
+			if len(line) > len(rawName)+1 {
+				rest = strings.TrimSpace(line[len(rawName)+1:])
+			}
+			if name == "" {
+				continue
+			}
+			if rest == "" {
+				continue
+			}
+			c := schemaCol{}
+			// 类型 = 第一个 token（TEXT/INTEGER/REAL/JSON/BLOB…；
+			// 注释在逗号后时逗号残留——去尾部逗号）
+			if i := strings.IndexAny(rest, " \t"); i >= 0 {
+				c.Typ = rest[:i]
+			} else {
+				c.Typ = rest
+			}
+			c.Typ = strings.TrimSuffix(c.Typ, ",")
+			// DEFAULT 值
+			if i := strings.Index(strings.ToUpper(rest), "DEFAULT"); i >= 0 {
+				c.Def = strings.TrimSpace(rest[i+len("DEFAULT"):])
+			}
+			cols[name] = c
+		}
+		out[table] = cols
+	}
+	return out
+}
+
+// mergeTableColumnsWithSchema 列合并（R19）：类型/默认值填充优先级
+// yaml > sqlite schema > gorm tag——schema 事实自动补全，yaml 人工可覆盖。
+func mergeTableColumnsWithSchema(table string, cols []*domain.TableColumn, yamlCols []wikiTableColumn, schemas map[string]map[string]schemaCol) []tableColRow {
+	rows := mergeTableColumns(table, cols, yamlCols)
+	// ColType 索引（gorm tag——schema 缺失时的兜底）
+	colType := map[string]string{}
+	prefix := table + "."
+	for _, c := range cols {
+		if strings.HasPrefix(c.Name, prefix) {
+			colType[strings.TrimPrefix(c.Name, prefix)] = c.ColType
+		}
+	}
+	sc := schemas[table]
+	for i := range rows {
+		name := rows[i].name
+		if rows[i].typ == "" {
+			if sc != nil {
+				if c, ok := sc[name]; ok {
+					rows[i].typ = c.Typ // schema 优先
+				} else {
+					rows[i].typ = colType[name] // schema 缺 → gorm tag 兜底
+				}
+			} else {
+				rows[i].typ = colType[name]
+			}
+		}
+		if rows[i].def == "" && sc != nil {
+			if c, ok := sc[name]; ok {
+				rows[i].def = c.Def
+			}
+		}
+	}
+	return rows
+}
+
 // mergeTableColumns 表字段合并（#243 自动初稿 + yaml 覆盖）：
 // 自动列（ER 表列虚拟节点：列名 + gorm tag 类型）为底，yaml columns
 // 覆盖同名（type/default/comment 各自覆盖），自动列未列出的补全。
@@ -155,14 +264,13 @@ func mergeTableColumns(table string, cols []*domain.TableColumn, yamlCols []wiki
 		if hidden[col] {
 			continue
 		}
+		// R19：类型由 WithSchema 统一处理（schema 优先、ColType 兜底）——
+		// 此处不填，避免覆盖优先级混乱
 		if r, ok := byName[col]; ok {
-			if r.typ == "" {
-				r.typ = c.ColType
-			}
 			byName[col] = r
 			continue
 		}
-		byName[col] = tableColRow{name: col, typ: c.ColType}
+		byName[col] = tableColRow{name: col}
 		order = append(order, col)
 	}
 	out := make([]tableColRow, 0, len(order))
@@ -170,4 +278,14 @@ func mergeTableColumns(table string, cols []*domain.TableColumn, yamlCols []wiki
 		out = append(out, byName[n])
 	}
 	return out
+}
+
+// wikiSchemas 表 schema 事实（R19）：sqlite_master CREATE TABLE 解析
+// 为 列类型/默认值 映射（不借助 AI——SQLite 是权威）。
+func wikiSchemas(acts *action.Actions) map[string]map[string]schemaCol {
+	ddls, err := acts.TableSchemas()
+	if err != nil {
+		return nil
+	}
+	return parseCreateTableSchema(ddls)
 }

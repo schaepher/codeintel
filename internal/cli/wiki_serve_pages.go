@@ -67,7 +67,7 @@ func (ws *wikiServe) pageHTML(snap *wikiSnapshot, current string, main string) s
 // gapBannerHTML 描述补全引导横幅（D）：缺口数 + 一键关闭（localStorage
 // 持久化；wiki.yaml 更新后重新显示）。
 func gapBannerHTML(snap *wikiSnapshot) string {
-	mods, tbls, cc := wikiGapReport(snap.data, snap.cfg, snap.cols)
+	mods, tbls, cc := wikiGapReport(snap.data, snap.cfg, snap.cols, snap.schemas)
 	if mods+tbls+cc == 0 {
 		return ""
 	}
@@ -258,6 +258,6 @@ func erRelsForModule(snap *wikiSnapshot, mod string, rels []*domain.TableRelatio
 // tablesPage 表清单页。
 func (ws *wikiServe) tablesPage(snap *wikiSnapshot) string {
 	tables := collectTables(snap.data, snap.tableAlias, snap.tableCfgs)
-	main := wikiTablesSectionHTML(tables, snap.tableCfgs, snap.cols)
+	main := wikiTablesSectionHTML(tables, snap.tableCfgs, snap.cols, snap.schemas)
 	return ws.pageHTML(snap, "/wiki/tables", main)
 }

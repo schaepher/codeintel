@@ -36,6 +36,7 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 
 	eg, egErr := acts.Entities() // R9：实体协作图（模块页/概览渲染）
 	_ = egErr
+	schemas := wikiSchemas(acts) // R19 表 schema 事实源（列类型/默认值）
 
 	title := filepath.Base(repoAbs) + " 业务 wiki"
 	var nav strings.Builder  // 左侧目录
@@ -100,7 +101,7 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	}
 	main.WriteString("</section>\n")
 	nav.WriteString(`<li><a href="#er">ER 图</a></li>`)
-	main.WriteString(wikiTablesSectionHTML(tables, tableCfgs, cols))
+	main.WriteString(wikiTablesSectionHTML(tables, tableCfgs, cols, schemas))
 	nav.WriteString(`<li><a href="#tables">表清单</a></li>`)
 
 	if len(cfg.Glossary) > 0 {
