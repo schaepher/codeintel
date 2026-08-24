@@ -71,7 +71,7 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	}
 
 	// R1：命令/接口区块（单文件 html 全量包含——怎么用，靠前）
-	main.WriteString(renderCommandsHTML(acts, rc.repo))
+	main.WriteString(renderCommandsHTML(acts, rc.repo, rc.RepoAbs))
 	nav.WriteString(`<li><a href="#commands">命令清单</a></li>`)
 	main.WriteString(renderAPIHTML(repoAbs))
 	nav.WriteString(`<li><a href="#api">HTTP 接口</a></li>`)

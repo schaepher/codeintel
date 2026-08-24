@@ -88,7 +88,7 @@ func renderProcessesMD(rc *wikiRenderCtx) string {
 	if err != nil {
 		eg = nil
 	}
-	entries := entrySymbols(acts)
+	entries := entrySymbols(acts, rc.RepoAbs)
 	if len(entries) == 0 {
 		b.WriteString("未找到 main 入口（库项目或入口不在索引中）。\n")
 		return b.String()
@@ -160,7 +160,7 @@ func renderProcessesHTML(rc *wikiRenderCtx) string {
 	if err != nil {
 		eg = nil
 	}
-	entries := entrySymbols(acts)
+	entries := entrySymbols(acts, rc.RepoAbs)
 	if len(entries) == 0 {
 		b.WriteString(`<p>未找到 main 入口（库项目或入口不在索引中）。</p></section>`)
 		return b.String()

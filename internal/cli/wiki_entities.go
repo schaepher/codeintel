@@ -115,11 +115,22 @@ func renderEntitiesSectionMD(g *domain.EntityGraph, rc *wikiRenderCtx) string {
 		for _, d := range doms {
 			b.WriteString(fmt.Sprintf("<details><summary>领域 <code>%s</code>（%d 实体）——展开查看内部协作</summary>\n\n",
 				htmlEsc(d.Name), len(d.Nodes)))
-			b.WriteString(rc.diagramMD(entityMermaid(&domain.EntityGraph{Nodes: d.Nodes, Edges: d.Edges})))
+			// R39：单实体无内部协作时渲染空 mermaid 块（自身 wiki 实测
+			// "基础支撑域 1 实体"空图）——显示文字说明
+			if sub := entityMermaid(&domain.EntityGraph{Nodes: d.Nodes, Edges: d.Edges}); sub != "" {
+				b.WriteString(rc.diagramMD(sub))
+			} else {
+				b.WriteString("（无内部协作）\n\n")
+			}
 			b.WriteString("</details>\n\n")
 		}
 	} else {
-		b.WriteString(rc.diagramMD(entityMermaid(g)))
+		// R39：无强协作边时 entityMermaid 为空——不渲染空块
+		if sub := entityMermaid(g); sub != "" {
+			b.WriteString(rc.diagramMD(sub))
+		} else {
+			b.WriteString("（无内部协作）\n\n")
+		}
 	}
 	if len(g.Diags) > 0 {
 		b.WriteString("**设计诊断**（信号 → 行动；阈值见 `codeintel query entities`）：\n\n")
@@ -156,11 +167,21 @@ func renderEntitiesSectionHTML(g *domain.EntityGraph, rc *wikiRenderCtx) string 
 		b.WriteString("<h3>领域间关系</h3>" + rc.diagramHTML(domainMermaid(doms, g.Edges)))
 		for i, d := range doms {
 			id := fmt.Sprintf("entity-dom-%d", i)
+			// R39：单实体无内部协作时渲染空 mermaid 块——显示文字说明
+			inner := "（无内部协作）"
+			if sub := entityMermaid(&domain.EntityGraph{Nodes: d.Nodes, Edges: d.Edges}); sub != "" {
+				inner = rc.diagramHTML(sub)
+			}
 			b.WriteString(fmt.Sprintf(`<h4 class="fold-btn" data-target="%s" data-label="1">▸ 领域 %s（%d 实体）——内部协作</h4><div class="sec-body" id="%s" style="display:none">%s</div>`,
-				id, htmlEsc(d.Name), len(d.Nodes), id, rc.diagramHTML(entityMermaid(&domain.EntityGraph{Nodes: d.Nodes, Edges: d.Edges}))))
+				id, htmlEsc(d.Name), len(d.Nodes), id, inner))
 		}
 	} else {
-		b.WriteString(rc.diagramHTML(entityMermaid(g)))
+		// R39：无强协作边时 entityMermaid 为空——不渲染空块
+		if sub := entityMermaid(g); sub != "" {
+			b.WriteString(rc.diagramHTML(sub))
+		} else {
+			b.WriteString("<p class=\"muted\">（无内部协作）</p>")
+		}
 	}
 	if len(g.Diags) > 0 {
 		labels := map[string]string{

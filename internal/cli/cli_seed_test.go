@@ -48,6 +48,10 @@ func seedRepo(t *testing.T) string {
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/m\n\ngo 1.21\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// R39：main 入口过滤校验文件存在——fixture 补真实 main.go
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	db, err := sqlite.Open(dir)
 	if err != nil {
 		t.Fatalf("Open: %v", err)

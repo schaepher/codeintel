@@ -13,6 +13,8 @@ import (
 // grpcServiceList 流程页 gRPC 服务列表（索引节 + 子页写出共用；
 // rc.repo nil——纯函数级测试——返回空）。repoAbs 用于 ServiceDesc
 // 解析（方法全集 + handler）——空则 fallback 节点 methods 属性。
+// R39：过滤 0 方法服务（自身 wiki 实测——Greeter 无实现无方法，
+// 子页无内容）——不出索引项也不写子页。
 func grpcServiceList(rc *wikiRenderCtx) []grpcRouteService {
 	if rc.repo == nil {
 		return nil
@@ -21,7 +23,13 @@ func grpcServiceList(rc *wikiRenderCtx) []grpcRouteService {
 	if err != nil {
 		return nil
 	}
-	return svcs.Services
+	var out []grpcRouteService
+	for _, s := range svcs.Services {
+		if len(s.Methods) > 0 {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // grpcSvcFileName 服务子页文件名（md/html 共用基础名；服务名做文件名清洗）。

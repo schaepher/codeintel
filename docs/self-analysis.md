@@ -1088,6 +1088,33 @@ main 节保留 + 新增路由节。
 - 投票型静态兜底会被"基础设施兜底域"污染——显式配置（AI 归纳 +
   人工确认）才是可靠路径；兜底只当近似
 
+### R39（2026-08-25）——自举循环：自身 wiki 通读暴露的三个渲染质量问题
+
+用户要求：生成 codeintel 自身最新 wiki（带 --ai + domains 重跑补
+services）→ 基于 wiki 内容做下一轮循环。通读自身 wiki（index.md/
+processes.md）发现并修复：
+
+- **A. 空 mermaid 块**：实体协作"基础支撑域（1 实体）"渲染
+  ```mermaid 空块（entityMermaid 无强边返回 ""，diagramMD 无判空——
+  领域内图分支 + else 分支都漏）。修复：md/html 双通道判空 →
+  "（无内部协作）"文字说明。
+- **B. main 入口噪音**：8 个 main 中 6 个无调用链——tmp/ 探针
+  （orphan-scan/ast-probe/sqlparse-probe/ssadump）+ 幽灵 fixture
+  （fixtureapp/bench-sqlite/er-repro/probe——外部 module 残留，文件
+  在仓库外，relPath 算出裸文件名）。修复：entrySymbols 过滤
+  tmp/ 前缀 + 文件存在校验（repoAbs 贯通 renderCommands 与
+  renderProcesses）；入口 8 → 4。
+- **C. 空服务子页**：Greeter 服务"实现（未识别实现），0 个方法"
+  ——无方法服务出无内容子页。修复：grpcServiceList 过滤 0 方法服务
+  （索引项 + 子页都不出）。
+- 附带：seedRepo fixture 补真实 main.go（文件存在校验会误杀测试）。
+
+**AI 杠杆点**（R39 实证——自举循环的价值）：
+- 用自己产出的 wiki 审自己：渲染缺陷（空图）与数据噪音（探针/幽灵
+  入口）只有真实产物才暴露——单元测试覆盖不到的"整页观感"
+- relPath 对仓库外文件返回裸文件名——多模块仓库入口校验必须结合
+  文件系统存在性（单靠路径前缀不够）
+
 ## 待办与候选方向（未定优先级）
 
 **高优先级待办**（2026-08-24 用户提出，6 项）：

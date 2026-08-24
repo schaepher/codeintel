@@ -179,6 +179,44 @@ tables:
         comment: 字段路径
       - name: function_id
         comment: 函数 ID
+  # AI 初稿
+  - name: qa_history
+    # AI 初稿
+    alias: 问答历史
+    columns:
+      # AI 初稿
+      - name: agent
+        # AI 初稿
+        comment: 回答该问题所用 agent 的标识（模型命令名）
+      # AI 初稿
+      - name: answer
+        # AI 初稿
+        comment: agent 返回的回答内容
+      # AI 初稿
+      - name: context
+        # AI 初稿
+        comment: 提问中命中的项目符号/表名（逗号分隔），用于 wiki --with-qa 相关性检索
+      # AI 初稿
+      - name: created_at
+        # AI 初稿
+        comment: 问答收集时间戳（Unix 秒）
+      # AI 初稿
+      - name: question
+        # AI 初稿
+        comment: 用户提出的问题原文
+  # AI 初稿
+  - name: sqlite_master
+    # AI 初稿
+    alias: 库元信息表
+    columns:
+      # AI 初稿
+      - name: name
+        # AI 初稿
+        comment: 数据库对象（表/索引/视图）的名称
+      # AI 初稿
+      - name: sql
+        # AI 初稿
+        comment: 创建该对象的 SQL 语句（建表语句含列类型与默认值，作为表 schema 事实源）
 glossary:
   - term: ssa
     definition: 静态单赋值——编译器中间表示，用于字段级数据流追溯（谁写入/谁读取）
@@ -228,6 +266,30 @@ glossary:
     definition: ~/.codeintel 仓库台账（repos 表）——init 自动注册，list/workspace 管理
   - term: 跨层摘要（summary chain）
     definition: 入口→计算→写入→消费主链（query summary）——生命周期视角
+  # AI 初稿
+  - term: QA
+    # AI 初稿
+    definition: 问答——用户提问、agent 作答的交互，成功回答沉淀进 qa_history，wiki 生成时作参考资料
+  # AI 初稿
+  - term: agent
+    # AI 初稿
+    definition: AI 代理——回答项目问题的模型命令（如 claude），qa_history.agent 记录其标识
+  # AI 初稿
+  - term: with-qa
+    # AI 初稿
+    definition: wiki 生成选项——从 qa_history 按符号/表名相关性（context/question LIKE 匹配）检索历史问答作为参考资料（W3）
+  # AI 初稿
+  - term: schema 事实源
+    # AI 初稿
+    definition: 表结构事实来源——解析 sqlite_master 的 CREATE TABLE 获取列类型/默认值，自动填充 wiki 表字段类型（R19）
+  # AI 初稿
+  - term: sqlite_master
+    # AI 初稿
+    definition: SQLite 内置元信息表——记录库内所有表、索引等对象的名称与建表 SQL
+  # AI 初稿
+  - term: SQLite
+    # AI 初稿
+    definition: 嵌入式关系型数据库——单文件存储，codeintel 索引用其保存代码图（nodes/edges）与问答等数据
 architecture: "graph LR\n  SRC[Go 源码] --> A1[ssa 适配器]\n  SRC --> A2[ast 适配器]\n  SRC --> A3[scip 索引]\n  SRC --> A4[git 历史]\n  A1 --> DB[(codeintel.db)]\n  A2 --> DB\n  A3 --> DB\n  A4 --> DB\n  DB --> CLI[CLI 查询]\n  DB --> WEB[serve 网页]\n  DB --> MCP[MCP 服务]\n"
 flows:
   - title: init 构建流程
@@ -244,75 +306,96 @@ domains:
   # AI 初稿
   - name: 索引构建域
     # AI 初稿
-    description: 全量索引构建流程与多源代码分析适配器（AST/Git/SCIP/SSA）
-    # AI 初稿
-    packages:
-      - github.com/schaepher/codeintel/internal/orchestrator
-      - github.com/schaepher/codeintel/internal/infrastructure/ast
-      - github.com/schaepher/codeintel/internal/infrastructure/git
-      - github.com/schaepher/codeintel/internal/infrastructure/scip
-      - github.com/schaepher/codeintel/internal/infrastructure/ssa
-    # AI 初稿
-    tables:
-      - build_metadata
-  # AI 初稿
-  - name: 领域模型域
-    # AI 初稿
-    description: 核心领域模型（CodeEntity/Fact）与实体解析、冲突裁决
-    # AI 初稿
-    packages:
-      - github.com/schaepher/codeintel/internal/domain
-      - github.com/schaepher/codeintel/internal/canonicalizer
-    # AI 初稿
-    tables:
-      - nodes
-      - edges
-      - function_field_summary
-      - summary_origins
-  # AI 初稿
-  - name: 存储域
-    # AI 初稿
-    description: 代码索引数据持久化与全局仓库注册台账
-    # AI 初稿
-    packages:
-      - github.com/schaepher/codeintel/internal/infrastructure/sqlite
-    # AI 初稿
-    tables:
-      - repos
-      - sqlite_master
-  # AI 初稿
-  - name: 查询应用域
-    # AI 初稿
-    description: CLI 命令行入口与共享查询用例层（含 wiki 问答）
+    description: 代码索引构建流程：CLI 入口、全量/增量构建编排、实体解析裁决与仓库注册台账
     # AI 初稿
     packages:
       - github.com/schaepher/codeintel/cmd/codeintel
       - github.com/schaepher/codeintel/internal/cli
-      - github.com/schaepher/codeintel/internal/action
+      - github.com/schaepher/codeintel/internal/orchestrator
+      - github.com/schaepher/codeintel/internal/canonicalizer
     # AI 初稿
     tables:
+      - build_metadata
       - qa_history
-  # AI 初稿
-  - name: Web 探索域
+      - repos
     # AI 初稿
-    description: 图探索 HTTP 服务与嵌入式前端静态资源（AntV G6）
+    services:
+      - ANY /incremental
+  # AI 初稿
+  - name: 代码图谱存储域
+    # AI 初稿
+    description: 核心领域模型（CodeEntity/Fact）与 Code Index 仓储，持久化代码节点与关系边
     # AI 初稿
     packages:
-      - github.com/schaepher/codeintel/internal/server
-      - github.com/schaepher/codeintel/assets
+      - github.com/schaepher/codeintel/internal/domain
+      - github.com/schaepher/codeintel/internal/infrastructure/sqlite
+    # AI 初稿
+    tables:
+      - nodes
+      - edges
+      - sqlite_master
+  # AI 初稿
+  - name: 多源适配域
+    # AI 初稿
+    description: 多数据源适配器：Git 历史、SCIP 符号、AST 调用图
+    # AI 初稿
+    packages:
+      - github.com/schaepher/codeintel/internal/infrastructure/git
+      - github.com/schaepher/codeintel/internal/infrastructure/scip
+      - github.com/schaepher/codeintel/internal/infrastructure/ast
+  # AI 初稿
+  - name: 字段追溯域
+    # AI 初稿
+    description: 基于 SSA 的字段级数据流追溯与字段读写摘要预计算
+    # AI 初稿
+    packages:
+      - github.com/schaepher/codeintel/internal/infrastructure/ssa
+    # AI 初稿
+    tables:
+      - function_field_summary
+      - summary_origins
+    # AI 初稿
+    services:
+      - ANY /api/value-trace
+      - ANY /api/flows
   # AI 初稿
   - name: ER 关联域
     # AI 初稿
-    description: 表间关系规则配置、关联候选计算与进度追踪
+    description: 表间关联候选发现、关联计算进度跟踪与用户连线规则管理
     # AI 初稿
     tables:
-      - relation_rules
       - relation_candidates
       - relation_progress
-  # AI 初稿
-  - name: 横切支撑域
+      - relation_rules
     # AI 初稿
-    description: 日志互转与 OpenTelemetry、entry/exit 调试日志注入脚本
+    services:
+      - ANY /api/er
+      - ANY /api/rules
+  # AI 初稿
+  - name: 查询服务域
+    # AI 初稿
+    description: 查询用例层与图探索 HTTP 服务：上下文、搜索、源码、调用图、数据流与 wiki 文档生成
+    # AI 初稿
+    packages:
+      - github.com/schaepher/codeintel/internal/action
+      - github.com/schaepher/codeintel/internal/server
+      - github.com/schaepher/codeintel/assets
+    # AI 初稿
+    services:
+      - Greeter
+      - ANY /api/context
+      - ANY /api/expand
+      - ANY /api/module-calls
+      - ANY /api/orders
+      - ANY /api/roots
+      - ANY /api/search
+      - ANY /api/source
+      - ANY /api/users/
+      - ANY /wiki/
+  # AI 初稿
+  - name: 基础支撑域
+    # AI 初稿
+    description: 日志与 OpenTelemetry 互转、开发辅助脚本等公共基础设施
     # AI 初稿
     packages:
       - github.com/schaepher/codeintel/internal/logging

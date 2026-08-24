@@ -141,7 +141,7 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 		return err
 	}
 
-	if err := os.WriteFile(filepath.Join(outDir, "commands.md"), []byte(renderCommandsMD(acts, rc.repo)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(outDir, "commands.md"), []byte(renderCommandsMD(acts, rc.repo, rc.RepoAbs)), 0o644); err != nil {
 		return err
 	}
 	if err := os.WriteFile(filepath.Join(outDir, "api.md"), []byte(renderAPIMD(repoAbs)), 0o644); err != nil {
