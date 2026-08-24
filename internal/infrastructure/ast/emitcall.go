@@ -141,6 +141,23 @@ func (ctx *fileCtx) emitCall(call *ast.CallExpr) {
 				ToolSource: domain.ToolCodeGraph,
 				Confidence: 0.8,
 			}})
+			// R18：方法值实参（x.Method，如 ast.Inspect(f, ctx.visit)）——
+			// 调用者确实调用了该方法（作为回调交给接收者执行），建
+			// calls 边（实体图/调用链可见；fileCtx 无入边问题的根因）。
+			// 普通函数回调不建（保持 unused 语义——回调函数由接收者
+			// 调用，参数传递关系 passes_to 已表达）
+			if _, isSel := arg.(*ast.SelectorExpr); isSel {
+				_ = ctx.emit(domain.Item{Fact: &domain.Fact{
+					SourceID:   callerID,
+					TargetID:   paramID,
+					Kind:       domain.FactCalls,
+					ToolSource: domain.ToolCodeGraph,
+					Confidence: 0.8,
+					Metadata: map[string]any{
+						"line_num": pkg.Fset.PositionFor(call.Pos(), false).Line,
+					},
+				}})
+			}
 			if externalCallee {
 				_ = ctx.emit(domain.Item{Fact: &domain.Fact{
 					// 调用者 → 外部接收函数：允许展开一层外部包
