@@ -7,6 +7,16 @@ type wikiModuleCfg struct {
 	Order       int    `yaml:"order"`
 }
 
+// wikiDomainCfg 业务域（R34：AI 基于代码事实归纳——名称/描述/归属包与
+// 表；静态分析（ER 领域分组/实体分组）统一消费此数据源，未覆盖的
+// 包/表走前缀/DDD 目录规则降级）。
+type wikiDomainCfg struct {
+	Name        string   `yaml:"name"`
+	Description string   `yaml:"description"`
+	Packages    []string `yaml:"packages"`
+	Tables      []string `yaml:"tables"`
+}
+
 // wikiConfig wiki.yaml 契约（AI 产出 → 人工最后确认微调）。
 type wikiConfig struct {
 	Project struct {
@@ -24,6 +34,8 @@ type wikiConfig struct {
 	} `yaml:"flows"`
 	// 术语表（#246 业务黑话解释：ssa/ast/ER 等；--ai 可从事实识别补缺）
 	Glossary []wikiGlossaryItem `yaml:"glossary"`
+	// 业务域（R34：AI 分析产出 → 人工确认；ER/实体分组统一消费）
+	Domains []wikiDomainCfg `yaml:"domains"`
 }
 
 // wikiGlossaryItem 术语条目（命名类型——wiki --ai 补缺时追加/更新）。

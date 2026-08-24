@@ -107,7 +107,7 @@ func renderEntitiesSectionMD(g *domain.EntityGraph, rc *wikiRenderCtx) string {
 	b.WriteString("> 类型（有行为）为实体 + 游离函数按包聚合为门面；边 = 方法互调聚合计数。\n\n")
 	b.WriteString(entityLegend + "\n\n")
 	// F2：按 DDD 领域分组——领域间关系图 + 每领域内部协作分开展示
-	doms := splitEntityDomains(g)
+	doms := splitEntityDomains(g, rc.cfg.Domains)
 	if len(doms) >= 2 {
 		b.WriteString("**领域分组**：实体按 DDD 目录（domain/service 子域）分组；领域间图 + 每领域内部图分开。\n\n")
 		b.WriteString("### 领域间关系\n\n")
@@ -150,9 +150,9 @@ func renderEntitiesSectionHTML(g *domain.EntityGraph, rc *wikiRenderCtx) string 
 	var b strings.Builder
 	b.WriteString(`<section id="entities"><h2>实体协作（对象设计视角）</h2><p class="muted">类型（有行为）为实体 + 游离函数按包聚合为门面；边 = 方法互调聚合计数。</p><p class="muted">` + htmlEsc(entityLegend) + `</p>`)
 	// F2：按 DDD 领域分组——领域间图 + 每领域内部图分开展示
-	doms := splitEntityDomains(g)
+	doms := splitEntityDomains(g, rc.cfg.Domains)
 	if len(doms) >= 2 {
-		b.WriteString(`<p class="muted">领域分组：实体按 DDD 目录（domain/service 子域）分组；领域间图 + 每领域内部图分开。</p>`)
+		b.WriteString(`<p class="muted">领域分组：业务域划分（AI 分析 → wiki.yaml domains）；领域间图 + 每领域内部图分开。</p>`)
 		b.WriteString("<h3>领域间关系</h3>" + rc.diagramHTML(domainMermaid(doms, g.Edges)))
 		for i, d := range doms {
 			id := fmt.Sprintf("entity-dom-%d", i)

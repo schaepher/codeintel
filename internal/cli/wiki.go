@@ -136,6 +136,21 @@ func cmdWiki(args []string) int {
 			return 1
 		}
 	}
+	// R34：业务域——wiki.yaml 无 domains 时自动调 AI 分析（已生成过
+	// 就不再生成；失败降级现有规则，不阻断 wiki 生成；
+	// CODEINTEL_SKIP_DOMAINS=1 跳过——测试环境避免真实 AI 调用）
+	if os.Getenv("CODEINTEL_SKIP_DOMAINS") == "" && len(cfg.Domains) == 0 {
+		if agent, err := resolveAgent(aiAgent); err == nil {
+			if doms, warns := analyzeDomains(abs, &cfg, acts, sqlite.NewRepo(db), agent, yamlPath, ""); len(doms) > 0 {
+				for _, w := range warns {
+					fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+				}
+				fmt.Printf("domains：AI 分析出 %d 个业务域（已写回 %s，标注 # AI 初稿）\n", len(doms), yamlPath)
+			} else {
+				fmt.Fprintf(os.Stderr, "warning: 业务域分析未产出有效结果（用现有规则划分）\n")
+			}
+		}
+	}
 	// yaml 模块白名单：列出则只生成这些模块（fixture/子模块噪音过滤）
 	if len(cfg.Modules) > 0 {
 		want := map[string]bool{}

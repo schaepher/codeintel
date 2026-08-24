@@ -22,20 +22,35 @@ type entityDomain struct {
 	Edges  []*domain.EntityEdge // 领域内部边（两端都在领域内）
 }
 
-// splitEntityDomains 实体按领域分组：优先 DDD 子域（domain/service
-// 目录后一段），程序验证有效性，逐级降级直到可用（单组=不分组）。
-func splitEntityDomains(g *domain.EntityGraph) []*entityDomain {
+// splitEntityDomains 实体按领域分组：**R34 统一消费 wiki.yaml domains**
+// （包归属优先——domains.packages 短名匹配包路径；未覆盖走 DDD 子域
+// 目录降级），程序验证有效性，逐级降级直到可用（单组=不分组）。
+func splitEntityDomains(g *domain.EntityGraph, doms []wikiDomainCfg) []*entityDomain {
+	// R34：包 → 域名索引（domains.packages 短名——包路径包含匹配）
+	domainOfPkg := func(pkg string) string {
+		for _, d := range doms {
+			for _, p := range d.Packages {
+				if p != "" && (strings.HasSuffix(pkg, "/"+p) || pkg == p) {
+					return d.Name
+				}
+			}
+		}
+		return ""
+	}
 	modRoot := pkgCommonPrefix(g)
 	// lvl=2 默认（跳过 pkg/internal 等容器目录——go2o: pkg/infra → infra）；
 	// 无效时降级 lvl=1
 	for _, lvl := range []int{2, 1} {
 		groups := map[string][]*domain.EntityNode{}
 		for _, n := range g.Nodes {
-			d := domainOf(n.Pkg, modRoot, lvl)
+			d := domainOfPkg(n.Pkg)
+			if d == "" {
+				d = domainOf(n.Pkg, modRoot, lvl)
+			}
 			groups[d] = append(groups[d], n)
 		}
-		if doms := buildDomains(g, groups); validSplit(doms) {
-			return doms
+		if doms2 := buildDomains(g, groups); validSplit(doms2) {
+			return doms2
 		}
 	}
 	// 仍无效：整图一组

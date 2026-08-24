@@ -50,6 +50,8 @@ func Main(ctx context.Context, args []string) int {
 		return cmdBatch(args[1:])
 	case "wiki":
 		return cmdWiki(args[1:])
+	case "domains":
+		return cmdDomainsArgs(args[1:])
 	case "ask":
 		return cmdAsk(args[1:])
 	case "version", "--version", "-v":

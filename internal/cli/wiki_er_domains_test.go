@@ -39,7 +39,7 @@ func TestSplitTableDomain(t *testing.T) {
 
 // TestSplitERDomains：领域内边分组 + 跨领域边分离；write 类型不计入。
 func TestSplitERDomains(t *testing.T) {
-	doms, cross := splitERDomains(erRels(), nil)
+	doms, cross := splitERDomains(erRels(), nil, nil)
 	byName := map[string]*erDomainGroup{}
 	for _, d := range doms {
 		byName[d.name] = d

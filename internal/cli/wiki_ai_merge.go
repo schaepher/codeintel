@@ -153,6 +153,35 @@ func (e *yamlEditor) setColumnComments(tbl string, comments map[string]string) {
 	}
 }
 
+// setDomain domains 序列项（name 匹配或追加）→ description/packages/
+// tables 赋值（R34 业务域——AI 初稿标注由 ensureKey/appendItem 负责）。
+func (e *yamlEditor) setDomain(d wikiDomainCfg) {
+	seq := e.ensureSeq("domains")
+	it := findItem(seq, d.Name)
+	if it == nil {
+		it = appendItem(seq, "name", d.Name)
+	}
+	if d.Description != "" {
+		setScalar(ensureKey(it, "description"), d.Description)
+	}
+	if len(d.Packages) > 0 {
+		setStringSeq(ensureKey(it, "packages"), d.Packages)
+	}
+	if len(d.Tables) > 0 {
+		setStringSeq(ensureKey(it, "tables"), d.Tables)
+	}
+}
+
+// setStringSeq 键值设为字符串序列（域归属的包/表清单）。
+func setStringSeq(n *yaml.Node, vals []string) {
+	n.Kind = yaml.SequenceNode
+	n.Tag = "!!seq"
+	n.Content = nil
+	for _, v := range vals {
+		n.Content = append(n.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: v})
+	}
+}
+
 // setGlossary glossary 序列项（term 匹配或追加）→ definition 赋值。
 func (e *yamlEditor) setGlossary(term, def string) {
 	seq := e.ensureSeq("glossary")

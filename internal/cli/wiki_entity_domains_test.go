@@ -33,7 +33,7 @@ func go2oStyleGraph() *domain.EntityGraph {
 // TestSplitEntityDomainsDDD：domain 目录存在 → 子域分组（order/wallet/
 // member/infra）。
 func TestSplitEntityDomainsDDD(t *testing.T) {
-	doms := splitEntityDomains(go2oStyleGraph())
+	doms := splitEntityDomains(go2oStyleGraph(), nil)
 	if len(doms) != 4 {
 		t.Fatalf("领域数 = %d; want 4（order/wallet/member/infra）: %+v", len(doms), doms)
 	}
@@ -58,7 +58,7 @@ func TestSplitEntityDomainsInvalid(t *testing.T) {
 			Pkg: "example.com/m/pkg" + string(rune('0'+i)),
 		})
 	}
-	doms := splitEntityDomains(g)
+	doms := splitEntityDomains(g, nil)
 	// 无 domain/service 段 → 按 module 相对第 1 段（pkg0…pkg4）→ 5 组有效
 	if len(doms) < 2 {
 		t.Fatalf("无 DDD 目录应降级分段: %+v", doms)
@@ -68,7 +68,7 @@ func TestSplitEntityDomainsInvalid(t *testing.T) {
 // TestDomainMermaid：领域间图含节点与聚合边（order→wallet count 3）。
 func TestDomainMermaid(t *testing.T) {
 	g := go2oStyleGraph()
-	doms := splitEntityDomains(g)
+	doms := splitEntityDomains(g, nil)
 	m := domainMermaid(doms, g.Edges)
 	if m == "" {
 		t.Fatal("领域间图为空")

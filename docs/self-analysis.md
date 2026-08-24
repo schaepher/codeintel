@@ -884,6 +884,49 @@ OverLimit 全绿；全仓 -race 13 包全绿。
 - 阈值降级要有**引导**（提示指向可用的替代视图）而不是裸报错——
   "图过大 → 用领域分组图/query relations"让用户有出路
 
+### R34（2026-08-24）——AI 业务域分析（codeintel domains）+ 静态分析统一消费
+
+**分析**：用户要求——让 AI 先分析出项目业务域，分析结果辅助后面静态
+分析；**AI 介入前提供足够信息避免误判**；"不管输出类型，按相同划分，
+只区分渲染形式，不区分数据源处理"。grilling 定案：单独子命令 +
+wiki 内部调用（已生成过不再生成）、结构化事实包输入、写回 wiki.yaml
+domains 区块（# AI 初稿 → 人工确认）。实施中用户追加两要求：① 测试
+环境禁止真实 AI 调用；② 事实**导出到文件**再让 agent 读（不内联
+prompt），并加导出命令。
+
+**改进方案**：
+- `codeintel domains`：静态事实包（包清单/表清单/实体/grpc+http 服务
+  ——静态分析全算好）→ **导出事实文件**（默认 .codeintel/domain-facts.txt）
+  → prompt 只含指令并引用文件路径（agent 先 Read 文件再归纳——信息
+  充分性靠文件完整性）→ **校验**（归属包/表须在事实包中——AI 编造
+  剔除+警告）→ 写回 wiki.yaml domains（# AI 初稿）
+- `--export-facts <file>`：只导出事实包（不调 AI——可人工检查/喂任意
+  agent）
+- wiki 集成：yaml 无 domains 自动分析（幂等——已生成跳过；失败降级
+  现有规则不阻断）；`CODEINTEL_SKIP_DOMAINS=1` 跳过
+- **测试防 AI 双保险**：TestMain 注入拒绝 runner（agentRunner 覆盖——
+  env 遗漏也快速失败而非真调 claude）+ env 开关
+- 静态分析统一消费（用户"不区分数据源处理"原则）：splitERDomains/
+  splitEntityDomains 都改 domains 优先（表→domains.tables、包→
+  domains.packages 短名匹配），未覆盖走前缀/DDD 目录降级；渲染
+  （md/html/plantuml）只做形式差异
+
+**实施结果**：go2o 实测——AI 归纳 **8 个业务域**（商品域/交易履约域/
+支付金融域/营销域/会员域/商户域/消息内容域/平台系统域），归属包表
+全部合理（mm_→会员、mch_→商户、sale_→交易、pm_→营销），校验零
+编造；wiki 重新生成 **幂等（0 次 AI 调用）**，ER 领域分组标题用 AI
+中文域名（8 域），wiki-check 7/7；测试 TestParseDomainsValidate
+（编造剔除）/TestParseDomainsFence/TestExportDomainFacts + 全仓
+-race 13 包全绿。
+
+**AI 杠杆点**（R34 实证）：
+- 信息充分性 = 静态分析全算好 + 文件传递（prompt 只留指令）——
+  大事实包内联 prompt 既占 token 又易截断；文件 + agent 读是正解
+- 校验是 AI 产出的安全网（编造归属剔除）——AI 归纳可信但不可盲信
+- 测试环境防真实 AI：runner 注入拒绝（快速失败）比 env 开关更根本
+- "数据源统一、渲染分离"原则——领域归属一份数据，所有输出形态
+  消费同一份，避免各页面规则分叉（R33 前缀 vs F2 目录的历史教训）
+
 ## 待办与候选方向（未定优先级）
 
 **高优先级待办**（2026-08-24 用户提出，6 项）：

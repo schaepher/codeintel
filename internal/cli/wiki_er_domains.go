@@ -32,12 +32,27 @@ type erDomainGroup struct {
 	rels   []*domain.TableRelation
 }
 
-// splitERDomains 按表名前缀分组直接关系（fk/query——同 renderERMermaid
-// 口径）：领域内边进组、跨领域边返回（领域间图数据源）。
-func splitERDomains(rels []*domain.TableRelation, hideTable map[string]bool) ([]*erDomainGroup, []*domain.TableRelation) {
+// splitERDomains 按领域归属分组直接关系（fk/query——同 renderERMermaid
+// 口径）：**R34 统一消费 wiki.yaml domains**（表归属优先 domains.tables，
+// 未覆盖的表走表名前缀降级）；领域内边进组、跨领域边返回（领域间图
+// 数据源）。
+func splitERDomains(rels []*domain.TableRelation, hideTable map[string]bool, doms []wikiDomainCfg) ([]*erDomainGroup, []*domain.TableRelation) {
 	groups := map[string]*erDomainGroup{}
 	var order []string
 	var cross []*domain.TableRelation
+	// R34：domains 表归属索引（表名 → 域名）
+	tableDomain := map[string]string{}
+	for _, d := range doms {
+		for _, t := range d.Tables {
+			tableDomain[t] = d.Name
+		}
+	}
+	domainOf := func(table string) string {
+		if n := tableDomain[table]; n != "" {
+			return n
+		}
+		return splitTableDomain(table)
+	}
 	for _, r := range rels {
 		if r.Type != domain.RelationFK && r.Type != domain.RelationQuery {
 			continue
@@ -45,7 +60,7 @@ func splitERDomains(rels []*domain.TableRelation, hideTable map[string]bool) ([]
 		if hideTable[r.FromTable] || hideTable[r.ToTable] {
 			continue
 		}
-		df, dt := splitTableDomain(r.FromTable), splitTableDomain(r.ToTable)
+		df, dt := domainOf(r.FromTable), domainOf(r.ToTable)
 		if df == dt {
 			g := groups[df]
 			if g == nil {
@@ -61,11 +76,11 @@ func splitERDomains(rels []*domain.TableRelation, hideTable map[string]bool) ([]
 		}
 	}
 	sort.Strings(order)
-	doms := make([]*erDomainGroup, 0, len(order))
+	doms2 := make([]*erDomainGroup, 0, len(order))
 	for _, n := range order {
-		doms = append(doms, groups[n])
+		doms2 = append(doms2, groups[n])
 	}
-	return doms, cross
+	return doms2, cross
 }
 
 // erCrossMermaid 领域间关系图（跨领域直接边——表级标注）。
@@ -82,7 +97,7 @@ func erCrossMermaid(cross []*domain.TableRelation) string {
 // renderERDomainsMD ER 领域分组区块（md）：领域间图 + 每领域内部图
 // （折叠 details）。无分组价值（≤1 领域且无跨域边）返回空。
 func renderERDomainsMD(rels []*domain.TableRelation, hideTable map[string]bool, rc *wikiRenderCtx) string {
-	doms, cross := splitERDomains(rels, hideTable)
+	doms, cross := splitERDomains(rels, hideTable, rc.cfg.Domains)
 	if len(doms) <= 1 && len(cross) == 0 {
 		return ""
 	}
@@ -108,12 +123,12 @@ func renderERDomainsMD(rels []*domain.TableRelation, hideTable map[string]bool, 
 // renderERDomainsHTML ER 领域分组区块（html）：领域间图 + 每领域内部图
 // （折叠——同 F2 实体图模式）。
 func renderERDomainsHTML(rels []*domain.TableRelation, hideTable map[string]bool, rc *wikiRenderCtx) string {
-	doms, cross := splitERDomains(rels, hideTable)
+	doms, cross := splitERDomains(rels, hideTable, rc.cfg.Domains)
 	if len(doms) <= 1 && len(cross) == 0 {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString(`<section id="er-domains"><h2>ER 图（按业务领域分组）</h2><p class="muted">表名前缀（_ 前首段）分领域；领域间图 + 每领域内部图分开。</p>`)
+	b.WriteString(`<section id="er-domains"><h2>ER 图（按业务领域分组）</h2><p class="muted">业务域划分（AI 分析 → wiki.yaml domains）；领域间图 + 每领域内部图分开。</p>`)
 	if len(cross) > 0 {
 		b.WriteString("<h3>领域间关系</h3>" + rc.diagramHTML(erCrossMermaid(cross)))
 	}
