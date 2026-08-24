@@ -10,7 +10,7 @@ import (
 )
 
 // renderTablesPage 表清单 + 每表详情（字段定义表/索引/建表语句，#243）。
-func renderTablesPage(data []*domain.WikiModule, tableAlias map[string]string, tableCfgs map[string]wikiTableConfig, cols []*domain.TableColumn, schemas map[string]map[string]schemaCol) string {
+func renderTablesPage(data []*domain.WikiModule, tableAlias map[string]string, tableCfgs map[string]wikiTableConfig, cols []*domain.TableColumn, schemas map[string]map[string]schemaCol, ormStructs map[string][]ormStruct) string {
 	var b strings.Builder
 	b.WriteString("# 表清单\n\n> 自动生成：gorm/xorm 写路径识别；别名与字段说明可在 wiki.yaml tables 补充。\n\n")
 	seen := map[string]bool{}
@@ -57,6 +57,10 @@ func renderTablesPage(data []*domain.WikiModule, tableAlias map[string]string, t
 			b.WriteString("> " + alias + "\n\n")
 		}
 		cfg := tableCfgs[t]
+		// R20：表上方关联结构体（可折叠核对字段映射）
+		if sec := renderORMStructSectionMD(t, ormStructs[t]); sec != "" {
+			b.WriteString(sec)
+		}
 		rows := mergeTableColumnsWithSchema(t, cols, cfg.Columns, schemas)
 		if len(rows) == 0 {
 			b.WriteString("（无字段信息——维护者可在 wiki.yaml tables.columns 补充）\n\n")
