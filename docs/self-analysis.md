@@ -377,6 +377,30 @@ wiki html 重新生成发送验收。
 - 阈值来自数据分布（16 条 count=1 是明显长尾）——自举数据
   驱动决策，非拍脑袋
 
+### R17（2026-08-24）——模块页关键数据流（核心符号字段读写）
+
+**分析**：候选方向 3（模块页深度）——模块页已有职责/入口/核心符号/
+调用链，缺"模块处理什么数据"（读哪些字段、写哪些字段）。value-trace
+能力已有（query summary/fields），缺模块级聚合展示。
+
+**改进方案**（纯工具，复用 FunctionFields 能力）：
+- wikiKeyFlows：核心符号（TopCallers）字段读写分组——direct_read
+  归读、direct_write/indirect_write 归写
+- 噪音过滤：本模块外字段（x/tools/ssa 等第三方）、map 访问
+  （n["x"]/slots[key]）、[key] 变体归一——自举首跑暴露的噪音
+- 用 canonical ID 而非名称（FromContext 跨包重名 ResolveSymbol
+  多匹配失败——实测发现）
+- 渲染 md/html/serve 三通道；serve snapshot 缓存（load 预计算）
+
+**实施结果**：commit `fcd2367`（8 文件）；模块页核心符号区块后新增
+「关键数据流」（Open 写 DB/DB.repoPath、fieldExtractor.emitValue
+读写业务字段一目了然）；全仓 -race 全绿；wiki html 发送。
+
+**AI 杠杆点**（R17 实证）：
+- 能力复用（FunctionFields 现成）+ 聚合展示——零新数据采集
+- 两个实现期 bug（跨包重名、第三方字段噪音）都是自举实测暴露
+  而非预想——"事实驱动调试"持续有效
+
 ## 候选方向（未定优先级）
 
 - yaml 语义层：术语表（glossary）、表列说明（50 列无 comment）、
