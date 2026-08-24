@@ -56,7 +56,7 @@ func TestMergeTableColumnsSchema(t *testing.T) {
 	yamlCols := []wikiTableColumn{
 		{Name: "a", Type: "TEXT", Comment: "人工类型"},
 	}
-	rows := mergeTableColumnsWithSchema("t", cols, yamlCols, schemas)
+	rows := mergeTableColumnsWithSchema("t", cols, yamlCols, schemas, nil)
 	byName := map[string]tableColRow{}
 	for _, r := range rows {
 		byName[r.name] = r

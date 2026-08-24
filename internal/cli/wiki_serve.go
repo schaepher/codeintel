@@ -39,6 +39,7 @@ type wikiSnapshot struct {
 	keyFlows     map[string][]wikiKeyFlow // R17：模块关键数据流（核心符号字段读写）
 	schemas      map[string]map[string]schemaCol // R19：表 schema 事实源（列类型/默认值）
 	ormStructs    map[string][]ormStruct // R20：表关联结构体（TableName 反查）
+	goTypes       map[string]map[string]string // R21：结构体 Go 类型 fallback
 	yamlMod    int64
 	data       []*domain.WikiModule
 	ordered    []*domain.WikiModule
@@ -176,10 +177,11 @@ func (ws *wikiServe) load(buildID, commitSHA, degradeStats string, yamlMod int64
 	// R19：表 schema 事实源（sqlite_master → 列类型/默认值）
 	schemas := wikiSchemas(ws.acts)
 	ormStructs := scanORMStructs(ws.repoAbs)
+	goTypes := ormColTypes(ormStructs)
 	return &wikiSnapshot{
 		buildID: buildID, commitSHA: commitSHA, degradeStats: degradeStats, yamlMod: yamlMod, data: data, ordered: ordered,
 		cfg: cfg, meta: meta, tableAlias: tableAlias, hidden: hidden,
-		tableCfgs: tableCfgsFrom(cfg), cols: cols, rels: rels, eg: eg, keyFlows: keyFlows, schemas: schemas, ormStructs: ormStructs,
+		tableCfgs: tableCfgsFrom(cfg), cols: cols, rels: rels, eg: eg, keyFlows: keyFlows, schemas: schemas, ormStructs: ormStructs, goTypes: goTypes,
 	}, nil
 }
 

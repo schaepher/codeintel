@@ -10,7 +10,7 @@ import (
 )
 
 // renderTablesPage 表清单 + 每表详情（字段定义表/索引/建表语句，#243）。
-func renderTablesPage(data []*domain.WikiModule, tableAlias map[string]string, tableCfgs map[string]wikiTableConfig, cols []*domain.TableColumn, schemas map[string]map[string]schemaCol, ormStructs map[string][]ormStruct) string {
+func renderTablesPage(data []*domain.WikiModule, tableAlias map[string]string, tableCfgs map[string]wikiTableConfig, cols []*domain.TableColumn, schemas map[string]map[string]schemaCol, ormStructs map[string][]ormStruct, goTypes map[string]map[string]string) string {
 	var b strings.Builder
 	b.WriteString("# 表清单\n\n> 自动生成：gorm/xorm 写路径识别；别名与字段说明可在 wiki.yaml tables 补充。\n\n")
 	seen := map[string]bool{}
@@ -61,7 +61,7 @@ func renderTablesPage(data []*domain.WikiModule, tableAlias map[string]string, t
 		if sec := renderORMStructSectionMD(t, ormStructs[t]); sec != "" {
 			b.WriteString(sec)
 		}
-		rows := mergeTableColumnsWithSchema(t, cols, cfg.Columns, schemas)
+		rows := mergeTableColumnsWithSchema(t, cols, cfg.Columns, schemas, goTypes)
 		if len(rows) == 0 {
 			b.WriteString("（无字段信息——维护者可在 wiki.yaml tables.columns 补充）\n\n")
 		} else {
@@ -100,7 +100,7 @@ func wikiGapReport(data []*domain.WikiModule, cfg wikiConfig, cols []*domain.Tab
 			tablesNoAlias++
 		}
 		tc := tableCfgs[t.name]
-		for _, r := range mergeTableColumnsWithSchema(t.name, cols, tc.Columns, schemas) {
+		for _, r := range mergeTableColumnsWithSchema(t.name, cols, tc.Columns, schemas, nil) {
 			if r.comment == "" {
 				colsNoComment++
 			}
@@ -209,7 +209,7 @@ func parseCreateTableSchema(ddls map[string]string) map[string]map[string]schema
 
 // mergeTableColumnsWithSchema 列合并（R19）：类型/默认值填充优先级
 // yaml > sqlite schema > gorm tag——schema 事实自动补全，yaml 人工可覆盖。
-func mergeTableColumnsWithSchema(table string, cols []*domain.TableColumn, yamlCols []wikiTableColumn, schemas map[string]map[string]schemaCol) []tableColRow {
+func mergeTableColumnsWithSchema(table string, cols []*domain.TableColumn, yamlCols []wikiTableColumn, schemas map[string]map[string]schemaCol, goTypes map[string]map[string]string) []tableColRow {
 	rows := mergeTableColumns(table, cols, yamlCols)
 	// ColType 索引（gorm tag——schema 缺失时的兜底）
 	colType := map[string]string{}
@@ -220,17 +220,22 @@ func mergeTableColumnsWithSchema(table string, cols []*domain.TableColumn, yamlC
 		}
 	}
 	sc := schemas[table]
+	goCols := goTypes[table] // R21：结构体 Go 类型（最终 fallback）
 	for i := range rows {
 		name := rows[i].name
 		if rows[i].typ == "" {
 			if sc != nil {
 				if c, ok := sc[name]; ok {
 					rows[i].typ = c.Typ // schema 优先
+				} else if colType[name] != "" {
+					rows[i].typ = colType[name] // schema 缺 → gorm tag
 				} else {
-					rows[i].typ = colType[name] // schema 缺 → gorm tag 兜底
+					rows[i].typ = goCols[name] // 最终 → 结构体 Go 类型
 				}
-			} else {
+			} else if colType[name] != "" {
 				rows[i].typ = colType[name]
+			} else {
+				rows[i].typ = goCols[name]
 			}
 		}
 		if rows[i].def == "" && sc != nil {

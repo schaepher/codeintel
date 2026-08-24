@@ -26,7 +26,7 @@ import "time"
 
 // Order 订单
 type Order struct {
-	ID        int64     `+"`gorm:\"primaryKey\"`"+`
+	ID        int64     `+"`gorm:\"column:order_id;primaryKey\"`"+`
 	OrderNo   string    `+"`gorm:\"size:32\"`"+`
 	CreatedAt time.Time `+"`gorm:\"autoCreateTime\"`"+`
 }
@@ -68,4 +68,26 @@ func TestScanORMStructs(t *testing.T) {
 		t.Error("无 TableName 的结构体不应关联表")
 	}
 	_ = filepath.Join
+}
+
+// TestORMColTypes：结构体字段 Go 类型 → 表列 fallback
+// （gorm column tag 优先、无 tag snake_case）。
+func TestORMColTypes(t *testing.T) {
+	dir := ormStructFixture(t)
+	got := ormColTypes(scanORMStructs(dir))
+	// order_tab：ID → column:order_id（tag 优先）+ int64
+	if typ := got["order_tab"]["order_id"]; typ != "int64" {
+		t.Errorf("order_tab.order_id = %q, want int64（gorm column tag）", typ)
+	}
+	// OrderNo → snake_case order_no + string
+	if typ := got["order_tab"]["order_no"]; typ != "string" {
+		t.Errorf("order_tab.order_no = %q, want string（snake_case）", typ)
+	}
+	if typ := got["order_tab"]["created_at"]; typ != "time.Time" {
+		t.Errorf("order_tab.created_at = %q, want time.Time", typ)
+	}
+	// user_tab：ID → id（snake_case）
+	if typ := got["user_tab"]["id"]; typ != "int64" {
+		t.Errorf("user_tab.id = %q, want int64", typ)
+	}
 }

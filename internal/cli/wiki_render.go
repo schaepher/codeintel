@@ -22,6 +22,7 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	_ = egErr
 	schemas := wikiSchemas(acts) // R19 表 schema 事实源（列类型/默认值）
 	ormStructs := scanORMStructs(repoAbs) // R20 表关联结构体
+	goTypes := ormColTypes(ormStructs) // R21 结构体 Go 类型 fallback
 
 	if err := os.RemoveAll(outDir); err != nil {
 		return err
@@ -130,7 +131,7 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	if err := os.WriteFile(filepath.Join(outDir, "index.md"), []byte(idx.String()), 0o644); err != nil {
 		return err
 	}
-	tables := renderTablesPage(data, tableAlias, tableCfgs, cols, schemas, ormStructs)
+	tables := renderTablesPage(data, tableAlias, tableCfgs, cols, schemas, ormStructs, goTypes)
 	if err := os.WriteFile(filepath.Join(outDir, "tables.md"), []byte(tables), 0o644); err != nil {
 		return err
 	}

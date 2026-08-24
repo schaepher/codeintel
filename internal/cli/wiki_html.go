@@ -57,7 +57,7 @@ func collectTables(data []*domain.WikiModule, tableAlias map[string]string, tabl
 
 // wikiTablesSectionHTML 表清单 section（单文件 html 与 wiki serve 网页版
 // 共用）：表索引表格 + 每表字段/索引/DDL。
-func wikiTablesSectionHTML(tables []tableRow, tableCfgs map[string]wikiTableConfig, cols []*domain.TableColumn, schemas map[string]map[string]schemaCol, ormStructs map[string][]ormStruct) string {
+func wikiTablesSectionHTML(tables []tableRow, tableCfgs map[string]wikiTableConfig, cols []*domain.TableColumn, schemas map[string]map[string]schemaCol, ormStructs map[string][]ormStruct, goTypes map[string]map[string]string) string {
 	var b strings.Builder
 	b.WriteString(`<section id="tables"><h2>表清单</h2>`)
 	b.WriteString(`<p class="muted">自动生成：gorm/xorm 写路径识别；别名与字段说明可在 wiki.yaml tables 补充。</p>`)
@@ -81,7 +81,7 @@ func wikiTablesSectionHTML(tables []tableRow, tableCfgs map[string]wikiTableConf
 			if sec := renderORMStructSectionHTML(t.name, ormStructs[t.name]); sec != "" {
 				b.WriteString(sec)
 			}
-			rows := mergeTableColumnsWithSchema(t.name, cols, tc.Columns, schemas)
+			rows := mergeTableColumnsWithSchema(t.name, cols, tc.Columns, schemas, goTypes)
 			if len(rows) == 0 {
 				b.WriteString("<p class=\"muted\">（无字段信息——维护者可在 wiki.yaml tables.columns 补充）</p>")
 			} else {

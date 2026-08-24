@@ -258,6 +258,6 @@ func erRelsForModule(snap *wikiSnapshot, mod string, rels []*domain.TableRelatio
 // tablesPage 表清单页。
 func (ws *wikiServe) tablesPage(snap *wikiSnapshot) string {
 	tables := collectTables(snap.data, snap.tableAlias, snap.tableCfgs)
-	main := wikiTablesSectionHTML(tables, snap.tableCfgs, snap.cols, snap.schemas, snap.ormStructs)
+	main := wikiTablesSectionHTML(tables, snap.tableCfgs, snap.cols, snap.schemas, snap.ormStructs, snap.goTypes)
 	return ws.pageHTML(snap, "/wiki/tables", main)
 }
