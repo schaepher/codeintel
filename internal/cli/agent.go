@@ -7,6 +7,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -22,15 +23,17 @@ var agentRunner = func(agent, prompt string, timeout time.Duration) (string, err
 	return runAgentExec(agent, prompt, timeout)
 }
 
-// runAgentExec 本地 CLI 调用：claude -p <prompt> / codex exec <prompt>，
-// 捕获 stdout；超时中止；CLI 缺失报错。
+// runAgentExec 本地 CLI 调用：claude -p --output-format json / codex exec
+// <prompt>，捕获 stdout；超时中止；CLI 缺失报错。
+// claude 用 JSON 输出模式（-p 为前提）：返回 {result: <文本>}，
+// 提取 result 返回；输出非 JSON（旧版 CLI）时回退原文。
 func runAgentExec(agent, prompt string, timeout time.Duration) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	var cmd *exec.Cmd
 	switch agent {
 	case "claude":
-		cmd = exec.CommandContext(ctx, "claude", "-p", prompt)
+		cmd = exec.CommandContext(ctx, "claude", "-p", prompt, "--output-format", "json")
 	case "codex":
 		cmd = exec.CommandContext(ctx, "codex", "exec", prompt)
 	default:
@@ -46,7 +49,28 @@ func runAgentExec(agent, prompt string, timeout time.Duration) (string, error) {
 		}
 		return "", fmt.Errorf("agent %s 执行失败: %v\n%s", agent, err, out)
 	}
-	return strings.TrimSpace(string(out)), nil
+	raw := strings.TrimSpace(string(out))
+	if agent == "claude" {
+		if r, err := claudeResult(raw); err == nil {
+			return r, nil
+		}
+		// 非 JSON 输出（旧版 CLI）——回退原文
+	}
+	return raw, nil
+}
+
+// claudeResult 从 claude --output-format json 输出提取 result 字段。
+func claudeResult(raw string) (string, error) {
+	var m struct {
+		Result string `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		return "", err
+	}
+	if m.Result == "" {
+		return "", fmt.Errorf("claude JSON 输出缺 result 字段")
+	}
+	return strings.TrimSpace(m.Result), nil
 }
 
 // agentInstallHint 安装提示。

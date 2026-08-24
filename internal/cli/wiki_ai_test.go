@@ -227,27 +227,30 @@ func TestWikiAIFillFailTwice(t *testing.T) {
 	}
 }
 
-// TestWikiAIFillSkipNoGaps：无缺口 → 全跳过。
-func TestWikiAIFillSkipNoGaps(t *testing.T) {
-	cfg := wikiConfig{}
-	cfg.Tables = []wikiTableConfig{{Name: "order_tab", Alias: "订单表",
-		Columns: []wikiTableColumn{{Name: "id", Comment: "主键"}}}}
-	data := []*domain.WikiModule{{Name: "example.com/app", ShortName: "app", Desc: "业务入口"}}
-	cols := []*domain.TableColumn{{Name: "order_tab.id", ColType: "INTEGER"}}
+// TestWikiAIFillEmptyYAML：空 wiki.yaml（wiki --ai 首跑场景）→ 补缺
+// → save 落盘（回归：空 yaml.Node 编码失败会静默丢文件）。
+func TestWikiAIFillEmptyYAML(t *testing.T) {
+	data, cfg, cols := aiSingleGapFixture()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "wiki.yaml")
-	os.WriteFile(path, []byte(""), 0o644)
-	called := false
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration) (string, error) {
-		called = true
-		return "", nil
+		return "description: 空文件首跑描述", nil
 	})
 	defer restore()
-	ok, skip, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second)
-	if ok != 0 || skip != 0 || fail != 0 {
-		t.Errorf("无缺口计数 = %d/%d/%d; want 0/0/0", ok, skip, fail)
+	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second)
+	if ok != 1 || fail != 0 {
+		t.Fatalf("计数 = %d/%d; want 1/0", ok, fail)
 	}
-	if called {
-		t.Error("无缺口不应调用 AI")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("wiki.yaml 应已落盘: %v", err)
+	}
+	s := string(b)
+	if !strings.Contains(s, "空文件首跑描述") || !strings.Contains(s, "# AI 初稿") {
+		t.Errorf("落盘内容缺失:\n%s", s)
 	}
 }
+

@@ -24,7 +24,7 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	ormStructs := scanORMStructs(repoAbs) // R20 表关联结构体
 	goTypes := ormColTypes(ormStructs) // R21 结构体 Go 类型 fallback
 
-	if err := os.RemoveAll(outDir); err != nil {
+	if err := cleanWikiOutDir(outDir, data); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
@@ -153,4 +153,41 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	}
 	// R5：枚举与工具函数（源码事实——AI 权威值来源）
 	return os.WriteFile(filepath.Join(outDir, "enums.md"), []byte(renderEnumsMD(repoAbs)), 0o644)
+}
+
+// wikiArtifacts wiki 渲染产物文件名（全局页 + 模块页）——清理时只删
+// 这些，不再 RemoveAll 整个目录（--yaml 与 --out 同目录时曾静默删掉
+// 用户配置 wiki.yaml）。
+var wikiArtifacts = map[string]bool{
+	"index.md": true, "index.html": true, "tables.md": true,
+	"commands.md": true, "api.md": true, "enums.md": true,
+	"processes.md": true, "er.md": true,
+}
+
+// cleanWikiOutDir 删除输出目录里的旧渲染产物（保留其他文件——防误删
+// 用户放在输出目录的配置/笔记）。目录不存在视为空。
+func cleanWikiOutDir(outDir string, data []*domain.WikiModule) error {
+	names, err := os.ReadDir(outDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	// 模块页名：本次渲染的模块 short name（旧模块页也随之清理）
+	modulePages := map[string]bool{}
+	for _, wm := range data {
+		modulePages[wm.ShortName+".md"] = true
+	}
+	for _, n := range names {
+		if n.IsDir() {
+			continue
+		}
+		if wikiArtifacts[n.Name()] || modulePages[n.Name()] {
+			if err := os.Remove(filepath.Join(outDir, n.Name())); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

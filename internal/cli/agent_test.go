@@ -71,19 +71,41 @@ func TestAgentFromConfig(t *testing.T) {
 }
 
 // TestRunAgentExecClaude：fake claude CLI 脚本——真实 exec 形态
-// （claude -p <prompt>），stdout 捕获。
+// （claude -p <prompt> --output-format json），JSON 输出提取 result。
 func TestRunAgentExecClaude(t *testing.T) {
-	bin := fakeAgentBin(t, "claude", `#!/bin/sh
-echo "fake-response-from-claude"
+	marker := filepath.Join(t.TempDir(), "argv")
+	fakeAgentBin(t, "claude", `#!/bin/sh
+s=""
+for a in "$@"; do s="$s $a"; done
+printf '%s' "${s# }" > `+marker+`
+echo '{"result":"fake-response-from-claude"}'
 `)
 	out, err := runAgentExec("claude", "hello", 5*time.Second)
 	if err != nil {
 		t.Fatalf("runAgentExec: %v", err)
 	}
 	if out != "fake-response-from-claude" {
-		t.Errorf("输出 = %q; want fake-response-from-claude", out)
+		t.Errorf("输出 = %q; want fake-response-from-claude（JSON result 提取）", out)
 	}
-	_ = bin
+	b, _ := os.ReadFile(marker)
+	if string(b) != `-p hello --output-format json` {
+		t.Errorf("claude 实参 = %q; want \"-p hello --output-format json\"", b)
+	}
+}
+
+// TestRunAgentExecClaudePlainFallback：旧版 claude（非 JSON 输出）→
+// 回退原文。
+func TestRunAgentExecClaudePlainFallback(t *testing.T) {
+	fakeAgentBin(t, "claude", `#!/bin/sh
+echo "plain-text-response"
+`)
+	out, err := runAgentExec("claude", "hello", 5*time.Second)
+	if err != nil {
+		t.Fatalf("runAgentExec: %v", err)
+	}
+	if out != "plain-text-response" {
+		t.Errorf("输出 = %q; want plain-text-response（非 JSON 回退）", out)
+	}
 }
 
 // TestRunAgentExecCodex：codex exec <prompt> 形态。

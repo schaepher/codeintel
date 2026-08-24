@@ -153,8 +153,14 @@ func (e *yamlEditor) setColumnComments(tbl string, comments map[string]string) {
 	}
 }
 
-// save 写回文件（缩进 2）。
+// save 写回文件（缩进 2）。空文档（文件不存在/空文件加载）先初始化
+// 根 mapping——yaml.v3 无法编码 Content 为空的 DocumentNode
+// （报 "expected SCALAR, SEQUENCE-START, MAPPING-START, or ALIAS,
+// but got document end"，曾致 --ai 首跑静默丢文件）。
 func (e *yamlEditor) save(path string) error {
+	if len(e.root.Content) == 0 {
+		e.mapping()
+	}
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)

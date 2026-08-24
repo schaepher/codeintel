@@ -17,7 +17,7 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	logger := zap.L()
 	logger.Debug("enter renderWikiHTML", zap.Int("modules", len(data)))
 	defer logger.Debug("exit renderWikiHTML")
-	if err := os.RemoveAll(outDir); err != nil {
+	if err := cleanWikiOutDir(outDir, data); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
