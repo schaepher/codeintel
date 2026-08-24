@@ -162,33 +162,29 @@ func renderGrpcIndexMD(rc *wikiRenderCtx, services []grpcRouteService, max int) 
 	return b.String()
 }
 
-// renderGrpcIndexHTML gRPC 服务入口索引（html：按领域分组）。
+// renderGrpcIndexHTML gRPC 服务入口节（html 单文件版——R40 用户要求：
+// 服务子页内容内嵌进 index.html，所有东西都在一个文件里；按领域分组，
+// 服务用 <details> 折叠（summary = 服务名 + 实现 + 方法数），展开看
+// 方法级调用链）。
 func renderGrpcIndexHTML(rc *wikiRenderCtx, services []grpcRouteService, max int) string {
 	if len(services) == 0 {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString(`<h2>gRPC 服务入口</h2><p class="muted">数据源：grpc_service 节点 + grpc_impl 边——每个服务方法一个入口（(Impl).Method 调用链），每服务独立子页（按业务领域分目录）。</p>`)
+	b.WriteString(`<h2>gRPC 服务入口</h2><p class="muted">数据源：grpc_service 节点 + grpc_impl 边——每个服务方法一个入口（(Impl).Method 调用链），方法级展开内嵌（单文件）。</p>`)
 	for _, g := range grpcServicesByDomain(rc, services) {
-		b.WriteString(fmt.Sprintf(`<h3>领域 %s</h3><ul>`, htmlEsc(g.Name)))
+		b.WriteString(fmt.Sprintf(`<h3>领域 %s</h3>`, htmlEsc(g.Name)))
 		expanded, folded := procFold(max, g.Services)
 		for _, s := range expanded {
-			impl := s.Impl
-			if impl == "" {
-				impl = "（未识别实现）"
-			}
-			b.WriteString(fmt.Sprintf(`<li><a href="%s">%s</a>——实现 %s，%d 个方法</li>`,
-				grpcSvcPagePath(g.Name, s.Name, ".html"), htmlEsc(s.Name), htmlEsc(impl), len(s.Methods)))
+			b.WriteString(renderGrpcServiceHTML(rc, s, procMaxOf(rc.MaxEntries)))
 		}
 		if len(folded) > 0 {
-			b.WriteString(fmt.Sprintf(`<li><details><summary>其余 %d 个服务仅列清单（子页仍可用）</summary><ul>`, len(folded)))
+			b.WriteString(fmt.Sprintf(`<details><summary>其余 %d 个服务（全部内嵌，展开查看）</summary>`, len(folded)))
 			for _, s := range folded {
-				b.WriteString(fmt.Sprintf(`<li><a href="%s">%s</a>——%d 个方法（%s）</li>`,
-					grpcSvcPagePath(g.Name, s.Name, ".html"), htmlEsc(s.Name), len(s.Methods), htmlEsc(s.Register)))
+				b.WriteString(renderGrpcServiceHTML(rc, s, procMaxOf(rc.MaxEntries)))
 			}
-			b.WriteString("</ul></details></li>")
+			b.WriteString("</details>")
 		}
-		b.WriteString("</ul>")
 	}
 	return b.String()
 }
@@ -223,21 +219,23 @@ func renderGrpcServiceMD(rc *wikiRenderCtx, svc grpcRouteService, max int) strin
 	return b.String()
 }
 
-// renderGrpcServiceHTML 单个 gRPC 服务子页 html 内容（嵌入 wikiHTMLPage）。
+// renderGrpcServiceHTML 单个 gRPC 服务流程内容（R40：内嵌进 index.html
+// 单文件——<details> 折叠；summary = 服务名 + 实现 + 方法数）。
 func renderGrpcServiceHTML(rc *wikiRenderCtx, svc grpcRouteService, max int) string {
 	var b strings.Builder
-	b.WriteString(`<section><h2>gRPC 服务流程：` + htmlEsc(svc.Name) + `</h2>`)
+	summary := "服务 " + htmlEsc(svc.Name)
 	if svc.Impl != "" {
-		impl := htmlEsc(svc.Impl)
-		if svc.ImplFile != "" {
-			impl += "（" + htmlEsc(svc.ImplFile) + "）"
-		}
-		b.WriteString(`<p class="muted">实现：` + impl + `；注册：` + htmlEsc(svc.Register) + `</p>`)
+		summary += "——实现 " + htmlEsc(svc.Impl)
+	}
+	summary += fmt.Sprintf("，%d 个方法", len(svc.Methods))
+	b.WriteString(`<details><summary>` + summary + `</summary>`)
+	if svc.ImplFile != "" {
+		b.WriteString(`<p class="muted">实现位置：` + htmlEsc(svc.ImplFile) + `；注册：` + htmlEsc(svc.Register) + `</p>`)
 	}
 	methods := grpcProcMethods(rc.acts, svc)
 	expanded, folded := procFold(max, methods)
 	for _, p := range expanded {
-		b.WriteString("<h3>" + htmlEsc(p.Name) + "</h3>")
+		b.WriteString("<h4>" + htmlEsc(p.Name) + "</h4>")
 		if p.Handler != "" {
 			b.WriteString(`<p class="muted">handler：` + htmlEsc(p.Handler) + `</p>`)
 		}
@@ -250,6 +248,6 @@ func renderGrpcServiceHTML(rc *wikiRenderCtx, svc grpcRouteService, max int) str
 		}
 		b.WriteString("</ul></details>")
 	}
-	b.WriteString("</section>")
+	b.WriteString("</details>")
 	return b.String()
 }

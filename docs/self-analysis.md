@@ -1115,6 +1115,29 @@ processes.md）发现并修复：
 - relPath 对仓库外文件返回裸文件名——多模块仓库入口校验必须结合
   文件系统存在性（单靠路径前缀不够）
 
+### R40（2026-08-25）——HTML 单文件打包服务流程页（用户要求）
+
+用户：生成 html 时把服务子页一起打包到一个 html 文件里，所有东西
+都在里面。md 保持多文件（R37/R38 领域目录不变）。
+
+- renderGrpcIndexHTML 改内嵌版：服务流程内容直接进 index.html——
+  按领域分组，服务 <details> 折叠（summary = 服务名 + 实现 + 方法数），
+  展开看方法级调用链；超出上限的服务包在"其余 N 个服务"折叠里
+- renderGrpcServiceHTML 改 <details> 形态（不再独立页面结构）
+- wiki_html_render.go 删除子页写出（html 模式不再写
+  processes-grpc-<svc>.html）；md 模式照旧（子页 + 领域目录）
+- 实测：go2o 单文件 index.html 1.1M（mermaid 模式——30 服务方法级
+  内容全内嵌）；plantuml 模式同样内嵌但大项目 PNG base64 体积爆炸
+  （go2o ~600 图不可行——大项目 html 单文件建议 mermaid）
+- 测试更新：TestWikiGrpcSubpages（html 不生成子页文件，内容在
+  index.html）+ TestRenderProcessesRoutes 断言
+
+**AI 杠杆点**（R40 实证）：
+- 单文件自包含是交付形态（分享/归档）与渲染形态（plantuml PNG）的
+  权衡——大项目 mermaid 模式是唯一可行单文件方案；PNG 只适合小图量
+- 折叠语义随模式变化：独立子页时代用链接导航，单文件时代用
+  details/summary 就地折叠——导航结构跟着交付形态走
+
 ## 待办与候选方向（未定优先级）
 
 **高优先级待办**（2026-08-24 用户提出，6 项）：
