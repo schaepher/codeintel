@@ -89,9 +89,13 @@ func colTypeSuffix(c *domain.TableColumn) string {
 	return "(" + c.ColType + ")"
 }
 
-// aiBatchMax 单批缺口上限（超过分两批：模块+表别名 / 列说明——
-// 同会话 resume，AI 保留第一批上下文）。
-const aiBatchMax = 60
+// aiBatchMax 单批缺口上限（模块/表/列组条数——超过按条数切片）。
+// aiBatchMaxCols 列名数上限（列组内列名多时 prompt 巨大——go2o
+// 1446 列分 150 组，按组切 60 组/批仍超时；按列名数切更稳）。
+const (
+	aiBatchMax    = 60
+	aiBatchMaxCols = 300
+)
 
 // wikiAIFill 执行 --ai 补缺：缺口收集 → 批量一次请求（缺口合并进
 // 单个 prompt，AI 一次返回完整 YAML）→ 合并 wiki.yaml。
@@ -136,15 +140,11 @@ func wikiAIFill(yamlPath string, cfg *wikiConfig, data []*domain.WikiModule, col
 			ok++
 		}
 	}
-	// 分批：缺口 ≤ aiBatchMax 一次全量；否则第一批模块+表别名、
-	// 第二批列说明+术语表（同会话 resume——AI 保留第一批上下文）
-	batches := []aiBatchGaps{{mods: mods, tbls: tbls, colGaps: colGaps}}
-	if len(mods)+len(tbls)+len(colGaps) > aiBatchMax {
-		batches = []aiBatchGaps{
-			{mods: mods, tbls: tbls},
-			{colGaps: colGaps},
-		}
-	}
+	// 分批：模块/表/列组按条数切（每批 ≤ aiBatchMax），列组额外按
+	// 列名数切（每批累计 ≤ aiBatchMaxCols）——超大缺口（go2o 实测
+	// 300 条 1446 列）按类型分两批 prompt 过大导致 AI 超时；同会话
+	// resume——AI 保留前批上下文
+	batches := splitGapBatches(mods, tbls, colGaps, aiBatchMax, aiBatchMaxCols)
 	// W3：--with-qa——从历史问答读取相关 Q&A 作参考资料（按缺口
 	// 表名/模块短名匹配，最多 5 条）
 	var qaRefs []string
@@ -173,6 +173,51 @@ type aiBatchGaps struct {
 	mods    []aiModuleGap
 	tbls    []aiTableGap
 	colGaps []aiColGap
+}
+
+// splitGapBatches 缺口切片：模块/表/列组按条数计（每批 ≤ maxItems），
+// 列组额外按列名数计（每批累计 ≤ maxCols）——列组内列名多时按组数
+// 切仍超时（go2o 1446 列分 150 组，60 组/批 prompt 巨大）。
+func splitGapBatches(mods []aiModuleGap, tbls []aiTableGap, colGaps []aiColGap, maxItems, maxCols int) []aiBatchGaps {
+	totalCols := 0
+	for _, g := range colGaps {
+		totalCols += len(g.cols)
+	}
+	if len(mods)+len(tbls)+len(colGaps) <= maxItems && totalCols <= maxCols {
+		return []aiBatchGaps{{mods: mods, tbls: tbls, colGaps: colGaps}}
+	}
+	var out []aiBatchGaps
+	cur := aiBatchGaps{}
+	colNames := 0
+	flush := func() {
+		if len(cur.mods)+len(cur.tbls)+len(cur.colGaps) > 0 {
+			out = append(out, cur)
+		}
+		cur = aiBatchGaps{}
+		colNames = 0
+	}
+	itemFull := func() bool { return len(cur.mods)+len(cur.tbls)+len(cur.colGaps) >= maxItems }
+	for _, g := range mods {
+		if itemFull() {
+			flush()
+		}
+		cur.mods = append(cur.mods, g)
+	}
+	for _, g := range tbls {
+		if itemFull() {
+			flush()
+		}
+		cur.tbls = append(cur.tbls, g)
+	}
+	for _, g := range colGaps {
+		if itemFull() || colNames+len(g.cols) > maxCols {
+			flush()
+		}
+		cur.colGaps = append(cur.colGaps, g)
+		colNames += len(g.cols)
+	}
+	flush()
+	return out
 }
 
 // aiCallOnce 调 AI 并解析：运行失败（CLI 缺失/超时）直接报错跳过；

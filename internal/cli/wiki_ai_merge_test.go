@@ -135,6 +135,24 @@ func TestWikiAIFillWithQA(t *testing.T) {
 }
 
 
+// TestSplitGapBatchesCols：列组按列名数切片（每批 ≤ maxCols）——
+// 大列数表不因组数少而撑爆 prompt。
+func TestSplitGapBatchesCols(t *testing.T) {
+	var colGaps []aiColGap
+	for i := 0; i < 4; i++ {
+		cols := make([]string, 100) // 每表 100 列
+		colGaps = append(colGaps, aiColGap{table: fmt.Sprintf("t%d", i), cols: cols})
+	}
+	batches := splitGapBatches(nil, nil, colGaps, 60, 300)
+	// 400 列 / 300 = 2 批（300 + 100）
+	if len(batches) != 2 {
+		t.Fatalf("批数 = %d; want 2（按列名数切）", len(batches))
+	}
+	if len(batches[0].colGaps) != 3 || len(batches[1].colGaps) != 1 {
+		t.Errorf("分批 = %d/%d; want 3/1（每批 ≤300 列名）", len(batches[0].colGaps), len(batches[1].colGaps))
+	}
+}
+
 // TestWikiAIFillSkipNoGaps：无缺口 → 全跳过。
 func TestWikiAIFillSkipNoGaps(t *testing.T) {
 	cfg := wikiConfig{}
