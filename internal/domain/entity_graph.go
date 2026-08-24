@@ -68,4 +68,8 @@ const (
 	DiagCycle      = "cycle"
 	DiagGodObject  = "god-object"
 	DiagFaceHeavy  = "face-heavy"
+
+	// EntityMinEdgeCount 概览全图弱关联边过滤阈值（R16）：方法互调
+	// 次数 < 阈值的边不画、其孤立实体隐藏——全图聚焦真实协作。
+	EntityMinEdgeCount = 3
 )

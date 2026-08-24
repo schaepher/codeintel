@@ -69,6 +69,39 @@ func TestSortEntitiesByCallFlowCycle(t *testing.T) {
 	}
 }
 
+// TestEntityMermaidFilter：全图弱关联边过滤（count < 3 不画）+
+// 孤立节点隐藏——概览实体图聚焦真实协作。
+func TestEntityMermaidFilter(t *testing.T) {
+	g := &domain.EntityGraph{
+		Nodes: []*domain.EntityNode{
+			{ID: "A", Name: "A", Pkg: "p", Kind: domain.EntityKindStruct},
+			{ID: "B", Name: "B", Pkg: "p", Kind: domain.EntityKindStruct},
+			{ID: "C", Name: "C", Pkg: "p", Kind: domain.EntityKindStruct}, // 仅弱边
+			{ID: "D", Name: "D", Pkg: "p", Kind: domain.EntityKindStruct}, // 孤立
+		},
+		Edges: []*domain.EntityEdge{
+			{From: "A", To: "B", Count: 8},
+			{From: "B", To: "C", Count: 1}, // 弱边（过滤后 C 成孤立）
+		},
+	}
+	out := entityMermaid(g)
+	if !strings.Contains(out, `A["A"]`) || !strings.Contains(out, `B["B"]`) {
+		t.Errorf("强关联实体应保留:\n%s", out)
+	}
+	if strings.Contains(out, `C["C"]`) {
+		t.Errorf("仅弱边实体应隐藏:\n%s", out)
+	}
+	if strings.Contains(out, `D["D"]`) {
+		t.Errorf("孤立实体应隐藏:\n%s", out)
+	}
+	if strings.Contains(out, "-->|1|") {
+		t.Errorf("弱边（count<3）不应画:\n%s", out)
+	}
+	if !strings.Contains(out, "-->|8|") {
+		t.Errorf("强边应保留:\n%s", out)
+	}
+}
+
 // TestEntitySubgraphFlowOrder：子图 mermaid 节点顺序 = 调用流向
 // （入口 cli 最左，下游 sqlite 最右）。
 func TestEntitySubgraphFlowOrder(t *testing.T) {

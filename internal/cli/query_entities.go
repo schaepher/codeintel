@@ -73,12 +73,32 @@ func printEntityDiags(g *domain.EntityGraph) {
 }
 
 // entityMermaid 实体协作图 mermaid（graph LR：节点 + 聚合计数边；
-// R15：节点按调用方向拓扑排序——线尽量从左往右）。
+// R15：节点按调用方向拓扑排序——线尽量从左往右；R16：弱关联边
+// （count < EntityMinEdgeCount）不画、孤立实体隐藏——聚焦真实协作）。
 func entityMermaid(g *domain.EntityGraph) string {
 	if len(g.Nodes) == 0 {
 		return ""
 	}
-	nodes := sortEntitiesByCallFlow(g.Nodes, g.Edges)
+	// 弱边过滤 + 涉及的实体（有真实协作的）
+	involved := map[string]bool{}
+	var strong []*domain.EntityEdge
+	for _, e := range g.Edges {
+		if e.Count >= domain.EntityMinEdgeCount {
+			strong = append(strong, e)
+			involved[e.From] = true
+			involved[e.To] = true
+		}
+	}
+	var nodes []*domain.EntityNode
+	for _, n := range g.Nodes {
+		if involved[n.ID] {
+			nodes = append(nodes, n)
+		}
+	}
+	if len(nodes) == 0 {
+		return ""
+	}
+	nodes = sortEntitiesByCallFlow(nodes, strong)
 	var b strings.Builder
 	b.WriteString("graph LR\n")
 	for _, n := range nodes {
@@ -90,7 +110,7 @@ func entityMermaid(g *domain.EntityGraph) string {
 		}
 		b.WriteString(fmt.Sprintf("  %s[\"%s\"]\n", entityNodeID(n.ID), label))
 	}
-	for _, e := range g.Edges {
+	for _, e := range strong {
 		b.WriteString(fmt.Sprintf("  %s -->|%d| %s\n", entityNodeID(e.From), e.Count, entityNodeID(e.To)))
 	}
 	return b.String()
