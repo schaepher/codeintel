@@ -128,7 +128,8 @@ func isServeMux(pkg *packages.Package, e ast.Expr) bool {
 
 // routeHandlerName 路由 handler 名——形态矩阵：函数 Ident /
 // http.HandlerFunc(f) 包装 / 方法值 x.Method（recv.Method——ana serve
-// 的 s.handleRoots 形态，R31 实测遗漏后补）。
+// 的 s.handleRoots 形态，R31 实测遗漏后补）/ 匿名函数（FuncLit——
+// gin 内联 handler 常见，标注 "(匿名)" 不丢路由）。
 func routeHandlerName(pkg *packages.Package, arg ast.Expr) string {
 	_ = pkg
 	switch a := arg.(type) {
@@ -144,6 +145,8 @@ func routeHandlerName(pkg *packages.Package, arg ast.Expr) string {
 		if id, ok := a.X.(*ast.Ident); ok {
 			return id.Name + "." + a.Sel.Name
 		}
+	case *ast.FuncLit:
+		return "(匿名)"
 	}
 	return ""
 }
@@ -171,35 +174,59 @@ func (ctx *fileCtx) emitHTTPRoute(method, path, handler, resolver string, call *
 }
 
 // emitGinRouteCall gin 路由注册调用（x.GET("/path", h)——x 是
-// *gin.Engine/*gin.RouterGroup；Group 前缀拼接）。
+// *gin.Engine/*gin.RouterGroup；Group 前缀拼接）。形态：
+// - 路由方法 x.GET/POST/...：args[0]=路径、args[1:]=handlers
+//   （多 handler 时最后一个为业务 handler——中间件在前）
+// - 通用注册 x.Handle("GET", "/path", h)：args[0]=method、args[1]=路径
 func (ctx *fileCtx) emitGinRouteCall(call *ast.CallExpr, sel *ast.SelectorExpr, xid *ast.Ident) {
-	if !ginRouterMethods[sel.Sel.Name] || len(call.Args) < 2 {
-		return
-	}
 	if !isGinRouter(ctx.pkg, xid) {
 		return
 	}
-	path := extractStringArg(ctx.pkg, ctx.methodVars, call.Args[0])
+	var method, path string
+	var handlerArg ast.Expr
+	switch {
+	case ginRouterMethods[sel.Sel.Name] && len(call.Args) >= 2:
+		method = sel.Sel.Name
+		path = extractStringArg(ctx.pkg, ctx.methodVars, call.Args[0])
+		handlerArg = call.Args[len(call.Args)-1] // 多 handler：最后一个为业务 handler
+	case sel.Sel.Name == "Handle" && len(call.Args) >= 3:
+		method = extractStringArg(ctx.pkg, ctx.methodVars, call.Args[0])
+		path = extractStringArg(ctx.pkg, ctx.methodVars, call.Args[1])
+		handlerArg = call.Args[len(call.Args)-1]
+	default:
+		return
+	}
 	if base := ctx.ginGroups[xid.Name]; base != "" {
 		path = strings.TrimSuffix(base, "/") + "/" + strings.TrimPrefix(path, "/")
 	}
-	ctx.emitHTTPRoute(sel.Sel.Name, path, routeHandlerName(ctx.pkg, call.Args[1]), "gin", call)
+	ctx.emitHTTPRoute(method, path, routeHandlerName(ctx.pkg, handlerArg), "gin", call)
 }
 
 // emitGinChainedCall gin 链式路由注册（r.Group("/api").GET("/x", h)）：
-// 接收者是 Group 调用表达式——组前缀递归解析后按路由注册处理。
+// 接收者是 Group 调用表达式——组前缀递归解析后按路由注册处理（与
+// emitGinRouteCall 同形态：路由方法 / Handle 通用注册 / 多 handler）。
 func (ctx *fileCtx) emitGinChainedCall(call *ast.CallExpr, sel *ast.SelectorExpr, callee *types.Func) {
 	_ = callee
-	if !ginRouterMethods[sel.Sel.Name] || len(call.Args) < 2 {
+	var method, path string
+	var handlerArg ast.Expr
+	switch {
+	case ginRouterMethods[sel.Sel.Name] && len(call.Args) >= 2:
+		method = sel.Sel.Name
+		path = extractStringArg(ctx.pkg, ctx.methodVars, call.Args[0])
+		handlerArg = call.Args[len(call.Args)-1]
+	case sel.Sel.Name == "Handle" && len(call.Args) >= 3:
+		method = extractStringArg(ctx.pkg, ctx.methodVars, call.Args[0])
+		path = extractStringArg(ctx.pkg, ctx.methodVars, call.Args[1])
+		handlerArg = call.Args[len(call.Args)-1]
+	default:
 		return
 	}
 	prefix, ok := ginChainedPrefix(ctx.pkg, sel.X)
 	if !ok {
 		return
 	}
-	path := extractStringArg(ctx.pkg, ctx.methodVars, call.Args[0])
 	path = strings.TrimSuffix(prefix, "/") + "/" + strings.TrimPrefix(path, "/")
-	ctx.emitHTTPRoute(sel.Sel.Name, path, routeHandlerName(ctx.pkg, call.Args[1]), "gin", call)
+	ctx.emitHTTPRoute(method, path, routeHandlerName(ctx.pkg, handlerArg), "gin", call)
 }
 
 // ginChainedPrefix 链式组表达式（r.Group("/a").Group("/b")...）→ 前缀

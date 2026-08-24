@@ -115,6 +115,10 @@ func (g *RouterGroup) GET(p string, h any) {}
 
 func (g *RouterGroup) POST(p string, h any) {}
 
+func (g *RouterGroup) Handle(method string, p string, h ...any) {}
+
+func (e *Engine) Handle(method string, p string, h ...any) {}
+
 func (e *Engine) Static(p string, dir string) {}
 `,
 		"api/routes.go": `package api
@@ -129,6 +133,10 @@ func createOrder(c *gin.Context) {}
 
 func healthHandler(c *gin.Context) {}
 
+func deleteItem(c *gin.Context) {}
+
+func logMw(c *gin.Context) {}
+
 func setup() {
 	r := gin.New()
 	r.GET("/ping", pingHandler)
@@ -137,8 +145,13 @@ func setup() {
 	g.POST("/orders", createOrder)
 	r.Group("/v1").GET("/health", healthHandler)
 	r.Static("/static", "./assets")
+	// R31 补遗：Handle 通用注册 + 多 handler（中间件在前）+ 匿名函数
+	r.Handle("DELETE", "/items/{id}", deleteItem)
+	g.GET("/items", logMw, listOrders)
+	r.GET("/anon", func(c *gin.Context) {})
 }
 `,
+		// deleteItem 定义补上
 	})
 	routes := routePropsOf(nodes)
 	want := map[string][]string{
@@ -173,6 +186,18 @@ func setup() {
 	}
 	if !postSeen {
 		t.Error("缺 POST /api/orders（Group 内 POST 注册）")
+	}
+	// R31 补遗：Handle 通用注册（method 从 args[0]）+ 多 handler（中间件
+	// 在前，取最后一个为业务 handler）+ 匿名函数 handler
+	routes = routePropsOf(nodes)
+	if got, ok := routes["/items/{id}"]; !ok || got[0] != "DELETE" || got[1] != "gin" || got[2] != "deleteItem" {
+		t.Errorf("Handle 通用注册 = %v; want [DELETE gin deleteItem]（全部: %v）", got, routes)
+	}
+	if got, ok := routes["/api/items"]; !ok || got[0] != "GET" || got[2] != "listOrders" {
+		t.Errorf("多 handler（中间件+业务） = %v; want GET listOrders（取最后一个）", got)
+	}
+	if got, ok := routes["/anon"]; !ok || got[2] != "(匿名)" {
+		t.Errorf("匿名函数 handler = %v; want (匿名)（不丢路由）", got)
 	}
 	// Static 系列不算（噪音）
 	if _, ok := routes["/static"]; ok {

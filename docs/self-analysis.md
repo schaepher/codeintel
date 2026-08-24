@@ -800,6 +800,14 @@ go2o 0 条（无原生/gin 路由——其他框架，符合"后置"语义）。
   emitcall 的 xid 提取只认 Ident 是既有假设，链式需独立入口
   （emitGinChainedCall）
 
+**R31 补遗（gin 注册形态盘点，用户追问"能否识别"）**：核对后补三个
+缺口——① `r.Handle("GET", "/path", h)` 通用注册（method 在 args[0]）；
+② 匿名函数 handler（FuncLit → "(匿名)" 标注，不再丢整条路由）；
+③ 多 handler（`r.GET("/x", mw, h)` 中间件在前——取最后一个为业务
+handler）。链式（emitGinChainedCall）同步同形态。测试扩展断言三条
+新形态。静态资源（Static/StaticFS）仍排除（Q2 定案）；NoRoute/NoMethod
+兜底路由与动态循环注册（for + 变量路径）是已知盲区。
+
 ## 待办与候选方向（未定优先级）
 
 **高优先级待办**（2026-08-24 用户提出，6 项）：
