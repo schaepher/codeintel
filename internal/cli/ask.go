@@ -6,6 +6,7 @@ package cli
 // {agent, prompt, response, duration_ms}。
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"regexp"
@@ -73,10 +74,6 @@ func cmdAsk(args []string) int {
 			question = append(question, a)
 		}
 	}
-	if len(question) == 0 {
-		fmt.Fprintln(os.Stderr, "error: 缺少问题（用法: codeintel ask \"<问题>\"）")
-		return 2
-	}
 	agent, err := resolveAgent(agentFlag)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -101,16 +98,11 @@ func cmdAsk(args []string) int {
 	defer db.Close()
 	acts := action.New(sqlite.NewRepo(db))
 
-	// 上下文打包：显式指定 + 问题中自动识别
-	ctxText := packAskContext(acts, syms, tbls, strings.Join(question, " "))
-	var b strings.Builder
-	b.WriteString(askPreamble + "\n")
-	if ctxText != "" {
-		b.WriteString("\n以下是项目事实上下文（自动打包，可引用）：\n" + ctxText)
+	if len(question) == 0 {
+		return askREPL(acts, agent, timeout) // 无问题 → 交互模式
 	}
-	b.WriteString("\n用户问题: " + strings.Join(question, " ") + "\n")
-	prompt := b.String()
-
+	q := strings.Join(question, " ")
+	prompt := buildAskPrompt(acts, syms, tbls, q)
 	start := time.Now()
 	resp, err := agentRunner(agent, prompt, timeout)
 	dur := time.Since(start)
@@ -128,6 +120,45 @@ func cmdAsk(args []string) int {
 		return 0
 	}
 	fmt.Println(resp)
+	return 0
+}
+
+// buildAskPrompt 组装 prompt：系统提示 + 项目事实上下文 + 问题。
+func buildAskPrompt(acts *action.Actions, syms, tbls []string, question string) string {
+	ctxText := packAskContext(acts, syms, tbls, question)
+	var b strings.Builder
+	b.WriteString(askPreamble + "\n")
+	if ctxText != "" {
+		b.WriteString("\n以下是项目事实上下文（自动打包，可引用）：\n" + ctxText)
+	}
+	b.WriteString("\n用户问题: " + question + "\n")
+	return b.String()
+}
+
+// askREPL 交互模式：逐行读 stdin，多轮追问复用同一会话（resume 机制
+// 自动带 --resume——AI 记住前文，追问无需重复上下文）。
+func askREPL(acts *action.Actions, agent string, timeout time.Duration) int {
+	fmt.Println("codeintel ask 交互模式——多轮追问复用同一会话（输入 exit/quit 退出，Ctrl-D 结束）")
+	scanner := bufio.NewScanner(os.Stdin)
+	for {
+		fmt.Print("ask> ")
+		if !scanner.Scan() {
+			break // EOF（Ctrl-D）
+		}
+		q := strings.TrimSpace(scanner.Text())
+		if q == "" {
+			continue
+		}
+		if q == "exit" || q == "quit" || q == "q" {
+			break
+		}
+		resp, err := agentRunner(agent, buildAskPrompt(acts, nil, nil, q), timeout)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			continue
+		}
+		fmt.Println(resp)
+	}
 	return 0
 }
 

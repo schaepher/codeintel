@@ -6,6 +6,8 @@ package cli
 
 import (
 	"encoding/json"
+	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -149,6 +151,43 @@ func TestCmdAskJSON(t *testing.T) {
 	}
 	if _, ok := m["duration_ms"]; !ok {
 		t.Errorf("JSON 缺 duration_ms: %v", m)
+	}
+}
+
+// TestCmdAskREPL：无问题参数 → 交互模式——多轮追问复用同一会话
+// （注入 runner 验证：首轮带符号上下文，追问轮不再重复打包）。
+func TestCmdAskREPL(t *testing.T) {
+	dir := seedAskRepo(t)
+	var prompts []string
+	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration) (string, error) {
+		prompts = append(prompts, prompt)
+		return "回答" + strconv.Itoa(len(prompts)), nil
+	})
+	defer restore()
+	oldStdin := os.Stdin
+	r, w, _ := os.Pipe()
+	os.Stdin = r
+	_, _ = w.WriteString("main 做什么？\n再详细点\nexit\n")
+	_ = w.Close()
+	defer func() { os.Stdin = oldStdin }()
+	var code int
+	out := captureStdout(func() {
+		code = cmdAsk([]string{"--repo", dir, "--agent", "claude"})
+	})
+	if code != 0 {
+		t.Fatalf("cmdAsk = %d; want 0", code)
+	}
+	if len(prompts) != 2 {
+		t.Fatalf("REPL 轮数 = %d; want 2（首轮 + 追问）", len(prompts))
+	}
+	if !strings.Contains(prompts[0], "=== 符号 main ===") {
+		t.Errorf("首轮应打包符号上下文:\n%s", prompts[0])
+	}
+	if strings.Contains(prompts[1], "=== 符号") {
+		t.Errorf("追问轮不应重复打包上下文（resume 已带前文）:\n%s", prompts[1])
+	}
+	if !strings.Contains(out, "回答1") || !strings.Contains(out, "回答2") {
+		t.Errorf("stdout 应含两轮回答:\n%s", out)
 	}
 }
 

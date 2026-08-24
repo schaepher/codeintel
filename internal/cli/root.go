@@ -117,7 +117,9 @@ const usageText = `codeintel - Go 代码库智能索引与查询（MVP）
   codeintel ask "<问题>" [--agent codex|claude|auto] [--symbol X] [--table Y]
                                   项目上下文问答（自动识别问题中的符号/
                                   表名并附加查询结果；--agent 默认 auto，
-                                  ~/.codeintel/config.yaml 可设默认）
+                                  ~/.codeintel/config.yaml 可设默认；
+                                  无问题参数进入交互模式——多轮追问
+                                  复用同一会话）
   codeintel wiki --ai --agent codex|claude
                                   AI 增量补缺（无描述模块/无别名表/无说明
                                   列 → 写回 wiki.yaml 标注 # AI 初稿）
