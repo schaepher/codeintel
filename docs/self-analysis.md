@@ -428,6 +428,29 @@ wiki html 发送。
   放大器**（R9 实体化让不可见的关系缺失可见）
 - 修复模式复用（回调分支 + 条件收敛防误报）
 
+### R19（2026-08-24）——表字段类型自动填充（sqlite_master 事实源）
+
+**分析**：用户要求字段类型太多没填，不借助 AI 尽可能地填。类型
+事实源 = SQLite schema（sqlite_master 的 CREATE TABLE 权威）；
+现状渲染只从 yaml/gorm tag 取（gorm tag 仅 ORM 结构体列有）。
+
+**改进方案**（纯工具）：
+- parseCreateTableSchema：CREATE TABLE 解析列类型/默认值——约束
+  行跳过、引号列/多空格/行尾注释/前导逗号（ALTER 加列形态）/
+  无空格行越界全兼容（4 个实现期边界 bug 全由测试暴露）
+- 填充优先级 yaml > schema > gorm tag（yaml 人工可覆盖）
+- 渲染层自动（md/html/serve 三通道 + serve snapshot 缓存）
+
+**实施结果**：commit `5a3ab12`（11 文件）；63 列中 53 列有类型
+（84%）——剩余 10 列全是 repos 全局注册表（schema 在
+~/.codeintel，仓库内无事实源，留 yaml 补）；全仓 -race 全绿。
+
+**AI 杠杆点**（R19 实证）：
+- "不借助 AI 尽可能地填"——SQLite 自身 schema 就是零 AI 的
+  权威答案；解析器一次性投入、所有仓库复用
+- 边界形态（ALTER 逗号/引号列/注释）测试先行暴露——纯工具
+  路径同样需要形态矩阵验证（morphology-matrix 记忆适用）
+
 ## 候选方向（未定优先级）
 
 - yaml 语义层：术语表（glossary）、表列说明（50 列无 comment）、
