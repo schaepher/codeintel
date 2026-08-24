@@ -100,7 +100,7 @@ func wikiServeHandler(repoAbs string, acts *action.Actions, repo *sqlite.Repo) h
 		case path == "commands":
 			serveWikiHTML(w, ws.pageHTML(snap, "/wiki/commands", renderCommandsHTML(ws.acts)))
 		case path == "processes":
-			serveWikiHTML(w, ws.pageHTML(snap, "/wiki/processes", renderProcessesHTML(ws.acts)))
+			serveWikiHTML(w, ws.pageHTML(snap, "/wiki/processes", renderProcessesHTML(&wikiRenderCtx{acts: ws.acts, Diagram: "mermaid"})))
 		case path == "api":
 			serveWikiHTML(w, ws.pageHTML(snap, "/wiki/api", renderAPIHTML(ws.repoAbs)))
 		case path == "enums":

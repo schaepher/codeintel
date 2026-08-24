@@ -70,20 +70,20 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	idx.WriteString("**快速开始**：① 看[架构图](#整体架构图)了解系统组成 → ② 看[实体协作](#实体协作对象设计视角)了解对象怎么协作 → ③ 看[命令清单](commands.md)上手 → ④ 深入[模块](index.md#模块)与[表](tables.md)。\n\n")
 	curated := archMermaidCurated(data)
 	if cfg.Architecture != "" {
-		idx.WriteString("## 整体架构图\n\n> 来源：wiki.yaml architecture\n\n```mermaid\n" + cfg.Architecture + "\n```\n\n")
+		idx.WriteString("## 整体架构图\n\n> 来源：wiki.yaml architecture\n\n" + rc.diagramMD(cfg.Architecture))
 	} else if arch := archMermaidFallback(data); arch != "" {
-		idx.WriteString("## 整体架构图\n\n> 自动生成：包间调用聚合（yaml architecture 可覆盖）\n\n```mermaid\n" + arch + "\n```\n\n")
+		idx.WriteString("## 整体架构图\n\n> 自动生成：包间调用聚合（yaml architecture 可覆盖）\n\n" + rc.diagramMD(arch))
 	}
 	// R7：AI 整理架构图（过滤 logging/seed 等基础包 + 分层分组）
 	if curated != "" {
-		idx.WriteString("## 架构图（AI 整理）\n\n> 过滤基础工具包（logging 等）+ 临时包（seed），分层分组\n> （入口/核心/支撑）——快速建立分层心智模型。\n\n```mermaid\n" + curated + "\n```\n\n")
+		idx.WriteString("## 架构图（AI 整理）\n\n> 过滤基础工具包（logging 等）+ 临时包（seed），分层分组\n> （入口/核心/支撑）——快速建立分层心智模型。\n\n" + rc.diagramMD(curated))
 	}
 	// R9：实体协作区块（对象设计视角——比数据层更先建立设计心智）
-	if sec := renderEntitiesSectionMD(eg); sec != "" {
+	if sec := renderEntitiesSectionMD(eg, rc); sec != "" {
 		idx.WriteString(sec)
 	}
 	// R14：核心业务流程图（yaml flows 手写，AI 只排位不生成内容）
-	if sec := renderBusinessFlowsSectionMD(cfg); sec != "" {
+	if sec := renderBusinessFlowsSectionMD(cfg, rc); sec != "" {
 		idx.WriteString(sec)
 	}
 	idx.WriteString("由 `codeintel wiki` 生成（全量覆盖；业务描述/别名维护在 wiki.yaml）\n\n")
@@ -116,7 +116,7 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	}
 	for _, wm := range data {
 		keyFlows := wikiModuleKeyFlows(acts, wm) // R17 关键数据流
-		page := renderModulePage(wm, eg, keyFlows, meta[wm.Name].desc, tableAlias, hidden, cfg)
+		page := renderModulePage(wm, eg, keyFlows, meta[wm.Name].desc, tableAlias, hidden, cfg, rc)
 		if err := os.WriteFile(filepath.Join(outDir, wm.ShortName+".md"), []byte(page), 0o644); err != nil {
 			return err
 		}
@@ -136,7 +136,7 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 		return err
 	}
 
-	er := renderERPage(rels, hideTable)
+	er := renderERPage(rels, hideTable, rc)
 	if err := os.WriteFile(filepath.Join(outDir, "er.md"), []byte(er), 0o644); err != nil {
 		return err
 	}
@@ -148,7 +148,7 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 		return err
 	}
 	// R2：系统流程页（进程视角）
-	if err := os.WriteFile(filepath.Join(outDir, "processes.md"), []byte(renderProcessesMD(acts)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(outDir, "processes.md"), []byte(renderProcessesMD(rc)), 0o644); err != nil {
 		return err
 	}
 	// R5：枚举与工具函数（源码事实——AI 权威值来源）

@@ -88,7 +88,7 @@ func erEntityName(name string) string {
 
 // renderERPage ER 图页面（Q251，er.md）：erDiagram + 关系明细表
 // （仅 fk/query，隐藏表过滤）。字段详情见 tables.md。
-func renderERPage(rels []*domain.TableRelation, hideTable map[string]bool) string {
+func renderERPage(rels []*domain.TableRelation, hideTable map[string]bool, rc *wikiRenderCtx) string {
 	var b strings.Builder
 	b.WriteString("# ER 图（表间关系）\n\n")
 	b.WriteString("表间直接键关联（fk=值流验证的真实键 / query=WHERE 键关联），列级标注。字段定义与建表语句见[表清单](tables.md)。\n\n")
@@ -96,7 +96,7 @@ func renderERPage(rels []*domain.TableRelation, hideTable map[string]bool) strin
 	if !strings.Contains(m, "||--") {
 		b.WriteString("（无表间直接关联）\n\n")
 	} else {
-		b.WriteString("```mermaid\n" + m + "```\n\n")
+		b.WriteString(rc.diagramMD(m))
 	}
 	b.WriteString("## 关系明细\n\n")
 	b.WriteString("| 本表 | 本表列 | 关联表 | 关联列 | 类型 |\n|---|---|---|---|---|\n")

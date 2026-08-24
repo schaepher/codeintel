@@ -137,12 +137,12 @@ func (ws *wikiServe) overviewPage(snap *wikiSnapshot) string {
 	if curated := archMermaidCurated(snap.data); curated != "" {
 		b.WriteString(`<section id="arch-curated"><h2>架构图（AI 整理）</h2><p class="muted">过滤基础工具包（logging 等）+ 临时包（seed），分层分组（入口/核心/支撑）。</p><pre class="mermaid">` + htmlEsc(curated) + `</pre></section>` + "\n")
 	}
-	// R9：实体协作区块（对象设计视角）
-	if sec := renderEntitiesSectionHTML(snap.eg); sec != "" {
+	// R9：实体协作区块（对象设计视角）（serve 固定 mermaid——浏览器渲染）
+	if sec := renderEntitiesSectionHTML(snap.eg, &wikiRenderCtx{Diagram: "mermaid"}); sec != "" {
 		b.WriteString(sec)
 	}
 	// R14：核心业务流程图（yaml flows 手写）
-	if sec := renderBusinessFlowsSectionHTML(snap.cfg); sec != "" {
+	if sec := renderBusinessFlowsSectionHTML(snap.cfg, &wikiRenderCtx{Diagram: "mermaid"}); sec != "" {
 		b.WriteString(sec)
 	}
 	b.WriteString(`<section id="modules"><h2>模块</h2>`)
@@ -177,7 +177,7 @@ func (ws *wikiServe) modulePage(snap *wikiSnapshot, wm *domain.WikiModule) strin
 	if d := snap.meta[wm.Name].desc; d != "" {
 		b.WriteString("<blockquote>" + htmlEsc(d) + "</blockquote>")
 	}
-	b.WriteString(renderModuleHTML(wm, 0, snap.eg, snap.keyFlows[wm.Name], snap.tableAlias, snap.hidden, snap.cfg, snap.meta[wm.Name].desc))
+	b.WriteString(renderModuleHTML(wm, 0, snap.eg, snap.keyFlows[wm.Name], snap.tableAlias, snap.hidden, snap.cfg, snap.meta[wm.Name].desc, &wikiRenderCtx{Diagram: "mermaid"}))
 	b.WriteString("</section>\n")
 	return ws.pageHTML(snap, "/wiki/mod/"+wm.ShortName, b.String())
 }

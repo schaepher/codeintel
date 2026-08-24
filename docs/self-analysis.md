@@ -808,6 +808,48 @@ handler）。链式（emitGinChainedCall）同步同形态。测试扩展断言�
 新形态。静态资源（Static/StaticFS）仍排除（Q2 定案）；NoRoute/NoMethod
 兜底路由与动态循环注册（for + 变量路径）是已知盲区。
 
+### R32（2026-08-24）——图渲染双引擎（plantuml + mermaid，待办 2）
+
+**分析**：待办 2——wiki 图支持 plantuml 与 mermaid，默认 plantuml（Q3
+定案）。grilling 定案：范围 = wiki 的图（ER/实体/架构/流程时序；查询类
+--format mermaid 不动）；渲染方式 = 本地 plantuml.jar PNG（用户指出
+/opt/plantuml/plantuml.jar）。实测语法发现 plantuml 与 mermaid **同名
+图类型语法不同**（erDiagram 关键字不支持、sequenceDiagram 头不需要、
+-->|N| label 不合法需冒号）——必须转换器而非复用。
+
+**改进方案**：
+- mermaid → plantuml 转换器（三类）：ER 删头+实体名行（纯关系行自动
+  建实体）；sequence 删头（participant/消息行两引擎相同）；graph 统一
+  （node "label" as id 定义 + 边行保留；自环边过滤——plantuml 不支持；
+  -->|N| → --> N : 冒号 label；纯节点行跳过裸 id；subgraph 需 {）
+- 渲染器：java -jar plantuml.jar -tpng -pipe（stdin/stdout）；jar 路径
+  PLANTUML_JAR > /opt/plantuml/plantuml.jar；**java tmpdir 必须仓库外**
+  （-Djava.io.tmpdir——ImageIO 写 /tmp 缓存 EDQUOT 直接 I/O error）
+- --diagram 贯通：renderCtx.Diagram + diagramMD/HTML helper（md 输出
+  plantuml 文本块；HTML PNG base64 <img> 单文件自包含；失败降级文本块）；
+  全部 ~16 个 mermaid 发射点替换；plantuml 模式不引 mermaid CDN；
+  serve 固定 mermaid（浏览器渲染）
+- 调试利器（用户提示）：plantuml.jar --check-syntax 只检查语法不渲染
+  ——定位语法错误从"渲染 PNG 猜"变成"直接报错行"
+
+**实施结果**：go2o 实测 **35/37 图渲染成功**（95%）——2 个降级文本块：
+subgraph 分组图（plantuml 组件图 subgraph+node 组合全语法错误——生态
+坑，注释标注）与 80KB 巨 ER 图（渲染超时/内存）；wiki-check 7/7 PASS
+（plantuml 模式无 mermaid 块自动通过）；测试 TestMermaidGraphToPlantuml
+（节点双格式/自环/冒号 label）、TestMermaidERToPlantuml、
+TestMermaidSequenceToPlantuml、TestMermaidGraphSubgraph、
+TestWikiPlantumlDefault（PNG base64 + 无 CDN + md plantuml 块）；全仓
+-race 13 包全绿。
+
+**AI 杠杆点**（R32 实证）：
+- 语法兼容性不能凭"同名图类型"假设——erDiagram 关键字/-->|N| 等
+  plantuml 都不认，--check-syntax 逐项实测二分定位（用户提示的调试
+  捷径：语法检查秒级 vs 渲染 PNG 秒级+文件）
+- 大图渲染降级为文本块是合理设计（80KB ER 图 PNG 不实用）——
+  降级不丢信息（文本可自行渲染）
+- java 子进程继承 /tmp 配额问题（-Djava.io.tmpdir）——外部进程的
+  临时目录假设与本环境冲突时，环境变量覆盖是通用解法
+
 ## 待办与候选方向（未定优先级）
 
 **高优先级待办**（2026-08-24 用户提出，6 项）：
@@ -816,8 +858,9 @@ handler）。链式（emitGinChainedCall）同步同形态。测试扩展断言�
   http 部分（`query http-routes`——R31 两个 resolver：原生 net/http
   [包级 Handle/HandleFunc + ServeMux 方法调用] + gin [路由方法 + Group
   前缀拼接/链式]，其他框架后置）
-- 2. **图渲染双引擎**：wiki/ER/实体协作图支持 plantuml 与 mermaid，
-  参数切换（`--diagram plantuml|mermaid`，默认 plantuml）
+- ~~2. 图渲染双引擎~~ → **R32 已实现**（wiki `--diagram
+  plantuml|mermaid`，默认 plantuml——HTML 渲染 PNG base64 嵌入、md
+  输出 plantuml 文本块；mermaid 模式保持浏览器渲染）
 - 3. **urfave/cli/v2 命令解析支持**：命令/入口分析不依赖具体文件路径
   （现基于 root.go Main switch 硬编码文件），识别 cli/v2 注册的命令树
 - 4. **系统流程基于 http/grpc 分析出的入口**：processes 页（R28 起基于

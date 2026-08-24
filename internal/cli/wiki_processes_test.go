@@ -25,7 +25,7 @@ func TestRenderProcessesFromEntry(t *testing.T) {
 	defer db.Close()
 	acts := action.New(sqlite.NewRepo(db))
 
-	m := renderProcessesMD(acts)
+	m := renderProcessesMD(&wikiRenderCtx{acts: acts, Diagram: "mermaid"})
 	// 不再硬编码 codeintel 自身命令
 	for _, bad := range []string{"init —— 全量构建索引", "cmdInit", "cmdWiki", "cmdServe", "codeintel"} {
 		if strings.Contains(m, bad) {
@@ -39,7 +39,7 @@ func TestRenderProcessesFromEntry(t *testing.T) {
 		}
 	}
 
-	h := renderProcessesHTML(acts)
+	h := renderProcessesHTML(&wikiRenderCtx{acts: acts, Diagram: "mermaid"})
 	for _, want := range []string{`<h3>入口 <code>main</code>`, "<code>svc:(Svc).Run</code>"} {
 		if !strings.Contains(h, want) {
 			t.Errorf("processes html 应含 %q:\n%s", want, h)

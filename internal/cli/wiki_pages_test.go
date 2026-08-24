@@ -85,7 +85,8 @@ flows:
 	if err := os.WriteFile(yamlPath, []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if code := cmdWiki([]string{"--repo", dir, "--out", out, "--yaml", yamlPath}); code != 0 {
+	// R32：默认 plantuml——mermaid 模式显式 --diagram mermaid
+	if code := cmdWiki([]string{"--repo", dir, "--out", out, "--yaml", yamlPath, "--diagram", "mermaid"}); code != 0 {
 		t.Fatalf("cmdWiki exit = %d", code)
 	}
 	mod, err := os.ReadFile(filepath.Join(out, "m.md"))
@@ -102,6 +103,41 @@ flows:
 
 	if !strings.Contains(ms, `participant P0 as "main"`) || !strings.Contains(ms, "P0->>P1: call") {
 		t.Errorf("应含自动时序（main 调用链）:\n%s", ms)
+	}
+}
+
+// TestWikiPlantumlDefault：R32——默认 plantuml 模式：md 输出 ```plantuml
+// 块（graph/sequence 转换），HTML 渲染 PNG base64 <img>（无 mermaid CDN）。
+func TestWikiPlantumlDefault(t *testing.T) {
+	dir := seedWikiRepo(t)
+	out := filepath.Join(t.TempDir(), "wiki")
+	if code := cmdWiki([]string{"--repo", dir, "--out", out, "--format", "html"}); code != 0 {
+		t.Fatalf("cmdWiki html exit = %d", code)
+	}
+	html, err := os.ReadFile(filepath.Join(out, "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(html)
+	if strings.Contains(s, "mermaid.min.js") {
+		t.Error("plantuml 模式不应引 mermaid CDN")
+	}
+	if !strings.Contains(s, "data:image/png;base64,") {
+		t.Error("plantuml 模式 HTML 应含 PNG base64 图（ER/架构等）")
+	}
+	// md 版：plantuml 文本块
+	out2 := filepath.Join(t.TempDir(), "wiki2")
+	if code := cmdWiki([]string{"--repo", dir, "--out", out2}); code != 0 {
+		t.Fatalf("cmdWiki md exit = %d", code)
+	}
+	idx, err := os.ReadFile(filepath.Join(out2, "index.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"```plantuml", "@startuml"} {
+		if !strings.Contains(string(idx), want) {
+			t.Errorf("md 应含 %q（plantuml 文本块）:\n%s", want, idx)
+		}
 	}
 }
 

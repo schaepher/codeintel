@@ -6,6 +6,7 @@ type wikiPageOpts struct {
 	freshNote   string // 非空时页面底部新鲜度标注（索引 commit）
 	searchIndex string // 搜索索引 JSON（模块/表/术语；serve 版跨页搜索）
 	chatPanel   bool   // W1：serve 版注入对话面板（POST /wiki/ask）
+	diagram     string // R32：plantuml（默认）| mermaid——控制 mermaid CDN 引入
 }
 
 // wikiHTMLPage 组装完整页面（内嵌 CSS/JS）。guide 是快速开始引导块
@@ -114,9 +115,17 @@ body.sidebar-off #main { margin-left: 0; }
 			return "<script>var WIKI_IDX = " + opts.searchIndex + ";</script>\n"
 		}
 		return "<script>var WIKI_IDX = [];</script>\n"
-	}()) + `<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+	}()) + (func() string {
+		if opts.diagram == "plantuml" {
+			// R32：plantuml 模式图已渲染为 PNG——不引 mermaid CDN
+			return ""
+		}
+		return `<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 <script>
-mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
+mermaid.initialize({ startOnLoad: true, theme: 'neutral' });`
+	}()) + `
+<script>
+// 目录当前模块高亮（scrollspy）
 // 目录当前模块高亮（scrollspy）
 (function () {
   var mods = Array.prototype.slice.call(document.querySelectorAll('#main section[id^="mod-"]'));

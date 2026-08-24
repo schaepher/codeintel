@@ -80,7 +80,8 @@ func symbolPkg(id string) string {
 // 函数逐条展开深度 2 调用链（实体协作子图 + 涉及包）。R9：函数级
 // 时序图替换为实体协作子图（Q7）——调用链映射到实体（类型/包门面）；
 // 函数级细节可用 query callees 查。
-func renderProcessesMD(acts *action.Actions) string {
+func renderProcessesMD(rc *wikiRenderCtx) string {
+	acts := rc.acts
 	var b strings.Builder
 	b.WriteString("# 系统流程\n\n> 数据源：目标仓库 main 入口函数 + 一级调用展开（索引调用链\n> GetCallees 深度 2）——实体协作视角看入口涉及的对象交互。\n\n")
 	eg, err := acts.Entities()
@@ -120,14 +121,14 @@ func renderProcessesMD(acts *action.Actions) string {
 			}
 			b.WriteString("入口：" + chain.Entry + "\n\n")
 			if sub := entitySubgraphMermaid(eg, chain.Steps); sub != "" {
-				b.WriteString("```mermaid\n" + sub + "\n```\n\n")
+				b.WriteString(rc.diagramMD(sub))
 			} else {
-				b.WriteString("```mermaid\n" + sequenceMermaid(chain.Steps) + "\n```\n\n")
+				b.WriteString(rc.diagramMD(sequenceMermaid(chain.Steps)))
 			}
 			// R12：实体间调用时序图（顺序视角——谁先调谁）
 			if seq := entitySequenceMermaid(eg, chain.Steps); seq != "" {
 				b.WriteString("**实体间调用时序**（连续同向调用合并计数）：\n\n")
-				b.WriteString("```mermaid\n" + seq + "\n```\n\n")
+				b.WriteString(rc.diagramMD(seq))
 			}
 			if len(chain.Pkgs) > 0 {
 				b.WriteString("涉及包：`" + strings.Join(chain.Pkgs, "`、`") + "`\n\n")
@@ -138,7 +139,8 @@ func renderProcessesMD(acts *action.Actions) string {
 }
 
 // renderProcessesHTML 流程页 html 内容（实体协作子图版）。
-func renderProcessesHTML(acts *action.Actions) string {
+func renderProcessesHTML(rc *wikiRenderCtx) string {
+	acts := rc.acts
 	var b strings.Builder
 	b.WriteString(`<section id="processes"><h2>系统流程</h2><p class="muted">数据源：目标仓库 main 入口 + 一级调用展开（索引调用链）——实体协作视角看入口涉及的对象交互。</p>`)
 	eg, err := acts.Entities()
@@ -176,14 +178,14 @@ func renderProcessesHTML(acts *action.Actions) string {
 			}
 			b.WriteString("<p class=\"muted\">入口：" + htmlEsc(chain.Entry) + "</p>")
 			if sub := entitySubgraphMermaid(eg, chain.Steps); sub != "" {
-				b.WriteString("<pre class=\"mermaid\">" + htmlEsc(sub) + "</pre>")
+				b.WriteString(rc.diagramHTML(sub))
 			} else {
-				b.WriteString("<pre class=\"mermaid\">" + htmlEsc(sequenceMermaid(chain.Steps)) + "</pre>")
+				b.WriteString(rc.diagramHTML(sequenceMermaid(chain.Steps)))
 			}
 			// R12：实体间调用时序图
 			if seq := entitySequenceMermaid(eg, chain.Steps); seq != "" {
 				b.WriteString("<p class=\"muted\">实体间调用时序（连续同向调用合并计数）：</p>")
-				b.WriteString("<pre class=\"mermaid\">" + htmlEsc(seq) + "</pre>")
+				b.WriteString(rc.diagramHTML(seq))
 			}
 			if len(chain.Pkgs) > 0 {
 				b.WriteString("<p class=\"muted\">涉及包：" + htmlEsc(strings.Join(chain.Pkgs, "、")) + "</p>")

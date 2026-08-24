@@ -35,7 +35,7 @@ func moduleAnchors(wm *domain.WikiModule) []moduleAnchor {
 
 // renderModuleHTML 模块内容（区块标题可折叠，默认展开；R9：内部
 // 调用链渲染为实体协作子图；R17：关键数据流区块）。
-func renderModuleHTML(wm *domain.WikiModule, i int, eg *domain.EntityGraph, keyFlows []wikiKeyFlow, tableAlias map[string]string, hidden map[string]bool, cfg wikiConfig, desc string) string {
+func renderModuleHTML(wm *domain.WikiModule, i int, eg *domain.EntityGraph, keyFlows []wikiKeyFlow, tableAlias map[string]string, hidden map[string]bool, cfg wikiConfig, desc string, rc *wikiRenderCtx) string {
 	var b strings.Builder
 	sec := func(key, title string) string {
 		return fmt.Sprintf(`<h3 class="fold-btn" data-target="%s-%d" data-label="1">▾ %s</h3><div class="sec-body" id="%s-%d">`,
@@ -120,7 +120,7 @@ func renderModuleHTML(wm *domain.WikiModule, i int, eg *domain.EntityGraph, keyF
 	b.WriteString(sec("arch", "架构图（包间调用）"))
 	arch := moduleArchMermaid(wm)
 	if arch != "" {
-		b.WriteString("<pre class=\"mermaid\">" + htmlEsc(arch) + "</pre>")
+		b.WriteString(rc.diagramHTML(arch))
 	} else {
 		b.WriteString("<p class=\"muted\">（单模块或无线索；整体架构见页面顶部架构图）</p>")
 	}
@@ -130,7 +130,7 @@ func renderModuleHTML(wm *domain.WikiModule, i int, eg *domain.EntityGraph, keyF
 	hasSeq := false
 	for _, f := range cfg.Flows {
 		b.WriteString("<h4>" + htmlEsc(f.Title) + "</h4>")
-		b.WriteString("<pre class=\"mermaid\">" + htmlEsc(f.Mermaid) + "</pre>")
+		b.WriteString(rc.diagramHTML(f.Mermaid))
 		hasSeq = true
 	}
 	if len(wm.Flows) > 0 {
@@ -139,13 +139,13 @@ func renderModuleHTML(wm *domain.WikiModule, i int, eg *domain.EntityGraph, keyF
 	for _, fl := range wm.Flows {
 		b.WriteString("<h4>内部调用链：" + htmlEsc(fl.Title) + "</h4>")
 		if sub := entitySubgraphMermaid(eg, fl.Steps); sub != "" {
-			b.WriteString("<pre class=\"mermaid\">" + htmlEsc(sub) + "</pre>")
+			b.WriteString(rc.diagramHTML(sub))
 		} else {
-			b.WriteString("<pre class=\"mermaid\">" + htmlEsc(sequenceMermaid(fl.Steps)) + "</pre>")
+			b.WriteString(rc.diagramHTML(sequenceMermaid(fl.Steps)))
 		}
 		if seq := entitySequenceMermaid(eg, fl.Steps); seq != "" {
 			b.WriteString("<p class=\"muted\">实体间调用时序（连续同向调用合并计数）：</p>")
-			b.WriteString("<pre class=\"mermaid\">" + htmlEsc(seq) + "</pre>")
+			b.WriteString(rc.diagramHTML(seq))
 		}
 		hasSeq = true
 	}

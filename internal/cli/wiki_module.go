@@ -49,7 +49,7 @@ func moduleDesc(wm *domain.WikiModule, metaDesc string) string {
 // renderModulePage 模块页六区块 + 关键数据流 + 架构图 + 流程时序
 // （R9：内部调用链渲染为实体协作子图；R17：关键数据流 = 核心符号
 // 字段读写——value-trace 入口）。
-func renderModulePage(wm *domain.WikiModule, eg *domain.EntityGraph, keyFlows []wikiKeyFlow, desc string, tableAlias map[string]string, hidden map[string]bool, cfg wikiConfig) string {
+func renderModulePage(wm *domain.WikiModule, eg *domain.EntityGraph, keyFlows []wikiKeyFlow, desc string, tableAlias map[string]string, hidden map[string]bool, cfg wikiConfig, rc *wikiRenderCtx) string {
 	var b strings.Builder
 	b.WriteString("# " + wm.Name + "\n\n")
 	if desc != "" {
@@ -126,7 +126,7 @@ func renderModulePage(wm *domain.WikiModule, eg *domain.EntityGraph, keyFlows []
 	b.WriteString("## 架构图（包间调用）\n\n")
 	arch := moduleArchMermaid(wm)
 	if arch != "" {
-		b.WriteString("```mermaid\n" + arch + "\n```\n\n")
+		b.WriteString(rc.diagramMD(arch))
 	} else {
 		b.WriteString("（单模块或无线索；整体架构见 index 架构图）\n\n")
 	}
@@ -135,7 +135,7 @@ func renderModulePage(wm *domain.WikiModule, eg *domain.EntityGraph, keyFlows []
 	hasSeq := false
 	for _, f := range cfg.Flows {
 		b.WriteString("### " + f.Title + "\n\n")
-		b.WriteString("```mermaid\n" + f.Mermaid + "\n```\n\n")
+		b.WriteString(rc.diagramMD(f.Mermaid))
 		hasSeq = true
 	}
 	if len(wm.Flows) > 0 {
@@ -144,13 +144,13 @@ func renderModulePage(wm *domain.WikiModule, eg *domain.EntityGraph, keyFlows []
 	for _, fl := range wm.Flows {
 		b.WriteString("### 内部调用链：" + fl.Title + "\n\n")
 		if sub := entitySubgraphMermaid(eg, fl.Steps); sub != "" {
-			b.WriteString("```mermaid\n" + sub + "\n```\n\n")
+			b.WriteString(rc.diagramMD(sub))
 		} else {
-			b.WriteString("```mermaid\n" + sequenceMermaid(fl.Steps) + "\n```\n\n")
+			b.WriteString(rc.diagramMD(sequenceMermaid(fl.Steps)))
 		}
 		if seq := entitySequenceMermaid(eg, fl.Steps); seq != "" {
 			b.WriteString("**实体间调用时序**（连续同向调用合并计数）：\n\n")
-			b.WriteString("```mermaid\n" + seq + "\n```\n\n")
+			b.WriteString(rc.diagramMD(seq))
 		}
 		hasSeq = true
 	}

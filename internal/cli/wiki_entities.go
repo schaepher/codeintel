@@ -98,7 +98,7 @@ const entityLegend = "图例：节点 = 实体（`类型名`；`门面 N` = 包�
 
 // renderEntitiesSectionMD 概览「实体协作」区块（md）：全图 + 图例 +
 // 设计诊断清单（含解读与行动建议）——新人第一眼看到对象协作与设计信号。
-func renderEntitiesSectionMD(g *domain.EntityGraph) string {
+func renderEntitiesSectionMD(g *domain.EntityGraph, rc *wikiRenderCtx) string {
 	if g == nil || len(g.Nodes) == 0 {
 		return ""
 	}
@@ -111,15 +111,15 @@ func renderEntitiesSectionMD(g *domain.EntityGraph) string {
 	if len(doms) >= 2 {
 		b.WriteString("**领域分组**：实体按 DDD 目录（domain/service 子域）分组；领域间图 + 每领域内部图分开。\n\n")
 		b.WriteString("### 领域间关系\n\n")
-		b.WriteString("```mermaid\n" + domainMermaid(doms, g.Edges) + "\n```\n\n")
+		b.WriteString(rc.diagramMD(domainMermaid(doms, g.Edges)))
 		for _, d := range doms {
 			b.WriteString(fmt.Sprintf("<details><summary>领域 <code>%s</code>（%d 实体）——展开查看内部协作</summary>\n\n",
 				htmlEsc(d.Name), len(d.Nodes)))
-			b.WriteString("```mermaid\n" + entityMermaid(&domain.EntityGraph{Nodes: d.Nodes, Edges: d.Edges}) + "\n```\n")
+			b.WriteString(rc.diagramMD(entityMermaid(&domain.EntityGraph{Nodes: d.Nodes, Edges: d.Edges})))
 			b.WriteString("</details>\n\n")
 		}
 	} else {
-		b.WriteString("```mermaid\n" + entityMermaid(g) + "\n```\n\n")
+		b.WriteString(rc.diagramMD(entityMermaid(g)))
 	}
 	if len(g.Diags) > 0 {
 		b.WriteString("**设计诊断**（信号 → 行动；阈值见 `codeintel query entities`）：\n\n")
@@ -143,7 +143,7 @@ func renderEntitiesSectionMD(g *domain.EntityGraph) string {
 }
 
 // renderEntitiesSectionHTML 概览「实体协作」区块（html/serve 共用）。
-func renderEntitiesSectionHTML(g *domain.EntityGraph) string {
+func renderEntitiesSectionHTML(g *domain.EntityGraph, rc *wikiRenderCtx) string {
 	if g == nil || len(g.Nodes) == 0 {
 		return ""
 	}
@@ -153,14 +153,14 @@ func renderEntitiesSectionHTML(g *domain.EntityGraph) string {
 	doms := splitEntityDomains(g)
 	if len(doms) >= 2 {
 		b.WriteString(`<p class="muted">领域分组：实体按 DDD 目录（domain/service 子域）分组；领域间图 + 每领域内部图分开。</p>`)
-		b.WriteString("<h3>领域间关系</h3><pre class=\"mermaid\">" + htmlEsc(domainMermaid(doms, g.Edges)) + "</pre>")
+		b.WriteString("<h3>领域间关系</h3>" + rc.diagramHTML(domainMermaid(doms, g.Edges)))
 		for i, d := range doms {
 			id := fmt.Sprintf("entity-dom-%d", i)
-			b.WriteString(fmt.Sprintf(`<h4 class="fold-btn" data-target="%s" data-label="1">▸ 领域 %s（%d 实体）——内部协作</h4><div class="sec-body" id="%s" style="display:none"><pre class="mermaid">%s</pre></div>`,
-				id, htmlEsc(d.Name), len(d.Nodes), id, htmlEsc(entityMermaid(&domain.EntityGraph{Nodes: d.Nodes, Edges: d.Edges}))))
+			b.WriteString(fmt.Sprintf(`<h4 class="fold-btn" data-target="%s" data-label="1">▸ 领域 %s（%d 实体）——内部协作</h4><div class="sec-body" id="%s" style="display:none">%s</div>`,
+				id, htmlEsc(d.Name), len(d.Nodes), id, rc.diagramHTML(entityMermaid(&domain.EntityGraph{Nodes: d.Nodes, Edges: d.Edges}))))
 		}
 	} else {
-		b.WriteString("<pre class=\"mermaid\">" + htmlEsc(entityMermaid(g)) + "</pre>")
+		b.WriteString(rc.diagramHTML(entityMermaid(g)))
 	}
 	if len(g.Diags) > 0 {
 		labels := map[string]string{

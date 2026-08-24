@@ -10,7 +10,7 @@ import (
 
 // renderBusinessFlowsSectionMD 核心业务流程图区块（md）：yaml flows
 // 全部列出——维护者手写的业务时序（AI 不自动实现，靠 yaml 补充）。
-func renderBusinessFlowsSectionMD(cfg wikiConfig) string {
+func renderBusinessFlowsSectionMD(cfg wikiConfig, rc *wikiRenderCtx) string {
 	if len(cfg.Flows) == 0 {
 		return ""
 	}
@@ -19,13 +19,13 @@ func renderBusinessFlowsSectionMD(cfg wikiConfig) string {
 	b.WriteString("> 业务时序（wiki.yaml flows 手写——维护者补充；系统调用链见下方「系统流程」）。\n\n")
 	for _, f := range cfg.Flows {
 		b.WriteString("### " + f.Title + "\n\n")
-		b.WriteString("```mermaid\n" + f.Mermaid + "\n```\n\n")
+		b.WriteString(rc.diagramMD(f.Mermaid))
 	}
 	return b.String()
 }
 
 // renderBusinessFlowsSectionHTML 核心业务流程图区块（html/serve 共用）。
-func renderBusinessFlowsSectionHTML(cfg wikiConfig) string {
+func renderBusinessFlowsSectionHTML(cfg wikiConfig, rc *wikiRenderCtx) string {
 	if len(cfg.Flows) == 0 {
 		return ""
 	}
@@ -33,7 +33,7 @@ func renderBusinessFlowsSectionHTML(cfg wikiConfig) string {
 	b.WriteString(`<section id="flows"><h2>核心业务流程图</h2><p class="muted">业务时序（wiki.yaml flows 手写——维护者补充；系统调用链见下方「系统流程」）。</p>`)
 	for _, f := range cfg.Flows {
 		b.WriteString("<h3>" + htmlEsc(f.Title) + "</h3>")
-		b.WriteString("<pre class=\"mermaid\">" + htmlEsc(f.Mermaid) + "</pre>")
+		b.WriteString(rc.diagramHTML(f.Mermaid))
 	}
 	b.WriteString("</section>")
 	return b.String()

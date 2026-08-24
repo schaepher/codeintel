@@ -6,6 +6,7 @@ package cli
 // 输出：docs/wiki/index.md + 每模块一页 + tables.md。
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -32,6 +33,7 @@ func cmdWiki(args []string) int {
 	aiMode := false
 	aiAgent := ""
 	aiWithQA := false
+	diagram := "plantuml" // R32：图引擎（默认 plantuml，Q3 定案）
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
@@ -66,13 +68,22 @@ func cmdWiki(args []string) int {
 			aiAgent = strings.TrimPrefix(a, "--agent=")
 		case a == "--with-qa":
 			aiWithQA = true
+		case a == "--diagram" && i+1 < len(args):
+			diagram = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--diagram="):
+			diagram = strings.TrimPrefix(a, "--diagram=")
 		case a == "--help" || a == "-h":
-			fmt.Println("用法: codeintel wiki [--repo <path>] [--out <dir=docs/wiki>] [--yaml <file>] [--format md|html] [--init] [--ai] [--agent codex|claude|auto] [--with-qa]\n  从代码生成业务 wiki（Markdown 或单文件 HTML）——wiki.yaml 可补充业务描述/别名/隐藏符号；--init 生成 wiki.yaml 骨架；--ai 用 AI 增量补缺（无描述模块/无别名表/无说明列/术语表 → 写回 wiki.yaml 标注 # AI 初稿）；--with-qa 从历史问答（ask/serve 对话收集）读取相关 Q&A 作为参考资料")
+			fmt.Println("用法: codeintel wiki [--repo <path>] [--out <dir=docs/wiki>] [--yaml <file>] [--format md|html] [--init] [--ai] [--agent codex|claude|auto] [--with-qa] [--diagram plantuml|mermaid]\n  从代码生成业务 wiki（Markdown 或单文件 HTML）——wiki.yaml 可补充业务描述/别名/隐藏符号；--init 生成 wiki.yaml 骨架；--ai 用 AI 增量补缺（无描述模块/无别名表/无说明列/术语表 → 写回 wiki.yaml 标注 # AI 初稿）；--with-qa 从历史问答（ask/serve 对话收集）读取相关 Q&A 作为参考资料；--diagram 图引擎（默认 plantuml——HTML 渲染 PNG 嵌入；mermaid 浏览器端渲染）")
 			return 0
 		default:
 			fmt.Fprintf(os.Stderr, "error: 未知参数 %q\n", a)
 			return 2
 		}
+	}
+	if diagram != "plantuml" && diagram != "mermaid" {
+		fmt.Fprintf(os.Stderr, "error: 未知 diagram %q（支持 plantuml|mermaid）\n", diagram)
+		return 2
 	}
 	abs, _, err := resolveRepo(repoPath)
 	if err != nil {
@@ -179,7 +190,7 @@ func cmdWiki(args []string) int {
 		freshNote = "索引 commit: " + shortSHA(latest.CommitSHA)
 		degradeStats = latest.DegradeStats // R6：构建降级可观测
 	}
-	rc := &wikiRenderCtx{acts: acts, data: data, cfg: cfg, cols: cols, rels: rels, pkgs: pkgs, freshNote: freshNote, degradeStats: degradeStats}
+	rc := &wikiRenderCtx{acts: acts, data: data, cfg: cfg, cols: cols, rels: rels, pkgs: pkgs, freshNote: freshNote, degradeStats: degradeStats, Diagram: diagram}
 	switch format {
 	case "html":
 		if err := renderWikiHTML(abs, outDir, rc); err != nil {
@@ -213,6 +224,32 @@ type wikiRenderCtx struct {
 	rels      []*domain.TableRelation
 	pkgs      []*domain.CodeEntity // R1：包职责地图（GetPackages）
 	freshNote string
+	Diagram  string // R32：图引擎 plantuml（默认）| mermaid
+}
+
+// diagramMD md 图块：plantuml 模式输出 ```plantuml 文本（md 不嵌 PNG）；
+// mermaid 模式原样代码块。
+func (rc *wikiRenderCtx) diagramMD(mermaid string) string {
+	if rc.Diagram != "plantuml" {
+		return "```mermaid\n" + mermaid + "\n```\n\n"
+	}
+	return "```plantuml\n" + mermaidToPlantuml(mermaid) + "\n```\n\n"
+}
+
+// diagramHTML html 图块：plantuml 模式渲染 PNG → base64 <img>（单文件
+// 自包含；渲染失败降级 plantuml 文本块）；mermaid 模式 <pre class="mermaid">。
+func (rc *wikiRenderCtx) diagramHTML(mermaid string) string {
+	if rc.Diagram != "plantuml" {
+		return "<pre class=\"mermaid\">" + htmlEsc(mermaid) + "</pre>"
+	}
+	puml := mermaidToPlantuml(mermaid)
+	if puml == "" {
+		return "<pre class=\"mermaid\">" + htmlEsc(mermaid) + "</pre>"
+	}
+	if png, err := plantumlRender(puml); err == nil {
+		return "<img src=\"data:image/png;base64," + base64.StdEncoding.EncodeToString(png) + "\" alt=\"diagram\"/>"
+	}
+	return "<pre class=\"plantuml\">" + htmlEsc(puml) + "</pre>"
 }
 
 // renderWiki 生成 index.md + 模块页 + tables.md + er.md + commands.md +

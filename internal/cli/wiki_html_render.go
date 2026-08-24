@@ -50,22 +50,22 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 		archNote = "（自动生成：包间调用聚合——yaml architecture 可覆盖）"
 	}
 	if archMermaid != "" {
-		main.WriteString(`<section id="arch"><h2>架构图</h2><p class="muted">` + archNote + `</p><pre class="mermaid">` + htmlEsc(archMermaid) + `</pre></section>` + "\n")
+		main.WriteString(`<section id="arch"><h2>架构图</h2><p class="muted">` + archNote + `</p>` + rc.diagramHTML(archMermaid) + `</section>` + "\n")
 		nav.WriteString(`<li><a href="#arch">架构图</a></li>`)
 	}
 	// R7：AI 整理架构图（过滤基础包 + 分层分组）
 	if curated := archMermaidCurated(data); curated != "" {
-		main.WriteString(`<section id="arch-curated"><h2>架构图（AI 整理）</h2><p class="muted">过滤基础工具包（logging 等）+ 临时包（seed），分层分组（入口/核心/支撑）。</p><pre class="mermaid">` + htmlEsc(curated) + `</pre></section>` + "\n")
+		main.WriteString(`<section id="arch-curated"><h2>架构图（AI 整理）</h2><p class="muted">过滤基础工具包（logging 等）+ 临时包（seed），分层分组（入口/核心/支撑）。</p>` + rc.diagramHTML(curated) + `</section>` + "\n")
 		nav.WriteString(`<li><a href="#arch-curated">架构图（AI 整理）</a></li>`)
 	}
 
 	// R9：实体协作区块（对象设计视角）
-	if sec := renderEntitiesSectionHTML(eg); sec != "" {
+	if sec := renderEntitiesSectionHTML(eg, rc); sec != "" {
 		main.WriteString(sec)
 		nav.WriteString(`<li><a href="#entities">实体协作</a></li>`)
 	}
 	// R14：核心业务流程图（yaml flows 手写——AI 只排位不生成内容）
-	if sec := renderBusinessFlowsSectionHTML(cfg); sec != "" {
+	if sec := renderBusinessFlowsSectionHTML(cfg, rc); sec != "" {
 		main.WriteString(sec)
 		nav.WriteString(`<li><a href="#flows">核心业务流程图</a></li>`)
 	}
@@ -76,7 +76,7 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	main.WriteString(renderAPIHTML(repoAbs))
 	nav.WriteString(`<li><a href="#api">HTTP 接口</a></li>`)
 	// R2：系统流程区块（进程视角）
-	main.WriteString(renderProcessesHTML(acts))
+	main.WriteString(renderProcessesHTML(rc))
 	nav.WriteString(`<li><a href="#processes">系统流程</a></li>`)
 	// R5：枚举与工具函数区块（AI 权威值）
 	main.WriteString(renderEnumsHTML(repoAbs))
@@ -97,7 +97,7 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	erMermaid := renderERMermaid(rels, hideTable)
 	main.WriteString(`<section id="er"><h2>ER 图（表间关系）</h2>`)
 	if strings.Contains(erMermaid, "||--") {
-		main.WriteString(`<p class="muted">表间直接键关联（fk=值流验证的真实键 / query=WHERE 键关联），列级标注。字段定义见下方表清单。</p><pre class="mermaid">` + htmlEsc(erMermaid) + `</pre>`)
+		main.WriteString(`<p class="muted">表间直接键关联（fk=值流验证的真实键 / query=WHERE 键关联），列级标注。字段定义见下方表清单。</p>` + rc.diagramHTML(erMermaid))
 	} else {
 		main.WriteString("<p class=\"muted\">（无表间直接关联）</p>")
 	}
@@ -136,7 +136,7 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 		if desc != "" {
 			main.WriteString("<blockquote>" + htmlEsc(desc) + "</blockquote>")
 		}
-		main.WriteString(renderModuleHTML(wm, i, eg, wikiModuleKeyFlows(acts, wm), tableAlias, hidden, cfg, desc))
+		main.WriteString(renderModuleHTML(wm, i, eg, wikiModuleKeyFlows(acts, wm), tableAlias, hidden, cfg, desc, rc))
 		main.WriteString("</section>\n")
 	}
 
@@ -146,7 +146,7 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 		nav.WriteString(`<li><a href="#degrade">构建降级统计</a></li>`)
 	}
 	guide := `<strong>快速开始：</strong>① 看<a href="#arch">架构图</a>了解系统组成 → ② 看<a href="#entities">实体协作</a>了解对象怎么协作 → ③ 看<a href="#commands">命令清单</a>上手 → ④ 深入<a href="#mod-0">模块</a>与<a href="#tables">表</a>。`
-	html := wikiHTMLPage(title, cfg.Project.Description, guide, nav.String(), main.String(), wikiPageOpts{freshNote: freshNote})
+	html := wikiHTMLPage(title, cfg.Project.Description, guide, nav.String(), main.String(), wikiPageOpts{freshNote: freshNote, diagram: rc.Diagram})
 	return os.WriteFile(filepath.Join(outDir, "index.html"), []byte(html), 0o644)
 }
 

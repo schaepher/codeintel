@@ -55,7 +55,7 @@ func seedWikiRepo(t *testing.T) string {
 func TestWikiGenerate(t *testing.T) {
 	dir := seedWikiRepo(t)
 	out := filepath.Join(t.TempDir(), "wiki")
-	if code := cmdWiki([]string{"--repo", dir, "--out", out}); code != 0 {
+	if code := cmdWiki([]string{"--repo", dir, "--out", out, "--diagram", "mermaid"}); code != 0 {
 		t.Fatalf("cmdWiki exit = %d", code)
 	}
 	idx, err := os.ReadFile(filepath.Join(out, "index.md"))
@@ -119,7 +119,7 @@ hidden_symbols:
 	if err := os.WriteFile(yamlPath, []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if code := cmdWiki([]string{"--repo", dir, "--out", out, "--yaml", yamlPath}); code != 0 {
+	if code := cmdWiki([]string{"--repo", dir, "--out", out, "--yaml", yamlPath, "--diagram", "mermaid"}); code != 0 {
 		t.Fatalf("cmdWiki exit = %d", code)
 	}
 	idx, err := os.ReadFile(filepath.Join(out, "index.md"))

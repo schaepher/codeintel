@@ -63,14 +63,14 @@ func TestWikiERPage(t *testing.T) {
 	rels := []*domain.TableRelation{
 		{FromTable: "orders", FromCol: "user_id", ToTable: "users", ToCol: "id", Type: domain.RelationFK, Hops: 1},
 	}
-	page := renderERPage(rels, nil)
+	page := renderERPage(rels, nil, &wikiRenderCtx{Diagram: "mermaid"})
 	for _, want := range []string{"# ER 图", "```mermaid", "erDiagram", "| orders | user_id | users | id | fk |", "tables.md"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("er.md 应含 %q:\n%s", want, page)
 		}
 	}
 
-	if p2 := renderERPage(nil, nil); !strings.Contains(p2, "无表间直接关联") {
+	if p2 := renderERPage(nil, nil, &wikiRenderCtx{Diagram: "mermaid"}); !strings.Contains(p2, "无表间直接关联") {
 		t.Errorf("空关系应提示无关联:\n%s", p2)
 	}
 }
