@@ -451,6 +451,28 @@ wiki html 发送。
 - 边界形态（ALTER 逗号/引号列/注释）测试先行暴露——纯工具
   路径同样需要形态矩阵验证（morphology-matrix 记忆适用）
 
+### R20（2026-08-24）——表关联结构体展示（TableName 反查 + 可折叠核对）
+
+**分析**：用户要求表定义上方展示关联结构体代码（可折叠展开核对
+字段映射）。本仓库表是 SQL 直写（无 ORM 结构体）——功能面向有
+ORM 映射的外部仓库。
+
+**改进方案**（纯工具，R5 枚举检测器同模式——源码扫描不依赖索引）：
+- scanORMStructs：go/parser 扫 `func (T) TableName() string {
+  return "tbl" }` → 表↔结构体；fset 定位结构体定义提取源码片段
+- 渲染：md `<details>` 折叠 + html/serve fold-btn（模块区块同机制）
+- 表详情每表上方；fixture 测试覆盖（order_tab↔Order 源码片段）
+
+**实施结果**：commit `f09e8d7`（8 文件）；全仓 -race 全绿。
+实现期典型 bug：循环变量名语义反转（tableOf 是类型名→表名，
+`for tbl, typeName := range tableOf` 配对永不匹配）——调试 10 轮
+暴露"名字误导"类 bug（变量名应表达语义）。
+
+**AI 杠杆点**（R20 实证）：
+- 结构体↔表关联的事实源在源码（TableName 方法）——零 AI；
+  复用 R5 源码扫描模式
+- 本仓库无数据 → fixture 测试是唯一验证途径（形态矩阵验证适用）
+
 ## 候选方向（未定优先级）
 
 - yaml 语义层：术语表（glossary）、表列说明（50 列无 comment）、
