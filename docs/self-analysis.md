@@ -850,6 +850,40 @@ TestWikiPlantumlDefault（PNG base64 + 无 CDN + md plantuml 块）；全仓
 - java 子进程继承 /tmp 配额问题（-Djava.io.tmpdir）——外部进程的
   临时目录假设与本环境冲突时，环境变量覆盖是通用解法
 
+### R33（2026-08-24）——ER 图按业务领域分组 + mermaid 500 边阈值降级
+
+**分析**：用户两条——① ER 图按业务领域划分（领域间一张 + 各领域各自
+一张，同 F2 实体图模式）；② mermaid 超 500 边无法渲染，给方案参考。
+调研发现两问题同源：go2o 完整 ER 图 **1283 条关系**（80KB puml 渲染
+超时/超 mermaid 限制）。方案②给 5 个参考，用户选 **B+A**（分组治本 +
+阈值降级兜底）。
+
+**改进方案**：
+- 表 → 领域：**表名前缀**（_ 前首段——go2o 实测 item_/mch_/member_/
+  order_/trade_ 前缀与领域目录对应；无 _ 归 other）；splitERDomains
+  按领域分组直接关系（fk/query 口径同 renderERMermaid），领域内边进
+  组、跨领域边分离（领域间图数据源）
+- 渲染：领域间关系图（跨域边表级标注）+ 每领域内部图（折叠 details
+  同 F2）；md/html/plantuml 三版
+- 方案 A：diagramEdgeCount（--> 与 ||-- 计数）> 500 → mermaid 模式
+  降级（尝试 plantuml PNG 或提示文本）；plantuml 模式同样检测（1283
+  边 ER 图白等渲染 30s 失败——直接提示）
+- 完整 ER 图保留（超限提示引导用领域分组图/query relations）
+
+**实施结果**：go2o 实测 **PNG 图 35 → 55**（新增 20 张领域图 + 领域间
+图——全部渲染成功，原 1283 边巨图按领域切分后每图几十条）；降级文本
+块 3 → 1（仅 subgraph 生态坑）；wiki-check 7/7 PASS；测试 TestSplit
+TableDomain/TestSplitERDomains/TestDiagramEdgeCount/TestDiagramHTML
+OverLimit 全绿；全仓 -race 13 包全绿。
+
+**AI 杠杆点**（R33 实证）：
+- 两问题同源识别：渲染失败（80KB）与 500 边限制（mermaid）其实是
+  同一个"图太大"问题——分组方案一石二鸟
+- 表名前缀是项目自身的领域元数据（无需 AI/配置）——命名约定即
+  领域划分依据（其他项目可加 yaml 覆盖）
+- 阈值降级要有**引导**（提示指向可用的替代视图）而不是裸报错——
+  "图过大 → 用领域分组图/query relations"让用户有出路
+
 ## 待办与候选方向（未定优先级）
 
 **高优先级待办**（2026-08-24 用户提出，6 项）：

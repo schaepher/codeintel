@@ -102,6 +102,11 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 		main.WriteString("<p class=\"muted\">（无表间直接关联）</p>")
 	}
 	main.WriteString("</section>\n")
+	// R33：按业务领域分组（领域间图 + 每领域内部图）
+	if sec := renderERDomainsHTML(rels, hideTable, rc); sec != "" {
+		main.WriteString(sec)
+		nav.WriteString(`<li><a href="#er-domains">ER 图（领域分组）</a></li>`)
+	}
 	nav.WriteString(`<li><a href="#er">ER 图</a></li>`)
 	main.WriteString(wikiTablesSectionHTML(tables, tableCfgs, cols, schemas, ormStructs, goTypes))
 	nav.WriteString(`<li><a href="#tables">表清单</a></li>`)

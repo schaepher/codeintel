@@ -98,6 +98,10 @@ func renderERPage(rels []*domain.TableRelation, hideTable map[string]bool, rc *w
 	} else {
 		b.WriteString(rc.diagramMD(m))
 	}
+	// R33：按业务领域分组（领域间图 + 每领域内部图）
+	if sec := renderERDomainsMD(rels, hideTable, rc); sec != "" {
+		b.WriteString(sec)
+	}
 	b.WriteString("## 关系明细\n\n")
 	b.WriteString("| 本表 | 本表列 | 关联表 | 关联列 | 类型 |\n|---|---|---|---|---|\n")
 	type row struct{ a, b, c, d, e string }
