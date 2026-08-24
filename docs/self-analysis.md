@@ -401,6 +401,33 @@ wiki html 重新生成发送验收。
 - 两个实现期 bug（跨包重名、第三方字段噪音）都是自举实测暴露
   而非预想——"事实驱动调试"持续有效
 
+### R18（2026-08-24）——方法值传参盲区（fileCtx 孤立依赖根治）
+
+**触发**：用户检查实体协作图发现 fileCtx 无入边——"出现一小块的
+孤立依赖关系"。
+
+**调查**：fileCtx 出边 34 条但入边 0；全量 calls/uses 边都没有
+外部调用。根因：`ast.Inspect(f, ctx.visit)` 是**方法值传参**（非
+调用表达式）——AST 适配器"函数作为参数"分支只建 passes_to
+（接收者 Inspect→visit），无 调用者(Adapter)→方法(visit) 的
+calls 边。Adapter 实际调用了 fileCtx 的方法（创建对象 + 传方法
+值回调），索引无此关系——形态盲区（P2-1 函数值盲区同类）。
+
+**修复**（测试先行 TestMethodValueArgCalls）：
+- emitcall 回调分支：方法值实参（SelectorExpr）额外建
+  callerID→paramID calls 边（带 line_num）
+- 普通函数回调不建（passes_to 已表达——避免 unused 语义波动）
+
+**验证**：reindex 后 (Adapter).processFile→(fileCtx).visit 出现，
+实体图 Adapter→fileCtx count=1——孤立块消除；全仓 -race 全绿；
+wiki html 发送。
+
+**AI 杠杆点**（R18 实证）：
+- 用户看图发现孤立依赖 → 追到索引形态盲区（第三个同族盲区：
+  P2-1 函数值、本次方法值）——**实体图可视化成为索引缺陷的
+  放大器**（R9 实体化让不可见的关系缺失可见）
+- 修复模式复用（回调分支 + 条件收敛防误报）
+
 ## 候选方向（未定优先级）
 
 - yaml 语义层：术语表（glossary）、表列说明（50 列无 comment）、
