@@ -14,8 +14,9 @@ import (
 	"github.com/schaepher/codeintel/internal/domain"
 )
 
-// aiTimeout 单条补缺超时（超时跳过该条）。
-const aiTimeout = 60 * time.Second
+// aiTimeout 单条补缺超时（超时跳过该条）。真实 claude JSON 模式
+// 响应可超 60s（2026-08-24 实测），120s 留余量。
+const aiTimeout = 120 * time.Second
 
 // aiModuleGap 一个无描述模块（AI 需要的事实：包注释 + 核心符号线索）。
 type aiModuleGap struct {
@@ -87,7 +88,12 @@ func colTypeSuffix(c *domain.TableColumn) string {
 	return "(" + c.ColType + ")"
 }
 
-// wikiAIFill 执行 --ai 补缺：缺口收集 → 逐条 AI → 合并 wiki.yaml。
+// aiBatchMax 单批缺口上限（超过分两批：模块+表别名 / 列说明——
+// 同会话 resume，AI 保留第一批上下文）。
+const aiBatchMax = 60
+
+// wikiAIFill 执行 --ai 补缺：缺口收集 → 批量一次请求（缺口合并进
+// 单个 prompt，AI 一次返回完整 YAML）→ 合并 wiki.yaml。
 // 返回 成功/跳过/失败 计数；*cfg 同步更新（渲染用）。
 func wikiAIFill(yamlPath string, cfg *wikiConfig, data []*domain.WikiModule, cols []*domain.TableColumn, rels []*domain.TableRelation, agent string, timeout time.Duration) (ok, skip, fail int) {
 	_ = rels // 当前 prompt 用列名+类型事实；关联关系后续可扩展
@@ -100,42 +106,36 @@ func wikiAIFill(yamlPath string, cfg *wikiConfig, data []*domain.WikiModule, col
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 0, 0, 0
 	}
-	// 模块描述
-	for _, g := range mods {
-		desc, err := aiCallOnce(agent, wikiAIModulePrompt(g), timeout, parseAIDescription)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: 模块 %s: %v\n", g.name, err)
-			fail++
-			continue
+	apply := func(out wikiBatchOut) {
+		for _, m := range out.Modules {
+			e.setModuleDesc(m.Name, m.Description)
+			cfgSetModuleDesc(cfg, m.Name, m.Description)
+			ok++
 		}
-		e.setModuleDesc(g.name, desc)
-		cfgSetModuleDesc(cfg, g.name, desc)
-		ok++
-	}
-	// 表别名
-	for _, g := range tbls {
-		alias, err := aiCallOnce(agent, wikiAITablePrompt(g), timeout, parseAIAlias)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: 表 %s: %v\n", g.name, err)
-			fail++
-			continue
+		for _, t := range out.Tables {
+			if t.Alias != "" {
+				e.setTableAlias(t.Name, t.Alias)
+				cfgSetTableAlias(cfg, t.Name, t.Alias)
+				ok++
+			}
+			if len(t.Columns) > 0 {
+				comments := map[string]string{}
+				for _, c := range t.Columns {
+					comments[c.Name] = c.Comment
+				}
+				e.setColumnComments(t.Name, comments)
+				cfgSetColumnComments(cfg, t.Name, comments)
+				ok++
+			}
 		}
-		e.setTableAlias(g.name, alias)
-		cfgSetTableAlias(cfg, g.name, alias)
-		ok++
 	}
-	// 列说明
-	for _, g := range colGaps {
-		comments, err := aiCallOnce(agent, wikiAIColumnPrompt(g), timeout, parseAIComments)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: 表 %s 列: %v\n", g.table, err)
-			fail++
-			continue
-		}
-		e.setColumnComments(g.table, comments)
-		cfgSetColumnComments(cfg, g.table, comments)
-		ok++
+	first := wikiAIBatchPrompt(mods, tbls, colGaps)
+	out, err := aiCallOnce(agent, first, timeout, parseWikiBatch)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: AI 批量补缺失败: %v\n", err)
+		return 0, 0, len(mods) + len(tbls) + len(colGaps)
 	}
+	apply(out)
 	if ok > 0 {
 		if err := e.save(yamlPath); err != nil {
 			fmt.Fprintf(os.Stderr, "error: 写回 %s: %v\n", yamlPath, err)
@@ -163,40 +163,5 @@ func aiCallOnce[T any](agent, prompt string, timeout time.Duration, parse func(s
 	return parse(resp2)
 }
 
-// wikiAIModulePrompt 模块描述缺口 prompt。
-func wikiAIModulePrompt(g aiModuleGap) string {
-	var b strings.Builder
-	b.WriteString("请为以下 Go 模块写一句话职责描述（中文，<=30 字）：\n")
-	fmt.Fprintf(&b, "模块名: %s\n", g.name)
-	if g.pkgDesc != "" {
-		fmt.Fprintf(&b, "包注释: %s\n", g.pkgDesc)
-	}
-	if g.symbols != "" {
-		fmt.Fprintf(&b, "核心符号: %s\n", g.symbols)
-	}
-	b.WriteString("只输出 YAML:\ndescription: <一句话描述>")
-	return b.String()
-}
 
-// wikiAITablePrompt 表别名缺口 prompt。
-func wikiAITablePrompt(g aiTableGap) string {
-	var b strings.Builder
-	b.WriteString("请为以下数据库表写中文别名（业务语义，<=10 字）：\n")
-	fmt.Fprintf(&b, "表名: %s\n", g.name)
-	if g.cols != "" {
-		fmt.Fprintf(&b, "列: %s\n", g.cols)
-	}
-	b.WriteString("只输出 YAML:\nalias: <中文别名>")
-	return b.String()
-}
-
-// wikiAIColumnPrompt 列说明缺口 prompt。
-func wikiAIColumnPrompt(g aiColGap) string {
-	var b strings.Builder
-	b.WriteString("请为以下数据库表的列写中文说明（每列一句话）：\n")
-	fmt.Fprintf(&b, "表名: %s\n", g.table)
-	b.WriteString("列: " + strings.Join(g.cols, ", ") + "\n")
-	b.WriteString("只输出 YAML:\n- name: <列名>\n  comment: <说明>")
-	return b.String()
-}
 

@@ -73,6 +73,7 @@ func TestAgentFromConfig(t *testing.T) {
 // TestRunAgentExecClaude：fake claude CLI 脚本——真实 exec 形态
 // （claude -p <prompt> --output-format json），JSON 输出提取 result。
 func TestRunAgentExecClaude(t *testing.T) {
+	claudeSessionID = "" // 重置——防 resume 测试污染 argv 断言
 	marker := filepath.Join(t.TempDir(), "argv")
 	fakeAgentBin(t, "claude", `#!/bin/sh
 s=""
@@ -90,6 +91,29 @@ echo '{"result":"fake-response-from-claude"}'
 	b, _ := os.ReadFile(marker)
 	if string(b) != `-p hello --output-format json` {
 		t.Errorf("claude 实参 = %q; want \"-p hello --output-format json\"", b)
+	}
+}
+
+// TestRunAgentExecClaudeResume：JSON 输出带 session_id → 后续调用
+// 同会话（--resume），不每次开新会话。
+func TestRunAgentExecClaudeResume(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "argv2")
+	fakeAgentBin(t, "claude", `#!/bin/sh
+echo "$@" >> `+marker+`
+echo '{"result":"r1","session_id":"sess-abc"}'
+`)
+	if _, err := runAgentExec("claude", "first", 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runAgentExec("claude", "second", 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(marker)
+	if !strings.Contains(string(b), "--resume sess-abc") {
+		t.Errorf("第二次调用应带 --resume sess-abc:\n%s", b)
+	}
+	if strings.Contains(strings.Split(string(b), "\n")[0], "--resume") {
+		t.Errorf("首次调用不应带 --resume:\n%s", b)
 	}
 }
 

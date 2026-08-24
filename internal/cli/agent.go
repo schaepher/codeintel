@@ -23,17 +23,25 @@ var agentRunner = func(agent, prompt string, timeout time.Duration) (string, err
 	return runAgentExec(agent, prompt, timeout)
 }
 
-// runAgentExec 本地 CLI 调用：claude -p --output-format json / codex exec
-// <prompt>，捕获 stdout；超时中止；CLI 缺失报错。
-// claude 用 JSON 输出模式（-p 为前提）：返回 {result: <文本>}，
-// 提取 result 返回；输出非 JSON（旧版 CLI）时回退原文。
+// claudeSessionID 上次 claude 调用的会话 ID——同会话复用（--ai 分批 /
+// ask 多轮不每次开新会话；claude -p JSON 输出带 session_id）。
+var claudeSessionID string
+
+// runAgentExec 本地 CLI 调用：claude -p --output-format json [--resume
+// <会话>] / codex exec <prompt>，捕获 stdout；超时中止；CLI 缺失报错。
+// claude 用 JSON 输出模式（-p 为前提）：返回 {result, session_id}，
+// 提取 result 返回并记录会话 ID；输出非 JSON（旧版 CLI）时回退原文。
 func runAgentExec(agent, prompt string, timeout time.Duration) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	var cmd *exec.Cmd
 	switch agent {
 	case "claude":
-		cmd = exec.CommandContext(ctx, "claude", "-p", prompt, "--output-format", "json")
+		args := []string{"-p", prompt, "--output-format", "json"}
+		if claudeSessionID != "" {
+			args = append(args, "--resume", claudeSessionID)
+		}
+		cmd = exec.CommandContext(ctx, "claude", args...)
 	case "codex":
 		cmd = exec.CommandContext(ctx, "codex", "exec", prompt)
 	default:
@@ -51,7 +59,10 @@ func runAgentExec(agent, prompt string, timeout time.Duration) (string, error) {
 	}
 	raw := strings.TrimSpace(string(out))
 	if agent == "claude" {
-		if r, err := claudeResult(raw); err == nil {
+		if r, sid, err := claudeResult(raw); err == nil {
+			if sid != "" {
+				claudeSessionID = sid
+			}
 			return r, nil
 		}
 		// 非 JSON 输出（旧版 CLI）——回退原文
@@ -59,18 +70,20 @@ func runAgentExec(agent, prompt string, timeout time.Duration) (string, error) {
 	return raw, nil
 }
 
-// claudeResult 从 claude --output-format json 输出提取 result 字段。
-func claudeResult(raw string) (string, error) {
+// claudeResult 从 claude --output-format json 输出提取 result 与
+// session_id（会话复用）。
+func claudeResult(raw string) (string, string, error) {
 	var m struct {
-		Result string `json:"result"`
+		Result    string `json:"result"`
+		SessionID string `json:"session_id"`
 	}
 	if err := json.Unmarshal([]byte(raw), &m); err != nil {
-		return "", err
+		return "", "", err
 	}
 	if m.Result == "" {
-		return "", fmt.Errorf("claude JSON 输出缺 result 字段")
+		return "", "", fmt.Errorf("claude JSON 输出缺 result 字段")
 	}
-	return strings.TrimSpace(m.Result), nil
+	return strings.TrimSpace(m.Result), m.SessionID, nil
 }
 
 // agentInstallHint 安装提示。

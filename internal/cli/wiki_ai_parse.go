@@ -23,50 +23,88 @@ func stripYAMLFence(s string) string {
 	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
-// parseAIDescription 解析 AI 返回 → 描述字符串。
-func parseAIDescription(s string) (string, error) {
-	s = stripYAMLFence(s)
-	var m map[string]string
-	if err := yaml.Unmarshal([]byte(s), &m); err != nil {
-		return "", fmt.Errorf("AI 返回不可解析: %v", err)
-	}
-	if m["description"] == "" {
-		return "", fmt.Errorf("AI 返回缺 description 键")
-	}
-	return strings.TrimSpace(m["description"]), nil
-}
 
-// parseAIAlias 解析 AI 返回 → 表别名。
-func parseAIAlias(s string) (string, error) {
-	s = stripYAMLFence(s)
-	var m map[string]string
-	if err := yaml.Unmarshal([]byte(s), &m); err != nil {
-		return "", fmt.Errorf("AI 返回不可解析: %v", err)
-	}
-	if m["alias"] == "" {
-		return "", fmt.Errorf("AI 返回缺 alias 键")
-	}
-	return strings.TrimSpace(m["alias"]), nil
-}
 
-// parseAIComments 解析 AI 返回 → 列 → 说明。
-func parseAIComments(s string) (map[string]string, error) {
-	s = stripYAMLFence(s)
-	var items []struct {
+
+// wikiBatchOut AI 批量返回结构（一次请求处理全部缺口）。
+type wikiBatchOut struct {
+	Modules []struct {
+		Name        string `yaml:"name"`
+		Description string `yaml:"description"`
+	} `yaml:"modules"`
+	Tables []struct {
 		Name    string `yaml:"name"`
-		Comment string `yaml:"comment"`
-	}
-	if err := yaml.Unmarshal([]byte(s), &items); err != nil {
-		return nil, fmt.Errorf("AI 返回不可解析: %v", err)
-	}
-	out := map[string]string{}
-	for _, it := range items {
-		if it.Name != "" && it.Comment != "" {
-			out[it.Name] = it.Comment
+		Alias   string `yaml:"alias"`
+		Columns []struct {
+			Name    string `yaml:"name"`
+			Comment string `yaml:"comment"`
+		} `yaml:"columns"`
+	} `yaml:"tables"`
+}
+
+// wikiAIBatchPrompt 批量缺口 prompt：模块描述 + 表别名 + 列说明
+// 一次请求全部带上（省调用次数、AI 上下文连贯）。
+func wikiAIBatchPrompt(mods []aiModuleGap, tbls []aiTableGap, colGaps []aiColGap) string {
+	var b strings.Builder
+	b.WriteString("你是代码仓库文档助手。根据以下代码事实，为缺失内容生成中文描述。一次全部处理。\n\n")
+	if len(mods) > 0 {
+		b.WriteString("一、模块职责描述（每个一句话，<=30 字）：\n")
+		for _, g := range mods {
+			fmt.Fprintf(&b, "- %s", g.name)
+			if g.pkgDesc != "" {
+				fmt.Fprintf(&b, "（包注释: %s", g.pkgDesc)
+				if g.symbols != "" {
+					fmt.Fprintf(&b, "；核心符号: %s", g.symbols)
+				}
+				b.WriteString("）")
+			} else if g.symbols != "" {
+				fmt.Fprintf(&b, "（核心符号: %s）", g.symbols)
+			}
+			b.WriteString("\n")
 		}
+		b.WriteString("\n")
 	}
-	if len(out) == 0 {
-		return nil, fmt.Errorf("AI 返回缺 name/comment 条目")
+	if len(tbls) > 0 {
+		b.WriteString("二、表中文别名（每表一个，<=10 字）：\n")
+		for _, g := range tbls {
+			fmt.Fprintf(&b, "- %s", g.name)
+			if g.cols != "" {
+				fmt.Fprintf(&b, "（列: %s）", g.cols)
+			}
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+	}
+	if len(colGaps) > 0 {
+		b.WriteString("三、表列中文说明（每列一句话）：\n")
+		for _, g := range colGaps {
+			fmt.Fprintf(&b, "- %s: %s\n", g.table, strings.Join(g.cols, ", "))
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString(`只输出 YAML（结构严格如下，缺哪个部分就省略哪个）：
+modules:
+  - name: <模块名>
+    description: <描述>
+tables:
+  - name: <表名>
+    alias: <别名>
+    columns:
+      - name: <列名>
+        comment: <说明>`)
+	return b.String()
+}
+
+// parseWikiBatch 解析 AI 批量返回 → wikiBatchOut（围栏剥离 + 空结果
+// 校验——空结果视为不可解析，触发重试）。
+func parseWikiBatch(s string) (wikiBatchOut, error) {
+	s = stripYAMLFence(s)
+	var out wikiBatchOut
+	if err := yaml.Unmarshal([]byte(s), &out); err != nil {
+		return out, fmt.Errorf("AI 批量返回不可解析: %v", err)
+	}
+	if len(out.Modules)+len(out.Tables) == 0 {
+		return out, fmt.Errorf("AI 批量返回为空")
 	}
 	return out, nil
 }

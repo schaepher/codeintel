@@ -109,7 +109,24 @@ func TestYAMLEditorMerge(t *testing.T) {
 	}
 }
 
-// TestWikiAIFillEndToEnd：注入 runner——模块/表/列三缺口全补，计数 3/0/0。
+// aiBatchYAML 批量 AI 返回（对应 aiFixtureData 全部缺口：agent 模块、
+// user_tab 表别名+列、order_tab 列）。
+const aiBatchYAML = `modules:
+  - name: example.com/app/internal/agent
+    description: LLM 代理层：APIKey 管理
+tables:
+  - name: user_tab
+    alias: 用户表
+    columns:
+      - name: id
+        comment: 用户 ID
+  - name: order_tab
+    columns:
+      - name: order_no
+        comment: 订单号
+`
+
+// TestWikiAIFillEndToEnd：注入 runner——批量一次请求补全部缺口。
 func TestWikiAIFillEndToEnd(t *testing.T) {
 	data, cfg, cols := aiFixtureData()
 	dir := t.TempDir()
@@ -117,23 +134,22 @@ func TestWikiAIFillEndToEnd(t *testing.T) {
 	if err := os.WriteFile(path, []byte("project:\n  description: 项目\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	gotPrompt := ""
 	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration) (string, error) {
-		switch {
-		case strings.Contains(prompt, "模块"):
-			return "description: LLM 代理层：APIKey 管理", nil
-		case strings.Contains(prompt, "别名"):
-			return "alias: 用户表", nil
-		case strings.Contains(prompt, "order_tab"):
-			return "- name: order_no\n  comment: 订单号", nil
-		default:
-			return "- name: id\n  comment: 用户 ID", nil
-		}
+		gotPrompt = prompt
+		return aiBatchYAML, nil
 	})
 	defer restore()
-	// 缺口 = 模块 1 + 表 1（user_tab）+ 列 2（order_tab 两列、user_tab 一列）
+	// 缺口 = 模块 1 + 表 1（user_tab）+ 列 2（order_tab、user_tab）
 	ok, skip, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second)
 	if ok != 4 || skip != 0 || fail != 0 {
 		t.Fatalf("计数 = %d/%d/%d; want 4/0/0", ok, skip, fail)
+	}
+	// 批量 prompt 一次带全部缺口（模块/表/列都在）
+	for _, want := range []string{"example.com/app/internal/agent", "user_tab", "order_tab", "order_no"} {
+		if !strings.Contains(gotPrompt, want) {
+			t.Errorf("批量 prompt 缺 %q:\n%s", want, gotPrompt)
+		}
 	}
 	// cfg 同步更新（渲染用）——按名查找，不依赖追加顺序
 	var agentDesc string
@@ -197,7 +213,7 @@ func TestWikiAIFillRetryOnce(t *testing.T) {
 		if calls <= 1 {
 			return "完全不可解析的内容！！！", nil
 		}
-		return "description: 重试成功", nil
+		return "modules:\n  - name: example.com/app/internal/agent\n    description: 重试成功", nil
 	})
 	defer restore()
 	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second)
@@ -237,7 +253,7 @@ func TestWikiAIFillEmptyYAML(t *testing.T) {
 		t.Fatal(err)
 	}
 	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration) (string, error) {
-		return "description: 空文件首跑描述", nil
+		return "modules:\n  - name: example.com/app/internal/agent\n    description: 空文件首跑描述", nil
 	})
 	defer restore()
 	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second)
