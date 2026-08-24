@@ -124,10 +124,10 @@ func TestWikiServe(t *testing.T) {
 		t.Errorf("ER 过滤页应含模块相关表说明，body 前 300: %.300s", body)
 	}
 
-	// R1：命令页 / HTTP 接口页
+	// R1：命令页 / HTTP 接口页（F1：命令与入口——目标仓库 main 入口）
 	resp, body = get("/wiki/commands")
-	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "codeintel init") {
-		t.Errorf("/wiki/commands status = %d（应含命令清单）", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "命令与入口") {
+		t.Errorf("/wiki/commands status = %d（应含命令与入口）", resp.StatusCode)
 	}
 	resp, body = get("/wiki/api")
 	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "HTTP 接口") {

@@ -1,0 +1,103 @@
+package cli
+
+// F1：命令与入口页——目标仓库 main 入口 + 一级调用链（不再硬编码
+// codeintel 自身命令）。从 wiki_commands.go 拆出（行数治理）。
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/schaepher/codeintel/internal/action"
+)
+
+type entrySymbol struct {
+	Name    string
+	File    string
+	Line    int
+	Callees []string
+}
+
+
+func entrySymbols(acts *action.Actions) []entrySymbol {
+	nodes, err := acts.Entries()
+	if err != nil || len(nodes) == 0 {
+		return nil
+	}
+	var out []entrySymbol
+	for _, n := range nodes {
+		d, err := acts.SymbolDetail(string(n.ID))
+		if err != nil {
+			continue
+		}
+		e := entrySymbol{Name: n.Name, File: n.FilePath, Line: n.LineStart}
+		for _, f := range d.Callees {
+			e.Callees = append(e.Callees, shortID(f.TargetID))
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+// renderCommandsMD 命令与入口页 Markdown（目标仓库 main 入口 + 一级
+// 调用链——不再硬编码 codeintel 自身命令）。
+func renderCommandsMD(acts *action.Actions) string {
+	var b strings.Builder
+	b.WriteString("# 命令与入口\n\n")
+	b.WriteString("> 数据源：目标仓库 main 入口函数 + 一级调用链（索引事实）。\n\n")
+	entries := entrySymbols(acts)
+	if len(entries) == 0 {
+		b.WriteString("未找到 main 入口（库项目或入口不在索引中）。\n")
+		return b.String()
+	}
+	for _, e := range entries {
+		b.WriteString("## 入口 `" + e.Name + "`\n\n")
+		if e.File != "" {
+			b.WriteString("位置: " + e.File)
+			if e.Line > 0 {
+				b.WriteString(":" + strconv.Itoa(e.Line))
+			}
+			b.WriteString("\n\n")
+		}
+		if len(e.Callees) == 0 {
+			b.WriteString("一级调用: （无）\n\n")
+			continue
+		}
+		b.WriteString("一级调用:\n\n")
+		for _, c := range e.Callees {
+			b.WriteString("- `" + c + "`\n")
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// renderCommandsHTML 命令与入口页 html 内容（目标仓库 main 入口 +
+// 一级调用链）。
+func renderCommandsHTML(acts *action.Actions) string {
+	var b strings.Builder
+	b.WriteString(`<section id="commands"><h2>命令与入口</h2><p class="muted">数据源：目标仓库 main 入口函数 + 一级调用链（索引事实）。</p>`)
+	entries := entrySymbols(acts)
+	if len(entries) == 0 {
+		b.WriteString(`<p>未找到 main 入口（库项目或入口不在索引中）。</p></section>`)
+		return b.String()
+	}
+	for _, e := range entries {
+		b.WriteString(fmt.Sprintf(`<h3>入口 <code>%s</code></h3>`, htmlEsc(e.Name)))
+		if e.File != "" {
+			loc := htmlEsc(e.File)
+			if e.Line > 0 {
+				loc += ":" + strconv.Itoa(e.Line)
+			}
+			b.WriteString(`<p class="muted">` + loc + `</p>`)
+		}
+		b.WriteString("<ul>")
+		for _, c := range e.Callees {
+			b.WriteString("<li><code>" + htmlEsc(c) + "</code></li>")
+		}
+		b.WriteString("</ul>")
+	}
+	b.WriteString("</section>")
+	return b.String()
+}
+

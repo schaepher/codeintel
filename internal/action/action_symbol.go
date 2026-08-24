@@ -82,6 +82,26 @@ func (a *Actions) Symbol(id domain.CanonicalID) (*domain.CodeEntity, error) {
 	return a.repo.GetSymbol(id)
 }
 
+// Entries 目标仓库入口符号（name=main 的函数，排除测试）——wiki
+// 命令页数据源（F1：命令页展示目标仓库入口而非 codeintel 自身命令）。
+func (a *Actions) Entries() ([]*domain.CodeEntity, error) {
+	logger := zap.L()
+	logger.Info("enter (Actions).Entries")
+	defer logger.Info("exit (Actions).Entries")
+	nodes, err := a.repo.GetSymbolByName("main")
+	if err != nil {
+		return nil, err
+	}
+	var out []*domain.CodeEntity
+	for _, n := range nodes {
+		if n.Kind != domain.KindFunction || strings.Contains(n.FilePath, "_test.go") {
+			continue
+		}
+		out = append(out, n)
+	}
+	return out, nil
+}
+
 // SymbolDetail 符号详情：基本信息 + 调用者/被调用者摘要（query symbol）。
 type SymbolDetail struct {
 	Node    *domain.CodeEntity

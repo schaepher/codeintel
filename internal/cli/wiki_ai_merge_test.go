@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -51,8 +52,32 @@ func TestCleanWikiOutDir(t *testing.T) {
 	}
 }
 
-// TestWikiAIFillSplitBatches：缺口 > aiBatchMax 分两批（第一批模块+
-// 表，第二批列）——第二批 prompt 不再带已处理的模块。
+// TestTableColBrief：列清单截断前 10 + 省略号（表别名 prompt 轻量化）。
+func TestTableColBrief(t *testing.T) {
+	if got := tableColBrief(nil); got != "" {
+		t.Errorf("空 = %q; want 空", got)
+	}
+	cols := []string{"a", "b", "c"}
+	if got := tableColBrief(cols); got != "a, b, c" {
+		t.Errorf("≤10 = %q; want a, b, c", got)
+	}
+	cols = make([]string, 15)
+	for i := range cols {
+		cols[i] = "c" + string(rune('0'+i%10))
+	}
+	got := tableColBrief(cols)
+	if len(got) <= 10 || !strings.HasSuffix(got, "…") {
+		t.Errorf(">10 应截断 + 省略号: %q", got)
+	}
+	if !strings.HasSuffix(got, "c9…") || strings.Count(got, "c") != 10 {
+		// 恰好前 10 列 + 省略号
+		t.Errorf("截断内容 = %q; want 前 10 列 + …", got)
+	}
+}
+
+
+// TestWikiAIFillSplitBatches：缺口 > aiBatchMax（30）切片多批——
+// 每批 ≤30 条混合（模块/表/列组），同会话 resume。
 func TestWikiAIFillSplitBatches(t *testing.T) {
 	var data []*domain.WikiModule
 	for i := 0; i < 61; i++ {
@@ -65,19 +90,23 @@ func TestWikiAIFillSplitBatches(t *testing.T) {
 	path := filepath.Join(dir, "wiki.yaml")
 	os.WriteFile(path, []byte(""), 0o644)
 	var prompts []string
+	re := regexp.MustCompile(`example\.com/m\d\d`)
+	modsOf := func(prompt string) string {
+		var b strings.Builder
+		b.WriteString("modules:\n")
+		for _, name := range re.FindAllString(prompt, -1) {
+			fmt.Fprintf(&b, "  - name: %s\n    description: %s 描述\n", name, name)
+		}
+		return b.String()
+	}
 	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration) (string, error) {
 		prompts = append(prompts, prompt)
 		if strings.Contains(prompt, "表列中文说明") {
-			// 第二批：列 + 术语
-			return "tables:\n  - name: user_tab\n    columns:\n      - name: id\n        comment: 用户 ID\nglossary:\n  - term: ORM\n    definition: 对象关系映射", nil
+			// 最后一批：剩余模块 + 表 + 列 + 术语
+			return modsOf(prompt) + "tables:\n  - name: user_tab\n    columns:\n      - name: id\n        comment: 用户 ID\nglossary:\n  - term: ORM\n    definition: 对象关系映射", nil
 		}
-		// 第一批：61 个模块描述
-		var b strings.Builder
-		b.WriteString("modules:\n")
-		for i := 0; i < 61; i++ {
-			fmt.Fprintf(&b, "  - name: example.com/m%02d\n    description: 模块 %d\n", i, i)
-		}
-		return b.String(), nil
+		// 模块描述（每批返回批内模块——runner 按 prompt 中出现的模块名回）
+		return modsOf(prompt), nil
 	})
 	defer restore()
 	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second, false, nil)
@@ -85,14 +114,15 @@ func TestWikiAIFillSplitBatches(t *testing.T) {
 	if ok != 63 || fail != 0 {
 		t.Fatalf("计数 = %d/%d; want 63/0", ok, fail)
 	}
-	if len(prompts) != 2 {
-		t.Fatalf("调用次数 = %d; want 2（分批）", len(prompts))
+	// 63 条 / 30 = 3 批（30 + 30 + 3）
+	if len(prompts) != 3 {
+		t.Fatalf("调用次数 = %d; want 3（每批 ≤30 条）", len(prompts))
 	}
 	if !strings.Contains(prompts[0], "example.com/m00") {
 		t.Errorf("第一批应含模块缺口:\n%s", prompts[0][:200])
 	}
-	if strings.Contains(prompts[1], "example.com/m00") || !strings.Contains(prompts[1], "表列中文说明") {
-		t.Errorf("第二批不应带已处理模块、应只含列区:\n%s", prompts[1][:200])
+	if !strings.Contains(prompts[2], "表列中文说明") {
+		t.Errorf("最后一批应含列区:\n%s", prompts[2][:200])
 	}
 }
 

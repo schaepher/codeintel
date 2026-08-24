@@ -98,7 +98,7 @@ func wikiServeHandler(repoAbs string, acts *action.Actions, repo *sqlite.Repo) h
 		case path == "tables":
 			serveWikiHTML(w, ws.tablesPage(snap))
 		case path == "commands":
-			serveWikiHTML(w, ws.pageHTML(snap, "/wiki/commands", renderCommandsHTML()))
+			serveWikiHTML(w, ws.pageHTML(snap, "/wiki/commands", renderCommandsHTML(ws.acts)))
 		case path == "processes":
 			serveWikiHTML(w, ws.pageHTML(snap, "/wiki/processes", renderProcessesHTML(ws.acts)))
 		case path == "api":

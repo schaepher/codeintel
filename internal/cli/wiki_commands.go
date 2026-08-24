@@ -1,9 +1,8 @@
 package cli
 
-// R1 自举分析扩展：命令页 + HTTP 接口页——数据源是代码事实
-// （usageText 常量 / server 路由与 handler 注释），不依赖 AI。
-// commands.md：全部顶层命令与 query 子命令（usageText 解析）；
-// api.md：全部 HTTP 路由（server 源码解析）。
+// R1 自举分析扩展：HTTP 接口页——数据源是 server 路由与 handler
+// 注释（代码事实），不依赖 AI。命令/入口页在 wiki_entries.go
+// （F1：目标仓库 main 入口）。
 
 import (
 	"fmt"
@@ -16,65 +15,7 @@ import (
 	"github.com/schaepher/codeintel/internal/domain"
 )
 
-// cmdEntry 一条命令（usageText 解析）。
-type cmdEntry struct {
-	Cmd  string // codeintel init --repo <path>
-	Desc string // 说明（后续缩进行合并）
-}
 
-// reCmdLine usageText 中的命令行（`  codeintel ...`）。
-var reCmdLine = regexp.MustCompile(`^  (codeintel .+)$`)
-
-// parseCommands 解析 usageText → 命令条目（连续缩进行并入 Desc）。
-func parseCommands(text string) []cmdEntry {
-	var out []cmdEntry
-	lines := strings.Split(text, "\n")
-	for i := 0; i < len(lines); i++ {
-		m := reCmdLine.FindStringSubmatch(lines[i])
-		if m == nil {
-			continue
-		}
-		e := cmdEntry{Cmd: strings.TrimSpace(m[1])}
-		for i+1 < len(lines) {
-			next := lines[i+1]
-			if next == "" || strings.HasPrefix(strings.TrimSpace(next), "codeintel") {
-				break
-			}
-			e.Desc += strings.TrimSpace(next) + " "
-			i++
-		}
-		e.Desc = strings.TrimSpace(e.Desc)
-		out = append(out, e)
-	}
-	return out
-}
-
-// renderCommandsMD 命令页 Markdown。
-func renderCommandsMD() string {
-	var b strings.Builder
-	b.WriteString("# 命令清单\n\n> 数据源：CLI 帮助文本（root.go usageText）——全部顶层命令与\n> query 子命令；参数细节以 `codeintel --help` 为准。\n\n")
-	entries := parseCommands(usageText)
-	group := ""
-	for _, e := range entries {
-		// 分组：query 子命令归入 "query"，其余取第一词
-		first := e.Cmd
-		if i := strings.Index(first, " "); i >= 0 {
-			first = first[:i]
-		}
-		if strings.HasPrefix(e.Cmd, "codeintel query") {
-			first = "query"
-		}
-		if first != group {
-			group = first
-			b.WriteString("## " + group + "\n\n")
-		}
-		b.WriteString("### `" + e.Cmd + "`\n\n")
-		if e.Desc != "" {
-			b.WriteString(e.Desc + "\n\n")
-		}
-	}
-	return b.String()
-}
 
 // apiRoute 一条 HTTP 路由（server 源码解析）。
 type apiRoute struct {
@@ -160,24 +101,26 @@ func parseAPIRoutes(repoAbs string) []apiRoute {
 	return routes
 }
 
-// renderAPIMD HTTP 接口页 Markdown。
+// renderAPIMD HTTP 接口页 Markdown（目标仓库 internal/server 路由；
+// 无 server 包时提示——F1：不再展示 codeintel 自身路由）。
 func renderAPIMD(repoAbs string) string {
 	var b strings.Builder
-	b.WriteString("# HTTP 接口\n\n> 数据源：server 包路由注册 + handler 注释（代码事实）。\n")
-	b.WriteString("> 图探索前端（AntV G6）调用 /api/*；wiki 网页版在 /wiki/*。\n\n")
+	b.WriteString("# HTTP 接口\n\n> 数据源：目标仓库 internal/server 包路由注册 + handler 注释。\n\n")
+	routes := parseAPIRoutes(repoAbs)
+	if len(routes) == 0 {
+		b.WriteString("未发现 HTTP 路由（无 internal/server 包）。\n")
+		return b.String()
+	}
 	group := ""
-	for _, r := range parseAPIRoutes(repoAbs) {
-		g := "图探索 API"
-		switch {
-		case r.Path == "/incremental":
-			g = "增量构建"
-		case strings.HasPrefix(r.Path, "/wiki"):
-			g = "wiki 网页版"
+	for _, r := range routes {
+		if r.Path == "/incremental" {
+			group = "增量构建"
+		} else if strings.HasPrefix(r.Path, "/wiki") {
+			group = "wiki 网页版"
+		} else {
+			group = "API"
 		}
-		if g != group {
-			group = g
-			b.WriteString("## " + g + "\n\n")
-		}
+		b.WriteString("## " + group + "\n\n")
 		b.WriteString("### `" + r.Path + "`\n\n")
 		if r.Desc != "" {
 			b.WriteString(r.Desc + "\n")
@@ -187,23 +130,23 @@ func renderAPIMD(repoAbs string) string {
 	return b.String()
 }
 
-// renderCommandsHTML 命令页 html 内容（usageText 原样 pre——格式已
-// 精心排版，逐条转换反而丢信息）。
-func renderCommandsHTML() string {
-	return `<section id="commands"><h2>命令清单</h2><p class="muted">数据源：CLI 帮助文本（全部顶层命令与 query 子命令）。</p><pre style="font-size:12px;line-height:1.6;background:#f6f8fa;padding:12px;border-radius:6px;overflow-x:auto">` + htmlEsc(usageText) + `</pre></section>`
-}
 
-// renderAPIHTML HTTP 接口页 html 内容。
+// renderAPIHTML HTTP 接口页 html 内容（目标仓库 internal/server 路由；
+// 无 server 包时提示）。
 func renderAPIHTML(repoAbs string) string {
 	var b strings.Builder
-	b.WriteString(`<section id="api"><h2>HTTP 接口</h2><p class="muted">数据源：server 包路由注册 + handler 注释。</p>`)
+	b.WriteString(`<section id="api"><h2>HTTP 接口</h2><p class="muted">数据源：目标仓库 internal/server 包路由注册 + handler 注释。</p>`)
+	routes := parseAPIRoutes(repoAbs)
+	if len(routes) == 0 {
+		b.WriteString(`<p>未发现 HTTP 路由（无 internal/server 包）。</p></section>`)
+		return b.String()
+	}
 	group := ""
-	for _, r := range parseAPIRoutes(repoAbs) {
-		g := "图探索 API"
-		switch {
-		case r.Path == "/incremental":
+	for _, r := range routes {
+		g := "API"
+		if r.Path == "/incremental" {
 			g = "增量构建"
-		case strings.HasPrefix(r.Path, "/wiki"):
+		} else if strings.HasPrefix(r.Path, "/wiki") {
 			g = "wiki 网页版"
 		}
 		if g != group {

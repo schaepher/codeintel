@@ -65,7 +65,7 @@ func wikiAIGaps(data []*domain.WikiModule, cfg wikiConfig, cols []*domain.TableC
 	}
 	for _, t := range collectTables(data, tableAlias, tableCfgs) {
 		if t.alias == "" {
-			tbls = append(tbls, aiTableGap{name: t.name, cols: strings.Join(colByTbl[t.name], ", ")})
+			tbls = append(tbls, aiTableGap{name: t.name, cols: tableColBrief(colByTbl[t.name])})
 		}
 		var missing []string
 		tc := tableCfgs[t.name]
@@ -89,11 +89,25 @@ func colTypeSuffix(c *domain.TableColumn) string {
 	return "(" + c.ColType + ")"
 }
 
+// tableColBrief 表列清单摘要：前 10 列 + 省略号——表别名推断不需要
+// 全列（go2o 实测 59 表 × 15 列 = 900 列名致 prompt 过大 AI 超时）。
+func tableColBrief(cols []string) string {
+	if len(cols) == 0 {
+		return ""
+	}
+	if len(cols) <= 10 {
+		return strings.Join(cols, ", ")
+	}
+	return strings.Join(cols[:10], ", ") + "…"
+}
+
 // aiBatchMax 单批缺口上限（模块/表/列组条数——超过按条数切片）。
-// aiBatchMaxCols 列名数上限（列组内列名多时 prompt 巨大——go2o
-// 1446 列分 150 组，按组切 60 组/批仍超时；按列名数切更稳）。
+// go2o 实测 60 表/批（每表 10 列截断 = 600 列名）仍超时 → 30 条/批
+// （300 列名/批通过）。
+// aiBatchMaxCols 列名数上限（列组内列名多时 prompt 巨大——按列名数
+// 切更稳）。
 const (
-	aiBatchMax    = 60
+	aiBatchMax     = 30
 	aiBatchMaxCols = 300
 )
 

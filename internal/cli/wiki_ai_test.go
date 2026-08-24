@@ -36,6 +36,7 @@ func aiFixtureData() ([]*domain.WikiModule, wikiConfig, []*domain.TableColumn) {
 	return data, cfg, cols
 }
 
+
 // TestWikiAICollectGaps：缺口收集——有内容的跳过、缺的进列表。
 func TestWikiAICollectGaps(t *testing.T) {
 	data, cfg, cols := aiFixtureData()
