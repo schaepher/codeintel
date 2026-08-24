@@ -1,0 +1,168 @@
+package cli
+
+// wiki --ai 合并器：基于 yaml.Node 编辑 wiki.yaml——保留原文件注释与
+// 未知字段（整树 marshal 会丢注释）；AI 填入的值标注 # AI 初稿
+// （git diff 可回滚）。文件不存在时从空文档开始。
+
+import (
+	"bytes"
+	"fmt"
+	"os"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
+
+// aiDraftComment AI 初稿来源标注。
+const aiDraftComment = "# AI 初稿"
+
+// yamlEditor wiki.yaml 节点树编辑器。
+type yamlEditor struct {
+	root *yaml.Node // DocumentNode
+}
+
+// loadYAMLEditor 读入节点树（保留注释）；文件不存在/为空 → 空文档。
+func loadYAMLEditor(path string) (*yamlEditor, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return &yamlEditor{root: &yaml.Node{Kind: yaml.DocumentNode}}, nil
+	}
+	if len(strings.TrimSpace(string(b))) == 0 {
+		return &yamlEditor{root: &yaml.Node{Kind: yaml.DocumentNode}}, nil
+	}
+	var root yaml.Node
+	if err := yaml.Unmarshal(b, &root); err != nil {
+		return nil, fmt.Errorf("解析 %s: %v", path, err)
+	}
+	return &yamlEditor{root: &root}, nil
+}
+
+// mapping 根 mapping 节点（无则创建）。
+func (e *yamlEditor) mapping() *yaml.Node {
+	if len(e.root.Content) == 0 {
+		e.root.Content = []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}
+	}
+	return e.root.Content[0]
+}
+
+// keyValue mapping 中 key 的 value 节点（无则 nil）。
+func keyValue(m *yaml.Node, key string) *yaml.Node {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			return m.Content[i+1]
+		}
+	}
+	return nil
+}
+
+// ensureKey 返回 mapping 中 key 的 value 节点（不存在则追加空标量，
+// key 带 # AI 初稿 注释）。
+func ensureKey(m *yaml.Node, key string) *yaml.Node {
+	if v := keyValue(m, key); v != nil {
+		return v
+	}
+	k := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key, HeadComment: aiDraftComment}
+	v := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: ""}
+	m.Content = append(m.Content, k, v)
+	return v
+}
+
+// ensureSeq 返回根 mapping 下 key 的序列节点（不存在则追加）。
+func (e *yamlEditor) ensureSeq(key string) *yaml.Node {
+	m := e.mapping()
+	if v := keyValue(m, key); v != nil && v.Kind == yaml.SequenceNode {
+		return v
+	}
+	s := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+	m.Content = append(m.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, s)
+	return s
+}
+
+// findItem 序列中 name 键值 == name 的项（mapping 节点；无则 nil）。
+func findItem(seq *yaml.Node, name string) *yaml.Node {
+	for _, c := range seq.Content {
+		if c.Kind == yaml.MappingNode {
+			if v := keyValue(c, "name"); v != nil && v.Value == name {
+				return c
+			}
+		}
+	}
+	return nil
+}
+
+// appendItem 序列追加 mapping 项（name + 其余键值对），带 AI 初稿注释。
+func appendItem(seq *yaml.Node, pairs ...string) *yaml.Node {
+	it := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", HeadComment: aiDraftComment}
+	for i := 0; i+1 < len(pairs); i += 2 {
+		it.Content = append(it.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: pairs[i]},
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: pairs[i+1]})
+	}
+	seq.Content = append(seq.Content, it)
+	return it
+}
+
+// setScalar 标量赋值。
+func setScalar(n *yaml.Node, val string) {
+	n.Kind = yaml.ScalarNode
+	n.Tag = "!!str"
+	n.Value = val
+}
+
+// setModuleDesc modules 序列项（name 匹配或追加）→ description 赋值。
+func (e *yamlEditor) setModuleDesc(name, desc string) {
+	seq := e.ensureSeq("modules")
+	it := findItem(seq, name)
+	if it == nil {
+		it = appendItem(seq, "name", name)
+	}
+	setScalar(ensureKey(it, "description"), desc)
+}
+
+// setTableAlias tables 序列项（name 匹配或追加）→ alias 赋值。
+func (e *yamlEditor) setTableAlias(name, alias string) {
+	seq := e.ensureSeq("tables")
+	it := findItem(seq, name)
+	if it == nil {
+		it = appendItem(seq, "name", name)
+	}
+	setScalar(ensureKey(it, "alias"), alias)
+}
+
+// setColumnComments tables[name].columns 序列项 → comment 赋值
+// （列不存在则追加）。
+func (e *yamlEditor) setColumnComments(tbl string, comments map[string]string) {
+	seq := e.ensureSeq("tables")
+	it := findItem(seq, tbl)
+	if it == nil {
+		it = appendItem(seq, "name", tbl)
+	}
+	colSeq := keyValue(it, "columns")
+	if colSeq == nil || colSeq.Kind != yaml.SequenceNode {
+		colSeq = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		it.Content = append(it.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "columns"}, colSeq)
+	}
+	for col, comment := range comments {
+		ci := findItem(colSeq, col)
+		if ci == nil {
+			ci = appendItem(colSeq, "name", col)
+		}
+		setScalar(ensureKey(ci, "comment"), comment)
+	}
+}
+
+// save 写回文件（缩进 2）。
+func (e *yamlEditor) save(path string) error {
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(e.root); err != nil {
+		return err
+	}
+	if err := enc.Close(); err != nil {
+		return err
+	}
+	return os.WriteFile(path, buf.Bytes(), 0o644)
+}

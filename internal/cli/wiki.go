@@ -29,6 +29,8 @@ func cmdWiki(args []string) int {
 	yamlPath := ""
 	format := "md"
 	initOnly := false
+	aiMode := false
+	aiAgent := ""
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
@@ -54,8 +56,15 @@ func cmdWiki(args []string) int {
 			format = strings.TrimPrefix(a, "--format=")
 		case a == "--init":
 			initOnly = true
+		case a == "--ai":
+			aiMode = true
+		case a == "--agent" && i+1 < len(args):
+			aiAgent = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--agent="):
+			aiAgent = strings.TrimPrefix(a, "--agent=")
 		case a == "--help" || a == "-h":
-			fmt.Println("用法: codeintel wiki [--repo <path>] [--out <dir=docs/wiki>] [--yaml <file>] [--format md|html] [--init]\n  从代码生成业务 wiki（Markdown 或单文件 HTML）——wiki.yaml 可补充业务描述/别名/隐藏符号；--init 生成 wiki.yaml 骨架（已存在则不覆盖）")
+			fmt.Println("用法: codeintel wiki [--repo <path>] [--out <dir=docs/wiki>] [--yaml <file>] [--format md|html] [--init] [--ai] [--agent codex|claude|auto]\n  从代码生成业务 wiki（Markdown 或单文件 HTML）——wiki.yaml 可补充业务描述/别名/隐藏符号；--init 生成 wiki.yaml 骨架；--ai 用 AI 增量补缺（无描述模块/无别名表/无说明列 → 写回 wiki.yaml 标注 # AI 初稿）")
 			return 0
 		default:
 			fmt.Fprintf(os.Stderr, "error: 未知参数 %q\n", a)
@@ -137,6 +146,22 @@ func cmdWiki(args []string) int {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
+	}
+	// #0 wiki --ai：缺口收集 → AI 初稿 → 合并 wiki.yaml（先补缺再渲染，
+	// 渲染用更新后的 cfg）
+	if aiMode {
+		agent, err := resolveAgent(aiAgent)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		yp := yamlPath
+		if yp == "" {
+			yp = filepath.Join(abs, "wiki.yaml")
+		}
+		okN, skipN, failN := wikiAIFill(yp, &cfg, data, cols, rels, agent, aiTimeout)
+		fmt.Printf("wiki --ai：补全 %d 条、跳过 %d 条、失败 %d 条（已写回 %s，标注 # AI 初稿——git diff 可回滚）\n",
+			okN, skipN, failN, yp)
 	}
 	// R1：包职责地图（包节点 doc_comment）
 	pkgs, err := acts.Packages()

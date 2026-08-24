@@ -50,6 +50,8 @@ func Main(ctx context.Context, args []string) int {
 		return cmdBatch(args[1:])
 	case "wiki":
 		return cmdWiki(args[1:])
+	case "ask":
+		return cmdAsk(args[1:])
 	case "version", "--version", "-v":
 		return cmdVersion(args[1:])
 	case "help", "-h", "--help":
@@ -112,6 +114,13 @@ const usageText = `codeintel - Go 代码库智能索引与查询（MVP）
   codeintel precompute relations --repo <path>
                                   全量预计算表间关联（进度写 db，查询
                                   直接命中缓存；serve 首次请求自动兜底）
+  codeintel ask "<问题>" [--agent codex|claude|auto] [--symbol X] [--table Y]
+                                  项目上下文问答（自动识别问题中的符号/
+                                  表名并附加查询结果；--agent 默认 auto，
+                                  ~/.codeintel/config.yaml 可设默认）
+  codeintel wiki --ai --agent codex|claude
+                                  AI 增量补缺（无描述模块/无别名表/无说明
+                                  列 → 写回 wiki.yaml 标注 # AI 初稿）
   codeintel version                输出编译时的 commit hash
 
 符号可用 canonical ID（symbol:go:<pkg>:<name>）或名称精确/模糊查找。

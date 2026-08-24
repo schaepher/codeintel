@@ -1,15 +1,18 @@
 package cli
 
+// wikiModuleCfg 模块配置（命名类型——wiki --ai 补缺时追加/更新）。
+type wikiModuleCfg struct {
+	Name        string `yaml:"name"`
+	Description string `yaml:"description"`
+	Order       int    `yaml:"order"`
+}
+
 // wikiConfig wiki.yaml 契约（AI 产出 → 人工最后确认微调）。
 type wikiConfig struct {
 	Project struct {
 		Description string `yaml:"description"`
 	} `yaml:"project"`
-	Modules []struct {
-		Name        string `yaml:"name"`
-		Description string `yaml:"description"`
-		Order       int    `yaml:"order"`
-	} `yaml:"modules"`
+	Modules []wikiModuleCfg `yaml:"modules"`
 	Tables        []wikiTableConfig `yaml:"tables"`
 	HiddenSymbols []string          `yaml:"hidden_symbols"`
 	// 架构图（mermaid 代码块；为空时自动从模块间调用生成）
