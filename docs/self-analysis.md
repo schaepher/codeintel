@@ -473,11 +473,84 @@ ORM 映射的外部仓库。
   复用 R5 源码扫描模式
 - 本仓库无数据 → fixture 测试是唯一验证途径（形态矩阵验证适用）
 
+### R21（2026-08-24）——结构体 Go 类型作为表字段类型最终 fallback
+
+**分析**：R19 填了 84%（53/63 列），剩 10 列是全局注册表（无 schema
+事实源）。用户要求：结构体字段的 Go 类型作为最终 fallback——ORM
+结构体字段是另一层零 AI 事实源。
+
+**改进方案**（纯工具）：
+- ormColTypes：scanORMStructs 结果（R20）的字段 Go 类型 → 表列映射
+  （gorm column tag 优先、无 tag snake_case）——yaml/schema/gorm tag
+  都无类型时的兜底
+- snakeCase 修正：连续大写不拆（ID→id 而非 i_d）——prevLower 标志，
+  只在小写后遇大写才拆
+
+**实施结果**：commit `fd2c1e3`（3 文件）；fixture 验证 order_id→int64、
+order_no→string、created_at→time.Time；全仓 -race 全绿。
+
+**AI 杠杆点**（R21 实证）：类型链 yaml > schema > gorm tag > Go 类型
+四层事实源逐级兜底——每层都有不可替代的来源（人工 > 数据库 > 声明
+> 映射约定），AI 只补最后剩下的语义说明。
+
+### R22（2026-08-24）——字段顺序还原结构体序 + 自增列第一
+
+**分析**：ER 图和字段表顺序应与结构体定义一致（用户核对依据），
+自增列排第一（数据库惯例）。
+
+**改进方案**（纯工具）：
+- 自增识别：gorm autoIncrement tag + schema INTEGER PRIMARY KEY
+  （rowid 别名）
+- 排序：自增第一 + 结构体字段序 + 其余稳定追加
+- ORM 结构体字段成为字段行兜底来源（无 schema/yaml 时也有行）
+
+**实施结果**：commit `8e495fa`（6 文件）；fixture 验证
+[order_id(自增) order_no created_at]；全仓 -race 全绿。
+
+**AI 杠杆点**（R22 实证）：顺序/自增都是代码里已有的事实（声明顺序
++ tag）——零 AI；「自增第一」是数据库常识，yaml 可覆盖。
+
+### R23（2026-08-24）——AI Agent 选择 codex/claude（#0 遗留功能）
+
+**分析**：用户提出"AI Agent 支持选择 codex 和 calude"。grilling
+Q1-Q8 定案：用途=wiki 语义补全自动化 + 通用 ask 接口；后端=本地
+CLI 子进程（codex exec / claude -p，零密钥）；选择=--agent 参数 >
+~/.codeintel/config.yaml 默认 > auto 检测；产出=直接写 wiki.yaml
+（git diff 可回滚）；wiki --ai 增量只补缺；ask 轻量自动打包
+（问题中符号/表名精确识别）；三层降级（CLI 缺失报错/超时跳过/
+解析失败重试一次）。
+
+**改进方案**（新功能，测试先行 18 个单测）：
+- agent.go：runAgentExec（claude -p / codex exec，ctx 超时中止）+
+  resolveAgentWith 纯函数四通道选择 + ~/.codeintel/config.yaml 读取
+- ask.go：cmdAsk（--agent/--symbol/--table/--timeout/--json）+
+  packAskContext（token 精确匹配表名/符号 → 附加 callers/callees/
+  表列上下文）
+- wiki_ai.go + wiki_ai_merge.go + wiki_ai_parse.go：缺口收集（复用
+  wikiGapReport 逻辑）→ 逐条 prompt → AI 初稿 → yaml.Node 合并
+  （保留注释 + # AI 初稿 标注）→ cfg 同步（渲染用更新后配置）
+- 根命令注册 ask；wiki 增加 --ai/--agent
+
+**实施结果**：commit `65687a1`（11 文件）；全仓 -race 全绿；
+真实冒烟：ask "main 函数是做什么的？" 自动识别符号、回答引用
+file:line 准确；wiki --ai 本仓库 0 缺口（wiki.yaml 已完整）。
+实现期修正：fake CLI 子进程持有 stdout 管道致超时测不过（exec
+sleep 替换）；PATH 未隔离致测试真调 claude（隔离修正）。
+
+**AI 杠杆点**（R23 实证）：
+- 缺口统计（无描述模块/无别名表/无说明列）已有 → 增量触发天然
+  省 token；AI 只填缺的，人工内容永不被覆盖
+- yaml.Node 编辑保留注释 → git diff 可回滚 → AI 产出可审查可反悔
+  ——「AI 写文件」的安全底线是版本控制，不是拒绝写入
+
 ## 候选方向（未定优先级）
 
-- yaml 语义层：术语表（glossary）、表列说明（50 列无 comment）、
-  表别名（8 表）——AI 可从符号名/ER 推断初稿供用户确认，或用户
-  手写
+- ~~yaml 语义层：表列说明/表别名/模块描述 AI 初稿~~ → **R23 已实现**
+  （`codeintel wiki --ai` 增量补缺，写回 wiki.yaml 标注 # AI 初稿）；
+  术语表（glossary）仍未接入（AI 需通读全库事实，prompt 成本高，
+  等 ask 接口验证效果后再定）
 - 新人实测演练：挑一个陌生项目，用 wiki 走通 onboarding 流程，
   验证"新人视角无死角"是否真实成立
 - 流程页深度：入口调用链 → 关键数据流（value-trace 串联）
+- wiki --ai 增强：列 prompt 加入表间关联事实（rels 已传入未用）；
+  ask 支持交互式 REPL（多轮追问复用上下文）
