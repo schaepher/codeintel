@@ -162,6 +162,10 @@ func (ctx *fileCtx) emitSelectorCall(call *ast.CallExpr, callee *types.Func, sel
 	ctx.emitGinRouteCall(call, sel, xid)
 	// R31：ServeMux 方法调用（mux.HandleFunc("/x", h)——method 空）
 	ctx.emitServeMuxCall(call, callee, xid)
+	// R36：redis 调用（client.Get/conn.Do("GET", key)）与 kafka 调用
+	// （producer.SendMessage → topic / consumer.ConsumePartition）
+	ctx.emitRedisCall(call, callee, sel, xid, callerID)
+	ctx.emitKafkaCall(call, callee, sel, xid, callerID)
 	// §18：gRPC 客户端方法调用 c.Method() → grpc_call 边
 	// （客户端调用服务 <svc> 的 <Method>）
 	if svc, okG := ctx.grpcClients[xid.Name]; okG && callee.Pkg() != nil {

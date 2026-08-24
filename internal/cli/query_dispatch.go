@@ -43,7 +43,7 @@ func cmdQuery(args []string) int {
 	f := parseQueryFlags(rest)
 	target := ""
 
-	if sub != "unused" && sub != "module-calls" && sub != "enums" && sub != "entities" && sub != "grpc-routes" && sub != "http-routes" && sub != "cli-routes" && !(sub == "relations" && f.all) {
+	if sub != "unused" && sub != "module-calls" && sub != "enums" && sub != "entities" && sub != "grpc-routes" && sub != "http-routes" && sub != "cli-routes" && sub != "external-deps" && !(sub == "relations" && f.all) {
 		if len(f.positional) < 1 {
 			fmt.Fprintf(os.Stderr, "error: 缺少符号参数\n")
 			return 2
@@ -95,6 +95,10 @@ func cmdQuery(args []string) int {
 	// R35：urfave/cli 命令树（不依赖符号参数）
 	if sub == "cli-routes" {
 		return cmdCLIRoutes(abs, f)
+	}
+	// R36：外部依赖（redis 键 / kafka topic——不依赖符号参数）
+	if sub == "external-deps" {
+		return cmdExternalDeps(abs, f)
 	}
 
 	opts := outputOpts{json: f.json, compact: f.compact, repoPath: f.repoPath}

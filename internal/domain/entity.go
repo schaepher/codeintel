@@ -40,6 +40,8 @@ const (
 	KindGrpcService     EntityKind = "grpc_service"     // gRPC 服务标识（模块间调用，field_trace.md §18）
 	KindHTTPRoute       EntityKind = "http_route"       // HTTP 路由（人工路由表 routes.yaml，§18.7）
 	KindCLICommand      EntityKind = "cli_command"      // urfave/cli v2 命令树节点（R35）
+	KindRedisKey        EntityKind = "redis_key"        // redis 键（R36 外部依赖）
+	KindKafkaTopic      EntityKind = "kafka_topic"      // kafka topic（R36 外部依赖）
 )
 
 // BuildStatus 构建状态，对应 build_metadata.status 列（R7：真枚举——
@@ -78,6 +80,9 @@ const (
 	FactGrpcCall      FactKind = "grpc_call"      // 客户端调用方函数 → grpc_service（模块间调用，§18）
 	FactGrpcImpl      FactKind = "grpc_impl"      // 服务实现类型 → grpc_service（服务端归属，§18）
 	FactHTTPCall      FactKind = "http_call"      // 客户端调用方函数 → http_route（HTTP 模块间调用，§18.7）
+	FactRedisCall     FactKind = "redis_call"     // 调用方函数 → redis_key（R36 外部依赖）
+	FactKafkaProduce  FactKind = "kafka_produce"  // 生产者函数 → kafka_topic（R36）
+	FactKafkaConsume  FactKind = "kafka_consume"  // 消费者函数 → kafka_topic（R36）
 )
 
 // ToolSource 工具来源标识，对应 edges.tool_source 列。

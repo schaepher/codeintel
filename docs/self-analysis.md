@@ -959,6 +959,39 @@ urfave/cli（识别机制由 fixture 验证，真实项目待观察）。
 - COALESCE 问题复发（NULL 属性 Scan 失败丢整行）——json_extract
   取可选属性必须 COALESCE（R34/R35 两次同坑，应进 runbook）
 
+### R36（2026-08-24）——redis/kafka 外部依赖分析（待办 5）
+
+**分析**：待办 5——redis client / kafka（sarama）调用分析。grilling
+定案（Q1-Q4 全 A）：索引边/节点 + query external-deps 聚合 + wiki
+消费；redis 方法式（go-redis）+ 命令式（conn.Do("GET", key)）都识别；
+键名/topic 名提取（字面量+常量传播）→ redis_key/kafka_topic 节点 +
+调用边；kafka producer/consumer 双向。
+
+**改进方案**：
+- ast 识别（emitRedisCall/emitKafkaCall——挂 emitSelectorCall）：
+  redis 接收者类型判断（go-redis Named + **redigo 接口**——go2o 实测
+  redis.Conn 是接口）+ 命令式 Do 第 1 参命令名/第 2 参键；键支持
+  **跨包常量**（constants.QueueNewMailTask——types.Const 取值）；
+  kafka SendMessage(&ProducerMessage{Topic}) / ConsumePartition(topic)
+- `query external-deps`：redis 键（读/写/调用方/命令聚合）+ kafka
+  topic（producer/consumer）JSON + 文本
+- **嵌套调用修复**：`redis.Values(conn.Do(...))` 参数位置调用被
+  isArgCall return 跳过（不建 calls 设计）——return 前补外部依赖识别
+- wiki 消费：commands/外部依赖区块（external-deps 数据源）
+
+**实施结果**：测试 TestRedisCallEdges（方法式+命令式+常量）/TestKafka
+TopicEdges（producer/consumer 双向）全绿；**go2o 实测 4 个 redis 键**
+（BLPOP 命令式：go2o:mq:mail/mm_update/order_notify/payment_success_
+notify——跨包常量键名 + 调用方函数全识别）；全仓 -race 13 包全绿。
+
+**AI 杠杆点**（R36 实证）：
+- 外部依赖识别三坑：redigo 接口（Named 判断漏接口）、跨包常量
+  （extractStringArg 只处理同函数）、嵌套调用（isArgCall return 跳过）
+  ——"真实项目形态矩阵"比 fixture 多出三类，fixture 应主动覆盖
+  嵌套/跨包/接口三形态（记忆：morphology-matrix-verification）
+- redis 命令式（conn.Do("BLPOP", key)）是 go2o 主流——命令名+键
+  参数模式比方法式更值得识别
+
 ## 待办与候选方向（未定优先级）
 
 **高优先级待办**（2026-08-24 用户提出，6 项）：

@@ -54,6 +54,14 @@ func (ctx *fileCtx) emitCall(call *ast.CallExpr) {
 	// 参数位置的调用（如 A(B(C())) 里的 B(C())）：由外层调用处理为
 	// "持有返回参数"链，不建 calls
 	if isArgCall(ctx.stack, call) {
+		// R36：参数位置的外部依赖调用仍识别（不建 calls 但建外部边——
+		// redis.Values(conn.Do(...)) 嵌套形态，go2o 实测）
+		if sel, isSel := call.Fun.(*ast.SelectorExpr); isSel {
+			if xid, isID := sel.X.(*ast.Ident); isID {
+				ctx.emitRedisCall(call, callee, sel, xid, callerID)
+				ctx.emitKafkaCall(call, callee, sel, xid, callerID)
+			}
+		}
 		return
 	}
 
