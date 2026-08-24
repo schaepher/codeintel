@@ -23,7 +23,9 @@ description: '生成交接文档：把当前会话总结成一份新 agent 可�
    索引状态、未提交变更
 3. **写文档**（模板见下）到
    `/tmp/codeintel-handoff-<YYYYMMDD>-<字母>.md`（字母按当天已有文件
-   递增：a、b、c……）
+   递增：a、b、c……）；**/tmp 配额满（EDQUOT）时改存
+   `/home/schaepher/.tmp-build/`**（2026-08-24 起，交接文档 I 如此）
+   ——两侧目录都要检查字母续号
 4. **脱敏检查**：无 API 密钥/密码/PII；私有仓库名用「验证仓库（私有）」
    指代；fixture 脱敏表名勿还原
 
@@ -79,6 +81,7 @@ field_trace.md §<编号>。
   引用（路径或 § 编号），不复制正文
 - **Suggested Skills 节必填**：列出会话相关 skill（项目内 skills/ 与
   全局 ~/.claude/skills/），标注新增命令/参数
-- **上一份交接的字母续号**：`ls /tmp/codeintel-handoff-<今天>*` 取最大
+- **上一份交接的字母续号**：`ls /tmp/codeintel-handoff-<今天>*` 与
+  `ls /home/schaepher/.tmp-build/codeintel-handoff-<今天>*` 取最大
   字母 +1
 - 文档语言与项目一致（中文）；commit 表用 `git log --oneline`

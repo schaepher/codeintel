@@ -21,7 +21,10 @@
 ## 项目一句话
 
 `codeintel` 是一个 Go 代码库智能索引系统：对 Go module 仓库做静态分析，
-产出 SQLite 代码图（`.codeintel/codeintel.db`），通过 CLI 提供符号与调用关系查询。
+产出 SQLite 代码图（`.codeintel/codeintel.db`），通过 CLI 提供符号与调用关系查询；
+**业务 wiki 生成（`codeintel wiki`，AI 增量补缺）是核心能力之一**——
+自举循环记录在 [`docs/self-analysis.md`](docs/self-analysis.md)（R23 起
+AI 补缺、R26 ask 问答、R27 对话界面与 Q&A 收集、R28 go2o 缺口清零）。
 设计权威是 [`docs/TD.md`](docs/TD.md)（v2.0，22 个决策点均已确认）；
 **图数据模型总表（节点/边/属性/置信度/表结构）见 [`docs/data-model.md`](docs/data-model.md)**——
 理解本项目优先读它，再读 field_trace.md 各功能 §。
@@ -60,8 +63,13 @@ go test ./...                       # 测试（需要 scip-go 在 PATH 或 go bi
 go build -o codeintel ./cmd/codeintel
 # 对任意 Go 仓库构建索引并查询：
 #   codeintel init --repo <path>          # 全量构建
+#   codeintel update --repo <path>        # 增量更新
 #   codeintel reindex --repo <path>       # 重建（删旧库绕过 schema 检查 + init）
 #   codeintel query symbol|callers|callees|impact|table ...
+#   codeintel wiki --yaml wiki.yaml       # 业务 wiki 生成（--ai 增量补缺，写回 yaml 标注 # AI 初稿）
+#   codeintel ask "<问题>"                # 项目上下文问答（无参数进入 REPL 多轮追问）
+#   codeintel mcp --repo <path>           # stdio MCP server（Agent 接入）
+# 完整命令清单见 codeintel-cli skill（~/.claude/skills/codeintel-cli/SKILL.md）
 ```
 
 ## 项目自举（Q236/Q237）：本仓库已建索引
@@ -124,7 +132,9 @@ internal/infrastructure/
                           GetRoots / Expand（图探索）
 internal/server/          HTTP API：/api/roots（顶层入口）、/api/expand（点击展开）、
                           /wiki/ wiki 网页版（cli 注入，P2b）
-internal/cli/             init / update / serve / query / wiki / mcp / export 命令
+internal/cli/             init / update / serve / query / wiki（--ai 增量补缺、--with-qa）/
+                          mcp / ask（REPL 交互问答）/ before / trace / batch /
+                          export / precompute relations / rule / workspace / list 命令
 assets/web/               AntV G6 v5 前端（go:embed 嵌入；index.html + app.js）
 scripts/entrylog/         AST 日志注入工具（见下）
 ```
@@ -326,8 +336,12 @@ defer logger.Debug("exit <name>")
   （曾因旧库缺 GORM 虚拟节点误判功能未生效）。
 - **日志已切文件**：所有带 `--repo` 的命令日志写入 `.codeintel/codeintel.log`，
   stdout 只承载查询结果——排查问题看日志文件，不要从 stdout 找日志。
-- **验证矩阵**：make test（12 包）/ make it（integration，需 scip-go）/
-  make e2e（端口 8096，E2E_REPO 指定）——改完代码三件套都要过。
+- **go build/test 的 TMPDIR 不能放 git 仓库内**（2026-08-24 R28 教训）：临时
+  目录落在仓库内时 t.TempDir() 也在仓库内，TestIndexNonGitDir 假失败（git log
+  向上命中仓库 .git）。Makefile 已自动把 TMPDIR 指到 /home/schaepher/.tmp-build
+  （runbook #1：/tmp 配额满）；**手动跑 go 命令同样带 TMPDIR 或指到仓库外**。
+- **验证矩阵**：make test（-race 全量，13 包）/ make it（integration，需 scip-go）/
+  make e2e（playwright 前端回归，端口 8096，E2E_REPO 指定）——改完代码三件套都要过。
 - **工作流约定**（用户明确）：每个功能先写测试再实现（测试先行）；开发中的
   疑问必须先向用户确认（设计树访谈模式）；改完验证后必须 git push。
 - **验证形态矩阵**（2026-08-17 XORM 教训）：框架适配/查询类功能，测试必须覆盖
@@ -356,12 +370,14 @@ defer logger.Debug("exit <name>")
   （报错提示进入模块目录）
 - sqlite-vec 向量表未创建（Semble 未接入）；schema 版本由 PRAGMA user_version=4 管理，
   版本不匹配时报错提示 `codeintel clean` 重建
-- 未实现：LLM 摘要、Semble；**MCP serve 已取消**（2026-08-15 Q135：AI 直接
-  使用 CLI 查询命令，--json 即结构化契约）
+- 未实现：LLM 摘要、Semble。MCP 的 query 能力经 `codeintel mcp --repo <path>`
+  stdio server 暴露（Q243：tools/list + tools/call，Agent 直接调用）；serve
+  内嵌 MCP 方案已取消（2026-08-15 Q135 定）——AI 亦可直接用 CLI 查询命令，
+  --json 即结构化契约
 
 ## 测试
 
-测试先行（先写失败测试再实现）；验证矩阵：make test（12 包）/ make it（-tags integration，需 scip-go）/ make e2e（27 项）。
+测试先行（先写失败测试再实现）；验证矩阵：make test（-race 全量，13 包）/ make it（-tags integration，需 scip-go）/ make e2e（playwright 前端回归，端口 8096，E2E_REPO 指定）。
 
 **基建速查**（写测试前先读对应包）：
 - ssa：`indexFixture(t, files)` → (nodes, facts)；`indexFixtureFull` → (nodes, facts, summaries)——临时 module（`moduleGoMod`）跑完整 Adapter.Index（含别名/摘要/派发），fixture 可加 `external/` 子包与 `field-summary.yaml`；helper `findFieldAccess`/`findSSAValue`（slot 前缀匹配）/`factsFrom`
