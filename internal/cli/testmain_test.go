@@ -21,7 +21,7 @@ func TestMain(m *testing.M) {
 	// CODEINTEL_SKIP_DOMAINS；即使 env 遗漏也快速失败而非真调 claude）
 	os.Setenv("CODEINTEL_SKIP_DOMAINS", "1")
 	oldRunner := agentRunner
-	agentRunner = func(agent, prompt string, timeout time.Duration) (string, error) {
+	agentRunner = func(agent, prompt string, timeout time.Duration, dir string) (string, error) {
 		return "", errors.New("测试环境禁止真实 AI 调用（injectRunner 覆盖后可用）")
 	}
 	code := m.Run()

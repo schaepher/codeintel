@@ -99,7 +99,7 @@ func TestWikiAIFillSplitBatches(t *testing.T) {
 		}
 		return b.String()
 	}
-	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration) (string, error) {
+	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration, dir string) (string, error) {
 		prompts = append(prompts, prompt)
 		if strings.Contains(prompt, "表列中文说明") {
 			// 最后一批：剩余模块 + 表 + 列 + 术语
@@ -109,7 +109,7 @@ func TestWikiAIFillSplitBatches(t *testing.T) {
 		return modsOf(prompt), nil
 	})
 	defer restore()
-	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second, false, nil)
+	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second, false, nil, "")
 	// 61 模块 + 1 表 + 1 列组
 	if ok != 63 || fail != 0 {
 		t.Fatalf("计数 = %d/%d; want 63/0", ok, fail)
@@ -146,12 +146,12 @@ func TestWikiAIFillWithQA(t *testing.T) {
 	path := filepath.Join(dir2, "wiki.yaml")
 	os.WriteFile(path, []byte(""), 0o644)
 	gotPrompt := ""
-	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration) (string, error) {
+	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration, dir string) (string, error) {
 		gotPrompt = prompt
 		return aiBatchYAML, nil
 	})
 	defer restore()
-	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second, true, repo)
+	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second, true, repo, "")
 	if ok != 5 || fail != 0 {
 		t.Fatalf("计数 = %d/%d; want 5/0", ok, fail)
 	}
@@ -194,12 +194,12 @@ func TestWikiAIFillSkipNoGaps(t *testing.T) {
 	path := filepath.Join(dir, "wiki.yaml")
 	os.WriteFile(path, []byte(""), 0o644)
 	called := false
-	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration) (string, error) {
+	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration, dir string) (string, error) {
 		called = true
 		return "", nil
 	})
 	defer restore()
-	ok, skip, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second, false, nil)
+	ok, skip, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second, false, nil, "")
 	if ok != 0 || skip != 0 || fail != 0 {
 		t.Errorf("无缺口计数 = %d/%d/%d; want 0/0/0", ok, skip, fail)
 	}

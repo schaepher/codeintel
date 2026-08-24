@@ -160,7 +160,7 @@ func TestWikiServeAsk(t *testing.T) {
 	srv := httptest.NewServer(wikiServeHandler(dir, acts, repo))
 	defer srv.Close()
 
-	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration) (string, error) {
+	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration, dir string) (string, error) {
 		return "对话回答", nil
 	})
 	defer restore()

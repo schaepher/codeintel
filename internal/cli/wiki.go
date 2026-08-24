@@ -194,7 +194,7 @@ func cmdWiki(args []string) int {
 		if yp == "" {
 			yp = filepath.Join(abs, "wiki.yaml")
 		}
-		okN, skipN, failN := wikiAIFill(yp, &cfg, data, cols, rels, agent, aiTimeout, aiWithQA, sqlite.NewRepo(db))
+		okN, skipN, failN := wikiAIFill(yp, &cfg, data, cols, rels, agent, aiTimeout, aiWithQA, sqlite.NewRepo(db), abs)
 		fmt.Printf("wiki --ai：补全 %d 条、跳过 %d 条、失败 %d 条（已写回 %s，标注 # AI 初稿——git diff 可回滚）\n",
 			okN, skipN, failN, yp)
 	}

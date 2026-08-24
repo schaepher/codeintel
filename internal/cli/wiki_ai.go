@@ -117,7 +117,7 @@ const (
 // 单个 prompt，AI 一次返回完整 YAML）→ 合并 wiki.yaml。
 // withQA 时从 qa_history 读取相关 Q&A 作为参考资料（W3）。
 // 返回 成功/跳过/失败 计数；*cfg 同步更新（渲染用）。
-func wikiAIFill(yamlPath string, cfg *wikiConfig, data []*domain.WikiModule, cols []*domain.TableColumn, rels []*domain.TableRelation, agent string, timeout time.Duration, withQA bool, repo *sqlite.Repo) (ok, skip, fail int) {
+func wikiAIFill(yamlPath string, cfg *wikiConfig, data []*domain.WikiModule, cols []*domain.TableColumn, rels []*domain.TableRelation, agent string, timeout time.Duration, withQA bool, repo *sqlite.Repo, repoAbs string) (ok, skip, fail int) {
 	_ = repo
 	mods, tbls, colGaps := wikiAIGaps(data, *cfg, cols)
 	if len(mods)+len(tbls)+len(colGaps) == 0 {
@@ -168,7 +168,7 @@ func wikiAIFill(yamlPath string, cfg *wikiConfig, data []*domain.WikiModule, col
 		qaRefs = wikiQAReferences(repo, mods, tbls, colGaps)
 	}
 	for _, b := range batches {
-		out, err := aiCallOnce(agent, wikiAIBatchPrompt(b.mods, b.tbls, b.colGaps, rels, qaRefs), timeout, parseWikiBatch)
+		out, err := aiCallOnce(agent, wikiAIBatchPrompt(b.mods, b.tbls, b.colGaps, rels, qaRefs), timeout, repoAbs, parseWikiBatch)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: AI 批量补缺失败: %v\n", err)
 			fail += len(b.mods) + len(b.tbls) + len(b.colGaps)
@@ -238,9 +238,10 @@ func splitGapBatches(mods []aiModuleGap, tbls []aiTableGap, colGaps []aiColGap, 
 
 // aiCallOnce 调 AI 并解析：运行失败（CLI 缺失/超时）直接报错跳过；
 // 解析失败重试一次（泛型——desc/alias 返回 string，列说明返回 map）。
-func aiCallOnce[T any](agent, prompt string, timeout time.Duration, parse func(string) (T, error)) (T, error) {
+// dir：子进程 cwd（目标仓库根——agent 读仓库内文件免权限）。
+func aiCallOnce[T any](agent, prompt string, timeout time.Duration, dir string, parse func(string) (T, error)) (T, error) {
 	var zero T
-	resp, err := agentRunner(agent, prompt, timeout)
+	resp, err := agentRunner(agent, prompt, timeout, dir)
 	if err != nil {
 		return zero, err
 	}
@@ -248,7 +249,7 @@ func aiCallOnce[T any](agent, prompt string, timeout time.Duration, parse func(s
 	if err == nil {
 		return v, nil
 	}
-	resp2, err2 := agentRunner(agent, prompt, timeout)
+	resp2, err2 := agentRunner(agent, prompt, timeout, dir)
 	if err2 != nil {
 		return zero, err2
 	}

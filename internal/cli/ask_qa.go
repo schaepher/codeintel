@@ -14,8 +14,8 @@ import (
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
 
-// 收集进 qa_history（W2）。
-func askREPL(acts *action.Actions, repo *sqlite.Repo, agent string, timeout time.Duration) int {
+// 收集进 qa_history（W2）。repoAbs：agent 子进程 cwd（仓库内文件读取免权限）。
+func askREPL(acts *action.Actions, repo *sqlite.Repo, agent string, timeout time.Duration, repoAbs string) int {
 	fmt.Println("codeintel ask 交互模式——多轮追问复用同一会话（输入 exit/quit 退出，Ctrl-D 结束）")
 	scanner := bufio.NewScanner(os.Stdin)
 	for {
@@ -30,7 +30,7 @@ func askREPL(acts *action.Actions, repo *sqlite.Repo, agent string, timeout time
 		if q == "exit" || q == "quit" || q == "q" {
 			break
 		}
-		resp, err := agentRunner(agent, buildAskPrompt(acts, nil, nil, q), timeout)
+		resp, err := agentRunner(agent, buildAskPrompt(acts, nil, nil, q), timeout, repoAbs)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			continue

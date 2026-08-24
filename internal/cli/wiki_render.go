@@ -151,12 +151,19 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	if err := os.WriteFile(filepath.Join(outDir, "processes.md"), []byte(renderProcessesMD(rc)), 0o644); err != nil {
 		return err
 	}
-	// R37：gRPC 服务子页（每服务独立一页——流程页索引链接到这里）
+	// R37/R38：gRPC 服务子页（每服务独立一页——按领域分目录，
+	// 流程页索引链接到这里）
 	if svcs := grpcServiceList(rc); len(svcs) > 0 {
-		for _, s := range svcs {
-			page := renderGrpcServiceMD(rc, s, procMaxOf(rc.MaxEntries))
-			if err := os.WriteFile(filepath.Join(outDir, "processes-grpc-"+grpcSvcFileName(s.Name)+".md"), []byte(page), 0o644); err != nil {
+		for _, g := range grpcServicesByDomain(rc, svcs) {
+			dir := filepath.Join(outDir, g.Name)
+			if err := os.MkdirAll(dir, 0o755); err != nil {
 				return err
+			}
+			for _, s := range g.Services {
+				page := renderGrpcServiceMD(rc, s, procMaxOf(rc.MaxEntries))
+				if err := os.WriteFile(filepath.Join(dir, "processes-grpc-"+grpcSvcFileName(s.Name)+".md"), []byte(page), 0o644); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -174,7 +181,9 @@ var wikiArtifacts = map[string]bool{
 }
 
 // cleanWikiOutDir 删除输出目录里的旧渲染产物（保留其他文件——防误删
-// 用户放在输出目录的配置/笔记）。目录不存在视为空。
+// 用户放在输出目录的配置/笔记）。目录不存在视为空。R38：领域子目录
+// （服务子页目录）递归清理——删除目录内 processes-grpc-* 后空目录一并
+// 移除（领域列表变化后旧目录不残留）。
 func cleanWikiOutDir(outDir string, data []*domain.WikiModule) error {
 	names, err := os.ReadDir(outDir)
 	if err != nil {
@@ -188,14 +197,37 @@ func cleanWikiOutDir(outDir string, data []*domain.WikiModule) error {
 	for _, wm := range data {
 		modulePages[wm.ShortName+".md"] = true
 	}
+	// R38：领域目录（含服务子页）——清空后移除空目录
+	var dirsToClean []string
 	for _, n := range names {
 		if n.IsDir() {
+			dirsToClean = append(dirsToClean, n.Name())
 			continue
 		}
 		// R37：gRPC 服务子页动态名（服务名）——前缀匹配清理
 		if wikiArtifacts[n.Name()] || modulePages[n.Name()] || strings.HasPrefix(n.Name(), "processes-grpc-") {
 			if err := os.Remove(filepath.Join(outDir, n.Name())); err != nil {
 				return err
+			}
+		}
+	}
+	for _, dn := range dirsToClean {
+		dir := filepath.Join(outDir, dn)
+		ents, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		removed := 0
+		for _, e := range ents {
+			if !e.IsDir() && strings.HasPrefix(e.Name(), "processes-grpc-") {
+				if err := os.Remove(filepath.Join(dir, e.Name())); err == nil {
+					removed++
+				}
+			}
+		}
+		if removed > 0 {
+			if left, err := os.ReadDir(dir); err == nil && len(left) == 0 {
+				_ = os.Remove(dir)
 			}
 		}
 	}

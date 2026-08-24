@@ -154,7 +154,8 @@ func (e *yamlEditor) setColumnComments(tbl string, comments map[string]string) {
 }
 
 // setDomain domains 序列项（name 匹配或追加）→ description/packages/
-// tables 赋值（R34 业务域——AI 初稿标注由 ensureKey/appendItem 负责）。
+// tables/services 赋值（R34 业务域——AI 初稿标注由 ensureKey/appendItem
+// 负责；R38 services——服务归属领域）。
 func (e *yamlEditor) setDomain(d wikiDomainCfg) {
 	seq := e.ensureSeq("domains")
 	it := findItem(seq, d.Name)
@@ -169,6 +170,18 @@ func (e *yamlEditor) setDomain(d wikiDomainCfg) {
 	}
 	if len(d.Tables) > 0 {
 		setStringSeq(ensureKey(it, "tables"), d.Tables)
+	}
+	if len(d.Services) > 0 {
+		setStringSeq(ensureKey(it, "services"), d.Services)
+	}
+}
+
+// clearDomains 清空 domains 序列（R38：domains 分析是整体重归纳——
+// 旧域名变更后残留会与新域并存（go2o 实测 16 域 = 旧 8 + 新 8））。
+func (e *yamlEditor) clearDomains() {
+	m := e.mapping()
+	if n := keyValue(m, "domains"); n != nil && n.Kind == yaml.SequenceNode {
+		n.Content = nil
 	}
 }
 

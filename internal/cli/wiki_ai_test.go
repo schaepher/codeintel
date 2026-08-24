@@ -139,7 +139,7 @@ func TestWikiAIFillEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	gotPrompt := ""
-	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration) (string, error) {
+	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration, dir string) (string, error) {
 		gotPrompt = prompt
 		return aiBatchYAML, nil
 	})
@@ -148,7 +148,7 @@ func TestWikiAIFillEndToEnd(t *testing.T) {
 		{FromTable: "order_tab", FromCol: "order_id", ToTable: "user_tab", ToCol: "id", Type: domain.RelationFK},
 	}
 	// 缺口 = 模块 1 + 表 1（user_tab）+ 列 2（order_tab、user_tab）+ 术语 1
-	ok, skip, fail := wikiAIFill(path, &cfg, data, cols, rels, "claude", 30*time.Second, false, nil)
+	ok, skip, fail := wikiAIFill(path, &cfg, data, cols, rels, "claude", 30*time.Second, false, nil, "")
 	if ok != 5 || skip != 0 || fail != 0 {
 		t.Fatalf("计数 = %d/%d/%d; want 5/0/0", ok, skip, fail)
 	}
@@ -227,7 +227,7 @@ func TestWikiAIFillRetryOnce(t *testing.T) {
 	path := filepath.Join(dir, "wiki.yaml")
 	os.WriteFile(path, []byte("project:\n  description: 项目\n"), 0o644)
 	calls := 0
-	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration) (string, error) {
+	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration, dir string) (string, error) {
 		calls++
 		if calls <= 1 {
 			return "完全不可解析的内容！！！", nil
@@ -235,7 +235,7 @@ func TestWikiAIFillRetryOnce(t *testing.T) {
 		return "modules:\n  - name: example.com/app/internal/agent\n    description: 重试成功", nil
 	})
 	defer restore()
-	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second, false, nil)
+	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second, false, nil, "")
 	if ok != 1 || fail != 0 || calls != 2 {
 		t.Errorf("计数 = %d/%d 调用 %d; want 1 成功、重试一次", ok, fail, calls)
 	}
@@ -248,11 +248,11 @@ func TestWikiAIFillFailTwice(t *testing.T) {
 	path := filepath.Join(dir, "wiki.yaml")
 	orig := "project:\n  description: 项目\n"
 	os.WriteFile(path, []byte(orig), 0o644)
-	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration) (string, error) {
+	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration, dir string) (string, error) {
 		return "垃圾", nil
 	})
 	defer restore()
-	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second, false, nil)
+	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second, false, nil, "")
 	if ok != 0 || fail != 1 {
 		t.Errorf("计数 = %d/%d; want 0/1", ok, fail)
 	}
@@ -271,11 +271,11 @@ func TestWikiAIFillEmptyYAML(t *testing.T) {
 	if err := os.WriteFile(path, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration) (string, error) {
+	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration, dir string) (string, error) {
 		return "modules:\n  - name: example.com/app/internal/agent\n    description: 空文件首跑描述", nil
 	})
 	defer restore()
-	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second, false, nil)
+	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second, false, nil, "")
 	if ok != 1 || fail != 0 {
 		t.Fatalf("计数 = %d/%d; want 1/0", ok, fail)
 	}

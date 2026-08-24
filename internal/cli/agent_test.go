@@ -81,7 +81,7 @@ for a in "$@"; do s="$s $a"; done
 printf '%s' "${s# }" > `+marker+`
 echo '{"result":"fake-response-from-claude"}'
 `)
-	out, err := runAgentExec("claude", "hello", 5*time.Second)
+	out, err := runAgentExec("claude", "hello", 5*time.Second, "")
 	if err != nil {
 		t.Fatalf("runAgentExec: %v", err)
 	}
@@ -102,10 +102,10 @@ func TestRunAgentExecClaudeResume(t *testing.T) {
 echo "$@" >> `+marker+`
 echo '{"result":"r1","session_id":"sess-abc"}'
 `)
-	if _, err := runAgentExec("claude", "first", 5*time.Second); err != nil {
+	if _, err := runAgentExec("claude", "first", 5*time.Second, ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runAgentExec("claude", "second", 5*time.Second); err != nil {
+	if _, err := runAgentExec("claude", "second", 5*time.Second, ""); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(marker)
@@ -123,7 +123,7 @@ func TestRunAgentExecClaudePlainFallback(t *testing.T) {
 	fakeAgentBin(t, "claude", `#!/bin/sh
 echo "plain-text-response"
 `)
-	out, err := runAgentExec("claude", "hello", 5*time.Second)
+	out, err := runAgentExec("claude", "hello", 5*time.Second, "")
 	if err != nil {
 		t.Fatalf("runAgentExec: %v", err)
 	}
@@ -142,7 +142,7 @@ for a in "$@"; do s="$s $a"; done
 printf '%s' "${s# }" > `+marker+`
 echo "codex-ok"
 `)
-	out, err := runAgentExec("codex", "hi", 5*time.Second)
+	out, err := runAgentExec("codex", "hi", 5*time.Second, "")
 	if err != nil || out != "codex-ok" {
 		t.Fatalf("runAgentExec(codex) = %q, %v", out, err)
 	}
@@ -156,7 +156,7 @@ echo "codex-ok"
 // claude 被调用）。
 func TestRunAgentExecMissing(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
-	_, err := runAgentExec("claude", "hi", 2*time.Second)
+	_, err := runAgentExec("claude", "hi", 2*time.Second, "")
 	if err == nil || !strings.Contains(err.Error(), "claude") {
 		t.Errorf("未装 claude → err=%v; want 含 claude", err)
 	}
@@ -168,7 +168,7 @@ func TestRunAgentExecTimeout(t *testing.T) {
 	fakeAgentBin(t, "claude", `#!/bin/sh
 exec sleep 3
 `)
-	_, err := runAgentExec("claude", "hi", 200*time.Millisecond)
+	_, err := runAgentExec("claude", "hi", 200*time.Millisecond, "")
 	if err == nil || !strings.Contains(err.Error(), "超时") {
 		t.Errorf("超时 → err=%v; want 超时报错", err)
 	}

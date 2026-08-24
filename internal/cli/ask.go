@@ -99,12 +99,12 @@ func cmdAsk(args []string) int {
 	acts := action.New(repo)
 
 	if len(question) == 0 {
-		return askREPL(acts, repo, agent, timeout) // 无问题 → 交互模式
+		return askREPL(acts, repo, agent, timeout, abs) // 无问题 → 交互模式
 	}
 	q := strings.Join(question, " ")
 	prompt := buildAskPrompt(acts, syms, tbls, q)
 	start := time.Now()
-	resp, err := agentRunner(agent, prompt, timeout)
+	resp, err := agentRunner(agent, prompt, timeout, abs)
 	dur := time.Since(start)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)

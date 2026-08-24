@@ -1048,6 +1048,46 @@ main 节保留 + 新增路由节。
 - 验证用新二进制重跑（改代码后忘 go build——旧二进制跑 wiki 误判
   "去重没生效"，浪费一轮）。
 
+### R38（2026-08-25）——gRPC 服务子页按领域分目录 + plantuml 边 label 修复
+
+用户提出：① 每个领域创建二级目录放服务流程页；② wiki 图"线连接的是
+数字根本看不懂"（plantuml PNG 实测）。
+
+- **plantuml 边 label 语法 bug（根因）**：`A -->|6| B` 原转成
+  `A --> 6 : B`——plantuml 把 6 当**目标节点名**（数字节点！），长符号
+  ID 成了线标签。修正：`-->|N|` → 行尾冒号 label（`A --> B : 6`）。
+  现有测试断言的是旧错误语法——一并修正（防回归）。
+- **服务 → 领域映射**（用户定案：yaml 显式 + 调用链投票兜底）：
+  - wikiDomainCfg 加 `services` 字段（AI 分析时归纳 + 人工确认，
+    同 packages/tables 模式）；parseDomains 校验（服务名须在事实包
+    svc 名单）；domainPrompt 强化"services 必填"
+  - `serviceDomain(rc, svc)`：yaml services 精确匹配优先 → 方法调用链
+    涉及包匹配 domains.packages 多数派投票 → 无匹配 "其他"
+  - 投票实测教训：go2o 的 domains 把全部 infra 包（impl/service/query/
+    parser）归入平台系统域——**投票天然偏向基础设施域**，静态兜底对
+    go2o 无效；真正生效的是 yaml services（AI 归纳：ItemService→商品域、
+    OrderService→交易域、MemberService→会员域……30 服务全分域无"其他"）
+- **领域目录输出**：子页写 `<outDir>/<domain>/processes-grpc-<svc>.md
+  /.html`（md/html 双通道；HTML 返回链接 ../index.html）；索引按领域
+  分组（组内上限折叠，链接带目录路径）；cleanWikiOutDir 递归清领域
+  目录（空目录移除——旧域不残留）
+- **AI 读取仓库外文件被权限拒绝（根治）**：claude -p 对非 cwd 项目文件
+  Read 弹窗无人应答即拒绝（R34 时用户在场批准过）。修复：agentRunner
+  加 dir 参数——**agent 子进程 cwd = 目标仓库根**（cwd 项目内文件免权限，
+  codex 同样受益）。ask/wiki--ai/domains 全部贯通。
+- **domains 重跑两坑**：
+  - 超时 240s→360s（任务加重：读 30KB 事实包 + 归纳 services）
+  - yaml domains 新旧并存（setDomain 按名追加——go2o 实测 16 域 = 旧 8
+    + 新 8）→ analyzeDomains 写回前 `clearDomains()`（整体重归纳语义）
+
+**AI 杠杆点**（R38 实证）：
+- plantuml 边 label 必须 `A --> B : label`——`--> label : B` 把 label
+  当节点（渲染成数字节点），语法测试要断言正确形态而非旧形态
+- 本地 CLI agent 的权限模型 = cwd 项目白名单——子进程 cwd 设为目标
+  仓库根是通用解法（事实包/源码读取全免弹窗）
+- 投票型静态兜底会被"基础设施兜底域"污染——显式配置（AI 归纳 +
+  人工确认）才是可靠路径；兜底只当近似
+
 ## 待办与候选方向（未定优先级）
 
 **高优先级待办**（2026-08-24 用户提出，6 项）：

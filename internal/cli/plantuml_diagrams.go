@@ -129,9 +129,21 @@ func mermaidGraphToPlantuml(m string) string {
 		if isSelfLoop(out) {
 			continue
 		}
-		// plantuml 边 label 语法：`-->|N|` 不合法（实测 --check-syntax
-		// 报错），正确为 `--> N : `（冒号 label）
-		out = arrowLabelRe.ReplaceAllString(out, "--> $1 :")
+		// plantuml 边 label 语法修正（R38）：`A -->|6| B` 原转成
+		// `A --> 6 : B`——plantuml 把 6 当目标节点名（数字节点！），
+		// 长符号 ID 成了线标签（"线连接的是数字"实测）。正确：
+		// `A --> B : 6`（label 移到行尾冒号后）
+		labels := []string{}
+		out = arrowLabelRe.ReplaceAllStringFunc(out, func(m string) string {
+			mm := arrowLabelRe.FindStringSubmatch(m)
+			if len(mm) > 1 {
+				labels = append(labels, mm[1])
+			}
+			return "-->"
+		})
+		if len(labels) > 0 {
+			out += " : " + strings.Join(labels, ", ")
+		}
 		b.WriteString(out + "\n")
 	}
 	b.WriteString("@enduml\n")

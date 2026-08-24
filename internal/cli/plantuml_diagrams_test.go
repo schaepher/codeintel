@@ -9,7 +9,8 @@ import (
 )
 
 // TestMermaidGraphToPlantuml：graph LR 转换——节点引号/无引号格式
-// → node "label" as id；边行保留。
+// → node "label" as id；边 label 移到行尾冒号（R38：`A -->|6| B` →
+// `A --> B : 6`——旧写法 `--> 6 : B` 把 6 当目标节点名，线连数字）。
 func TestMermaidGraphToPlantuml(t *testing.T) {
 	m := `graph LR
   cli[cli] -->|42| action[action]
@@ -23,13 +24,17 @@ func TestMermaidGraphToPlantuml(t *testing.T) {
 		`node "action" as action`,
 		`node "订单聚合" as symbol_x`,
 		`node "账户门面" as symbol_y`,
-		"cli --> 42 : action",
-		"symbol_x --> 6 : symbol_y",
+		"cli --> action : 42",
+		"symbol_x --> symbol_y : 6",
 		"@enduml",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("graph 转换缺 %q:\n%s", want, out)
 		}
+	}
+	// 旧错误形态（数字当目标节点）不应出现
+	if strings.Contains(out, "--> 6 : symbol_y") || strings.Contains(out, "--> 42 : action") {
+		t.Errorf("边 label 应在行尾（旧写法数字节点）:\n%s", out)
 	}
 	if strings.Contains(out, "[cli]") || strings.Contains(out, `["`) {
 		t.Errorf("转换后不应残留方括号节点:\n%s", out)

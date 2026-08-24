@@ -35,11 +35,15 @@ func parseDomains(resp string, f *domainFacts) ([]wikiDomainCfg, []string) {
 	}
 	havePkg := map[string]bool{}
 	haveTbl := map[string]bool{}
+	haveSvc := map[string]bool{}
 	for _, p := range f.Pkgs {
 		havePkg[p.Path] = true // 完整路径校验（AI 输出完整路径）
 	}
 	for _, t := range f.Tables {
 		haveTbl[t.Name] = true
+	}
+	for _, s := range f.Svcs {
+		haveSvc[s.Name] = true
 	}
 	var doms []wikiDomainCfg
 	var warns []string
@@ -48,7 +52,7 @@ func parseDomains(resp string, f *domainFacts) ([]wikiDomainCfg, []string) {
 			warns = append(warns, "跳过无名称的域")
 			continue
 		}
-		var pkgs, tbls []string
+		var pkgs, tbls, svcs []string
 		for _, p := range d.Packages {
 			if havePkg[p] {
 				pkgs = append(pkgs, p)
@@ -63,11 +67,19 @@ func parseDomains(resp string, f *domainFacts) ([]wikiDomainCfg, []string) {
 				warns = append(warns, fmt.Sprintf("域 %s：表 %s 不在事实包中（剔除）", d.Name, t))
 			}
 		}
+		// R38：services 校验（服务名须在事实包 services 名单）
+		for _, s := range d.Services {
+			if haveSvc[s] {
+				svcs = append(svcs, s)
+			} else {
+				warns = append(warns, fmt.Sprintf("域 %s：服务 %s 不在事实包中（剔除）", d.Name, s))
+			}
+		}
 		if len(pkgs) == 0 && len(tbls) == 0 {
 			warns = append(warns, fmt.Sprintf("域 %s：无有效归属（剔除）", d.Name))
 			continue
 		}
-		d.Packages, d.Tables = pkgs, tbls
+		d.Packages, d.Tables, d.Services = pkgs, tbls, svcs
 		doms = append(doms, d)
 	}
 	return doms, warns
@@ -88,7 +100,9 @@ func analyzeDomains(repoAbs string, cfg *wikiConfig, acts *action.Actions, db *s
 			}
 		}
 	}
-	resp, err := agentRunner(agent, domainPrompt(factsPath), 240*time.Second)
+	// R38：任务加重（读事实包 JSON + 归纳 packages/tables/services）——
+	// 超时 240s → 360s（go2o 30 服务实测 4m 仍超）
+	resp, err := agentRunner(agent, domainPrompt(factsPath), 360*time.Second, repoAbs)
 	if err != nil {
 		return nil, []string{fmt.Sprintf("AI 业务域分析失败: %v", err)}
 	}
@@ -102,6 +116,9 @@ func analyzeDomains(repoAbs string, cfg *wikiConfig, acts *action.Actions, db *s
 		yamlPath = filepath.Join(repoAbs, "wiki.yaml")
 	}
 	if e, err := loadYAMLEditor(yamlPath); err == nil {
+		// R38：整体重归纳——先清旧 domains（setDomain 按名追加，
+		// 域名变更会新旧并存）
+		e.clearDomains()
 		for _, d := range doms {
 			e.setDomain(d)
 		}

@@ -19,9 +19,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// agentRunner 实际 agent 调用（可注入——测试替换）。
-var agentRunner = func(agent, prompt string, timeout time.Duration) (string, error) {
-	return runAgentExec(agent, prompt, timeout)
+// agentRunner 实际 agent 调用（可注入——测试替换）。dir = 子进程工作
+// 目录（目标仓库根——R38：claude/codex 对 cwd 项目内文件 Read 免权限
+// 弹窗，事实包放仓库 .codeintel/ 内才能被 agent 读取）。
+var agentRunner = func(agent, prompt string, timeout time.Duration, dir string) (string, error) {
+	return runAgentExec(agent, prompt, timeout, dir)
 }
 
 // claudeSessionID 上次 claude 调用的会话 ID——同会话复用（--ai 分批 /
@@ -36,7 +38,8 @@ var (
 // <会话>] / codex exec <prompt>，捕获 stdout；超时中止；CLI 缺失报错。
 // claude 用 JSON 输出模式（-p 为前提）：返回 {result, session_id}，
 // 提取 result 返回并记录会话 ID；输出非 JSON（旧版 CLI）时回退原文。
-func runAgentExec(agent, prompt string, timeout time.Duration) (string, error) {
+// dir：子进程工作目录（目标仓库根——cwd 项目内文件 Read 免权限）。
+func runAgentExec(agent, prompt string, timeout time.Duration, dir string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	var cmd *exec.Cmd
@@ -54,6 +57,9 @@ func runAgentExec(agent, prompt string, timeout time.Duration) (string, error) {
 		cmd = exec.CommandContext(ctx, "codex", "exec", prompt)
 	default:
 		return "", fmt.Errorf("未知 agent %q（支持 claude|codex）", agent)
+	}
+	if dir != "" {
+		cmd.Dir = dir
 	}
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() != nil {

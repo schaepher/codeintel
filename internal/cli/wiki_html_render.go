@@ -78,19 +78,26 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	// R2：系统流程区块（进程视角）
 	main.WriteString(renderProcessesHTML(rc))
 	nav.WriteString(`<li><a href="#processes">系统流程</a></li>`)
-	// R37：gRPC 服务子页（每服务独立 html——wikiHTMLPage 包装，流程页索引链接）
+	// R37/R38：gRPC 服务子页（每服务独立 html——wikiHTMLPage 包装，
+	// 按领域分目录；返回链接 ../index.html——子页在领域子目录）
 	if svcs := grpcServiceList(rc); len(svcs) > 0 {
-		for _, s := range svcs {
-			sub := wikiHTMLPage(
-				"gRPC 服务流程："+s.Name,
-				"",
-				`<a href="index.html">← 返回总览</a>`,
-				`<li><a href="index.html">返回总览</a></li>`,
-				renderGrpcServiceHTML(rc, s, procMaxOf(rc.MaxEntries)),
-				wikiPageOpts{freshNote: rc.freshNote, diagram: rc.Diagram},
-			)
-			if err := os.WriteFile(filepath.Join(outDir, "processes-grpc-"+grpcSvcFileName(s.Name)+".html"), []byte(sub), 0o644); err != nil {
+		for _, g := range grpcServicesByDomain(rc, svcs) {
+			dir := filepath.Join(outDir, g.Name)
+			if err := os.MkdirAll(dir, 0o755); err != nil {
 				return err
+			}
+			for _, s := range g.Services {
+				sub := wikiHTMLPage(
+					"gRPC 服务流程："+s.Name,
+					"",
+					`<a href="../index.html">← 返回总览</a>`,
+					`<li><a href="../index.html">返回总览</a></li>`,
+					renderGrpcServiceHTML(rc, s, procMaxOf(rc.MaxEntries)),
+					wikiPageOpts{freshNote: rc.freshNote, diagram: rc.Diagram},
+				)
+				if err := os.WriteFile(filepath.Join(dir, "processes-grpc-"+grpcSvcFileName(s.Name)+".html"), []byte(sub), 0o644); err != nil {
+					return err
+				}
 			}
 		}
 	}

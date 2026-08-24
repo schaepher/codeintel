@@ -200,7 +200,8 @@ func TestGrpcServicePageMD(t *testing.T) {
 }
 
 // TestWikiGrpcSubpages：cmdWiki 端到端——gRPC 服务子页写出（md/html
-// 双通道），流程页索引含子页链接。
+// 双通道，R38：按领域分目录——无 domains 配置走「其他」目录），流程页
+// 索引含子页链接。
 func TestWikiGrpcSubpages(t *testing.T) {
 	dir := seedRoutesProcRepo(t)
 	out := filepath.Join(t.TempDir(), "wiki")
@@ -211,14 +212,14 @@ func TestWikiGrpcSubpages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("index.html 未生成: %v", err)
 	}
-	if !strings.Contains(string(idx), "processes-grpc-QueryService.html") {
-		t.Error("index.html 应链接 gRPC 服务子页")
+	if !strings.Contains(string(idx), "其他/processes-grpc-QueryService.html") {
+		t.Error("index.html 应链接 gRPC 服务子页（领域目录）")
 	}
-	sub, err := os.ReadFile(filepath.Join(out, "processes-grpc-QueryService.html"))
+	sub, err := os.ReadFile(filepath.Join(out, "其他", "processes-grpc-QueryService.html"))
 	if err != nil {
-		t.Fatalf("服务子页未生成: %v", err)
+		t.Fatalf("服务子页未生成（其他目录）: %v", err)
 	}
-	for _, want := range []string{"gRPC 服务流程：QueryService", "(queryServiceImpl).Query", "返回总览"} {
+	for _, want := range []string{"gRPC 服务流程：QueryService", "(queryServiceImpl).Query", "../index.html"} {
 		if !strings.Contains(string(sub), want) {
 			t.Errorf("服务子页应含 %q", want)
 		}
@@ -231,11 +232,11 @@ func TestWikiGrpcSubpages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("processes.md 未生成: %v", err)
 	}
-	if !strings.Contains(string(proc), "processes-grpc-QueryService.md") {
-		t.Error("processes.md 应链接 gRPC 服务子页")
+	if !strings.Contains(string(proc), "其他/processes-grpc-QueryService.md") {
+		t.Error("processes.md 应链接 gRPC 服务子页（领域目录）")
 	}
-	if _, err := os.Stat(filepath.Join(out2, "processes-grpc-QueryService.md")); err != nil {
-		t.Error("md 输出应生成服务子页")
+	if _, err := os.Stat(filepath.Join(out2, "其他", "processes-grpc-QueryService.md")); err != nil {
+		t.Error("md 输出应生成服务子页（其他目录）")
 	}
 }
 

@@ -15,6 +15,9 @@ type wikiDomainCfg struct {
 	Description string   `yaml:"description"`
 	Packages    []string `yaml:"packages"`
 	Tables      []string `yaml:"tables"`
+	// R38：归属服务名（grpc 服务名 / http "METHOD path"）——流程页
+	// 服务子页按领域分目录的依据；AI 归纳 + 人工确认
+	Services []string `yaml:"services"`
 }
 
 // wikiConfig wiki.yaml 契约（AI 产出 → 人工最后确认微调）。

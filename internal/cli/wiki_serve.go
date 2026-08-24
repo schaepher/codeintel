@@ -133,7 +133,7 @@ func (ws *wikiServe) handleAsk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	start := time.Now()
-	resp, err := agentRunner(agent, buildAskPrompt(ws.acts, nil, nil, q), askDefaultTimeout)
+	resp, err := agentRunner(agent, buildAskPrompt(ws.acts, nil, nil, q), askDefaultTimeout, ws.repoAbs)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

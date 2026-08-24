@@ -47,7 +47,7 @@ func seedAskRepo(t *testing.T) string {
 }
 
 // injectRunner 替换 agentRunner 并返回恢复函数。
-func injectRunner(t *testing.T, fn func(agent, prompt string, timeout time.Duration) (string, error)) func() {
+func injectRunner(t *testing.T, fn func(agent, prompt string, timeout time.Duration, dir string) (string, error)) func() {
 	t.Helper()
 	old := agentRunner
 	agentRunner = fn
@@ -59,7 +59,7 @@ func injectRunner(t *testing.T, fn func(agent, prompt string, timeout time.Durat
 func TestCmdAskContextPacking(t *testing.T) {
 	dir := seedAskRepo(t)
 	gotPrompt := ""
-	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration) (string, error) {
+	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration, dir string) (string, error) {
 		gotPrompt = prompt
 		return "main 调用 (Svc).Run", nil
 	})
@@ -92,7 +92,7 @@ func TestCmdAskContextPacking(t *testing.T) {
 func TestCmdAskAutoDetect(t *testing.T) {
 	dir := seedAskRepo(t)
 	gotPrompt := ""
-	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration) (string, error) {
+	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration, dir string) (string, error) {
 		gotPrompt = prompt
 		return "ok", nil
 	})
@@ -113,7 +113,7 @@ func TestCmdAskAutoDetect(t *testing.T) {
 func TestCmdAskNoMatch(t *testing.T) {
 	dir := seedAskRepo(t)
 	gotPrompt := ""
-	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration) (string, error) {
+	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration, dir string) (string, error) {
 		gotPrompt = prompt
 		return "回答", nil
 	})
@@ -133,7 +133,7 @@ func TestCmdAskNoMatch(t *testing.T) {
 // TestCmdAskJSON：--json 输出契约 {agent, prompt, response, duration_ms}。
 func TestCmdAskJSON(t *testing.T) {
 	dir := seedAskRepo(t)
-	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration) (string, error) {
+	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration, dir string) (string, error) {
 		return "JSON 回答", nil
 	})
 	defer restore()
@@ -159,7 +159,7 @@ func TestCmdAskJSON(t *testing.T) {
 func TestCmdAskREPL(t *testing.T) {
 	dir := seedAskRepo(t)
 	var prompts []string
-	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration) (string, error) {
+	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration, dir string) (string, error) {
 		prompts = append(prompts, prompt)
 		return "回答" + strconv.Itoa(len(prompts)), nil
 	})
@@ -195,7 +195,7 @@ func TestCmdAskREPL(t *testing.T) {
 // --with-qa 参考资料）。
 func TestCmdAskCollectsQA(t *testing.T) {
 	dir := seedAskRepo(t)
-	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration) (string, error) {
+	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration, dir string) (string, error) {
 		return "main 是入口", nil
 	})
 	defer restore()
