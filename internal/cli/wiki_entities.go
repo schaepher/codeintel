@@ -106,7 +106,21 @@ func renderEntitiesSectionMD(g *domain.EntityGraph) string {
 	b.WriteString("\n## 实体协作（对象设计视角）\n\n")
 	b.WriteString("> 类型（有行为）为实体 + 游离函数按包聚合为门面；边 = 方法互调聚合计数。\n\n")
 	b.WriteString(entityLegend + "\n\n")
-	b.WriteString("```mermaid\n" + entityMermaid(g) + "\n```\n\n")
+	// F2：按 DDD 领域分组——领域间关系图 + 每领域内部协作分开展示
+	doms := splitEntityDomains(g)
+	if len(doms) >= 2 {
+		b.WriteString("**领域分组**：实体按 DDD 目录（domain/service 子域）分组；领域间图 + 每领域内部图分开。\n\n")
+		b.WriteString("### 领域间关系\n\n")
+		b.WriteString("```mermaid\n" + domainMermaid(doms, g.Edges) + "\n```\n\n")
+		for _, d := range doms {
+			b.WriteString(fmt.Sprintf("<details><summary>领域 <code>%s</code>（%d 实体）——展开查看内部协作</summary>\n\n",
+				htmlEsc(d.Name), len(d.Nodes)))
+			b.WriteString("```mermaid\n" + entityMermaid(&domain.EntityGraph{Nodes: d.Nodes, Edges: d.Edges}) + "\n```\n")
+			b.WriteString("</details>\n\n")
+		}
+	} else {
+		b.WriteString("```mermaid\n" + entityMermaid(g) + "\n```\n\n")
+	}
 	if len(g.Diags) > 0 {
 		b.WriteString("**设计诊断**（信号 → 行动；阈值见 `codeintel query entities`）：\n\n")
 		labels := map[string]string{
@@ -135,7 +149,19 @@ func renderEntitiesSectionHTML(g *domain.EntityGraph) string {
 	}
 	var b strings.Builder
 	b.WriteString(`<section id="entities"><h2>实体协作（对象设计视角）</h2><p class="muted">类型（有行为）为实体 + 游离函数按包聚合为门面；边 = 方法互调聚合计数。</p><p class="muted">` + htmlEsc(entityLegend) + `</p>`)
-	b.WriteString("<pre class=\"mermaid\">" + htmlEsc(entityMermaid(g)) + "</pre>")
+	// F2：按 DDD 领域分组——领域间图 + 每领域内部图分开展示
+	doms := splitEntityDomains(g)
+	if len(doms) >= 2 {
+		b.WriteString(`<p class="muted">领域分组：实体按 DDD 目录（domain/service 子域）分组；领域间图 + 每领域内部图分开。</p>`)
+		b.WriteString("<h3>领域间关系</h3><pre class=\"mermaid\">" + htmlEsc(domainMermaid(doms, g.Edges)) + "</pre>")
+		for i, d := range doms {
+			id := fmt.Sprintf("entity-dom-%d", i)
+			b.WriteString(fmt.Sprintf(`<h4 class="fold-btn" data-target="%s" data-label="1">▸ 领域 %s（%d 实体）——内部协作</h4><div class="sec-body" id="%s" style="display:none"><pre class="mermaid">%s</pre></div>`,
+				id, htmlEsc(d.Name), len(d.Nodes), id, htmlEsc(entityMermaid(&domain.EntityGraph{Nodes: d.Nodes, Edges: d.Edges}))))
+		}
+	} else {
+		b.WriteString("<pre class=\"mermaid\">" + htmlEsc(entityMermaid(g)) + "</pre>")
+	}
 	if len(g.Diags) > 0 {
 		labels := map[string]string{
 			domain.DiagCoupled:	"高耦合对",
