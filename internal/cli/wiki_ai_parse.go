@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/schaepher/codeintel/internal/domain"
 	"gopkg.in/yaml.v3"
 )
 
@@ -40,11 +41,16 @@ type wikiBatchOut struct {
 			Comment string `yaml:"comment"`
 		} `yaml:"columns"`
 	} `yaml:"tables"`
+	Glossary []struct {
+		Term       string `yaml:"term"`
+		Definition string `yaml:"definition"`
+	} `yaml:"glossary"`
 }
 
-// wikiAIBatchPrompt 批量缺口 prompt：模块描述 + 表别名 + 列说明
-// 一次请求全部带上（省调用次数、AI 上下文连贯）。
-func wikiAIBatchPrompt(mods []aiModuleGap, tbls []aiTableGap, colGaps []aiColGap) string {
+// wikiAIBatchPrompt 批量缺口 prompt：模块描述 + 表别名 + 列说明 +
+// 术语表一次请求全部带上（省调用次数、AI 上下文连贯）。rels 提供
+// 表间关联事实（列说明的读写上下文）。
+func wikiAIBatchPrompt(mods []aiModuleGap, tbls []aiTableGap, colGaps []aiColGap, rels []*domain.TableRelation) string {
 	var b strings.Builder
 	b.WriteString("你是代码仓库文档助手。根据以下代码事实，为缺失内容生成中文描述。一次全部处理。\n\n")
 	if len(mods) > 0 {
@@ -78,11 +84,16 @@ func wikiAIBatchPrompt(mods []aiModuleGap, tbls []aiTableGap, colGaps []aiColGap
 	if len(colGaps) > 0 {
 		b.WriteString("三、表列中文说明（每列一句话）：\n")
 		for _, g := range colGaps {
-			fmt.Fprintf(&b, "- %s: %s\n", g.table, strings.Join(g.cols, ", "))
+			fmt.Fprintf(&b, "- %s: %s", g.table, strings.Join(g.cols, ", "))
+			if r := colGapRels(rels, g.table); r != "" {
+				fmt.Fprintf(&b, "（关联: %s）", r)
+			}
+			b.WriteString("\n")
 		}
 		b.WriteString("\n")
 	}
-	b.WriteString(`只输出 YAML（结构严格如下，缺哪个部分就省略哪个）：
+	b.WriteString(`四、术语表：从以上模块/表/列事实中识别 3-8 个专业术语（缩写/内部黑话，如 ssa/ast/ER/MCP），给出中文定义。
+只输出 YAML（结构严格如下，缺哪个部分就省略哪个）：
 modules:
   - name: <模块名>
     description: <描述>
@@ -91,8 +102,27 @@ tables:
     alias: <别名>
     columns:
       - name: <列名>
-        comment: <说明>`)
+        comment: <说明>
+glossary:
+  - term: <术语>
+    definition: <定义>`)
 	return b.String()
+}
+
+// colGapRels 表相关关联摘要（列说明的读写上下文：A.x → B.y (类型)）。
+func colGapRels(rels []*domain.TableRelation, table string) string {
+	var parts []string
+	for _, r := range rels {
+		if r.FromTable == table {
+			parts = append(parts, fmt.Sprintf("%s.%s → %s.%s (%s)", r.FromTable, r.FromCol, r.ToTable, r.ToCol, r.Type))
+		} else if r.ToTable == table {
+			parts = append(parts, fmt.Sprintf("%s.%s → %s.%s (%s)", r.FromTable, r.FromCol, r.ToTable, r.ToCol, r.Type))
+		}
+	}
+	if len(parts) > 3 {
+		parts = parts[:3]
+	}
+	return strings.Join(parts, ", ")
 }
 
 // parseWikiBatch 解析 AI 批量返回 → wikiBatchOut（围栏剥离 + 空结果
@@ -107,6 +137,17 @@ func parseWikiBatch(s string) (wikiBatchOut, error) {
 		return out, fmt.Errorf("AI 批量返回为空")
 	}
 	return out, nil
+}
+
+// cfgSetGlossary 同步更新 cfg.Glossary（渲染用）。
+func cfgSetGlossary(cfg *wikiConfig, term, def string) {
+	for i := range cfg.Glossary {
+		if cfg.Glossary[i].Term == term {
+			cfg.Glossary[i].Definition = def
+			return
+		}
+	}
+	cfg.Glossary = append(cfg.Glossary, wikiGlossaryItem{Term: term, Definition: def})
 }
 
 // cfgSetModuleDesc 同步更新 cfg.Modules（渲染用）。

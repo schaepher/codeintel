@@ -110,7 +110,7 @@ func TestYAMLEditorMerge(t *testing.T) {
 }
 
 // aiBatchYAML 批量 AI 返回（对应 aiFixtureData 全部缺口：agent 模块、
-// user_tab 表别名+列、order_tab 列）。
+// user_tab 表别名+列、order_tab 列 + 术语表）。
 const aiBatchYAML = `modules:
   - name: example.com/app/internal/agent
     description: LLM 代理层：APIKey 管理
@@ -124,6 +124,9 @@ tables:
     columns:
       - name: order_no
         comment: 订单号
+glossary:
+  - term: ORM
+    definition: 对象关系映射——结构体与数据库表列的映射约定
 `
 
 // TestWikiAIFillEndToEnd：注入 runner——批量一次请求补全部缺口。
@@ -140,16 +143,29 @@ func TestWikiAIFillEndToEnd(t *testing.T) {
 		return aiBatchYAML, nil
 	})
 	defer restore()
-	// 缺口 = 模块 1 + 表 1（user_tab）+ 列 2（order_tab、user_tab）
-	ok, skip, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second)
-	if ok != 4 || skip != 0 || fail != 0 {
-		t.Fatalf("计数 = %d/%d/%d; want 4/0/0", ok, skip, fail)
+	rels := []*domain.TableRelation{
+		{FromTable: "order_tab", FromCol: "order_id", ToTable: "user_tab", ToCol: "id", Type: domain.RelationFK},
 	}
-	// 批量 prompt 一次带全部缺口（模块/表/列都在）
-	for _, want := range []string{"example.com/app/internal/agent", "user_tab", "order_tab", "order_no"} {
+	// 缺口 = 模块 1 + 表 1（user_tab）+ 列 2（order_tab、user_tab）+ 术语 1
+	ok, skip, fail := wikiAIFill(path, &cfg, data, cols, rels, "claude", 30*time.Second)
+	if ok != 5 || skip != 0 || fail != 0 {
+		t.Fatalf("计数 = %d/%d/%d; want 5/0/0", ok, skip, fail)
+	}
+	// 批量 prompt 一次带全部缺口（模块/表/列 + 关联事实 + 术语区块）
+	for _, want := range []string{"example.com/app/internal/agent", "user_tab", "order_tab", "order_no", "order_tab.order_id → user_tab.id", "术语表"} {
 		if !strings.Contains(gotPrompt, want) {
 			t.Errorf("批量 prompt 缺 %q:\n%s", want, gotPrompt)
 		}
+	}
+	// glossary 合并进 cfg
+	found := false
+	for _, g := range cfg.Glossary {
+		if g.Term == "ORM" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("cfg.Glossary 应含 ORM 术语: %+v", cfg.Glossary)
 	}
 	// cfg 同步更新（渲染用）——按名查找，不依赖追加顺序
 	var agentDesc string

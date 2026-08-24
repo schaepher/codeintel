@@ -96,7 +96,6 @@ const aiBatchMax = 60
 // 单个 prompt，AI 一次返回完整 YAML）→ 合并 wiki.yaml。
 // 返回 成功/跳过/失败 计数；*cfg 同步更新（渲染用）。
 func wikiAIFill(yamlPath string, cfg *wikiConfig, data []*domain.WikiModule, cols []*domain.TableColumn, rels []*domain.TableRelation, agent string, timeout time.Duration) (ok, skip, fail int) {
-	_ = rels // 当前 prompt 用列名+类型事实；关联关系后续可扩展
 	mods, tbls, colGaps := wikiAIGaps(data, *cfg, cols)
 	if len(mods)+len(tbls)+len(colGaps) == 0 {
 		return 0, 0, 0
@@ -128,8 +127,13 @@ func wikiAIFill(yamlPath string, cfg *wikiConfig, data []*domain.WikiModule, col
 				ok++
 			}
 		}
+		for _, g := range out.Glossary {
+			e.setGlossary(g.Term, g.Definition)
+			cfgSetGlossary(cfg, g.Term, g.Definition)
+			ok++
+		}
 	}
-	first := wikiAIBatchPrompt(mods, tbls, colGaps)
+	first := wikiAIBatchPrompt(mods, tbls, colGaps, rels)
 	out, err := aiCallOnce(agent, first, timeout, parseWikiBatch)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: AI 批量补缺失败: %v\n", err)

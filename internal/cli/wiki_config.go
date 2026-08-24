@@ -22,11 +22,14 @@ type wikiConfig struct {
 		Title   string `yaml:"title"`
 		Mermaid string `yaml:"mermaid"`
 	} `yaml:"flows"`
-	// 术语表（#246 业务黑话解释：ssa/ast/ER 等）
-	Glossary []struct {
-		Term       string `yaml:"term"`
-		Definition string `yaml:"definition"`
-	} `yaml:"glossary"`
+	// 术语表（#246 业务黑话解释：ssa/ast/ER 等；--ai 可从事实识别补缺）
+	Glossary []wikiGlossaryItem `yaml:"glossary"`
+}
+
+// wikiGlossaryItem 术语条目（命名类型——wiki --ai 补缺时追加/更新）。
+type wikiGlossaryItem struct {
+	Term       string `yaml:"term"`
+	Definition string `yaml:"definition"`
 }
 
 // wikiTableConfig 表结构契约（#243 表详情：字段定义/索引/建表语句——

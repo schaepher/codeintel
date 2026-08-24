@@ -153,6 +153,16 @@ func (e *yamlEditor) setColumnComments(tbl string, comments map[string]string) {
 	}
 }
 
+// setGlossary glossary 序列项（term 匹配或追加）→ definition 赋值。
+func (e *yamlEditor) setGlossary(term, def string) {
+	seq := e.ensureSeq("glossary")
+	it := findItem(seq, term)
+	if it == nil {
+		it = appendItem(seq, "term", term)
+	}
+	setScalar(ensureKey(it, "definition"), def)
+}
+
 // save 写回文件（缩进 2）。空文档（文件不存在/空文件加载）先初始化
 // 根 mapping——yaml.v3 无法编码 Content 为空的 DocumentNode
 // （报 "expected SCALAR, SEQUENCE-START, MAPPING-START, or ALIAS,
