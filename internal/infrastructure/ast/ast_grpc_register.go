@@ -2,11 +2,139 @@ package ast
 
 import (
 	"go/ast"
+	"go/token"
 	"go/types"
 	"strings"
 
+	"github.com/schaepher/codeintel/internal/domain"
 	"golang.org/x/tools/go/packages"
 )
+
+// markGrpcServiceInterfaces 通过接口方法签名识别 gRPC 服务接口（R30-2，
+// 用户要求"类型是否实现了 grpc 的方法"——方法参数/返回值固定模式：
+// 每个方法末返回值是 error，且首参是 context.Context 或参数/返回值含
+// google.golang.org/grpc 类型（流式）；不依赖注册点/函数名/文件）。
+// 发射 grpc_service 节点（service_name + methods 属性——手写服务无
+// ServiceDesc 时的方法数据源；与注册调用点发射的节点按 ID UPSERT 合并）。
+func (a *Adapter) markGrpcServiceInterfaces(repo *domain.Repository, pkg *packages.Package, emit domain.EmitFunc) error {
+	for _, f := range pkg.Syntax {
+		for _, decl := range f.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok || gd.Tok != token.TYPE {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				ts, ok := spec.(*ast.TypeSpec)
+				if !ok {
+					continue
+				}
+				obj := pkg.TypesInfo.Defs[ts.Name]
+				if obj == nil {
+					continue
+				}
+				named, ok := obj.Type().(*types.Named)
+				if !ok {
+					continue
+				}
+				iface, ok := named.Underlying().(*types.Interface)
+				if !ok || iface.NumMethods() == 0 {
+					continue
+				}
+				svcName, methods := grpcServiceFromInterface(iface, named.Obj().Name())
+				if svcName == "" {
+					continue
+				}
+				svcID := domain.CanonicalID("symbol:go:" + pkg.PkgPath + ":svc." + svcName)
+				if err := emit(domain.Item{Node: &domain.CodeEntity{
+					ID: svcID, Kind: domain.KindGrpcService,
+					Name: "svc." + svcName,
+					Properties: map[string]any{
+						"service_name": svcName,
+						"methods":      strings.Join(methods, ","),
+					},
+				}}); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// grpcServiceFromInterface 接口方法全部符合 grpc 模式 → 服务名（接口名
+// 去 Server 后缀）+ 方法名列表；任一方法不符合返回空。
+func grpcServiceFromInterface(iface *types.Interface, typeName string) (string, []string) {
+	var methods []string
+	for i := 0; i < iface.NumMethods(); i++ {
+		m := iface.Method(i)
+		sig, ok := m.Type().(*types.Signature)
+		if !ok || !isGrpcMethodSig(sig) {
+			return "", nil
+		}
+		methods = append(methods, m.Name())
+	}
+	if len(methods) == 0 {
+		return "", nil
+	}
+	svc := typeName
+	if strings.HasSuffix(svc, "Server") && len(svc) > len("Server") {
+		svc = strings.TrimSuffix(svc, "Server")
+	}
+	return svc, methods
+}
+
+// isGrpcMethodSig grpc 方法签名模式：末返回值是 error，且首参是
+// context.Context 或参数/返回值含 grpc 包类型（流式方法）。
+func isGrpcMethodSig(sig *types.Signature) bool {
+	res := sig.Results()
+	if res == nil || res.Len() == 0 {
+		return false
+	}
+	if !isErrorType(res.At(res.Len() - 1).Type()) {
+		return false
+	}
+	if sig.Params().Len() > 0 && isContextType(sig.Params().At(0).Type()) {
+		return true
+	}
+	for i := 0; i < sig.Params().Len(); i++ {
+		if inGrpcPackage(sig.Params().At(i).Type()) {
+			return true
+		}
+	}
+	for i := 0; i < res.Len(); i++ {
+		if inGrpcPackage(res.At(i).Type()) {
+			return true
+		}
+	}
+	return false
+}
+
+// isContextType context.Context 类型。
+func isContextType(t types.Type) bool {
+	n, ok := t.(*types.Named)
+	if !ok {
+		return false
+	}
+	return n.Obj().Pkg() != nil && n.Obj().Pkg().Path() == "context" && n.Obj().Name() == "Context"
+}
+
+// isErrorType error 接口类型（types.Universe 内置）。
+func isErrorType(t types.Type) bool {
+	return types.Identical(t, types.Universe.Lookup("error").Type())
+}
+
+// inGrpcPackage 类型是否引用 google.golang.org/grpc 包（指针解包；
+// 泛型实例化如 grpc.ServerStreamingServer[Resp] 的 Obj 直接命中）。
+func inGrpcPackage(t types.Type) bool {
+	if p, ok := t.(*types.Pointer); ok {
+		return inGrpcPackage(p.Elem())
+	}
+	n, ok := t.(*types.Named)
+	if !ok {
+		return false
+	}
+	return n.Obj().Pkg() != nil && n.Obj().Pkg().Path() == "google.golang.org/grpc"
+}
 
 // collectRegisterServers 遍历项目内包，按**签名**识别 gRPC 注册函数
 // （R30：不限 .pb.go 文件、不限 RegisterXxxServer 命名——手写注册

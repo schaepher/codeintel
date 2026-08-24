@@ -78,6 +78,11 @@ func _QueryService_PagingShops_Handler(srv interface{}, ctx interface{}) error {
 		{ID: "symbol:go:example.com/m/grpc:setupGrpc", Kind: domain.KindFunction,
 			Name: "setupGrpc", FilePath: "grpc/server.go", LineStart: 18,
 			Properties: map[string]any{"serves_grpc": "true"}},
+		// 手写服务（R30-2 接口签名识别）：无 ServiceDesc/注册函数——
+		// methods 从节点属性回退
+		{ID: "symbol:go:example.com/m/hand:svc.HandService", Kind: domain.KindGrpcService,
+			Name: "svc.HandService", FilePath: "hand/api.go",
+			Properties: map[string]any{"service_name": "HandService", "methods": "Do,Get"}},
 	}
 	if _, err := r.SaveBatchStats(nodes, nil, nil); err != nil {
 		t.Fatalf("save nodes: %v", err)
@@ -112,10 +117,32 @@ func TestQueryGrpcRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("grpcRoutes: %v", err)
 	}
-	if len(out.Services) != 1 {
-		t.Fatalf("服务数 = %d; want 1:\n%+v", len(out.Services), out)
+	if len(out.Services) != 2 {
+		t.Fatalf("服务数 = %d; want 2（QueryService + 手写 HandService）:\n%+v", len(out.Services), out)
 	}
-	s := out.Services[0]
+	// 手写服务：methods 从节点属性回退（无 ServiceDesc）
+	var hand *grpcRouteService
+	for i := range out.Services {
+		if out.Services[i].Name == "HandService" {
+			hand = &out.Services[i]
+		}
+	}
+	if hand == nil {
+		t.Fatalf("缺 HandService（手写服务——方法属性回退）:\n%+v", out.Services)
+	}
+	if len(hand.Methods) != 2 || hand.Methods[0].Name != "Do" || hand.Methods[1].Name != "Get" {
+		t.Errorf("HandService.Methods = %+v; want Do,Get（节点 methods 属性回退）", hand.Methods)
+	}
+	var qs *grpcRouteService
+	for i := range out.Services {
+		if out.Services[i].Name == "QueryService" {
+			qs = &out.Services[i]
+		}
+	}
+	if qs == nil {
+		t.Fatalf("缺 QueryService:\n%+v", out.Services)
+	}
+	s := *qs
 	if s.Name != "QueryService" {
 		t.Errorf("name = %q; want QueryService", s.Name)
 	}

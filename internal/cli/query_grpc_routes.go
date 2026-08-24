@@ -82,16 +82,49 @@ func grpcRoutes(repo *sqlite.Repo, repoAbs string) (*grpcRoutesResult, error) {
 			out.Impl = impl
 			out.ImplFile = implFile
 		}
-		// 5. 方法全集：ServiceDesc（生成代码文件）
+		// 5. 方法全集：ServiceDesc（生成代码文件）优先（含 handler）；
+		// 手写服务无 ServiceDesc → 服务节点 methods 属性（R30-2 接口
+		// 签名识别写入，逗号分隔）
 		if regFile != "" {
 			if m := serviceDescMethods(filepath.Join(repoAbs, regFile), sv.name); len(m) > 0 {
 				out.Methods = m
+			}
+		}
+		if len(out.Methods) == 0 {
+			if names := svcMethodsProp(repo, sv.id); len(names) > 0 {
+				for _, n := range names {
+					out.Methods = append(out.Methods, grpcRouteMethod{Name: n})
+				}
 			}
 		}
 		res.Services = append(res.Services, out)
 	}
 	sort.Slice(res.Services, func(i, j int) bool { return res.Services[i].Name < res.Services[j].Name })
 	return res, nil
+}
+
+// svcMethodsProp 服务节点 methods 属性（R30-2 接口签名识别写入，
+// 逗号分隔——手写服务无 ServiceDesc 时的方法源）。
+func svcMethodsProp(repo *sqlite.Repo, svcID string) []string {
+	rows, err := repo.Query(`SELECT json_extract(properties, '$.methods') FROM nodes WHERE id = ?`, svcID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	if rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err == nil && v != "" {
+			parts := strings.Split(v, ",")
+			out := make([]string, 0, len(parts))
+			for _, p := range parts {
+				if p = strings.TrimSpace(p); p != "" {
+					out = append(out, p)
+				}
+			}
+			return out
+		}
+	}
+	return nil
 }
 
 // registerNodeFile 按 registers_service 属性查注册函数文件（R30：

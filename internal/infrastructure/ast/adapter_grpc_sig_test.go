@@ -67,6 +67,48 @@ func main() {
 	}
 }
 
+// TestGrpcServiceInterfaceByMethod：R30-2——接口方法签名识别——手写
+// 服务接口（命名非 Server 结尾、无注册点/注册函数）经方法模式（末
+// 返回 error + 首参 context.Context）识别 → grpc_service 节点 +
+// methods 属性（手写服务无 ServiceDesc 时的方法源）。
+func TestGrpcServiceInterfaceByMethod(t *testing.T) {
+	nodes, _ := indexFixture(t, map[string]string{
+		"go.mod": "module example.com/mtest\n\ngo 1.21\n",
+		"svc/api.go": `package svc
+
+import "context"
+
+// 手写服务接口：命名非 Server 结尾、无注册函数——方法模式识别
+type HandService interface {
+	Do(ctx context.Context, req string) (string, error)
+	Get(ctx context.Context, id int) (string, error)
+}
+
+// 非服务接口：方法不符合 grpc 模式（无 ctx 参数）——不得识别
+type Repo interface {
+	Save(order string) error
+}
+`,
+	})
+	svcNode := false
+	methods := ""
+	for _, n := range nodes {
+		if n.Kind == domain.KindGrpcService && n.Property("service_name") == "HandService" {
+			svcNode = true
+			methods = n.Property("methods")
+		}
+		if n.Kind == domain.KindGrpcService && n.Property("service_name") == "Repo" {
+			t.Error("非 grpc 模式接口（无 ctx 参数）不应识别为服务")
+		}
+	}
+	if !svcNode {
+		t.Fatal("手写服务接口（方法模式）未识别为 grpc 服务")
+	}
+	if methods != "Do,Get" {
+		t.Errorf("methods = %q; want Do,Get", methods)
+	}
+}
+
 // TestGrpcNonRegisterNotMarked：非注册函数（普通 grpc 包使用）不被
 // 标记为服务端入口。
 func TestGrpcNonRegisterNotMarked(t *testing.T) {

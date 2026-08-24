@@ -81,6 +81,11 @@ func (a *Adapter) processPackage(repo *domain.Repository, pkg *packages.Package,
 		return err
 	}
 
+	// R30-2：接口方法签名识别 grpc 服务接口（不依赖注册点/函数名）
+	if err := a.markGrpcServiceInterfaces(repo, pkg, emit); err != nil {
+		return err
+	}
+
 	for importPath := range pkg.Imports {
 		if !isInModule(importPath, repo.Modules) {
 			continue

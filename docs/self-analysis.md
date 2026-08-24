@@ -747,6 +747,18 @@ RegisterService 第一实参 desc 名）。注册函数节点打 `registers_serv
 （TestGrpcClientCallEdge/TestIndexHTTPHandlerLeaves 的 `s any` 简化
 参数）更新为 Registrar + RegisterService 调用形态。
 
+**R29 补遗 2（接口方法模式识别，用户进一步要求）**：再加**服务接口
+本身的方法签名识别**（markGrpcServiceInterfaces）——"通过类型是否
+实现了 grpc 的方法来判断"：grpc 方法参数/返回值是固定模式——每个
+方法末返回值是 error，且首参是 context.Context 或参数/返回值含
+google.golang.org/grpc 类型（流式）；接口全部方法符合 → grpc 服务
+接口（不依赖注册点/函数名/文件，命名任意）。发射 grpc_service 节点
+含 `methods` 属性（手写服务无 ServiceDesc 时的方法源——查询层
+ServiceDesc 优先、属性回退）。go2o 复验：仍 30 服务（接口模式与
+注册签名双通道一致，Repository 类接口方法形态不符合模式——零误报）；
+新测试 TestGrpcServiceInterfaceByMethod（手写 HandService 无注册点）
++ cli 回退路径（fixture 手写服务 methods 属性）。
+
 ## 待办与候选方向（未定优先级）
 
 **高优先级待办**（2026-08-24 用户提出，6 项）：
