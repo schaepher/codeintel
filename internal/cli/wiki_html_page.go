@@ -5,6 +5,7 @@ type wikiPageOpts struct {
 	exploreLink string // 非空时侧栏顶部"图探索"返回链接
 	freshNote   string // 非空时页面底部新鲜度标注（索引 commit）
 	searchIndex string // 搜索索引 JSON（模块/表/术语；serve 版跨页搜索）
+	chatPanel   bool   // W1：serve 版注入对话面板（POST /wiki/ask）
 }
 
 // wikiHTMLPage 组装完整页面（内嵌 CSS/JS）。guide 是快速开始引导块
@@ -231,7 +232,7 @@ mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
   });
 })();
 </script>
-</body>
+` + chatPanelHTML(opts.chatPanel) + `</body>
 </html>
 `
 }

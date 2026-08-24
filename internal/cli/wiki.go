@@ -31,6 +31,7 @@ func cmdWiki(args []string) int {
 	initOnly := false
 	aiMode := false
 	aiAgent := ""
+	aiWithQA := false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
@@ -63,8 +64,10 @@ func cmdWiki(args []string) int {
 			i++
 		case strings.HasPrefix(a, "--agent="):
 			aiAgent = strings.TrimPrefix(a, "--agent=")
+		case a == "--with-qa":
+			aiWithQA = true
 		case a == "--help" || a == "-h":
-			fmt.Println("用法: codeintel wiki [--repo <path>] [--out <dir=docs/wiki>] [--yaml <file>] [--format md|html] [--init] [--ai] [--agent codex|claude|auto]\n  从代码生成业务 wiki（Markdown 或单文件 HTML）——wiki.yaml 可补充业务描述/别名/隐藏符号；--init 生成 wiki.yaml 骨架；--ai 用 AI 增量补缺（无描述模块/无别名表/无说明列 → 写回 wiki.yaml 标注 # AI 初稿）")
+			fmt.Println("用法: codeintel wiki [--repo <path>] [--out <dir=docs/wiki>] [--yaml <file>] [--format md|html] [--init] [--ai] [--agent codex|claude|auto] [--with-qa]\n  从代码生成业务 wiki（Markdown 或单文件 HTML）——wiki.yaml 可补充业务描述/别名/隐藏符号；--init 生成 wiki.yaml 骨架；--ai 用 AI 增量补缺（无描述模块/无别名表/无说明列/术语表 → 写回 wiki.yaml 标注 # AI 初稿）；--with-qa 从历史问答（ask/serve 对话收集）读取相关 Q&A 作为参考资料")
 			return 0
 		default:
 			fmt.Fprintf(os.Stderr, "error: 未知参数 %q\n", a)
@@ -159,7 +162,7 @@ func cmdWiki(args []string) int {
 		if yp == "" {
 			yp = filepath.Join(abs, "wiki.yaml")
 		}
-		okN, skipN, failN := wikiAIFill(yp, &cfg, data, cols, rels, agent, aiTimeout)
+		okN, skipN, failN := wikiAIFill(yp, &cfg, data, cols, rels, agent, aiTimeout, aiWithQA, sqlite.NewRepo(db))
 		fmt.Printf("wiki --ai：补全 %d 条、跳过 %d 条、失败 %d 条（已写回 %s，标注 # AI 初稿——git diff 可回滚）\n",
 			okN, skipN, failN, yp)
 	}

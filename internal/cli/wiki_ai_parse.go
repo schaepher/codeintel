@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/schaepher/codeintel/internal/domain"
+	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 	"gopkg.in/yaml.v3"
 )
 
@@ -47,10 +48,42 @@ type wikiBatchOut struct {
 	} `yaml:"glossary"`
 }
 
+// wikiQAReferences 历史问答参考资料（--with-qa）：按缺口表名/模块
+// 短名匹配 qa_history（context/question LIKE），最多 5 条。
+func wikiQAReferences(repo *sqlite.Repo, mods []aiModuleGap, tbls []aiTableGap, colGaps []aiColGap) []string {
+	if repo == nil {
+		return nil
+	}
+	var kw []string
+	for _, m := range mods {
+		short := m.name
+		if i := strings.LastIndex(short, "/"); i >= 0 {
+			short = short[i+1:]
+		}
+		kw = append(kw, short)
+	}
+	for _, t := range tbls {
+		kw = append(kw, t.name)
+	}
+	for _, g := range colGaps {
+		kw = append(kw, g.table)
+	}
+	recs, err := repo.QAForSymbols(kw, 5)
+	if err != nil || len(recs) == 0 {
+		return nil
+	}
+	var out []string
+	for _, r := range recs {
+		out = append(out, fmt.Sprintf("Q: %s\nA: %s", r.Question, r.Answer))
+	}
+	return out
+}
+
 // wikiAIBatchPrompt 批量缺口 prompt：模块描述 + 表别名 + 列说明 +
 // 术语表一次请求全部带上（省调用次数、AI 上下文连贯）。rels 提供
-// 表间关联事实（列说明的读写上下文）。
-func wikiAIBatchPrompt(mods []aiModuleGap, tbls []aiTableGap, colGaps []aiColGap, rels []*domain.TableRelation) string {
+// 表间关联事实（列说明的读写上下文）；qaRefs 为历史问答参考资料
+// （--with-qa，可选）。
+func wikiAIBatchPrompt(mods []aiModuleGap, tbls []aiTableGap, colGaps []aiColGap, rels []*domain.TableRelation, qaRefs []string) string {
 	var b strings.Builder
 	b.WriteString("你是代码仓库文档助手。根据以下代码事实，为缺失内容生成中文描述。一次全部处理。\n\n")
 	if len(mods) > 0 {
@@ -89,6 +122,13 @@ func wikiAIBatchPrompt(mods []aiModuleGap, tbls []aiTableGap, colGaps []aiColGap
 				fmt.Fprintf(&b, "（关联: %s）", r)
 			}
 			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+	}
+	if len(qaRefs) > 0 {
+		b.WriteString("五、历史问答参考（用户与 AI 关于本项目的问答记录，含背景信息——回答时可参考，不要照抄）：\n")
+		for _, r := range qaRefs {
+			b.WriteString(r + "\n")
 		}
 		b.WriteString("\n")
 	}

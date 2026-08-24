@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
@@ -27,8 +28,9 @@ func TestWikiServe(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	acts := action.New(sqlite.NewRepo(db))
-	h := wikiServeHandler(dir, acts)
+	repo := sqlite.NewRepo(db)
+	acts := action.New(repo)
+	h := wikiServeHandler(dir, acts, repo)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -144,6 +146,47 @@ func TestWikiServe(t *testing.T) {
 	}
 }
 
+// TestWikiServeAsk：POST /wiki/ask——对话端点回答 + Q&A 收集进
+// qa_history（W1/W2）。
+func TestWikiServeAsk(t *testing.T) {
+	dir := seedWikiRepo(t)
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	repo := sqlite.NewRepo(db)
+	acts := action.New(repo)
+	srv := httptest.NewServer(wikiServeHandler(dir, acts, repo))
+	defer srv.Close()
+
+	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration) (string, error) {
+		return "对话回答", nil
+	})
+	defer restore()
+	resp, err := http.Post(srv.URL+"/wiki/ask", "application/json",
+		strings.NewReader(`{"question":"main 是什么？"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d; want 200", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "对话回答") {
+		t.Errorf("回答 = %s; want 对话回答", body)
+	}
+	// Q&A 收集
+	recs, err := repo.QAForSymbols([]string{"main"}, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 1 || recs[0].Question != "main 是什么？" {
+		t.Errorf("qa_history = %+v; want 1 条对话问答", recs)
+	}
+}
+
 // TestWikiServeYAML：仓库根 wiki.yaml 自动加载（模块描述出现在概览页）。
 func TestWikiServeYAML(t *testing.T) {
 	dir := seedWikiRepo(t)
@@ -161,8 +204,9 @@ modules:
 		t.Fatal(err)
 	}
 	defer db.Close()
-	acts := action.New(sqlite.NewRepo(db))
-	srv := httptest.NewServer(wikiServeHandler(dir, acts))
+	repo := sqlite.NewRepo(db)
+	acts := action.New(repo)
+	srv := httptest.NewServer(wikiServeHandler(dir, acts, repo))
 	defer srv.Close()
 	resp, err := http.Get(srv.URL + "/wiki/overview")
 	if err != nil {

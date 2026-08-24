@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -25,7 +26,11 @@ var agentRunner = func(agent, prompt string, timeout time.Duration) (string, err
 
 // claudeSessionID 上次 claude 调用的会话 ID——同会话复用（--ai 分批 /
 // ask 多轮不每次开新会话；claude -p JSON 输出带 session_id）。
-var claudeSessionID string
+// serve 对话界面多请求并发访问——互斥保护。
+var (
+	claudeSessionMu sync.Mutex
+	claudeSessionID string
+)
 
 // runAgentExec 本地 CLI 调用：claude -p --output-format json [--resume
 // <会话>] / codex exec <prompt>，捕获 stdout；超时中止；CLI 缺失报错。
@@ -38,8 +43,11 @@ func runAgentExec(agent, prompt string, timeout time.Duration) (string, error) {
 	switch agent {
 	case "claude":
 		args := []string{"-p", prompt, "--output-format", "json"}
-		if claudeSessionID != "" {
-			args = append(args, "--resume", claudeSessionID)
+		claudeSessionMu.Lock()
+		sid := claudeSessionID
+		claudeSessionMu.Unlock()
+		if sid != "" {
+			args = append(args, "--resume", sid)
 		}
 		cmd = exec.CommandContext(ctx, "claude", args...)
 	case "codex":
@@ -61,7 +69,9 @@ func runAgentExec(agent, prompt string, timeout time.Duration) (string, error) {
 	if agent == "claude" {
 		if r, sid, err := claudeResult(raw); err == nil {
 			if sid != "" {
+				claudeSessionMu.Lock()
 				claudeSessionID = sid
+				claudeSessionMu.Unlock()
 			}
 			return r, nil
 		}

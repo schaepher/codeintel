@@ -61,7 +61,8 @@ func (ws *wikiServe) pageHTML(snap *wikiSnapshot, current string, main string) s
 	}
 	return wikiHTMLPage(title, snap.cfg.Project.Description, wikiGuide, ws.navHTML(snap, current),
 		gapBannerHTML(snap)+main,
-		wikiPageOpts{exploreLink: "/", freshNote: freshNote, searchIndex: searchIndexJSON(snap)})
+		wikiPageOpts{exploreLink: "/", freshNote: freshNote, searchIndex: searchIndexJSON(snap),
+			chatPanel: true}) // W1：对话面板（serve 版）
 }
 
 // gapBannerHTML 描述补全引导横幅（D）：缺口数 + 一键关闭（localStorage

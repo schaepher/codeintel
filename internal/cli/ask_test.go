@@ -191,6 +191,36 @@ func TestCmdAskREPL(t *testing.T) {
 	}
 }
 
+// TestCmdAskCollectsQA：回答成功后 Q&A 收集进 qa_history（W2——wiki
+// --with-qa 参考资料）。
+func TestCmdAskCollectsQA(t *testing.T) {
+	dir := seedAskRepo(t)
+	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration) (string, error) {
+		return "main 是入口", nil
+	})
+	defer restore()
+	captureStdout(func() {
+		if code := cmdAsk([]string{"main 做什么？", "--repo", dir, "--agent", "claude"}); code != 0 {
+			t.Fatalf("cmdAsk = %d; want 0", code)
+		}
+	})
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	recs, err := sqlite.NewRepo(db).QAForSymbols([]string{"main"}, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 1 || recs[0].Question != "main 做什么？" || recs[0].Answer != "main 是入口" {
+		t.Errorf("qa_history = %+v; want 1 条 main 问答", recs)
+	}
+	if recs[0].Context != "main" {
+		t.Errorf("context = %q; want main（相关性匹配键）", recs[0].Context)
+	}
+}
+
 // TestCmdAskTimeout：--timeout 小于 CLI 执行时长 → 报错退出码非 0。
 func TestCmdAskTimeout(t *testing.T) {
 	dir := seedAskRepo(t)

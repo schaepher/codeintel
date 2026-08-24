@@ -147,7 +147,7 @@ func TestWikiAIFillEndToEnd(t *testing.T) {
 		{FromTable: "order_tab", FromCol: "order_id", ToTable: "user_tab", ToCol: "id", Type: domain.RelationFK},
 	}
 	// 缺口 = 模块 1 + 表 1（user_tab）+ 列 2（order_tab、user_tab）+ 术语 1
-	ok, skip, fail := wikiAIFill(path, &cfg, data, cols, rels, "claude", 30*time.Second)
+	ok, skip, fail := wikiAIFill(path, &cfg, data, cols, rels, "claude", 30*time.Second, false, nil)
 	if ok != 5 || skip != 0 || fail != 0 {
 		t.Fatalf("计数 = %d/%d/%d; want 5/0/0", ok, skip, fail)
 	}
@@ -212,6 +212,7 @@ func TestWikiAIFillEndToEnd(t *testing.T) {
 }
 
 
+
 // aiSingleGapFixture 仅一个模块缺口（重试/失败测试用最小 fixture）。
 func aiSingleGapFixture() ([]*domain.WikiModule, wikiConfig, []*domain.TableColumn) {
 	data := []*domain.WikiModule{{Name: "example.com/app/internal/agent", ShortName: "agent", Desc: ""}}
@@ -233,7 +234,7 @@ func TestWikiAIFillRetryOnce(t *testing.T) {
 		return "modules:\n  - name: example.com/app/internal/agent\n    description: 重试成功", nil
 	})
 	defer restore()
-	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second)
+	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second, false, nil)
 	if ok != 1 || fail != 0 || calls != 2 {
 		t.Errorf("计数 = %d/%d 调用 %d; want 1 成功、重试一次", ok, fail, calls)
 	}
@@ -250,7 +251,7 @@ func TestWikiAIFillFailTwice(t *testing.T) {
 		return "垃圾", nil
 	})
 	defer restore()
-	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second)
+	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second, false, nil)
 	if ok != 0 || fail != 1 {
 		t.Errorf("计数 = %d/%d; want 0/1", ok, fail)
 	}
@@ -273,7 +274,7 @@ func TestWikiAIFillEmptyYAML(t *testing.T) {
 		return "modules:\n  - name: example.com/app/internal/agent\n    description: 空文件首跑描述", nil
 	})
 	defer restore()
-	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second)
+	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second, false, nil)
 	if ok != 1 || fail != 0 {
 		t.Fatalf("计数 = %d/%d; want 1/0", ok, fail)
 	}

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/schaepher/codeintel/internal/domain"
+	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
 
 // aiTimeout 单条补缺超时（超时跳过该条）。真实 claude JSON 模式
@@ -94,8 +95,10 @@ const aiBatchMax = 60
 
 // wikiAIFill 执行 --ai 补缺：缺口收集 → 批量一次请求（缺口合并进
 // 单个 prompt，AI 一次返回完整 YAML）→ 合并 wiki.yaml。
+// withQA 时从 qa_history 读取相关 Q&A 作为参考资料（W3）。
 // 返回 成功/跳过/失败 计数；*cfg 同步更新（渲染用）。
-func wikiAIFill(yamlPath string, cfg *wikiConfig, data []*domain.WikiModule, cols []*domain.TableColumn, rels []*domain.TableRelation, agent string, timeout time.Duration) (ok, skip, fail int) {
+func wikiAIFill(yamlPath string, cfg *wikiConfig, data []*domain.WikiModule, cols []*domain.TableColumn, rels []*domain.TableRelation, agent string, timeout time.Duration, withQA bool, repo *sqlite.Repo) (ok, skip, fail int) {
+	_ = repo
 	mods, tbls, colGaps := wikiAIGaps(data, *cfg, cols)
 	if len(mods)+len(tbls)+len(colGaps) == 0 {
 		return 0, 0, 0
@@ -142,8 +145,14 @@ func wikiAIFill(yamlPath string, cfg *wikiConfig, data []*domain.WikiModule, col
 			{colGaps: colGaps},
 		}
 	}
+	// W3：--with-qa——从历史问答读取相关 Q&A 作参考资料（按缺口
+	// 表名/模块短名匹配，最多 5 条）
+	var qaRefs []string
+	if withQA {
+		qaRefs = wikiQAReferences(repo, mods, tbls, colGaps)
+	}
 	for _, b := range batches {
-		out, err := aiCallOnce(agent, wikiAIBatchPrompt(b.mods, b.tbls, b.colGaps, rels), timeout, parseWikiBatch)
+		out, err := aiCallOnce(agent, wikiAIBatchPrompt(b.mods, b.tbls, b.colGaps, rels, qaRefs), timeout, parseWikiBatch)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: AI 批量补缺失败: %v\n", err)
 			fail += len(b.mods) + len(b.tbls) + len(b.colGaps)

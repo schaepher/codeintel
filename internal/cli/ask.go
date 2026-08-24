@@ -6,7 +6,6 @@ package cli
 // {agent, prompt, response, duration_ms}。
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"regexp"
@@ -96,10 +95,11 @@ func cmdAsk(args []string) int {
 		return 1
 	}
 	defer db.Close()
-	acts := action.New(sqlite.NewRepo(db))
+	repo := sqlite.NewRepo(db)
+	acts := action.New(repo)
 
 	if len(question) == 0 {
-		return askREPL(acts, agent, timeout) // 无问题 → 交互模式
+		return askREPL(acts, repo, agent, timeout) // 无问题 → 交互模式
 	}
 	q := strings.Join(question, " ")
 	prompt := buildAskPrompt(acts, syms, tbls, q)
@@ -110,6 +110,8 @@ func cmdAsk(args []string) int {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
+	// W2：回答成功 → 收集进 qa_history（wiki --with-qa 参考资料）
+	saveQA(repo, q, resp, askContextNames(acts, q), agent)
 	if jsonOut {
 		encodeJSON(map[string]any{
 			"agent":       agent,
@@ -122,6 +124,9 @@ func cmdAsk(args []string) int {
 	fmt.Println(resp)
 	return 0
 }
+
+
+// askContextNames 问题中命中项目事实的符号/表名（qa_history context
 
 // buildAskPrompt 组装 prompt：系统提示 + 项目事实上下文 + 问题。
 func buildAskPrompt(acts *action.Actions, syms, tbls []string, question string) string {
@@ -136,31 +141,7 @@ func buildAskPrompt(acts *action.Actions, syms, tbls []string, question string) 
 }
 
 // askREPL 交互模式：逐行读 stdin，多轮追问复用同一会话（resume 机制
-// 自动带 --resume——AI 记住前文，追问无需重复上下文）。
-func askREPL(acts *action.Actions, agent string, timeout time.Duration) int {
-	fmt.Println("codeintel ask 交互模式——多轮追问复用同一会话（输入 exit/quit 退出，Ctrl-D 结束）")
-	scanner := bufio.NewScanner(os.Stdin)
-	for {
-		fmt.Print("ask> ")
-		if !scanner.Scan() {
-			break // EOF（Ctrl-D）
-		}
-		q := strings.TrimSpace(scanner.Text())
-		if q == "" {
-			continue
-		}
-		if q == "exit" || q == "quit" || q == "q" {
-			break
-		}
-		resp, err := agentRunner(agent, buildAskPrompt(acts, nil, nil, q), timeout)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			continue
-		}
-		fmt.Println(resp)
-	}
-	return 0
-}
+// 自动带 --resume——AI 记住前文，追问无需重复上下文）。每轮回答
 
 // askTokenRe 问题中候选符号/表名 token：canonical ID、方法名 (T).m、
 // 普通标识符/点路径。

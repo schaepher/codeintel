@@ -48,7 +48,8 @@ func cmdServe(ctx context.Context, args []string) int {
 	defer db.Close()
 
 	// 校验已构建（nodes 非空），否则提示先 init
-	acts := action.New(sqlite.NewRepo(db))
+	qaRepo := sqlite.NewRepo(db) // W2：对话 Q&A 收集
+	acts := action.New(qaRepo)
 	if _, _, err := acts.Counts(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
@@ -72,7 +73,7 @@ func cmdServe(ctx context.Context, args []string) int {
 
 	srv := server.New(ctx, acts, webFS, abs)
 	// P2b：wiki 网页版（/wiki/ 多页浏览，请求时内存渲染）
-	srv.SetWikiHandler(wikiServeHandler(abs, acts))
+	srv.SetWikiHandler(wikiServeHandler(abs, acts, qaRepo))
 	// 增量构建自动触发（field_trace.md §20.1）：POST /incremental →
 	// 变更检测（复用 update 的 git 逻辑）+ IncrementalBuild 异步执行
 	repo, err := buildRepo(abs)

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/schaepher/codeintel/internal/domain"
+	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
 
 // TestCleanWikiOutDir：清理只删渲染产物——用户文件（wiki.yaml/笔记）
@@ -79,7 +80,7 @@ func TestWikiAIFillSplitBatches(t *testing.T) {
 		return b.String(), nil
 	})
 	defer restore()
-	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second)
+	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second, false, nil)
 	// 61 模块 + 1 表 + 1 列组
 	if ok != 63 || fail != 0 {
 		t.Fatalf("计数 = %d/%d; want 63/0", ok, fail)
@@ -92,6 +93,44 @@ func TestWikiAIFillSplitBatches(t *testing.T) {
 	}
 	if strings.Contains(prompts[1], "example.com/m00") || !strings.Contains(prompts[1], "表列中文说明") {
 		t.Errorf("第二批不应带已处理模块、应只含列区:\n%s", prompts[1][:200])
+	}
+}
+
+
+// TestWikiAIFillWithQA：--with-qa——相关历史 Q&A 进批量 prompt
+// （按缺口表名/模块短名匹配 qa_history）。
+func TestWikiAIFillWithQA(t *testing.T) {
+	dir := seedRepo(t) // go.mod + db fixture
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	repo := sqlite.NewRepo(db)
+	// 预写历史问答：orders 表相关（匹配 order_tab？不——用 user_tab 相关）
+	_ = repo.SaveQA(&domain.QARecord{Question: "user_tab 用途？", Answer: "用户表", Context: "user_tab", Agent: "claude", CreatedAt: 1})
+	_ = repo.SaveQA(&domain.QARecord{Question: "无关", Answer: "无关", Context: "", Agent: "claude", CreatedAt: 2})
+
+	data, cfg, cols := aiFixtureData()
+	dir2 := t.TempDir()
+	path := filepath.Join(dir2, "wiki.yaml")
+	os.WriteFile(path, []byte(""), 0o644)
+	gotPrompt := ""
+	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration) (string, error) {
+		gotPrompt = prompt
+		return aiBatchYAML, nil
+	})
+	defer restore()
+	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second, true, repo)
+	if ok != 5 || fail != 0 {
+		t.Fatalf("计数 = %d/%d; want 5/0", ok, fail)
+	}
+	// 相关 Q&A（user_tab 匹配）进 prompt；无关的不进
+	if !strings.Contains(gotPrompt, "user_tab 用途？") {
+		t.Errorf("--with-qa prompt 应含相关历史问答:\n%s", gotPrompt)
+	}
+	if strings.Contains(gotPrompt, "无关") {
+		t.Errorf("--with-qa prompt 不应含无关问答:\n%s", gotPrompt)
 	}
 }
 
@@ -112,7 +151,7 @@ func TestWikiAIFillSkipNoGaps(t *testing.T) {
 		return "", nil
 	})
 	defer restore()
-	ok, skip, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second)
+	ok, skip, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second, false, nil)
 	if ok != 0 || skip != 0 || fail != 0 {
 		t.Errorf("无缺口计数 = %d/%d/%d; want 0/0/0", ok, skip, fail)
 	}

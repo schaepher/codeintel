@@ -627,6 +627,34 @@ R23 的 resume 机制（session_id 自动 --resume）已就绪，只差交互循
 - 单次/交互共用 prompt 构建（buildAskPrompt）——同一语义两处入口，
   上下文打包逻辑只写一次
 
+### R27（2026-08-24）——wiki 对话界面 + Q&A 收集 + --with-qa 参考资料（W1/W2/W3）
+
+**分析**：用户提出三连需求——wiki 页面提供对话界面（连 agent 深入
+问问题）；Q&A 收集到 db；创建 wiki 时参数控制是否读历史问答作参考
+资料（提升 wiki 品质）。grilling 定案：--with-qa、符号/表名相关性
+匹配、固定侧边面板。
+
+**改进方案**：
+- W2 qa_history 表（schema 加法迁移 + schemaCols）+ SaveQA/
+  QAForSymbols（context/question LIKE 匹配，时间倒序 limit）；
+  ask 单次/REPL 回答成功后收集（saveQA 静默失败）
+- W3 wiki --ai --with-qa：缺口表名/模块短名 → QAForSymbols 前 5 条
+  → 批量 prompt 五区「历史问答参考」（可参考不照抄）
+- W1 serve wiki 对话界面：POST /wiki/ask（question → buildAskPrompt
+  → agentRunner → saveQA → JSON 回答）+ 固定右侧可折叠 chat 面板
+  （chatPanelHTML 注入 serve 版页面，单文件 html 不注入）；
+  claudeSessionID 加互斥锁（serve 并发安全）
+
+**实施结果**：commit 待提交；测试：TestQAHistory（存储/匹配/limit）、
+TestCmdAskCollectsQA、TestWikiAIFillWithQA（相关进 prompt 无关不进）、
+TestWikiServeAsk（端点回答 + 收集）全绿；全仓 -race 全绿，verify 通过。
+
+**AI 杠杆点**（R27 实证）：
+- 对话即数据：用户与 AI 的问答沉淀成 qa_history，下一次 wiki 生成
+  自动复用（相关性匹配进 prompt）——AI 辅助的飞轮效应
+- serve 多请求并发暴露共享状态风险（claudeSessionID）——HTTP 化
+  任何包级可变状态都要先问并发安全
+
 ## 候选方向（未定优先级）
 
 - ~~yaml 语义层：表列说明/表别名/模块描述 AI 初稿~~ → **R23 已实现**

@@ -8,6 +8,7 @@ package cli
 // 页面渲染在 wiki_serve_pages.go（按主题拆）。
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -15,9 +16,11 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
+	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
@@ -26,6 +29,7 @@ import (
 type wikiServe struct {
 	repoAbs string
 	acts    *action.Actions
+	repo    *sqlite.Repo // W2：Q&A 收集（对话界面写入 qa_history）
 	mu      sync.Mutex
 	snap    *wikiSnapshot
 }
@@ -53,14 +57,20 @@ type wikiSnapshot struct {
 }
 
 // wikiServeHandler 生成 /wiki/ 前缀 handler（serve 注入点）。
-func wikiServeHandler(repoAbs string, acts *action.Actions) http.Handler {
-	ws := &wikiServe{repoAbs: repoAbs, acts: acts}
+func wikiServeHandler(repoAbs string, acts *action.Actions, repo *sqlite.Repo) http.Handler {
+	ws := &wikiServe{repoAbs: repoAbs, acts: acts, repo: repo}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.Trim(strings.TrimPrefix(r.URL.Path, "/wiki"), "/")
+		// W1：对话界面端点（POST /wiki/ask——question 进 agent，回答
+		// 收集进 qa_history）
+		if r.Method == http.MethodPost && path == "ask" {
+			ws.handleAsk(w, r)
+			return
+		}
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		path := strings.Trim(strings.TrimPrefix(r.URL.Path, "/wiki"), "/")
 		if path == "" {
 			http.Redirect(w, r, "/wiki/overview", http.StatusFound)
 			return
@@ -104,6 +114,36 @@ func wikiServeHandler(repoAbs string, acts *action.Actions) http.Handler {
 func serveWikiHTML(w http.ResponseWriter, html string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprint(w, html)
+}
+
+// handleAsk 对话端点（POST /wiki/ask）：question → 上下文打包 →
+// agent（config/auto 选择）→ 回答收集进 qa_history（W2）。
+func (ws *wikiServe) handleAsk(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Question string `json:"question"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Question) == "" {
+		http.Error(w, "bad request: 缺 question", http.StatusBadRequest)
+		return
+	}
+	q := strings.TrimSpace(req.Question)
+	agent, err := resolveAgent("")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	start := time.Now()
+	resp, err := agentRunner(agent, buildAskPrompt(ws.acts, nil, nil, q), askDefaultTimeout)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	saveQA(ws.repo, q, resp, askContextNames(ws.acts, q), agent)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"answer":      resp,
+		"duration_ms": time.Since(start).Milliseconds(),
+	})
 }
 
 // snapshot 取快照（缓存命中返回；build_id/yaml mtime 变化时重载）。
