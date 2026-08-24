@@ -12,10 +12,11 @@ import (
 )
 
 type entrySymbol struct {
-	Name    string
-	File    string
-	Line    int
-	Callees []string
+	Name      string
+	File      string
+	Line      int
+	Callees   []string // 压缩短名（展示用：pkg:name）
+	CalleeIDs []string // 完整 canonical ID（processes 展开用——短名无法按名解析）
 }
 
 
@@ -33,6 +34,7 @@ func entrySymbols(acts *action.Actions) []entrySymbol {
 		e := entrySymbol{Name: n.Name, File: n.FilePath, Line: n.LineStart}
 		for _, f := range d.Callees {
 			e.Callees = append(e.Callees, shortID(f.TargetID))
+			e.CalleeIDs = append(e.CalleeIDs, string(f.TargetID))
 		}
 		out = append(out, e)
 	}

@@ -41,6 +41,23 @@ func TestWikiERMermaid(t *testing.T) {
 	}
 }
 
+// TestWikiERMermaidSpecialName：动态表名（go2o 实测 pt_%s——fmt.Sprintf
+// 拼接）含 % 破坏 mermaid 语法 → 实体名清洗为下划线。
+func TestWikiERMermaidSpecialName(t *testing.T) {
+	rels := []*domain.TableRelation{
+		{FromTable: "pt_%s", FromCol: "merchant_id", ToTable: "mch_merchant", ToCol: "id", Type: domain.RelationFK, Hops: 1},
+	}
+	m := renderERMermaid(rels, nil)
+	if strings.Contains(m, "pt_%s") {
+		t.Errorf("ER 图不得出现原始特殊表名 pt_%%s（%% 是 mermaid 语法错误）:\n%s", m)
+	}
+	for _, want := range []string{"    pt__s\n", "pt__s ||--o{ mch_merchant"} {
+		if !strings.Contains(m, want) {
+			t.Errorf("ER 图应含清洗后表名 %q:\n%s", want, m)
+		}
+	}
+}
+
 // TestWikiERPage：Q251 er.md 页面——erDiagram 代码块 + 关系明细表。
 func TestWikiERPage(t *testing.T) {
 	rels := []*domain.TableRelation{

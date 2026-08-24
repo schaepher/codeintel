@@ -655,6 +655,43 @@ TestWikiServeAsk（端点回答 + 收集）全绿；全仓 -race 全绿，verify
 - serve 多请求并发暴露共享状态风险（claudeSessionID）——HTTP 化
   任何包级可变状态都要先问并发安全
 
+### R28（2026-08-24）——go2o AI 剩余缺口清零 + 批次/超时再调优 + F1 遗留 processes 页入口化 + ER 图表名清洗
+
+**分析**：交接遗留 0——go2o 增量 `wiki --ai`（复用 go2o-ai/wiki.yaml）
+补 31 表别名 + 283 列说明。首跑 38 条成功/30 条超时（120s），重跑
+同批再超时——**稳定慢不是偶发**（30 组 ≈200 列名 claude 生成超
+120s；此前 38 组 ≈150 列名成功——150 是安全线）。渲染后 wiki-check
+5/7 暴露两个既有问题：① mermaid 1 块坏（动态表名 `pt_%s`——go2o
+源码 fmt.Sprintf 拼接表名，`%` 是 mermaid 语法错误）；② 时序 FAIL
+（12 无调用链）——**F1 只修了 commands/api 页，processes 页还硬编码
+codeintel 自身 12 个命令**（目标索引里当然无调用链）。
+
+**改进方案**：
+- 批次/超时双保险：aiBatchMax 30→20、aiBatchMaxCols 300→200、
+  aiTimeout 120s→240s（连续两次超时实证后调）
+- processes 页改从目标仓库 main 入口生成（对齐 F1 方案：entrySymbols
+  入口 + 一级调用逐条展开深度 2 调用链）——**一级调用用完整 canonical
+  ID 解析**（短名 pkg:name 无法按名解析，go2o 实测 app:ParseFlags
+  解析失败）
+- renderERMermaid 表名清洗（erEntityName：非 [a-zA-Z0-9_] → _；
+  列 label 引号内不受影响）
+
+**实施结果**：44 条补全/0 失败/0 跳过（缺口清零：150 表全有别名与
+列说明）；wiki-check 5/7 → **7/7 PASS**（mermaid 45 块全过、时序
+1 无调用链 ≤ 1 模块）；全仓 `-race` 13 包全绿；测试新增
+TestRenderProcessesFromEntry（processes 页不再含 codeintel 命令）、
+TestWikiERMermaidSpecialName（pt_%s → pt__s），TestWikiAIFillSplitBatches
+断言随 aiBatchMax 更新（3→4 批）。
+
+**AI 杠杆点**（R28 实证）：
+- 超时判据：同批重跑再超 = 稳定慢 → 降批次/加超时；偶发慢才可重试
+- F1 验收模式复现：外部项目验收暴露的硬编码（commands → processes
+  同源 bug）——自举验证不覆盖"对外项目不硬编码"这一维度，需逐个
+  页面核查数据源
+- 测试环境教训：TMPDIR 指向 git 仓库内目录会使 TestIndexNonGitDir
+  假失败（t.TempDir() 在仓库内 git log 向上命中 .git）——临时目录
+  须在仓库外（.tmp-build/gotmp）
+
 ## 候选方向（未定优先级）
 
 - ~~yaml 语义层：表列说明/表别名/模块描述 AI 初稿~~ → **R23 已实现**

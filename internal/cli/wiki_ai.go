@@ -16,8 +16,9 @@ import (
 )
 
 // aiTimeout 单条补缺超时（超时跳过该条）。真实 claude JSON 模式
-// 响应可超 60s（2026-08-24 实测），120s 留余量。
-const aiTimeout = 120 * time.Second
+// 响应可超 60s（2026-08-24 实测），120s 留余量；go2o 第二批
+// （30 组 ≈200 列名）实测稳定超 120s → 240s 双保险（配合批次下调）。
+const aiTimeout = 240 * time.Second
 
 // aiModuleGap 一个无描述模块（AI 需要的事实：包注释 + 核心符号线索）。
 type aiModuleGap struct {
@@ -103,12 +104,13 @@ func tableColBrief(cols []string) string {
 
 // aiBatchMax 单批缺口上限（模块/表/列组条数——超过按条数切片）。
 // go2o 实测 60 表/批（每表 10 列截断 = 600 列名）仍超时 → 30 条/批
-// （300 列名/批通过）。
+// （300 列名/批通过）；第二批（30 组 ≈200 列名）claude 生成仍稳定
+// 超 120s → 降 20 条/批（≤200 列名），配合 aiTimeout 240s。
 // aiBatchMaxCols 列名数上限（列组内列名多时 prompt 巨大——按列名数
 // 切更稳）。
 const (
-	aiBatchMax     = 30
-	aiBatchMaxCols = 300
+	aiBatchMax     = 20
+	aiBatchMaxCols = 200
 )
 
 // wikiAIFill 执行 --ai 补缺：缺口收集 → 批量一次请求（缺口合并进

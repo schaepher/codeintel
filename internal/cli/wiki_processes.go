@@ -1,40 +1,20 @@
 package cli
 
-// R2 系统级流程页（进程视角）：命令 → 入口函数 → 调用链（索引 callees
-// 自动）→ 涉及包——新人看「codeintel init 跑起来发生了什么」。
-// 数据源均为代码事实：入口清单映射 root.go Main switch，调用链来自
-// 索引（GetCallees），不依赖 AI。
+// R2 系统级流程页（进程视角）：目标仓库 main 入口 → 一级调用函数逐条
+// 展开深度 2 调用链（索引 callees 自动）→ 涉及包——新人看「入口跑
+// 起来发生了什么」。不再硬编码 codeintel 自身命令（F1 遗留——go2o
+// 验收暴露：12 个 codeintel 命令在目标索引全无调用链，wiki-check
+// 时序 FAIL）。数据源均为代码事实，不依赖 AI。
 
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
 )
-
-// processEntry 一个系统流程（命令 → 入口函数名——root.go Main switch）。
-type processEntry struct {
-	Cmd   string // 展示名
-	Entry string // 入口函数名（按名称查索引，跨仓库通用）
-}
-
-// processEntries 关键流程清单（新人视角的系统运转主链路）。
-var processEntries = []processEntry{
-	{"init —— 全量构建索引", "cmdInit"},
-	{"update —— 增量更新索引", "cmdUpdate"},
-	{"serve —— 图探索 Web 服务", "cmdServe"},
-	{"query —— 符号/字段/表查询", "cmdQuery"},
-	{"wiki —— 业务 wiki 生成", "cmdWiki"},
-	{"mcp —— MCP server（Agent 调用）", "cmdMCP"},
-	{"before —— 改动影响预判", "cmdBefore"},
-	{"trace —— 数据来龙去脉", "cmdTrace"},
-	{"batch —— 批量符号概览", "cmdBatch"},
-	{"export —— 字段索引导出", "cmdExport"},
-	{"precompute relations —— 表间关联预计算", "cmdPrecompute"},
-	{"list —— 全局注册台账", "cmdList"},
-}
 
 // procChain 一条流程的调用链（入口 + 边 + 涉及包）。
 type procChain struct {
@@ -96,37 +76,62 @@ func symbolPkg(id string) string {
 	return rest
 }
 
-// renderProcessesMD 流程页 Markdown（每流程：命令 + 实体协作子图 +
-// 涉及包）。R9：函数级时序图替换为实体协作子图（Q7）——入口深度 2
-// 调用链（GetCallees）映射到实体（类型/包门面），cmdWiki 52 函数
-// → ~8 实体；函数级细节可用 query callees 查。
+// renderProcessesMD 流程页 Markdown：目标仓库 main 入口 + 一级调用
+// 函数逐条展开深度 2 调用链（实体协作子图 + 涉及包）。R9：函数级
+// 时序图替换为实体协作子图（Q7）——调用链映射到实体（类型/包门面）；
+// 函数级细节可用 query callees 查。
 func renderProcessesMD(acts *action.Actions) string {
 	var b strings.Builder
-	b.WriteString("# 系统流程\n\n> 数据源：命令入口（root.go Main switch 事实映射）+ 索引调用链\n> （GetCallees 深度 2）——实体协作视角看每个命令涉及的对象交互。\n\n")
+	b.WriteString("# 系统流程\n\n> 数据源：目标仓库 main 入口函数 + 一级调用展开（索引调用链\n> GetCallees 深度 2）——实体协作视角看入口涉及的对象交互。\n\n")
 	eg, err := acts.Entities()
 	if err != nil {
 		eg = nil
 	}
-	for _, pe := range processEntries {
-		chain := queryChain(acts, pe.Entry)
-		b.WriteString("## " + pe.Cmd + "\n\n")
-		if chain == nil || len(chain.Steps) == 0 {
-			b.WriteString("（索引中无调用链——可能未重建索引）\n\n")
+	entries := entrySymbols(acts)
+	if len(entries) == 0 {
+		b.WriteString("未找到 main 入口（库项目或入口不在索引中）。\n")
+		return b.String()
+	}
+	for _, e := range entries {
+		b.WriteString("## 入口 `" + e.Name + "`\n\n")
+		if e.File != "" {
+			b.WriteString("位置: " + e.File)
+			if e.Line > 0 {
+				b.WriteString(":" + strconv.Itoa(e.Line))
+			}
+			b.WriteString("\n\n")
+		}
+		if len(e.Callees) == 0 {
+			b.WriteString("一级调用: （无）\n\n")
 			continue
 		}
-		b.WriteString("入口：`" + chain.Entry + "`\n\n")
-		if sub := entitySubgraphMermaid(eg, chain.Steps); sub != "" {
-			b.WriteString("```mermaid\n" + sub + "\n```\n\n")
-		} else {
-			b.WriteString("```mermaid\n" + sequenceMermaid(chain.Steps) + "\n```\n\n")
-		}
-		// R12：实体间调用时序图（顺序视角——谁先调谁）
-		if seq := entitySequenceMermaid(eg, chain.Steps); seq != "" {
-			b.WriteString("**实体间调用时序**（连续同向调用合并计数）：\n\n")
-			b.WriteString("```mermaid\n" + seq + "\n```\n\n")
-		}
-		if len(chain.Pkgs) > 0 {
-			b.WriteString("涉及包：`" + strings.Join(chain.Pkgs, "`、`") + "`\n\n")
+		for i, c := range e.Callees {
+			b.WriteString("### " + c + "\n\n")
+			// 完整 canonical ID 展开（短名 pkg:name 无法按名解析——
+			// go2o 实测 app:ParseFlags 解析失败致无调用链）
+			target := ""
+			if i < len(e.CalleeIDs) {
+				target = e.CalleeIDs[i]
+			}
+			chain := queryChain(acts, target)
+			if chain == nil || len(chain.Steps) == 0 {
+				b.WriteString("（索引中无调用链——可能未重建索引）\n\n")
+				continue
+			}
+			b.WriteString("入口：" + chain.Entry + "\n\n")
+			if sub := entitySubgraphMermaid(eg, chain.Steps); sub != "" {
+				b.WriteString("```mermaid\n" + sub + "\n```\n\n")
+			} else {
+				b.WriteString("```mermaid\n" + sequenceMermaid(chain.Steps) + "\n```\n\n")
+			}
+			// R12：实体间调用时序图（顺序视角——谁先调谁）
+			if seq := entitySequenceMermaid(eg, chain.Steps); seq != "" {
+				b.WriteString("**实体间调用时序**（连续同向调用合并计数）：\n\n")
+				b.WriteString("```mermaid\n" + seq + "\n```\n\n")
+			}
+			if len(chain.Pkgs) > 0 {
+				b.WriteString("涉及包：`" + strings.Join(chain.Pkgs, "`、`") + "`\n\n")
+			}
 		}
 	}
 	return b.String()
@@ -135,31 +140,54 @@ func renderProcessesMD(acts *action.Actions) string {
 // renderProcessesHTML 流程页 html 内容（实体协作子图版）。
 func renderProcessesHTML(acts *action.Actions) string {
 	var b strings.Builder
-	b.WriteString(`<section id="processes"><h2>系统流程</h2><p class="muted">数据源：命令入口 + 索引调用链——实体协作视角看每个命令涉及的对象交互。</p>`)
+	b.WriteString(`<section id="processes"><h2>系统流程</h2><p class="muted">数据源：目标仓库 main 入口 + 一级调用展开（索引调用链）——实体协作视角看入口涉及的对象交互。</p>`)
 	eg, err := acts.Entities()
 	if err != nil {
 		eg = nil
 	}
-	for _, pe := range processEntries {
-		chain := queryChain(acts, pe.Entry)
-		b.WriteString(fmt.Sprintf("<h3>%s</h3>", htmlEsc(pe.Cmd)))
-		if chain == nil || len(chain.Steps) == 0 {
-			b.WriteString("<p class=\"muted\">（索引中无调用链）</p>")
+	entries := entrySymbols(acts)
+	if len(entries) == 0 {
+		b.WriteString(`<p>未找到 main 入口（库项目或入口不在索引中）。</p></section>`)
+		return b.String()
+	}
+	for _, e := range entries {
+		b.WriteString(fmt.Sprintf(`<h3>入口 <code>%s</code></h3>`, htmlEsc(e.Name)))
+		if e.File != "" {
+			loc := htmlEsc(e.File)
+			if e.Line > 0 {
+				loc += ":" + strconv.Itoa(e.Line)
+			}
+			b.WriteString(`<p class="muted">` + loc + `</p>`)
+		}
+		if len(e.Callees) == 0 {
+			b.WriteString(`<p class="muted">一级调用：（无）</p>`)
 			continue
 		}
-		b.WriteString("<p class=\"muted\">入口：" + htmlEsc(chain.Entry) + "</p>")
-		if sub := entitySubgraphMermaid(eg, chain.Steps); sub != "" {
-			b.WriteString("<pre class=\"mermaid\">" + htmlEsc(sub) + "</pre>")
-		} else {
-			b.WriteString("<pre class=\"mermaid\">" + htmlEsc(sequenceMermaid(chain.Steps)) + "</pre>")
-		}
-		// R12：实体间调用时序图
-		if seq := entitySequenceMermaid(eg, chain.Steps); seq != "" {
-			b.WriteString("<p class=\"muted\">实体间调用时序（连续同向调用合并计数）：</p>")
-			b.WriteString("<pre class=\"mermaid\">" + htmlEsc(seq) + "</pre>")
-		}
-		if len(chain.Pkgs) > 0 {
-			b.WriteString("<p class=\"muted\">涉及包：" + htmlEsc(strings.Join(chain.Pkgs, "、")) + "</p>")
+		for i, c := range e.Callees {
+			b.WriteString(fmt.Sprintf(`<h4><code>%s</code></h4>`, htmlEsc(c)))
+			target := ""
+			if i < len(e.CalleeIDs) {
+				target = e.CalleeIDs[i]
+			}
+			chain := queryChain(acts, target)
+			if chain == nil || len(chain.Steps) == 0 {
+				b.WriteString("<p class=\"muted\">（索引中无调用链）</p>")
+				continue
+			}
+			b.WriteString("<p class=\"muted\">入口：" + htmlEsc(chain.Entry) + "</p>")
+			if sub := entitySubgraphMermaid(eg, chain.Steps); sub != "" {
+				b.WriteString("<pre class=\"mermaid\">" + htmlEsc(sub) + "</pre>")
+			} else {
+				b.WriteString("<pre class=\"mermaid\">" + htmlEsc(sequenceMermaid(chain.Steps)) + "</pre>")
+			}
+			// R12：实体间调用时序图
+			if seq := entitySequenceMermaid(eg, chain.Steps); seq != "" {
+				b.WriteString("<p class=\"muted\">实体间调用时序（连续同向调用合并计数）：</p>")
+				b.WriteString("<pre class=\"mermaid\">" + htmlEsc(seq) + "</pre>")
+			}
+			if len(chain.Pkgs) > 0 {
+				b.WriteString("<p class=\"muted\">涉及包：" + htmlEsc(strings.Join(chain.Pkgs, "、")) + "</p>")
+			}
 		}
 	}
 	b.WriteString("</section>")

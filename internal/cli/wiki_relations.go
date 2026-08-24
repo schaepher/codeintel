@@ -4,12 +4,16 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
 )
+
+// erNameRe 非安全 mermaid 实体名字符（表名清洗用——动态表名含 % 等）。
+var erNameRe = regexp.MustCompile(`[^a-zA-Z0-9_]`)
 
 // wikiRelations 获取全库表间关联（Q251 ER 图页面）：优先复用已算
 // relation_candidates；未算（ErrRelationInProgress）时同步兜底计算
@@ -38,6 +42,8 @@ func wikiRelations(acts *action.Actions) ([]*domain.TableRelation, error) {
 // renderERMermaid ER 图 mermaid（Q251）：表实体 + 关系线（仅直接键
 // 关联 fk/query，列级标注 label；write/read 间接关联不画）。隐藏表
 // 过滤；确定性排序。
+// 表名经 erEntityName 清洗——动态表名（go2o 实测 pt_%s）含 % 是
+// mermaid 语法错误，整块图解析挂掉。
 func renderERMermaid(rels []*domain.TableRelation, hideTable map[string]bool) string {
 	tables := map[string]bool{}
 	var lines []string
@@ -48,10 +54,11 @@ func renderERMermaid(rels []*domain.TableRelation, hideTable map[string]bool) st
 		if hideTable[r.FromTable] || hideTable[r.ToTable] {
 			continue
 		}
-		tables[r.FromTable] = true
-		tables[r.ToTable] = true
+		ft, tt := erEntityName(r.FromTable), erEntityName(r.ToTable)
+		tables[ft] = true
+		tables[tt] = true
 		lines = append(lines, fmt.Sprintf("    %s ||--o{ %s : \"%s → %s [%s]\"",
-			r.FromTable, r.ToTable, r.FromCol, r.ToCol, r.Type))
+			ft, tt, r.FromCol, r.ToCol, r.Type))
 	}
 	if len(tables) == 0 {
 		return "erDiagram\n"
@@ -71,6 +78,12 @@ func renderERMermaid(rels []*domain.TableRelation, hideTable map[string]bool) st
 		sb.WriteString(l + "\n")
 	}
 	return sb.String()
+}
+
+// erEntityName mermaid erDiagram 实体名清洗：非字母数字下划线 → 下划线。
+// 列级 label 在引号内不受影响，不清洗。
+func erEntityName(name string) string {
+	return erNameRe.ReplaceAllString(name, "_")
 }
 
 // renderERPage ER 图页面（Q251，er.md）：erDiagram + 关系明细表

@@ -76,8 +76,8 @@ func TestTableColBrief(t *testing.T) {
 }
 
 
-// TestWikiAIFillSplitBatches：缺口 > aiBatchMax（30）切片多批——
-// 每批 ≤30 条混合（模块/表/列组），同会话 resume。
+// TestWikiAIFillSplitBatches：缺口 > aiBatchMax（20）切片多批——
+// 每批 ≤20 条混合（模块/表/列组），同会话 resume。
 func TestWikiAIFillSplitBatches(t *testing.T) {
 	var data []*domain.WikiModule
 	for i := 0; i < 61; i++ {
@@ -114,15 +114,15 @@ func TestWikiAIFillSplitBatches(t *testing.T) {
 	if ok != 63 || fail != 0 {
 		t.Fatalf("计数 = %d/%d; want 63/0", ok, fail)
 	}
-	// 63 条 / 30 = 3 批（30 + 30 + 3）
-	if len(prompts) != 3 {
-		t.Fatalf("调用次数 = %d; want 3（每批 ≤30 条）", len(prompts))
+	// 63 条 / 20 = 4 批（20 + 20 + 20 + 3）
+	if len(prompts) != 4 {
+		t.Fatalf("调用次数 = %d; want 4（每批 ≤20 条）", len(prompts))
 	}
 	if !strings.Contains(prompts[0], "example.com/m00") {
 		t.Errorf("第一批应含模块缺口:\n%s", prompts[0][:200])
 	}
-	if !strings.Contains(prompts[2], "表列中文说明") {
-		t.Errorf("最后一批应含列区:\n%s", prompts[2][:200])
+	if !strings.Contains(prompts[3], "表列中文说明") {
+		t.Errorf("最后一批应含列区:\n%s", prompts[3][:200])
 	}
 }
 
