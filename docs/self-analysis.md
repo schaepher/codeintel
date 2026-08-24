@@ -692,24 +692,67 @@ TestWikiERMermaidSpecialName（pt_%s → pt__s），TestWikiAIFillSplitBatches
   假失败（t.TempDir() 在仓库内 git log 向上命中 .git）——临时目录
   须在仓库外（.tmp-build/gotmp）
 
+### R29（2026-08-24）——grpc 路由分析（query grpc-routes）+ grpc 枚举（proto 并入 query enums）
+
+**分析**：用户选高优先级待办 1 的 grpc 部分 + 待办 6。事实调查发现：
+索引**已有**服务端数据（§18 markServiceEntry 建 grpc_service 节点 +
+grpc_impl 边 + serves_grpc 标记 + ast_grpc.go 客户端 grpc_call 边），
+缺的是**方法全集**——grpc_call 只含被客户端调用过的方法，服务端定义
+全集在生成代码 ServiceDesc。grilling 定案（Q1-Q6）：query grpc-routes
+新命令（JSON 契约：服务/实现/注册点/方法）、数据源用生成代码、
+proto 枚举自动并入 enums（source 标注）、本轮不做 http resolver。
+
+**改进方案**：
+- `query grpc-routes`：grpc_service 节点 → RegisterXxxServer 函数
+  （生成代码）→ calls 入边（注册调用点 line_num）→ grpc_impl 边
+  （实现）→ **ServiceDesc go/parser 提取方法全集**（MethodName+Handler）
+- impl 追实现：注册参数为接口（inject 形态）→ implements 边追实现
+  struct；排除 protoc 生成桩（Unimplemented*——SCIP 对隐式实现不输出
+  implements 边，首个命中总是桩）
+- `query enums` 扩展：extractEnums **全仓扫**（原限 internal/，go2o
+  pkg/ 下枚举缺失）+ 跳过 .pb.go 生成代码 + 并入 .proto 源枚举
+  （Source: go|proto）；proto 轻量词法解析（不调 protoc：enum 块/嵌套
+  message 前缀/值号/注释（上一行与尾注释）/package 缺失回退目录名）
+- MCP 工具 grpc_routes（staleWrap + repoAbs 闭包，对齐 entities 模式）
+
+**实施结果**：测试 TestExtractProtoEnums（顶层/嵌套/注释变体/option
+容忍）、TestExtractEnumsMergesProto（go+proto 混合、.pb.go 排除）、
+TestQueryGrpcRoutes（fixture 索引 + ServiceDesc）全绿；全仓 -race 13
+包全绿。**go2o 实测**：grpc-routes 31 服务（方法全集 + handler +
+注册调用点行号 pkg/grpc/grpc_server.go:30-63 与实际代码完全吻合）；
+enums ~140 条（订单状态/支付方式/钱包流水等 proto 枚举全带中文注释
++ 2 条 Go 枚举——全仓扫修复）。
+
+**AI 杠杆点**（R29 实证）：
+- 复用索引既有节点（grpc_service/grpc_impl/serves_grpc）而非新分析——
+  "通过已有节点发现"的待办语义，缺口只剩方法全集（ServiceDesc 生成
+  代码补）
+- SQLite 单连接嵌套查询死锁复发（AGENTS.md 已警告）——registerCallSite/
+  grpcImpl 内层查询前必须显式 Close 外层 rows
+- SCIP 对 Go 隐式接口实现不输出 implements 边 → Unimplemented 桩误
+  命中；排除生成桩后降级为接口名（数据源限制，接口名+位置可接受）
+- proto 词法解析 ~150 行替代 protoc（值号/注释/嵌套全支持）——
+  分析型工具优先轻量实现，重依赖后置
+
 ## 待办与候选方向（未定优先级）
 
 **高优先级待办**（2026-08-24 用户提出，6 项）：
-- 1. **HTTP/GRPC 路由自动分析**：不靠固定路径找路由注册（现 routes.yaml
-  人工表 + 固定 internal/server 路径），改为通过已有节点发现；HTTP 支持
-  多种 resolver——原生 net/http + gin 优先，其他框架后置
+- 1. **HTTP/GRPC 路由自动分析**：~~grpc 部分 → R29 已实现~~
+  （`query grpc-routes`——grpc_service 节点 + ServiceDesc 方法全集）；
+  **HTTP 部分待续**——不靠固定路径找路由注册（现 routes.yaml 人工表
+  + 固定 internal/server 路径），多 resolver（原生 net/http + gin 优先）
 - 2. **图渲染双引擎**：wiki/ER/实体协作图支持 plantuml 与 mermaid，
   参数切换（`--diagram plantuml|mermaid`，默认 plantuml）
 - 3. **urfave/cli/v2 命令解析支持**：命令/入口分析不依赖具体文件路径
   （现基于 root.go Main switch 硬编码文件），识别 cli/v2 注册的命令树
 - 4. **系统流程基于 http/grpc 分析出的入口**：processes 页（R28 起基于
   main 入口 + 一级调用）进一步以路由入口（handle/gin handler/grpc
-  方法）生成流程，与待办 1 联动
+  方法）生成流程，与待办 1 联动（grpc 部分数据源已就绪——grpc-routes）
 - 5. **redis client / kafka（sarama）调用分析**：外部库语义标注（衔接
   field-summary.yaml 机制——自研 ORM 已有，redis/kafka 是高频外部
   依赖）
-- 6. **grpc 枚举分析**：query enums 扩展支持 grpc（proto 定义枚举，
-  现仅 Go 源码枚举）
+- ~~6. grpc 枚举分析~~ → **R29 已实现**（.proto 源枚举并入 query
+  enums，Source=proto 标注；生成代码 .pb.go 排除）
 
 **交接遗留**（2026-08-24 交接文档 I §3 并入，随轮次更新状态）：
 - ~~0. go2o AI 剩余缺口（31 表别名 + 283 列说明）~~ → **R28 已清零**

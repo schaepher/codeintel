@@ -86,6 +86,13 @@ type buildResult struct {
 	Message      string `json:"message,omitempty"` // 提示信息（无变更/需全量重建等）
 }
 
+// grpcRoutesParams gRPC 路由清单查询参数（R29）。
+type grpcRoutesParams struct {
+	Repo string `json:"repo"` // 目标仓库（缺省用默认仓库）
+}
+
+func (p grpcRoutesParams) getRepo() string { return p.Repo }
+
 // enumsParams 枚举查询参数（R6：include_untyped 控制是否含无类型常量）。
 type enumsParams struct {
 	Repo           string `json:"repo"` // 目标仓库（缺省用默认仓库）

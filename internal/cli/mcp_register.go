@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"errors"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/schaepher/codeintel/internal/action"
@@ -122,6 +121,16 @@ func registerQueryTools(server *mcp.Server, env *mcpEnv, r *sqlite.Repo, repoAbs
 			out := extractEnums(repoAbs, !args.IncludeUntyped)
 			return toolJSON(out), out, nil
 		}))
+	// R29：服务端 gRPC 路由清单（索引 grpc_service 节点 + ServiceDesc
+	// 方法全集——了解服务暴露的方法，Agent 调服务前先查）
+	mcp.AddTool(server, &mcp.Tool{Name: "grpc_routes", Description: "服务端 gRPC 路由清单（服务名/实现类型/注册调用点/方法全集 ServiceDesc）——了解 gRPC 服务暴露了哪些方法"},
+		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args grpcRoutesParams) (*mcp.CallToolResult, *grpcRoutesResult, error) {
+			res, err := grpcRoutes(r, repoAbs)
+			if err != nil {
+				return toolErr(err.Error()), nil, nil
+			}
+			return toolJSON(res), res, nil
+		})))
 	// R9：实体协作图 + 设计诊断（Agent 了解对象协作与设计信号，
 	// 避免在不了解结构时盲目加新类型/依赖方向）
 	mcp.AddTool(server, &mcp.Tool{Name: "entities", Description: "实体协作图 + 设计诊断（类型实体 + 包门面 + 方法互调聚合边 + 高耦合/循环/上帝对象/游离函数占比）——新增类型或依赖前先查协作结构"},
@@ -208,88 +217,3 @@ func registerTableTools(server *mcp.Server, env *mcpEnv, r *sqlite.Repo, repoAbs
 }
 
 // registerAdminTools 注册工具子集（Q252：registerMCPTools 按组拆分——行数治理 ≤300）。
-func registerAdminTools(server *mcp.Server, env *mcpEnv, r *sqlite.Repo, repoAbs string) {
-	// #228 写操作工具（不包 staleWrap——写后索引即最新，无需标注）。
-	// batch_symbols：批量概览（复用 action.BatchSymbols，契约同 CLI batch --json）。
-	mcp.AddTool(server, &mcp.Tool{Name: "batch_symbols", Description: "批量符号概览（多符号一次返回；单输入失败跳过，部分成功）"},
-		mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args batchParams) (*mcp.CallToolResult, BatchOut, error) {
-			res, err := a.BatchSymbols(args.Symbols)
-			if err != nil {
-				return toolErr(err.Error()), BatchOut{}, nil
-			}
-			out := BatchOut{Results: res}
-			return toolJSON(out), out, nil
-		}))
-	// update：增量更新（git 检测变更文件；stale 时调用自愈）。
-	mcp.AddTool(server, &mcp.Tool{Name: "update", Description: "增量更新索引（git 检测变更的 .go 文件重建；索引 stale 时调用自愈）"},
-		mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args updateParams) (*mcp.CallToolResult, buildResult, error) {
-			res2, out := runBuildTool(ctx, repoAbs, false)
-			return res2, out, nil
-		}))
-	// init：全量重建（schema/分析逻辑变更后；大仓库耗时较长）。
-	mcp.AddTool(server, &mcp.Tool{Name: "init", Description: "全量重建索引（schema/分析逻辑变更后；大仓库耗时较长）"},
-		mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args updateParams) (*mcp.CallToolResult, buildResult, error) {
-			res2, out := runBuildTool(ctx, repoAbs, true)
-			return res2, out, nil
-		}))
-	// #229 概览与定位工具（读工具，包 staleWrap）。
-	// roots：顶层入口（main + 服务入口）——Agent 面对陌生仓库先看入口。
-	mcp.AddTool(server, &mcp.Tool{Name: "roots", Description: "顶层入口（main + 服务入口）——陌生仓库先看入口再深入"},
-		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args updateParams) (*mcp.CallToolResult, RootsOut, error) {
-			roots, err := a.Roots()
-			if err != nil {
-				return toolErr(err.Error()), RootsOut{}, nil
-			}
-			out := RootsOut{Roots: nodeBriefList(roots)}
-			return toolJSON(out), out, nil
-		})))
-	// repo_summary：仓库概览（规模 + 表数 + 最新构建）。
-	mcp.AddTool(server, &mcp.Tool{Name: "repo_summary", Description: "仓库概览（节点/边/表规模 + 最新构建状态）"},
-		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args updateParams) (*mcp.CallToolResult, RepoSummaryOut, error) {
-			nodes, edges, err := a.Counts()
-			if err != nil {
-				return toolErr(err.Error()), RepoSummaryOut{}, nil
-			}
-			tables, err := a.GetTables()
-			if err != nil {
-				return toolErr(err.Error()), RepoSummaryOut{}, nil
-			}
-			latest, err := a.Latest()
-			if err != nil && !errors.Is(err, domain.ErrNotFound) {
-				return toolErr(err.Error()), RepoSummaryOut{}, nil
-			}
-			out := RepoSummaryOut{
-				Nodes:  nodes,
-				Edges:  edges,
-				Tables: len(tables),
-			}
-			if err == nil && latest != nil {
-				out.Build = latest // domain.BuildMeta 自带 snake_case 契约
-			}
-			return toolJSON(out), out, nil
-		})))
-	// file_symbols：file:line → 符号（Agent 从编译报错/日志栈定位）。
-	mcp.AddTool(server, &mcp.Tool{Name: "file_symbols", Description: "file:line 定位符号（报错栈/日志行 → 候选符号列表）"},
-		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args fileSymbolsParams) (*mcp.CallToolResult, FileSymbolsOut, error) {
-			syms, err := a.SymbolsAt(args.File, args.Line)
-			if err != nil {
-				return toolErr(err.Error()), FileSymbolsOut{}, nil
-			}
-			out := FileSymbolsOut{Symbols: nodeBriefList(syms)}
-			return toolJSON(out), out, nil
-		})))
-	// #237 recent_changes：最近变更（Agent 接手仓库先看动态）。
-	mcp.AddTool(server, &mcp.Tool{Name: "recent_changes", Description: "最近变更（commit 按日期降序 + 变更文件 + 顶层符号；max_commits 默认 10）"},
-		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args recentChangesParams) (*mcp.CallToolResult, RecentChangesOut, error) {
-			limit := 10
-			if args.MaxCommits != nil && *args.MaxCommits > 0 {
-				limit = *args.MaxCommits
-			}
-			commits, err := a.RecentChanges(limit)
-			if err != nil {
-				return toolErr(err.Error()), RecentChangesOut{}, nil
-			}
-			out := RecentChangesOut{Commits: commits}
-			return toolJSON(out), out, nil
-		})))
-}
