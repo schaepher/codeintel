@@ -692,14 +692,30 @@ TestWikiERMermaidSpecialName（pt_%s → pt__s），TestWikiAIFillSplitBatches
   假失败（t.TempDir() 在仓库内 git log 向上命中 .git）——临时目录
   须在仓库外（.tmp-build/gotmp）
 
-## 候选方向（未定优先级）
+## 待办与候选方向（未定优先级）
 
+**交接遗留**（2026-08-24 交接文档 I §3 并入，随轮次更新状态）：
+- ~~0. go2o AI 剩余缺口（31 表别名 + 283 列说明）~~ → **R28 已清零**
+  （44 条补全、0 失败；150 表全有别名与列说明；wiki-check 7/7）
+- 1. **--with-qa 实战未验证**：qa_history 需真实对话积累后 `wiki --ai
+  --with-qa` 端到端生效（机制已测——TestWikiAIFillWithQA，待真实数据）
+- 2. **表字段类型剩余 10 列**（repos 全局注册表，schema 在 ~/.codeintel
+  ——yaml 补或读全局 db）
+- 3. **术语表 24 条 / flows 5 条 review**（R11/R14 AI 初稿已入
+  wiki.yaml，人工最后确认——wiki skill「人工是最后一道工序」）
+- 4. **新人实测演练**：挑一个陌生项目，用 wiki 走通 onboarding 流程，
+  验证"新人视角无死角"是否真实成立（覆盖度全勾选后终极验证，
+  需外部项目）
+- 5. **ana 自身索引 update**（收尾后 update 一次；R28 后分析/渲染
+  代码已变——update 工作区干净会跳过，用 reindex 确保新逻辑生效）
+- 6. **F2 实体分组对非 DDD 项目效果**（validSplit 降级逻辑已测；
+  go2o 是 DDD 样例——普通项目待观察）
+
+**候选方向**：
+- 流程页深度：入口调用链 → 关键数据流（value-trace 串联）
 - ~~yaml 语义层：表列说明/表别名/模块描述 AI 初稿~~ → **R23 已实现**
   （`codeintel wiki --ai` 增量补缺，写回 wiki.yaml 标注 # AI 初稿）；
-  术语表（glossary）仍未接入（AI 需通读全库事实，prompt 成本高，
-  等 ask 接口验证效果后再定）
-- 新人实测演练：挑一个陌生项目，用 wiki 走通 onboarding 流程，
-  验证"新人视角无死角"是否真实成立
-- 流程页深度：入口调用链 → 关键数据流（value-trace 串联）
-- wiki --ai 增强：列 prompt 加入表间关联事实（rels 已传入未用）；
-  ask 支持交互式 REPL（多轮追问复用上下文）
+  ~~术语表接入~~ → **R24 已实现**（批量 prompt 带 glossary 区块）
+- ~~wiki --ai 增强：列 prompt 加入表间关联事实（rels 已传入未用）~~ →
+  **R24 已实现**（列说明带 rels 上下文）；~~ask 支持交互式 REPL~~ →
+  **R26 已实现**（多轮追问复用上下文）
