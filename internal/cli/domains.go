@@ -20,23 +20,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// pkgFacts 一个包的事实（完整路径——层级树渲染与归属校验用；短名
-// 歧义（go2o 多个 member 包）在完整路径下消除）。
-type pkgFacts struct {
-	Path string // 完整包路径
-	Doc  string // 首行注释（rune 安全截断）
-}
-
-// domainFacts AI 分析前的结构化事实包（信息充分性——静态分析全算好，
-// AI 只做语义归纳）。
-type domainFacts struct {
-	Pkgs     []pkgFacts // 包（完整路径 + 注释）
-	Tables   []string   // 表：表名 | 列数 | 别名
-	Ents     []string   // 实体：类型 | 方法数
-	Svcs     []string   // 服务：grpc/http
-	ModCalls []string   // 模块间调用 Top
-}
-
 // parseDomains 解析 AI 返回的 domains YAML + 校验（归属须在事实包中，
 // 防 AI 编造——校验失败剔除并警告）。
 func parseDomains(resp string, f *domainFacts) ([]wikiDomainCfg, []string) {
@@ -56,8 +39,7 @@ func parseDomains(resp string, f *domainFacts) ([]wikiDomainCfg, []string) {
 		havePkg[p.Path] = true // 完整路径校验（AI 输出完整路径）
 	}
 	for _, t := range f.Tables {
-		name := strings.TrimSpace(strings.SplitN(t, "（", 2)[0])
-		haveTbl[name] = true
+		haveTbl[t.Name] = true
 	}
 	var doms []wikiDomainCfg
 	var warns []string
@@ -100,8 +82,10 @@ func analyzeDomains(repoAbs string, cfg *wikiConfig, acts *action.Actions, db *s
 		factsPath = filepath.Join(repoAbs, ".codeintel", "domain-facts.txt")
 	}
 	if err := os.MkdirAll(filepath.Dir(factsPath), 0o755); err == nil {
-		if err := os.WriteFile(factsPath, []byte(domainFactsText(f)), 0o644); err != nil {
-			return nil, []string{fmt.Sprintf("事实包写文件失败: %v", err)}
+		if b, err := domainFactsJSON(f); err == nil {
+			if err := os.WriteFile(factsPath, b, 0o644); err != nil {
+				return nil, []string{fmt.Sprintf("事实包写文件失败: %v", err)}
+			}
 		}
 	}
 	resp, err := agentRunner(agent, domainPrompt(factsPath), 240*time.Second)
@@ -211,7 +195,12 @@ func cmdDomains(repoAbs string, f queryFlags, agent, yamlPath, factsPath, export
 	// --export-facts：只导出事实包（不调 AI）
 	if exportOnly != "" {
 		f := collectDomainFacts(acts, repoAbs, cfg, sqlite.NewRepo(db))
-		if err := os.WriteFile(exportOnly, []byte(domainFactsText(f)), 0o644); err != nil {
+		b, err := domainFactsJSON(f)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		if err := os.WriteFile(exportOnly, b, 0o644); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
 		}

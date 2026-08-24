@@ -4,6 +4,7 @@ package cli
 // 测试先行。
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,7 +19,7 @@ import (
 func TestParseDomainsValidate(t *testing.T) {
 	f := &domainFacts{
 		Pkgs:   []pkgFacts{{Path: "item", Doc: "商品"}, {Path: "order", Doc: "订单"}, {Path: "member", Doc: "会员"}},
-		Tables: []string{"item_info（5 列）", "order_tab（8 列）"},
+		Tables: []tableFacts{{Name: "item_info", Cols: 5}, {Name: "order_tab", Cols: 8}},
 	}
 	resp := `domains:
   - name: 商品域
@@ -48,7 +49,7 @@ func TestParseDomainsValidate(t *testing.T) {
 
 // TestParseDomainsFence：```yaml 围栏剥离。
 func TestParseDomainsFence(t *testing.T) {
-	f := &domainFacts{Pkgs: []pkgFacts{{Path: "item"}}, Tables: []string{"item_info"}}
+	f := &domainFacts{Pkgs: []pkgFacts{{Path: "item"}}, Tables: []tableFacts{{Name: "item_info"}}}
 	resp := "```yaml\ndomains:\n  - name: 商品域\n    packages: [item]\n    tables: [item_info]\n```"
 	doms, _ := parseDomains(resp, f)
 	if len(doms) != 1 || doms[0].Name != "商品域" {
@@ -56,7 +57,8 @@ func TestParseDomainsFence(t *testing.T) {
 	}
 }
 
-// TestExportDomainFacts：事实包导出文件——含包/表/实体清单。
+// TestExportDomainFacts：事实包导出文件——JSON 格式（用户要求），
+// 结构字段齐全。
 func TestExportDomainFacts(t *testing.T) {
 	dir := seedRepo(t)
 	db, err := sqlite.Open(dir)
@@ -65,16 +67,19 @@ func TestExportDomainFacts(t *testing.T) {
 	}
 	defer db.Close()
 	acts := action.New(sqlite.NewRepo(db))
-	path := filepath.Join(t.TempDir(), "facts.txt")
+	path := filepath.Join(t.TempDir(), "facts.json")
 	if err := exportDomainFacts(dir, acts, wikiConfig{}, sqlite.NewRepo(db), path); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(path)
-	s := string(b)
-	// fixture 无包/表内容——断言结构标题（导出机制成立）
-	for _, want := range []string{"代码静态分析事实", "包清单", "数据表"} {
-		if !strings.Contains(s, want) {
-			t.Errorf("事实包应含 %q:\n%s", want, s)
+	var f domainFacts
+	if err := json.Unmarshal(b, &f); err != nil {
+		t.Fatalf("导出应为合法 JSON: %v", err)
+	}
+	// 结构字段（JSON 契约）
+	for _, want := range []string{`"packages"`, `"tables"`, `"entities"`, `"services"`} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("JSON 缺 %q:\n%s", want, b)
 		}
 	}
 }
