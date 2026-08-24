@@ -694,6 +694,23 @@ TestWikiERMermaidSpecialName（pt_%s → pt__s），TestWikiAIFillSplitBatches
 
 ## 待办与候选方向（未定优先级）
 
+**高优先级待办**（2026-08-24 用户提出，6 项）：
+- 1. **HTTP/GRPC 路由自动分析**：不靠固定路径找路由注册（现 routes.yaml
+  人工表 + 固定 internal/server 路径），改为通过已有节点发现；HTTP 支持
+  多种 resolver——原生 net/http + gin 优先，其他框架后置
+- 2. **图渲染双引擎**：wiki/ER/实体协作图支持 plantuml 与 mermaid，
+  参数切换（`--diagram plantuml|mermaid`，默认 plantuml）
+- 3. **urfave/cli/v2 命令解析支持**：命令/入口分析不依赖具体文件路径
+  （现基于 root.go Main switch 硬编码文件），识别 cli/v2 注册的命令树
+- 4. **系统流程基于 http/grpc 分析出的入口**：processes 页（R28 起基于
+  main 入口 + 一级调用）进一步以路由入口（handle/gin handler/grpc
+  方法）生成流程，与待办 1 联动
+- 5. **redis client / kafka（sarama）调用分析**：外部库语义标注（衔接
+  field-summary.yaml 机制——自研 ORM 已有，redis/kafka 是高频外部
+  依赖）
+- 6. **grpc 枚举分析**：query enums 扩展支持 grpc（proto 定义枚举，
+  现仅 Go 源码枚举）
+
 **交接遗留**（2026-08-24 交接文档 I §3 并入，随轮次更新状态）：
 - ~~0. go2o AI 剩余缺口（31 表别名 + 283 列说明）~~ → **R28 已清零**
   （44 条补全、0 失败；150 表全有别名与列说明；wiki-check 7/7）
