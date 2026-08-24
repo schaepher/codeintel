@@ -81,7 +81,7 @@ func wikiTablesSectionHTML(tables []tableRow, tableCfgs map[string]wikiTableConf
 			if sec := renderORMStructSectionHTML(t.name, ormStructs[t.name]); sec != "" {
 				b.WriteString(sec)
 			}
-			rows := mergeTableColumnsWithSchema(t.name, cols, tc.Columns, schemas, goTypes)
+			rows := mergeTableColumnsWithSchema(t.name, cols, tc.Columns, schemas, ormStructs)
 			if len(rows) == 0 {
 				b.WriteString("<p class=\"muted\">（无字段信息——维护者可在 wiki.yaml tables.columns 补充）</p>")
 			} else {

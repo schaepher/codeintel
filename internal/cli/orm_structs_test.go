@@ -26,7 +26,7 @@ import "time"
 
 // Order 订单
 type Order struct {
-	ID        int64     `+"`gorm:\"column:order_id;primaryKey\"`"+`
+	ID        int64     `+"`gorm:\"column:order_id;primaryKey;autoIncrement\"`"+`
 	OrderNo   string    `+"`gorm:\"size:32\"`"+`
 	CreatedAt time.Time `+"`gorm:\"autoCreateTime\"`"+`
 }
@@ -89,5 +89,37 @@ func TestORMColTypes(t *testing.T) {
 	// user_tab：ID → id（snake_case）
 	if typ := got["user_tab"]["id"]; typ != "int64" {
 		t.Errorf("user_tab.id = %q, want int64", typ)
+	}
+}
+
+// TestORMFieldOrderAndAutoInc：字段顺序还原结构体序 + 自增列第一。
+func TestORMFieldOrderAndAutoInc(t *testing.T) {
+	dir := ormStructFixture(t)
+	ormStructs := scanORMStructs(dir)
+	order := ormColOrder(ormStructs)
+	autoInc := ormAutoIncCols(ormStructs)
+	oi, ok1 := order["order_tab"]["order_id"]
+	on, ok2 := order["order_tab"]["order_no"]
+	ca, ok3 := order["order_tab"]["created_at"]
+	if !ok1 || !ok2 || !ok3 || oi >= on || on >= ca {
+		t.Errorf("结构体字段序错误: order_id=%d order_no=%d created_at=%d", oi, on, ca)
+	}
+	if !autoInc["order_tab"]["order_id"] {
+		t.Error("order_id（autoIncrement tag）应识别为自增列")
+	}
+}
+
+// TestMergeTableColumnsOrder：自增第一 + 结构体序——渲染行顺序。
+func TestMergeTableColumnsOrder(t *testing.T) {
+	dir := ormStructFixture(t)
+	ormStructs := scanORMStructs(dir)
+	rows := mergeTableColumnsWithSchema("order_tab", nil, nil, nil, ormStructs)
+	var names []string
+	for _, r := range rows {
+		names = append(names, r.name)
+	}
+	// 自增 order_id 第一，然后 order_no/created_at 结构体序
+	if len(names) != 3 || names[0] != "order_id" || names[1] != "order_no" || names[2] != "created_at" {
+		t.Errorf("字段顺序 = %v, want [order_id order_no created_at]", names)
 	}
 }
