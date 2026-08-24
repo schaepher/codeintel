@@ -112,7 +112,8 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 		idx.WriteString("> 构建 SQL 解析降级统计：" + degradeStats + "（AST 降级率异常高时检查解析器）\n\n")
 	}
 	for _, wm := range data {
-		page := renderModulePage(wm, eg, meta[wm.Name].desc, tableAlias, hidden, cfg)
+		keyFlows := wikiModuleKeyFlows(acts, wm) // R17 关键数据流
+		page := renderModulePage(wm, eg, keyFlows, meta[wm.Name].desc, tableAlias, hidden, cfg)
 		if err := os.WriteFile(filepath.Join(outDir, wm.ShortName+".md"), []byte(page), 0o644); err != nil {
 			return err
 		}

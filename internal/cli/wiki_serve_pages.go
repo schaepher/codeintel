@@ -176,7 +176,7 @@ func (ws *wikiServe) modulePage(snap *wikiSnapshot, wm *domain.WikiModule) strin
 	if d := snap.meta[wm.Name].desc; d != "" {
 		b.WriteString("<blockquote>" + htmlEsc(d) + "</blockquote>")
 	}
-	b.WriteString(renderModuleHTML(wm, 0, snap.eg, snap.tableAlias, snap.hidden, snap.cfg, snap.meta[wm.Name].desc))
+	b.WriteString(renderModuleHTML(wm, 0, snap.eg, snap.keyFlows[wm.Name], snap.tableAlias, snap.hidden, snap.cfg, snap.meta[wm.Name].desc))
 	b.WriteString("</section>\n")
 	return ws.pageHTML(snap, "/wiki/mod/"+wm.ShortName, b.String())
 }

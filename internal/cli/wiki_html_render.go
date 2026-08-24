@@ -133,7 +133,7 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 		if desc != "" {
 			main.WriteString("<blockquote>" + htmlEsc(desc) + "</blockquote>")
 		}
-		main.WriteString(renderModuleHTML(wm, i, eg, tableAlias, hidden, cfg, desc))
+		main.WriteString(renderModuleHTML(wm, i, eg, wikiModuleKeyFlows(acts, wm), tableAlias, hidden, cfg, desc))
 		main.WriteString("</section>\n")
 	}
 

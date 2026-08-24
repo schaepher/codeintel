@@ -34,8 +34,8 @@ func moduleAnchors(wm *domain.WikiModule) []moduleAnchor {
 }
 
 // renderModuleHTML 模块内容（区块标题可折叠，默认展开；R9：内部
-// 调用链渲染为实体协作子图）。
-func renderModuleHTML(wm *domain.WikiModule, i int, eg *domain.EntityGraph, tableAlias map[string]string, hidden map[string]bool, cfg wikiConfig, desc string) string {
+// 调用链渲染为实体协作子图；R17：关键数据流区块）。
+func renderModuleHTML(wm *domain.WikiModule, i int, eg *domain.EntityGraph, keyFlows []wikiKeyFlow, tableAlias map[string]string, hidden map[string]bool, cfg wikiConfig, desc string) string {
 	var b strings.Builder
 	sec := func(key, title string) string {
 		return fmt.Sprintf(`<h3 class="fold-btn" data-target="%s-%d" data-label="1">▾ %s</h3><div class="sec-body" id="%s-%d">`,
@@ -86,6 +86,10 @@ func renderModuleHTML(wm *domain.WikiModule, i int, eg *domain.EntityGraph, tabl
 	}
 	b.WriteString("</div>\n")
 
+	// R17：关键数据流（核心符号字段读写——value-trace 入口）
+	if sec := renderKeyFlowsSectionHTML(keyFlows); sec != "" {
+		b.WriteString(sec)
+	}
 	if len(wm.OutCalls) > 0 {
 		b.WriteString(sec("out", "调用的模块"))
 		for _, m := range wm.OutCalls {
