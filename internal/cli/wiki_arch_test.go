@@ -20,13 +20,13 @@ func TestArchMermaidFallback(t *testing.T) {
 			{From: "cli", To: "action", Count: 3},
 		}},
 	}
-	got := archMermaidFallback(data)
+	got := archMermaidFallback(data, nil)
 	for _, want := range []string{"cli[cli] -->|8| action[action]", "cli[cli] -->|1| server[server]"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("fallback 应含 %q:\n%s", want, got)
 		}
 	}
-	if archMermaidFallback(nil) != "" {
+	if archMermaidFallback(nil, nil) != "" {
 		t.Errorf("空数据 fallback 应为空")
 	}
 }

@@ -127,7 +127,7 @@ func (ws *wikiServe) overviewPage(snap *wikiSnapshot) string {
 	archMermaid := snap.cfg.Architecture
 	archNote := "（来源：wiki.yaml architecture）"
 	if archMermaid == "" {
-		archMermaid = archMermaidFallback(snap.data)
+		archMermaid = archMermaidFallback(snap.data, snap.cfg.Domains)
 		archNote = "（自动生成：包间调用聚合——yaml architecture 可覆盖）"
 	}
 	if archMermaid != "" {

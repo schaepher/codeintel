@@ -46,7 +46,7 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	archMermaid := cfg.Architecture
 	archNote := "（来源：wiki.yaml architecture）"
 	if archMermaid == "" {
-		archMermaid = archMermaidFallback(data)
+		archMermaid = archMermaidFallback(data, rc.cfg.Domains)
 		archNote = "（自动生成：包间调用聚合——yaml architecture 可覆盖）"
 	}
 	if archMermaid != "" {

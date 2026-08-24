@@ -161,14 +161,32 @@ func renderModulePage(wm *domain.WikiModule, eg *domain.EntityGraph, keyFlows []
 }
 
 // archMermaidFallback 概览架构图自动 fallback（R2）：yaml architecture
-// 空时用包间调用聚合图（所有模块 PkgCalls 合并，线计数相加）——新人
-// 第一眼有系统图；yaml architecture 可覆盖。
-func archMermaidFallback(data []*domain.WikiModule) string {
+// 空时用调用聚合图（所有模块 PkgCalls 合并，线计数相加）——新人第一眼
+// 有系统图；yaml architecture 可覆盖。
+// R34 领域优化（用户要求：孤立包/线爆炸）：有 domains 时按领域聚合——
+// 节点=领域（孤立包归入领域节点不单独显示）、边=领域间调用聚合（同
+// 领域边过滤）——go2o 150 包全互连 → 8 领域收敛；无 domains 保持包级。
+func archMermaidFallback(data []*domain.WikiModule, doms []wikiDomainCfg) string {
 	type key struct{ from, to string }
 	counts := map[key]int{}
+	// R34：包 → 领域索引（短名匹配，同 splitEntityDomains）
+	pkgDomain := map[string]string{}
+	for _, d := range doms {
+		for _, p := range d.Packages {
+			pkgDomain[p] = d.Name
+		}
+	}
 	for _, wm := range data {
 		for _, c := range wm.PkgCalls {
-			counts[key{c.From, c.To}] += c.Count
+			if len(doms) > 0 {
+				df, dt := pkgDomain[c.From], pkgDomain[c.To]
+				if df == "" || dt == "" || df == dt {
+					continue // 未归属包/同领域调用——不画（孤立包归入领域节点）
+				}
+				counts[key{df, dt}] += c.Count
+			} else {
+				counts[key{c.From, c.To}] += c.Count
+			}
 		}
 	}
 	if len(counts) == 0 {
@@ -186,10 +204,35 @@ func archMermaidFallback(data []*domain.WikiModule) string {
 	})
 	var b strings.Builder
 	b.WriteString("graph LR\n")
+	if len(doms) > 0 {
+		// 领域节点（label：领域名（N 包））
+		pkgCount := map[string]int{}
+		for _, d := range doms {
+			pkgCount[d.Name] = len(d.Packages)
+		}
+		seen := map[string]bool{}
+		for _, k := range keys {
+			for _, n := range []string{k.from, k.to} {
+				if !seen[n] {
+					seen[n] = true
+					b.WriteString(fmt.Sprintf("  %s[\"%s（%d 包）\"]\n", archDomainID(n), n, pkgCount[n]))
+				}
+			}
+		}
+		for _, k := range keys {
+			b.WriteString(fmt.Sprintf("  %s -->|%d| %s\n", archDomainID(k.from), counts[k], archDomainID(k.to)))
+		}
+		return b.String()
+	}
 	for _, k := range keys {
 		b.WriteString(fmt.Sprintf("  %s -->|%d| %s\n", archNode(k.from), counts[k], archNode(k.to)))
 	}
 	return b.String()
+}
+
+// archDomainID 领域名 → mermaid 节点 id（中文/空格安全——D 前缀）。
+func archDomainID(name string) string {
+	return "D" + name
 }
 
 // moduleArchMermaid 模块页架构图（Q251-A：包间调用图——calls 边按

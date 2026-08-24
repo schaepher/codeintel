@@ -90,8 +90,9 @@ func mermaidGraphToPlantuml(m string) string {
 		defined[id] = true
 		fmt.Fprintf(&b, "node \"%s\" as %s\n", label, id)
 	}
-	// id[label] / id["label"]——label 去引号
-	nodeRe := regexp.MustCompile(`([A-Za-z0-9_]+)\[(?:"([^"]*)"|([^\[\]]*))\]`)
+	// id[label] / id["label"]——label 去引号；id 支持 Unicode（领域节点
+	// D商品域——R34 架构图领域聚合实测中文 id 匹配不上致 label 丢失）
+	nodeRe := regexp.MustCompile(`([\p{L}\p{N}_]+)\[(?:"([^"]*)"|([^\[\]]*))\]`)
 	// -->|N| → --> N : （plantuml 冒号 label——实测 --check-syntax）
 	arrowLabelRe := regexp.MustCompile(`-->\|([^|]+)\|`)
 	// subgraph 名[名]（mermaid 分组标题）→ subgraph "名"
@@ -99,6 +100,12 @@ func mermaidGraphToPlantuml(m string) string {
 	for _, l := range strings.Split(m, "\n") {
 		t := strings.TrimSpace(l)
 		if t == "" || t == "graph LR" || t == "graph TD" {
+			continue
+		}
+		// subgraph 行优先（`subgraph 名[名]` 的 [名] 与节点同格式——
+		// nodeRe 先处理会吃掉 label 致 subgraphRe 匹配不到）
+		if sg := subgraphRe.FindStringSubmatch(t); sg != nil {
+			b.WriteString(`subgraph "` + sg[1] + `" {` + "\n")
 			continue
 		}
 		// 先收集行内节点定义（边行端点），再输出替换后的行
@@ -125,13 +132,6 @@ func mermaidGraphToPlantuml(m string) string {
 		// plantuml 边 label 语法：`-->|N|` 不合法（实测 --check-syntax
 		// 报错），正确为 `--> N : `（冒号 label）
 		out = arrowLabelRe.ReplaceAllString(out, "--> $1 :")
-		// subgraph 语法：mermaid `subgraph 名[名]` → plantuml
-		// `subgraph "名" {`（plantuml 需 { 闭合；end 行两引擎相同）。
-		// 已知坑：subgraph 内含 node 的组件图 plantuml 全部语法错误
-		// （实测 --check-syntax）——archCurated 分组图降级为文本块
-		if sg := subgraphRe.FindStringSubmatch(out); sg != nil {
-			out = `subgraph "` + sg[1] + `" {`
-		}
 		b.WriteString(out + "\n")
 	}
 	b.WriteString("@enduml\n")
