@@ -20,14 +20,21 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// pkgFacts 一个包的事实（完整路径——层级树渲染与归属校验用；短名
+// 歧义（go2o 多个 member 包）在完整路径下消除）。
+type pkgFacts struct {
+	Path string // 完整包路径
+	Doc  string // 首行注释（rune 安全截断）
+}
+
 // domainFacts AI 分析前的结构化事实包（信息充分性——静态分析全算好，
 // AI 只做语义归纳）。
 type domainFacts struct {
-	Pkgs     []string // 包：路径 | 注释 | 核心符号
-	Tables   []string // 表：表名 | 列数 | 别名
-	Ents     []string // 实体：类型 | 方法数
-	Svcs     []string // 服务：grpc/http
-	ModCalls []string // 模块间调用 Top
+	Pkgs     []pkgFacts // 包（完整路径 + 注释）
+	Tables   []string   // 表：表名 | 列数 | 别名
+	Ents     []string   // 实体：类型 | 方法数
+	Svcs     []string   // 服务：grpc/http
+	ModCalls []string   // 模块间调用 Top
 }
 
 // parseDomains 解析 AI 返回的 domains YAML + 校验（归属须在事实包中，
@@ -46,7 +53,7 @@ func parseDomains(resp string, f *domainFacts) ([]wikiDomainCfg, []string) {
 	havePkg := map[string]bool{}
 	haveTbl := map[string]bool{}
 	for _, p := range f.Pkgs {
-		havePkg[strings.TrimSpace(strings.SplitN(p, "|", 2)[0])] = true
+		havePkg[p.Path] = true // 完整路径校验（AI 输出完整路径）
 	}
 	for _, t := range f.Tables {
 		name := strings.TrimSpace(strings.SplitN(t, "（", 2)[0])

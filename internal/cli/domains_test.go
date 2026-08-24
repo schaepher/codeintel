@@ -17,7 +17,7 @@ import (
 // 归属保留。
 func TestParseDomainsValidate(t *testing.T) {
 	f := &domainFacts{
-		Pkgs:   []string{"item | 商品", "order | 订单", "member | 会员"},
+		Pkgs:   []pkgFacts{{Path: "item", Doc: "商品"}, {Path: "order", Doc: "订单"}, {Path: "member", Doc: "会员"}},
 		Tables: []string{"item_info（5 列）", "order_tab（8 列）"},
 	}
 	resp := `domains:
@@ -48,7 +48,7 @@ func TestParseDomainsValidate(t *testing.T) {
 
 // TestParseDomainsFence：```yaml 围栏剥离。
 func TestParseDomainsFence(t *testing.T) {
-	f := &domainFacts{Pkgs: []string{"item"}, Tables: []string{"item_info"}}
+	f := &domainFacts{Pkgs: []pkgFacts{{Path: "item"}}, Tables: []string{"item_info"}}
 	resp := "```yaml\ndomains:\n  - name: 商品域\n    packages: [item]\n    tables: [item_info]\n```"
 	doms, _ := parseDomains(resp, f)
 	if len(doms) != 1 || doms[0].Name != "商品域" {
