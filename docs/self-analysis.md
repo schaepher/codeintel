@@ -1127,6 +1127,16 @@ main 节保留 + 新增路由节。
 - 6. **F2 实体分组对非 DDD 项目效果**（validSplit 降级逻辑已测；
   go2o 是 DDD 样例——普通项目待观察）
 
+**R38 新增**：
+- 1. **go2o domains.services 人工确认**：R38 重跑写回 30 个服务归属
+  （AI 初稿——ItemService→商品域/OrderService→交易域等），维护者
+  过目（git diff 可回滚）
+- 2. **ana 自身 domains 补 services**：R37 分析的 7 域是旧格式（无
+  services）——重跑 `codeintel domains` 后流程页服务归属生效（一次
+  AI 调用）
+- 3. 服务归属静态兜底改进（可选）：投票被基础设施兜底域污染
+  （R38 实测）——可排除服务实现包再投票
+
 **候选方向**：
 - 流程页深度：入口调用链 → 关键数据流（value-trace 串联）
 - ~~yaml 语义层：表列说明/表别名/模块描述 AI 初稿~~ → **R23 已实现**

@@ -25,3 +25,5 @@
 | 15 | probe/脚本用 `src[pos]` 反查源码字符错位 1 字节（把 '(' 看成 ')'） | 用 `fset.Position(pos).Offset` 索引源码，不用 token.Pos 直接索引 | token.Pos = base+offset（base≥1，多文件递增）。预防：源码反查一律经 Position（Q236 教训——错位曾把 Call.Pos=Lparen 误判成 Rparen，「死代码」误报） |
 | 16 | serve 页面是旧版交互（前端改动没生效） | `go build -o codeintel ./cmd/codeintel` 重建二进制；`strings codeintel \| grep <新标记>` 验证 | 前端走 go:embed，构建时打包（Q236 P2：go2o 旧二进制嵌 Q228 页面） |
 | 17 | pre-commit 内嵌套 git 命令失败 `index file open failed: Not a directory`（workspace 测试 / 增量构建） | hook 开头 `unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE`（install-precommit.sh 已含） | git commit 的 pre-commit 阶段设置 GIT_INDEX_FILE 指向提交用 index，子进程继承后 `git worktree add` 等打开失败；增量构建 git 检测失败 → 快速失败返回 202（本应 409）。预防：hook 内 unset（Q245 防忘机制实战抓到） |
+| 18 | AI 分析（domains/ask/wiki --ai）报「无法读取文件」或超时 | ① 确认 agent 子进程 cwd = 目标仓库根（R38 已注入——ask/wiki--ai/domains 自动）；② 老二进制没这修复→重新 build | claude -p 对 cwd 项目外文件 Read 弹窗无人应答即拒绝（R38 实测：go2o 事实包读不了 → AI 输出"无法读取"+ 4 分钟超时）。预防：新增 AI 调用场景传仓库 abs |
+| 19 | `codeintel domains` 重跑后 yaml 出现新旧两套域名（16 域 = 旧 8 + 新 8） | 已修复（analyzeDomains 写回前 clearDomains）；旧 yaml 手动删重复域 | setDomain 按名追加，域名变更后新旧并存。预防：重跑 domains 前确认代码含 clearDomains（R38） |

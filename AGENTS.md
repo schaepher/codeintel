@@ -65,8 +65,12 @@ go build -o codeintel ./cmd/codeintel
 #   codeintel init --repo <path>          # 全量构建
 #   codeintel update --repo <path>        # 增量更新
 #   codeintel reindex --repo <path>       # 重建（删旧库绕过 schema 检查 + init）
-#   codeintel query symbol|callers|callees|impact|table ...
-#   codeintel wiki --yaml wiki.yaml       # 业务 wiki 生成（--ai 增量补缺，写回 yaml 标注 # AI 初稿）
+#   codeintel query symbol|callers|callees|impact|table|grpc-routes|http-routes|cli-routes|external-deps ...
+#   codeintel wiki --yaml wiki.yaml [--diagram plantuml|mermaid] [--max-entries N]
+#                                          # 业务 wiki 生成（--ai 增量补缺写回 yaml 标注 # AI 初稿；
+#                                          # 流程页 gRPC 服务子页按领域分目录）
+#   codeintel domains --yaml wiki.yaml     # AI 业务域分析（R34/R38：事实包→agent 读文件→写回
+#                                          # domains 区块含 services——重跑整体替换）
 #   codeintel ask "<问题>"                # 项目上下文问答（无参数进入 REPL 多轮追问）
 #   codeintel mcp --repo <path>           # stdio MCP server（Agent 接入）
 # 完整命令清单见 codeintel-cli skill（~/.claude/skills/codeintel-cli/SKILL.md）
@@ -324,6 +328,18 @@ defer logger.Debug("exit <name>")
 11. **serve 运维坑**：`serve` 打开的是 .codeintel/codeintel.db；重建索引
     （rm -rf .codeintel 或 init 清库）会留下持有已删除文件句柄的旧 serve 进程，
     表现为 API 返回旧数据。改库后须重启 serve。
+12. **服务→领域归属（R38 用户定案）**：wiki.yaml domains.services
+    （AI 归纳 + 人工确认）优先；方法调用链涉及包投票兜底（近似）；
+    无匹配落「其他」目录。投票会被基础设施兜底域污染——显式配置
+    才是正解。
+13. **agent 子进程 cwd = 目标仓库根（R38 用户定案）**：claude/codex
+    对 cwd 项目内文件 Read 免权限弹窗——domains 事实包（仓库
+    .codeintel/ 内）由 agent 读取；ask/wiki --ai/domains 全链路注入，
+    新增 AI 调用场景必须传仓库 abs。
+14. **流程页结构（R37/R38）**：main 入口节（保留）+ HTTP 路由入口节
+    （handler_id 展开/同 handler 去重/resolver 分组）+ gRPC 服务入口
+    节（每服务独立子页、按领域分目录、方法级 (Impl).Method 展开）；
+    每节/每页入口上限折叠（--max-entries 默认 15）。
 
 ## 开发操作坑（踩过，勿重蹈）
 
@@ -333,6 +349,24 @@ defer logger.Debug("exit <name>")
   **命令输出重定向到文件（`cmd > tmp/x.txt 2>&1`）+ Read 读取**；不要因
   exit 1 误判命令失败——重定向后文件有内容即命令已执行。判断命令真实
   结果以文件内容为准（可 echo 标记位）。
+- **改代码后忘 go build 用旧二进制验证（2026-08-24 R37）**：reindex/
+  wiki 等验证跑的是旧二进制——"去重没生效"误判浪费一轮。改完代码
+  先 build 再实测（命令速查的验证顺序：test → build → 实测）。
+- **agent 子进程权限模型 = cwd 项目白名单（2026-08-25 R38）**：
+  claude -p 对 cwd 项目外文件 Read 弹窗无人应答即拒绝（domains 事实
+  包在 go2o/.codeintel/ 读不了 → AI 分析失败）。已根治：agentRunner
+  注入 dir——子进程 cwd = 目标仓库根（ask/wiki --ai/domains 全链路）。
+  新增 AI 调用场景记住传仓库 abs。
+- **domains 重跑两坑（2026-08-25 R38）**：① yaml domains 新旧并存
+  （setDomain 按名追加——重跑前必须 clearDomains，整体替换语义）；
+  ② 任务加重后超时 240s 不够（读 30KB 事实包 + 归纳 services）——
+  domains 分析 360s。
+- **plantuml 边 label 语法（2026-08-25 R38）**：`A -->|6| B` 必须转
+  `A --> B : 6`——`--> 6 : B` 会把 6 当目标节点名（PNG 渲染出数字
+  节点，线标签变长符号 ID）。mermaidToPlantuml 的 graph 转换。
+- **服务→领域归属**：yaml domains.services（AI 归纳+人工确认）是
+  正解；方法调用链投票兜底会被"基础设施兜底域"污染（go2o 全部 infra
+  包归平台系统域 → 投票天然偏向它）——兜底只当近似。
 - **`pkill -f "codeintel-e2e serve"` 会匹配自身自杀**（2026-08-14 复发两次）。
   清理 e2e 进程用 `pkill -x codeintel-e2e`（精确进程名）；杀完 sleep 0.5 再起新进程。
 - **git 命令务必在 codeintel 仓库目录执行**：曾在 `/home/schaepher/Codes/验证仓库`（验证仓库）
