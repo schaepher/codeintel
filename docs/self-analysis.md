@@ -759,13 +759,55 @@ ServiceDesc 优先、属性回退）。go2o 复验：仍 30 服务（接口模�
 新测试 TestGrpcServiceInterfaceByMethod（手写 HandService 无注册点）
 + cli 回退路径（fixture 手写服务 methods 属性）。
 
+### R31（2026-08-24）——HTTP 路由分析（query http-routes，待办 1 http 部分）
+
+**分析**：用户要求"用同样的方法处理 http，两个 resolver 各自实现
+自己的识别模式"（grilling Q1-Q3 定案：独立命令 `query http-routes`
+JSON 契约 method/path/handler/handler_file/register/resolver；gin 只
+识别路由方法不含 Static；原生识别 ServeMux 方法调用形态）。现有基础：
+markServiceEntry 只标记 serves_http + handler 节点（包级
+http.Handle/HandleFunc），无路由清单产出；routes.yaml 仍是人工表。
+
+**改进方案**（每注册点发射 http_route 节点——复用已有 KindHTTPRoute）：
+- **原生 resolver**：包级 http.Handle/HandleFunc（markServiceEntry
+  分支扩展）+ ServeMux 方法调用（mux := http.NewServeMux();
+  mux.HandleFunc——emitSelectorCall 新分支，isServeMux 类型判断）；
+  method 空（HandleFunc 匹配所有方法）
+- **gin resolver**：*gin.Engine/*gin.RouterGroup 的 GET/POST/.../Any
+  方法调用（isGinRouter 类型判断）；Group 前缀拼接——变量赋值继承
+  （scanGinGroups 两遍收集）+ 一级链式（r.Group("/v1").GET——emitcall
+  的 sel.X 非 Ident 分支，ginChainedPrefix 递归解析）
+- handler 名形态矩阵：函数 Ident / http.HandlerFunc(f) 包装 / 方法值
+  x.Method（ana serve 的 s.handleRoots 实测遗漏后补）
+- 查询层 cmdHTTPRoutes：读节点输出（resolver→method→path 确定性排序）
+
+**实施结果**：测试 TestHTTPRouteNative（4 形态：包级/HandlerFunc/
+ServeMux/method 值）、TestHTTPRouteGin（replace 本地模块构造真实
+gin 包路径——形态矩阵要求；GET+POST 同路径、Group 继承、链式、
+Static 排除）、TestQueryHTTPRoutes（契约 JSON + 排序）全绿；全仓
+-race 13 包全绿。**自举验证**（交接遗留 5 顺带完成：ana reindex
+39609 符号）：`query http-routes --repo ana` 输出 **26 条路由**
+（internal/server 的 ServeMux 全部识别——方法值 handler 形态）；
+go2o 0 条（无原生/gin 路由——其他框架，符合"后置"语义）。
+
+**AI 杠杆点**（R31 实证）：
+- 复用 grpc-routes 模式（构建期识别发射节点 + 查询层直读）——
+  "同样的方法"让 http 实现成本大幅下降（~400 行含测试）
+- 自举即验收：ana 自身的 ServeMux + 方法值 handler 形态暴露
+  routeHandlerName 盲区（SelectExpr 漏处理）——真实项目形态矩阵
+  是测试 fixture 覆盖不了的
+- gin 链式（sel.X 是 CallExpr）与变量式（Ident）是两条路径——
+  emitcall 的 xid 提取只认 Ident 是既有假设，链式需独立入口
+  （emitGinChainedCall）
+
 ## 待办与候选方向（未定优先级）
 
 **高优先级待办**（2026-08-24 用户提出，6 项）：
-- 1. **HTTP/GRPC 路由自动分析**：~~grpc 部分 → R29 已实现~~
-  （`query grpc-routes`——grpc_service 节点 + ServiceDesc 方法全集）；
-  **HTTP 部分待续**——不靠固定路径找路由注册（现 routes.yaml 人工表
-  + 固定 internal/server 路径），多 resolver（原生 net/http + gin 优先）
+- ~~1. HTTP/GRPC 路由自动分析~~ → **R29/R31 全完成**：grpc 部分
+  （`query grpc-routes`——R29 注册签名识别 + R29-2 接口方法模式识别）；
+  http 部分（`query http-routes`——R31 两个 resolver：原生 net/http
+  [包级 Handle/HandleFunc + ServeMux 方法调用] + gin [路由方法 + Group
+  前缀拼接/链式]，其他框架后置）
 - 2. **图渲染双引擎**：wiki/ER/实体协作图支持 plantuml 与 mermaid，
   参数切换（`--diagram plantuml|mermaid`，默认 plantuml）
 - 3. **urfave/cli/v2 命令解析支持**：命令/入口分析不依赖具体文件路径

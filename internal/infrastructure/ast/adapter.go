@@ -107,6 +107,8 @@ func (a *Adapter) processFile(repo *domain.Repository, pkg *packages.Package, f 
 		// 函数值变量（P2-1）：f := g / f := obj.Method → f 名 → *types.Func
 		// （f() 调用点 callee 解析失败时查此表，unused 误报收敛）
 		varFuncs: map[string]*types.Func{},
+		// R31：gin Group 前缀（scanGinGroups 文件级收集）
+		ginGroups: scanGinGroups(pkg, f),
 	}
 	ast.Inspect(f, ctx.visit)
 	return nil

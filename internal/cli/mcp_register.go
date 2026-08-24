@@ -131,6 +131,16 @@ func registerQueryTools(server *mcp.Server, env *mcpEnv, r *sqlite.Repo, repoAbs
 			}
 			return toolJSON(res), res, nil
 		})))
+	// R31：HTTP 路由清单（两个 resolver——原生 net/http + gin，构建期
+	// 识别发射 http_route 节点）
+	mcp.AddTool(server, &mcp.Tool{Name: "http_routes", Description: "HTTP 路由清单（method/path/handler/register，resolver 标注 native|gin）——了解服务暴露了哪些 HTTP 接口"},
+		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args httpRoutesParams) (*mcp.CallToolResult, *httpRoutesResult, error) {
+			res, err := httpRoutes(r)
+			if err != nil {
+				return toolErr(err.Error()), nil, nil
+			}
+			return toolJSON(res), res, nil
+		})))
 	// R9：实体协作图 + 设计诊断（Agent 了解对象协作与设计信号，
 	// 避免在不了解结构时盲目加新类型/依赖方向）
 	mcp.AddTool(server, &mcp.Tool{Name: "entities", Description: "实体协作图 + 设计诊断（类型实体 + 包门面 + 方法互调聚合边 + 高耦合/循环/上帝对象/游离函数占比）——新增类型或依赖前先查协作结构"},

@@ -42,6 +42,10 @@ type fileCtx struct {
 	// 函数值变量（P2-1）：f := g / f := obj.Method → f 名 → *types.Func
 	// （f() 调用点 callee 解析失败时查此表，unused 误报收敛）
 	varFuncs map[string]*types.Func
+	// R31：http_route 节点序号（每文件自增——路由节点 ID 唯一性）
+	routeSeq int
+	// R31：gin Group 前缀（变量名 → 路径；scanGinGroups 文件级收集）
+	ginGroups map[string]string
 }
 
 // visit ast.Inspect 回调：栈管理 + 按节点类型分派。

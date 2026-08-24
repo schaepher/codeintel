@@ -93,6 +93,13 @@ type grpcRoutesParams struct {
 
 func (p grpcRoutesParams) getRepo() string { return p.Repo }
 
+// httpRoutesParams HTTP 路由清单查询参数（R31）。
+type httpRoutesParams struct {
+	Repo string `json:"repo"` // 目标仓库（缺省用默认仓库）
+}
+
+func (p httpRoutesParams) getRepo() string { return p.Repo }
+
 // enumsParams 枚举查询参数（R6：include_untyped 控制是否含无类型常量）。
 type enumsParams struct {
 	Repo           string `json:"repo"` // 目标仓库（缺省用默认仓库）

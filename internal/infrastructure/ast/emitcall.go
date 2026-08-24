@@ -61,6 +61,9 @@ func (ctx *fileCtx) emitCall(call *ast.CallExpr) {
 	if sel, isSel := call.Fun.(*ast.SelectorExpr); isSel {
 		if xid, isID := sel.X.(*ast.Ident); isID {
 			ctx.emitSelectorCall(call, callee, sel, xid, callerID)
+		} else if _, isCall := sel.X.(*ast.CallExpr); isCall {
+			// R31：gin 链式（r.Group("/v1").GET(...)）——组前缀继承
+			ctx.emitGinChainedCall(call, sel, callee)
 		}
 	}
 	// 参数位置的嵌套调用：接收者持有返回参数（A(B(C)) → A→B、B→C）。

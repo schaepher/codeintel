@@ -158,6 +158,10 @@ func pkgOfID(id domain.CanonicalID) string {
 func (ctx *fileCtx) emitSelectorCall(call *ast.CallExpr, callee *types.Func, sel *ast.SelectorExpr,
 	xid *ast.Ident, callerID domain.CanonicalID) {
 	pkg := ctx.pkg
+	// R31：gin 路由注册（x.GET("/path", h)——*gin.Engine/*gin.RouterGroup）
+	ctx.emitGinRouteCall(call, sel, xid)
+	// R31：ServeMux 方法调用（mux.HandleFunc("/x", h)——method 空）
+	ctx.emitServeMuxCall(call, callee, xid)
 	// §18：gRPC 客户端方法调用 c.Method() → grpc_call 边
 	// （客户端调用服务 <svc> 的 <Method>）
 	if svc, okG := ctx.grpcClients[xid.Name]; okG && callee.Pkg() != nil {
