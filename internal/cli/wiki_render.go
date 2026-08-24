@@ -109,7 +109,7 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	idx.WriteString("- [ER 图（表间关系）](er.md)\n")
 	idx.WriteString("- [表清单](tables.md)\n")
 	if len(pkgs) > 0 {
-		idx.WriteString("\n" + renderPackagesMD(pkgs))
+		idx.WriteString("\n" + renderPackagesMD(pkgs, rc.repo))
 	}
 	if degradeStats != "" {
 		idx.WriteString("> 构建 SQL 解析降级统计：" + degradeStats + "（AST 降级率异常高时检查解析器）\n\n")

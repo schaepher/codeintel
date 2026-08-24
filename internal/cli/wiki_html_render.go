@@ -82,7 +82,7 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	main.WriteString(renderEnumsHTML(repoAbs))
 	nav.WriteString(`<li><a href="#enums">枚举与工具函数</a></li>`)
 	if len(pkgs) > 0 {
-		main.WriteString(renderPackagesHTML(pkgs))
+		main.WriteString(renderPackagesHTML(pkgs, rc.repo))
 		nav.WriteString(`<li><a href="#packages">包结构</a></li>`)
 	}
 	// R14：ER 图与表清单同属数据层，归位在实现细节区（认知路径靠后）

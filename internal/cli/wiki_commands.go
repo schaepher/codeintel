@@ -12,10 +12,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/schaepher/codeintel/internal/domain"
 )
-
-
 
 // apiRoute 一条 HTTP 路由（server 源码解析）。
 type apiRoute struct {
@@ -130,7 +127,6 @@ func renderAPIMD(repoAbs string) string {
 	return b.String()
 }
 
-
 // renderAPIHTML HTTP 接口页 html 内容（目标仓库 internal/server 路由；
 // 无 server 包时提示）。
 func renderAPIHTML(repoAbs string) string {
@@ -166,46 +162,5 @@ func renderAPIHTML(repoAbs string) string {
 		b.WriteString("</ul>")
 	}
 	b.WriteString("</section>")
-	return b.String()
-}
-
-// renderPackagesHTML 包职责地图 html 内容（R1：KindPackage doc_comment）。
-func renderPackagesHTML(pkgs []*domain.CodeEntity) string {
-	if len(pkgs) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString(`<section id="packages"><h2>包结构</h2><p class="muted">数据源：包节点 doc_comment（代码事实）。</p>`)
-	for _, p := range pkgs {
-		name := p.Name
-		if i := strings.LastIndex(name, "/"); i >= 0 {
-			name = name[i+1:]
-		}
-		b.WriteString("<h3><code>" + htmlEsc(name) + "</code></h3>")
-		if dc, ok := p.Properties["doc_comment"].(string); ok && dc != "" {
-			b.WriteString("<p>" + htmlEsc(dc) + "</p>")
-		}
-	}
-	b.WriteString("</section>")
-	return b.String()
-}
-
-// renderPackagesMD 包职责地图（R1：KindPackage 节点 doc_comment）。
-func renderPackagesMD(pkgs []*domain.CodeEntity) string {
-	if len(pkgs) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString("## 包结构\n\n> 数据源：包节点 doc_comment（代码事实）。\n\n")
-	for _, p := range pkgs {
-		name := p.Name
-		if i := strings.LastIndex(name, "/"); i >= 0 {
-			name = name[i+1:]
-		}
-		b.WriteString("### `" + name + "`\n\n")
-		if dc, ok := p.Properties["doc_comment"].(string); ok && dc != "" {
-			b.WriteString(dc + "\n\n")
-		}
-	}
 	return b.String()
 }

@@ -205,7 +205,7 @@ func cmdWiki(args []string) int {
 		freshNote = "索引 commit: " + shortSHA(latest.CommitSHA)
 		degradeStats = latest.DegradeStats // R6：构建降级可观测
 	}
-	rc := &wikiRenderCtx{acts: acts, data: data, cfg: cfg, cols: cols, rels: rels, pkgs: pkgs, freshNote: freshNote, degradeStats: degradeStats, Diagram: diagram}
+	rc := &wikiRenderCtx{acts: acts, data: data, cfg: cfg, cols: cols, rels: rels, pkgs: pkgs, freshNote: freshNote, degradeStats: degradeStats, Diagram: diagram, repo: sqlite.NewRepo(db)}
 	switch format {
 	case "html":
 		if err := renderWikiHTML(abs, outDir, rc); err != nil {
@@ -240,6 +240,7 @@ type wikiRenderCtx struct {
 	pkgs      []*domain.CodeEntity // R1：包职责地图（GetPackages）
 	freshNote string
 	Diagram  string // R32：图引擎 plantuml（默认）| mermaid
+	repo     *sqlite.Repo // R34：包结构 fallback 查询（无包说明时查包内符号）
 }
 
 // diagramMD md 图块：plantuml 模式输出 ```plantuml 文本（md 不嵌 PNG）；
