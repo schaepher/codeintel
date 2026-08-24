@@ -8,9 +8,7 @@ package cli
 // 服务端定义全集在 ServiceDesc）。输出 JSON 契约（Q5）。
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -29,6 +27,7 @@ type grpcRouteMethod struct {
 type grpcRouteService struct {
 	Name     string            `json:"name"`      // 服务名（QueryService）
 	Impl     string            `json:"impl"`      // 实现类型（grpc_impl 边）
+	ImplID   string            `json:"impl_id"`   // 实现类型 canonical ID（R37 流程页构造方法入口）
 	ImplFile string            `json:"impl_file"` // 实现位置（file:line）
 	Register string            `json:"register"`  // 注册调用点（file:line）
 	Methods  []grpcRouteMethod `json:"methods"`   // 服务方法全集（ServiceDesc）
@@ -78,8 +77,9 @@ func grpcRoutes(repo *sqlite.Repo, repoAbs string) (*grpcRoutesResult, error) {
 			out.Register = fmt.Sprintf("%s:%d", src, line)
 		}
 		// 4. 实现类型：grpc_impl 边（impl → 服务）
-		if impl, implFile, ok := grpcImpl(repo, sv.id); ok {
+		if impl, implID, implFile, ok := grpcImpl(repo, sv.id); ok {
 			out.Impl = impl
+			out.ImplID = implID
 			out.ImplFile = implFile
 		}
 		// 5. 方法全集：ServiceDesc（生成代码文件）优先（含 handler）；
@@ -192,31 +192,33 @@ func registerCallSite(repo *sqlite.Repo, svcName string) (string, int, bool) {
 	return "", 0, false
 }
 
-// grpcImpl grpc_impl 边（实现类型 → 服务）的实现节点位置。
+// grpcImpl grpc_impl 边（实现类型 → 服务）的实现节点位置与完整
+// canonical ID（R37：流程页按 impl_id 构造方法入口 (Impl).Method）。
 // 注册参数为接口（inject.GetXxxService() 返回接口）时，经 implements
 // 边（接口 → 实现者）追到具体实现类（go2o 实测：grpc_impl source 是
 // 接口名，业务实现才是 Q5 契约要的 impl）。
-func grpcImpl(repo *sqlite.Repo, svcID string) (string, string, bool) {
+func grpcImpl(repo *sqlite.Repo, svcID string) (string, string, string, bool) {
 	rows, err := repo.Query(`SELECT source_id FROM edges WHERE target_id = ? AND kind = 'grpc_impl' LIMIT 1`, svcID)
 	if err != nil {
-		return "", "", false
+		return "", "", "", false
 	}
 	var implID string
 	if rows.Next() {
 		if err := rows.Scan(&implID); err != nil {
 			rows.Close()
-			return "", "", false
+			return "", "", "", false
 		}
 	}
 	rows.Close() // 先收完再开内层查询（SQLite 单连接嵌套会死锁）
 	if implID == "" {
-		return "", "", false
+		return "", "", "", false
 	}
 	name, f, line, kind := nodeLoc(repo, implID)
 	if kind == string(domain.KindInterface) || strings.HasSuffix(name, "Server") {
 		// 接口 → implements 边 → 实现 struct
 		impl2, ok := implementsImpl(repo, implID)
 		if ok {
+			implID = impl2
 			name, f, line, _ = nodeLoc(repo, impl2)
 		}
 	}
@@ -224,7 +226,7 @@ func grpcImpl(repo *sqlite.Repo, svcID string) (string, string, bool) {
 	if line > 0 {
 		loc = fmt.Sprintf("%s:%d", f, line)
 	}
-	return name, loc, true
+	return name, implID, loc, true
 }
 
 // nodeLoc 节点 name/file_path/line_start/kind。
@@ -245,8 +247,9 @@ func nodeLoc(repo *sqlite.Repo, id string) (string, string, int, string) {
 }
 
 // implementsImpl 接口 → implements 边 → 实现者（SCIP is_implementation：
-// 接口指向实现）。排除 protoc 生成桩（UnimplementedXxxServer——go2o
-// 实测首个命中总是它，业务实现才是契约要的）。
+// 接口指向实现；R37 ast 断言扫描 conf 0.8 兜底）。排除 protoc 生成桩
+// （UnimplementedXxxServer——go2o 实测首个命中总是它，业务实现才是
+// 契约要的）。
 func implementsImpl(repo *sqlite.Repo, ifaceID string) (string, bool) {
 	rows, err := repo.Query(`SELECT e.target_id FROM edges e JOIN nodes n ON n.id = e.target_id
 		WHERE e.source_id = ? AND e.kind = 'implements' AND n.name NOT LIKE 'Unimplemented%' LIMIT 1`, ifaceID)
@@ -261,37 +264,4 @@ func implementsImpl(repo *sqlite.Repo, ifaceID string) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-// cmdGrpcRoutes 实现 `codeintel query grpc-routes [--repo <path>] [--json]`
-// ——服务端 gRPC 路由清单（契约化 JSON，Agent 直接解析）。
-func cmdGrpcRoutes(repoAbs string, f queryFlags) int {
-	db, err := sqlite.Open(repoAbs)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
-	}
-	defer db.Close()
-	res, err := grpcRoutes(sqlite.NewRepo(db), repoAbs)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
-	}
-	if f.json {
-		b, err := json.MarshalIndent(res, "", "  ")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			return 1
-		}
-		fmt.Println(string(b))
-		return 0
-	}
-	for _, s := range res.Services {
-		fmt.Printf("[%s] 实现 %s（%s） 注册 %s\n", s.Name, s.Impl, s.ImplFile, s.Register)
-		for _, m := range s.Methods {
-			fmt.Printf("  %s（%s）\n", m.Name, m.Handler)
-		}
-	}
-	fmt.Printf("\n共 %d 个 gRPC 服务\n", len(res.Services))
-	return 0
 }

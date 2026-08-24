@@ -1,9 +1,14 @@
 package cli
 
 import (
+	"encoding/json"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
+
+	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
 
 // serviceDescMethods go/parser 提取生成代码 ServiceDesc 方法全集：
@@ -98,4 +103,37 @@ func astExprString(e ast.Expr) string {
 		return t.Name
 	}
 	return ""
+}
+
+// cmdGrpcRoutes 实现 `codeintel query grpc-routes [--repo <path>] [--json]`
+// ——服务端 gRPC 路由清单（契约化 JSON，Agent 直接解析）。
+func cmdGrpcRoutes(repoAbs string, f queryFlags) int {
+	db, err := sqlite.Open(repoAbs)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	defer db.Close()
+	res, err := grpcRoutes(sqlite.NewRepo(db), repoAbs)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	if f.json {
+		b, err := json.MarshalIndent(res, "", "  ")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		fmt.Println(string(b))
+		return 0
+	}
+	for _, s := range res.Services {
+		fmt.Printf("[%s] 实现 %s（%s） 注册 %s\n", s.Name, s.Impl, s.ImplFile, s.Register)
+		for _, m := range s.Methods {
+			fmt.Printf("  %s（%s）\n", m.Name, m.Handler)
+		}
+	}
+	fmt.Printf("\n共 %d 个 gRPC 服务\n", len(res.Services))
+	return 0
 }

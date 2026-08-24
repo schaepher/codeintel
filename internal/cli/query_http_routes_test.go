@@ -81,3 +81,46 @@ func TestQueryHTTPRoutes(t *testing.T) {
 		}
 	}
 }
+
+// TestQueryHTTPRoutesHandlerID：handler_id 契约字段（R37）——发射端存
+// canonical ID；老索引无该属性（NULL）COALESCE 兜底为空且不丢行。
+func TestQueryHTTPRoutesHandlerID(t *testing.T) {
+	dir := seedRepo(t)
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	r := sqlite.NewRepo(db)
+	nodes := []*domain.CodeEntity{
+		{ID: "symbol:go:example.com/m/api:route.1", Kind: domain.KindHTTPRoute,
+			Name: "GET /ping", Properties: map[string]any{
+				"method": "GET", "path": "/ping", "handler": "pingHandler",
+				"handler_id": "symbol:go:example.com/m/api:pingHandler",
+				"resolver": "gin", "register": "api/routes.go:20",
+			}},
+		{ID: "symbol:go:example.com/m/api:route.2", Kind: domain.KindHTTPRoute,
+			Name: " /", Properties: map[string]any{
+				"method": "", "path": "/", "handler": "home",
+				"resolver": "native", "register": "api/api.go:12",
+			}},
+	}
+	if _, err := r.SaveBatchStats(nodes, nil, nil); err != nil {
+		t.Fatalf("save nodes: %v", err)
+	}
+	res, err := httpRoutes(sqlite.NewRepo(db))
+	if err != nil {
+		t.Fatalf("httpRoutes: %v", err)
+	}
+	if len(res.Routes) != 2 {
+		t.Fatalf("路由数 = %d; want 2（老索引 NULL 路由不应丢行）:\n%+v", len(res.Routes), res)
+	}
+	for _, rte := range res.Routes {
+		if rte.Path == "/ping" && rte.HandlerID != "symbol:go:example.com/m/api:pingHandler" {
+			t.Errorf("/ping handler_id = %q; want 发射端 canonical ID", rte.HandlerID)
+		}
+		if rte.Path == "/" && rte.HandlerID != "" {
+			t.Errorf("/ handler_id = %q; want 空（老索引无属性）", rte.HandlerID)
+		}
+	}
+}

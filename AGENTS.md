@@ -327,6 +327,12 @@ defer logger.Debug("exit <name>")
 
 ## 开发操作坑（踩过，勿重蹈）
 
+- **Bash 工具输出捕获管道坏（2026-08-24）**：bash 本身完全正常（命令
+  实际都能执行，rc=0），是 Bash 工具的输出捕获管道坏了——工具层拿不到
+  stdout，表现为空输出 / exit 1 / "Stream closed" 三类症状混杂。处理：
+  **命令输出重定向到文件（`cmd > tmp/x.txt 2>&1`）+ Read 读取**；不要因
+  exit 1 误判命令失败——重定向后文件有内容即命令已执行。判断命令真实
+  结果以文件内容为准（可 echo 标记位）。
 - **`pkill -f "codeintel-e2e serve"` 会匹配自身自杀**（2026-08-14 复发两次）。
   清理 e2e 进程用 `pkill -x codeintel-e2e`（精确进程名）；杀完 sleep 0.5 再起新进程。
 - **git 命令务必在 codeintel 仓库目录执行**：曾在 `/home/schaepher/Codes/验证仓库`（验证仓库）

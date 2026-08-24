@@ -6,10 +6,10 @@ package cli
 // 输出：docs/wiki/index.md + 每模块一页 + tables.md。
 
 import (
-	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/schaepher/codeintel/internal/action"
@@ -34,6 +34,7 @@ func cmdWiki(args []string) int {
 	aiAgent := ""
 	aiWithQA := false
 	diagram := "plantuml" // R32：图引擎（默认 plantuml，Q3 定案）
+	maxEntries := 0       // R37：流程页入口展开上限（0 = 默认 15）
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
@@ -73,8 +74,13 @@ func cmdWiki(args []string) int {
 			i++
 		case strings.HasPrefix(a, "--diagram="):
 			diagram = strings.TrimPrefix(a, "--diagram=")
+		case a == "--max-entries" && i+1 < len(args):
+			maxEntries, _ = strconv.Atoi(args[i+1])
+			i++
+		case strings.HasPrefix(a, "--max-entries="):
+			maxEntries, _ = strconv.Atoi(strings.TrimPrefix(a, "--max-entries="))
 		case a == "--help" || a == "-h":
-			fmt.Println("用法: codeintel wiki [--repo <path>] [--out <dir=docs/wiki>] [--yaml <file>] [--format md|html] [--init] [--ai] [--agent codex|claude|auto] [--with-qa] [--diagram plantuml|mermaid]\n  从代码生成业务 wiki（Markdown 或单文件 HTML）——wiki.yaml 可补充业务描述/别名/隐藏符号；--init 生成 wiki.yaml 骨架；--ai 用 AI 增量补缺（无描述模块/无别名表/无说明列/术语表 → 写回 wiki.yaml 标注 # AI 初稿）；--with-qa 从历史问答（ask/serve 对话收集）读取相关 Q&A 作为参考资料；--diagram 图引擎（默认 plantuml——HTML 渲染 PNG 嵌入；mermaid 浏览器端渲染）")
+			fmt.Println("用法: codeintel wiki [--repo <path>] [--out <dir=docs/wiki>] [--yaml <file>] [--format md|html] [--init] [--ai] [--agent codex|claude|auto] [--with-qa] [--diagram plantuml|mermaid] [--max-entries <N>]\n  从代码生成业务 wiki（Markdown 或单文件 HTML）——wiki.yaml 可补充业务描述/别名/隐藏符号；--init 生成 wiki.yaml 骨架；--ai 用 AI 增量补缺（无描述模块/无别名表/无说明列/术语表 → 写回 wiki.yaml 标注 # AI 初稿）；--with-qa 从历史问答（ask/serve 对话收集）读取相关 Q&A 作为参考资料；--diagram 图引擎（默认 plantuml——HTML 渲染 PNG 嵌入；mermaid 浏览器端渲染）；--max-entries 流程页每节/每页入口展开上限（默认 15，超出折叠为清单）")
 			return 0
 		default:
 			fmt.Fprintf(os.Stderr, "error: 未知参数 %q\n", a)
@@ -205,7 +211,7 @@ func cmdWiki(args []string) int {
 		freshNote = "索引 commit: " + shortSHA(latest.CommitSHA)
 		degradeStats = latest.DegradeStats // R6：构建降级可观测
 	}
-	rc := &wikiRenderCtx{acts: acts, data: data, cfg: cfg, cols: cols, rels: rels, pkgs: pkgs, freshNote: freshNote, degradeStats: degradeStats, Diagram: diagram, repo: sqlite.NewRepo(db)}
+	rc := &wikiRenderCtx{acts: acts, data: data, cfg: cfg, cols: cols, rels: rels, pkgs: pkgs, freshNote: freshNote, degradeStats: degradeStats, Diagram: diagram, repo: sqlite.NewRepo(db), MaxEntries: maxEntries, RepoAbs: abs}
 	switch format {
 	case "html":
 		if err := renderWikiHTML(abs, outDir, rc); err != nil {
@@ -241,49 +247,11 @@ type wikiRenderCtx struct {
 	freshNote string
 	Diagram  string // R32：图引擎 plantuml（默认）| mermaid
 	repo     *sqlite.Repo // R34：包结构 fallback 查询（无包说明时查包内符号）
+	MaxEntries int // R37：流程页每节/每页入口展开上限（0 = procMaxEntries）
+	RepoAbs  string // R37：目标仓库绝对路径（grpc ServiceDesc 解析需要——空则方法全集缺失）
 }
 
-// diagramMD md 图块：plantuml 模式输出 ```plantuml 文本（md 不嵌 PNG）；
-// mermaid 模式原样代码块（R33 方案 A：超 500 边降级提示——浏览器渲染挂）。
-func (rc *wikiRenderCtx) diagramMD(mermaid string) string {
-	if rc.Diagram != "plantuml" {
-		if n := diagramEdgeCount(mermaid); n > mermaidEdgeLimit {
-			return "（图过大：" + itoa(n) + " 条边，mermaid 上限 " + itoa(mermaidEdgeLimit) + "——用 `query relations` 按表查询）\n\n"
-		}
-		return "```mermaid\n" + mermaid + "\n```\n\n"
-	}
-	return "```plantuml\n" + mermaidToPlantuml(mermaid) + "\n```\n\n"
-}
-
-// diagramHTML html 图块：plantuml 模式渲染 PNG → base64 <img>（单文件
-// 自包含；渲染失败降级 plantuml 文本块）；mermaid 模式 <pre class="mermaid">
-// （R33 方案 A：超 500 边自动降级——尝试 plantuml PNG，失败给提示）。
-func (rc *wikiRenderCtx) diagramHTML(mermaid string) string {
-	if rc.Diagram != "plantuml" {
-		if n := diagramEdgeCount(mermaid); n > mermaidEdgeLimit {
-			if puml := mermaidToPlantuml(mermaid); puml != "" {
-				if png, err := plantumlRender(puml); err == nil {
-					return "<img src=\"data:image/png;base64," + base64.StdEncoding.EncodeToString(png) + "\" alt=\"diagram\"/>"
-				}
-			}
-			return "<p class=\"muted\">图过大（" + itoa(n) + " 条边，mermaid 上限 " + itoa(mermaidEdgeLimit) + "）——用 `query relations` 按表查询</p>"
-		}
-		return "<pre class=\"mermaid\">" + htmlEsc(mermaid) + "</pre>"
-	}
-	puml := mermaidToPlantuml(mermaid)
-	if puml == "" {
-		return "<pre class=\"mermaid\">" + htmlEsc(mermaid) + "</pre>"
-	}
-	// R33：plantuml 渲染大图也慢/失败（go2o 1283 边 ER 图实测）——
-	// 超限直接提示，不白等渲染
-	if n := diagramEdgeCount(mermaid); n > mermaidEdgeLimit {
-		return "<p class=\"muted\">图过大（" + itoa(n) + " 条边）——按领域分组图或 `query relations` 按表查询</p>"
-	}
-	if png, err := plantumlRender(puml); err == nil {
-		return "<img src=\"data:image/png;base64," + base64.StdEncoding.EncodeToString(png) + "\" alt=\"diagram\"/>"
-	}
-	return "<pre class=\"plantuml\">" + htmlEsc(puml) + "</pre>"
-}
+// diagramMD/diagramHTML 已拆到 wiki_diagram.go（行数治理）。
 
 // renderWiki 生成 index.md + 模块页 + tables.md + er.md + commands.md +
 // api.md（全量覆盖）。

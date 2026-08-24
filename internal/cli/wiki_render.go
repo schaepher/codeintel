@@ -151,6 +151,15 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	if err := os.WriteFile(filepath.Join(outDir, "processes.md"), []byte(renderProcessesMD(rc)), 0o644); err != nil {
 		return err
 	}
+	// R37：gRPC 服务子页（每服务独立一页——流程页索引链接到这里）
+	if svcs := grpcServiceList(rc); len(svcs) > 0 {
+		for _, s := range svcs {
+			page := renderGrpcServiceMD(rc, s, procMaxOf(rc.MaxEntries))
+			if err := os.WriteFile(filepath.Join(outDir, "processes-grpc-"+grpcSvcFileName(s.Name)+".md"), []byte(page), 0o644); err != nil {
+				return err
+			}
+		}
+	}
 	// R5：枚举与工具函数（源码事实——AI 权威值来源）
 	return os.WriteFile(filepath.Join(outDir, "enums.md"), []byte(renderEnumsMD(repoAbs)), 0o644)
 }
@@ -183,7 +192,8 @@ func cleanWikiOutDir(outDir string, data []*domain.WikiModule) error {
 		if n.IsDir() {
 			continue
 		}
-		if wikiArtifacts[n.Name()] || modulePages[n.Name()] {
+		// R37：gRPC 服务子页动态名（服务名）——前缀匹配清理
+		if wikiArtifacts[n.Name()] || modulePages[n.Name()] || strings.HasPrefix(n.Name(), "processes-grpc-") {
 			if err := os.Remove(filepath.Join(outDir, n.Name())); err != nil {
 				return err
 			}

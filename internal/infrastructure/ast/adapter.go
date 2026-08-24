@@ -79,6 +79,11 @@ func (a *Adapter) processFile(repo *domain.Repository, pkg *packages.Package, f 
 	if err := a.emitStructFields(repo, pkg, f, emit); err != nil {
 		return err
 	}
+	// R37：编译期接口断言 `var _ Iface = new(T)` → implements 边（SCIP
+	// 盲区补丁——scip-go 对断言不输出 is_implementation）
+	if err := emitInterfaceAssertions(repo, pkg, f, emit); err != nil {
+		return err
+	}
 
 	// 遍历上下文（filectx.go：闭包状态打包 + visit/emitCall 等方法——
 	// 2026-08-17 从本函数闭包拆分，逻辑逐行一致）

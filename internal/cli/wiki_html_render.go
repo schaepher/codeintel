@@ -78,6 +78,22 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	// R2：系统流程区块（进程视角）
 	main.WriteString(renderProcessesHTML(rc))
 	nav.WriteString(`<li><a href="#processes">系统流程</a></li>`)
+	// R37：gRPC 服务子页（每服务独立 html——wikiHTMLPage 包装，流程页索引链接）
+	if svcs := grpcServiceList(rc); len(svcs) > 0 {
+		for _, s := range svcs {
+			sub := wikiHTMLPage(
+				"gRPC 服务流程："+s.Name,
+				"",
+				`<a href="index.html">← 返回总览</a>`,
+				`<li><a href="index.html">返回总览</a></li>`,
+				renderGrpcServiceHTML(rc, s, procMaxOf(rc.MaxEntries)),
+				wikiPageOpts{freshNote: rc.freshNote, diagram: rc.Diagram},
+			)
+			if err := os.WriteFile(filepath.Join(outDir, "processes-grpc-"+grpcSvcFileName(s.Name)+".html"), []byte(sub), 0o644); err != nil {
+				return err
+			}
+		}
+	}
 	// R5：枚举与工具函数区块（AI 权威值）
 	main.WriteString(renderEnumsHTML(repoAbs))
 	nav.WriteString(`<li><a href="#enums">枚举与工具函数</a></li>`)

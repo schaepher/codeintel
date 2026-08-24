@@ -135,6 +135,19 @@ func renderProcessesMD(rc *wikiRenderCtx) string {
 			}
 		}
 	}
+	// R37：HTTP 路由入口（handler 调用链，同 handler 去重）——数据源
+	// http_route 节点（构建期识别）；rc.repo nil（纯函数级测试）跳过
+	if rc.repo != nil {
+		if h := renderHTTPRoutesMD(rc, httpProcEntries(rc.acts, rc.repo), procMaxOf(rc.MaxEntries)); h != "" {
+			b.WriteString(h)
+		}
+		// gRPC 服务入口索引（每服务独立子页——子页文件由渲染器写出）
+		if svcs := grpcServiceList(rc); len(svcs) > 0 {
+			if g := renderGrpcIndexMD(rc, svcs, procMaxOf(rc.MaxEntries)); g != "" {
+				b.WriteString(g)
+			}
+		}
+	}
 	return b.String()
 }
 
@@ -189,6 +202,18 @@ func renderProcessesHTML(rc *wikiRenderCtx) string {
 			}
 			if len(chain.Pkgs) > 0 {
 				b.WriteString("<p class=\"muted\">涉及包：" + htmlEsc(strings.Join(chain.Pkgs, "、")) + "</p>")
+			}
+		}
+	}
+	// R37：HTTP 路由入口 + gRPC 服务入口索引（每服务独立子页）；
+	// rc.repo nil（纯函数级测试）跳过
+	if rc.repo != nil {
+		if h := renderHTTPRoutesHTML(rc, httpProcEntries(rc.acts, rc.repo), procMaxOf(rc.MaxEntries)); h != "" {
+			b.WriteString(h)
+		}
+		if svcs := grpcServiceList(rc); len(svcs) > 0 {
+			if g := renderGrpcIndexHTML(rc, svcs, procMaxOf(rc.MaxEntries)); g != "" {
+				b.WriteString(g)
 			}
 		}
 	}

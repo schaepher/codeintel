@@ -10,7 +10,7 @@ import (
 	"github.com/schaepher/codeintel/internal/domain"
 )
 
-// routePropsOf 收集 http_route 节点属性（path → method,resolver,handler）。
+// routePropsOf 收集 http_route 节点属性（path → method,resolver,handler,handler_id）。
 func routePropsOf(nodes []*domain.CodeEntity) map[string][]string {
 	out := map[string][]string{}
 	for _, n := range nodes {
@@ -20,7 +20,7 @@ func routePropsOf(nodes []*domain.CodeEntity) map[string][]string {
 		p := n.Properties
 		path, _ := p["path"].(string)
 		out[path] = []string{
-			asStr(p["method"]), asStr(p["resolver"]), asStr(p["handler"]),
+			asStr(p["method"]), asStr(p["resolver"]), asStr(p["handler"]), asStr(p["handler_id"]),
 		}
 	}
 	return out
@@ -77,6 +77,51 @@ func setup() {
 		}
 		if got[0] != props[0] || got[1] != props[1] || got[2] != props[2] {
 			t.Errorf("路由 %s = %v; want %v", path, got, props)
+		}
+	}
+}
+
+// TestHTTPRouteHandlerID：handler_id 发射（R37）——函数 Ident →
+// symbol:go:<pkg>:<func>；方法值 x.Method → symbol:go:<pkg>:(T).Method；
+// http.HandlerFunc(f) 包装递归取 f；匿名函数为空。
+func TestHTTPRouteHandlerID(t *testing.T) {
+	nodes, _ := indexFixture(t, map[string]string{
+		"go.mod": "module example.com/mtest\n\ngo 1.21\n",
+		"api/api.go": `package api
+
+import "net/http"
+
+func home(w http.ResponseWriter, r *http.Request) {}
+
+type srv struct{}
+
+func (s *srv) orders(w http.ResponseWriter, r *http.Request) {}
+
+func setup() {
+	http.HandleFunc("/", home)
+	http.Handle("/health", http.HandlerFunc(home))
+	s := &srv{}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/users/", s.orders)
+	mux.HandleFunc("/anon", func(w http.ResponseWriter, r *http.Request) {})
+}
+`,
+	})
+	routes := routePropsOf(nodes)
+	want := map[string]string{
+		"/":           "symbol:go:example.com/mtest/api:home",
+		"/health":     "symbol:go:example.com/mtest/api:home",
+		"/api/users/": "symbol:go:example.com/mtest/api:(srv).orders",
+		"/anon":       "",
+	}
+	for path, wantID := range want {
+		got, ok := routes[path]
+		if !ok {
+			t.Errorf("缺路由 %s，全部: %v", path, routes)
+			continue
+		}
+		if got[3] != wantID {
+			t.Errorf("路由 %s handler_id = %q; want %q", path, got[3], wantID)
 		}
 	}
 }
@@ -202,5 +247,12 @@ func setup() {
 	// Static 系列不算（噪音）
 	if _, ok := routes["/static"]; ok {
 		t.Error("Static 静态资源不应进路由清单")
+	}
+	// R37：handler_id 发射（包内函数 / 匿名）
+	if got, ok := routes["/ping"]; !ok || got[3] != "symbol:go:example.com/mtest/api:pingHandler" {
+		t.Errorf("/ping handler_id = %v; want symbol:go:example.com/mtest/api:pingHandler", got)
+	}
+	if got, ok := routes["/anon"]; !ok || got[3] != "" {
+		t.Errorf("/anon handler_id = %q; want 空（匿名函数）", got[3])
 	}
 }

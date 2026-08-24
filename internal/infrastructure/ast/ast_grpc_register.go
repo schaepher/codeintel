@@ -40,6 +40,12 @@ func (a *Adapter) markGrpcServiceInterfaces(repo *domain.Repository, pkg *packag
 				if !ok || iface.NumMethods() == 0 {
 					continue
 				}
+				// R37：排除客户端接口（XxxServiceClient——方法签名同模式但
+				// 是调用方桩，R30-2 签名识别误伤：go2o 实测 62 子页 = 31
+				// 服务 + 31 Client）
+				if strings.HasSuffix(named.Obj().Name(), "Client") {
+					continue
+				}
 				svcName, methods := grpcServiceFromInterface(iface, named.Obj().Name())
 				if svcName == "" {
 					continue

@@ -149,6 +149,9 @@ func TestQueryGrpcRoutes(t *testing.T) {
 	if s.Impl != "queryServiceImpl" {
 		t.Errorf("impl = %q; want queryServiceImpl（grpc_impl 边）", s.Impl)
 	}
+	if s.ImplID != "symbol:go:example.com/m/impl:queryServiceImpl" {
+		t.Errorf("impl_id = %q; want symbol:go:example.com/m/impl:queryServiceImpl（R37 流程页构造方法入口）", s.ImplID)
+	}
 	if !strings.Contains(s.ImplFile, "impl/query.go") {
 		t.Errorf("impl_file = %q; want impl/query.go", s.ImplFile)
 	}

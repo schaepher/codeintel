@@ -261,7 +261,8 @@ func (ctx *fileCtx) markServiceEntry(call *ast.CallExpr, callee *types.Func,
 		// R31：路由节点（method 空——HandleFunc 匹配所有方法）
 		if len(call.Args) >= 2 {
 			path := extractStringArg(pkg, ctx.methodVars, call.Args[0])
-			ctx.emitHTTPRoute("", path, routeHandlerName(pkg, call.Args[1]), "native", call)
+			hn, hid := routeHandlerName(pkg, call.Args[1])
+			ctx.emitHTTPRoute("", path, hn, hid, "native", call)
 		}
 	}
 	// gRPC 服务注册：按签名识别的注册函数（R30：不限 .pb.go/命名——

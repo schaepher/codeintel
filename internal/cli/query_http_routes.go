@@ -14,13 +14,14 @@ import (
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
 
-// httpRouteEntry 一条 HTTP 路由（Q1 契约）。
+// httpRouteEntry 一条 HTTP 路由（Q1 契约 + R37 handler_id）。
 type httpRouteEntry struct {
-	Method   string `json:"method"`   // HTTP 方法（原生 HandleFunc 为空）
-	Path     string `json:"path"`     // 路由路径（gin Group 前缀已拼接）
-	Handler  string `json:"handler"`  // handler 函数名
-	Resolver string `json:"resolver"` // 来源：native | gin
-	Register string `json:"register"` // 注册调用点（file:line）
+	Method    string `json:"method"`     // HTTP 方法（原生 HandleFunc 为空）
+	Path      string `json:"path"`       // 路由路径（gin Group 前缀已拼接）
+	Handler   string `json:"handler"`    // handler 函数名
+	HandlerID string `json:"handler_id"` // handler canonical ID（R37 发射端解析；老索引为空）
+	Resolver  string `json:"resolver"`   // 来源：native | gin
+	Register  string `json:"register"`   // 注册调用点（file:line）
 }
 
 // httpRoutesResult 查询结果。
@@ -31,20 +32,22 @@ type httpRoutesResult struct {
 // httpRoutes 读 http_route 节点（构建期发射）→ 契约结构，确定性排序。
 func httpRoutes(repo *sqlite.Repo) (*httpRoutesResult, error) {
 	res := &httpRoutesResult{Routes: []httpRouteEntry{}}
+	// handler_id 老索引无该属性（json_extract 返回 NULL）——COALESCE 兜底
+	// 否则 Scan string 失败丢整行（R34/R35 教训）
 	rows, err := repo.Query(`SELECT json_extract(properties, '$.method'), json_extract(properties, '$.path'),
-		json_extract(properties, '$.handler'), json_extract(properties, '$.resolver'),
-		json_extract(properties, '$.register') FROM nodes WHERE kind = 'http_route'`)
+		json_extract(properties, '$.handler'), COALESCE(json_extract(properties, '$.handler_id'), ''),
+		json_extract(properties, '$.resolver'), json_extract(properties, '$.register') FROM nodes WHERE kind = 'http_route'`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var method, path, handler, resolver, register string
-		if err := rows.Scan(&method, &path, &handler, &resolver, &register); err != nil {
+		var method, path, handler, handlerID, resolver, register string
+		if err := rows.Scan(&method, &path, &handler, &handlerID, &resolver, &register); err != nil {
 			continue
 		}
 		res.Routes = append(res.Routes, httpRouteEntry{
-			Method: method, Path: path, Handler: handler,
+			Method: method, Path: path, Handler: handler, HandlerID: handlerID,
 			Resolver: resolver, Register: register,
 		})
 	}

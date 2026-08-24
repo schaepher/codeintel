@@ -992,6 +992,62 @@ notify——跨包常量键名 + 调用方函数全识别）；全仓 -race 13 �
 - redis 命令式（conn.Do("BLPOP", key)）是 go2o 主流——命令名+键
   参数模式比方法式更值得识别
 
+### R37（2026-08-24）——系统流程基于 http/grpc 入口（待办 4，最后一个高优先）
+
+用户定案（grilling）：发射端存 handler canonical ID（查询端无法解析
+方法值短名）；gRPC 每方法一个入口；规模控制 = 上限 + 超出折叠（默认
+15，--max-entries 可调）；**每 gRPC 服务独立子页**（md/html 双通道）；
+main 节保留 + 新增路由节。
+
+- **发射端 handler_id**（http_routes.go）：routeHandlerName → 返回
+  (name, canonicalID)——函数 Ident（TypesInfo.ObjectOf）、方法值
+  x.Method（x 包名 → 跨包函数 / x 变量 → (T).Method，解指针）、
+  http.HandlerFunc(f) 递归、FuncLit 空。http_route properties 加
+  handler_id；查询端 COALESCE 兜底（老索引 NULL 不丢行——R34/R35 教训）。
+- **grpc ImplID**（query_grpc_routes.go）：grpcImpl 返回实现类型完整
+  canonical ID（grpc_impl 边 source → implements 边追业务实现）；
+  流程页按 `symbol:go:<pkg>:(Impl).Method` 构造方法入口（canonicalizer
+  统一 (T).m 形态——直接拼字符串，勿忘括号）。
+- **流程页三节**（wiki_processes_routes.go 新文件）：main 入口节
+  （保留）→ HTTP 路由入口节（handler_id 展开、同 handler 多路由去重、
+  resolver 分组 [native]/[gin]、匿名/方法值降级说明）→ gRPC 服务入口
+  索引节（每服务子页链接）。折叠：超出上限只列清单（md 平铺 / html
+  details），清单项也带子页链接。
+- **gRPC 服务子页**（wiki_render.go / wiki_html_render.go）：每服务
+  独立页（processes-grpc-<svc>.md/.html），页内每方法展开（协作子图 +
+  时序图 + 涉及包）；HTML 复用 wikiHTMLPage 模板（返回总览链接）；
+  cleanWikiOutDir 白名单加 processes-grpc- 前缀（动态文件名）。
+- **--max-entries**（wiki.go）：流程页每节/每页入口展开上限，默认 15。
+- **实测发现与修复**：
+  - 多模块仓库重复发射（ana 8 个 go.mod 同一源码加载两次 → 路由
+    重复）——httpProcEntries Paths 去重（routeLabel containsStr）。
+  - **XxxServiceClient 客户端接口误伤**（R30-2 接口签名识别把客户端
+    接口也当服务——go2o 62 子页 = 31 服务 + 31 Client）——ast 端排除
+    Client 结尾接口，回落到 30 服务（与 R29 一致）。
+  - **grpcRoutes(repo, "") 的 ServiceDesc 解析失效**——repoAbs 相对
+    cwd 找不到 pb 文件 → wikiRenderCtx 加 RepoAbs 字段贯通（方法全集
+    + handler 恢复正常）。
+  - **SCIP 断言盲区**（核心补丁）：go2o 实现类仅靠
+    `var _ proto.XxxServer = new(queryService)` 声明实现关系，
+    scip-go 不输出 is_implementation → implements 边缺失 → grpc-impl
+    追实现失败。新增 ast 端**编译期接口断言扫描**
+    （ast_implements.go）：包级 `var _ Iface = expr` → 右侧动态类型
+    具体类型（指针解包）→ types.Implements 指针/值方法集验证 → emit
+    implements 边（接口 → 实现者，conf 0.8）+ 缺失端点节点补 emit
+    （UPSERT 合并）。**通用补丁**（不只 grpc——任何断言实现的接口
+    查询都受益）。go2o 实测补 43 条断言边。
+
+**AI 杠杆点**（R37 实证）：
+- scip-go 的 is_implementation 只覆盖显式实现关系——`var _ Iface =
+  new(T)` 编译期断言不输出；AST 断言扫描是通用兜底（types.Implements
+  精确验证，无误伤）。
+- 内置接口（`var _ error = ...`）Named.Obj().Pkg() 为 nil——发射端
+  补防护（go2o reindex 实测 panic 抓出）。
+- canonical ID 拼接易错点：(T).m 的括号（ImplID + "." + m 拼错查不出
+  ——方法解析静默失败，页面显示"无调用链"）。
+- 验证用新二进制重跑（改代码后忘 go build——旧二进制跑 wiki 误判
+  "去重没生效"，浪费一轮）。
+
 ## 待办与候选方向（未定优先级）
 
 **高优先级待办**（2026-08-24 用户提出，6 项）：
@@ -1003,14 +1059,14 @@ notify——跨包常量键名 + 调用方函数全识别）；全仓 -race 13 �
 - ~~2. 图渲染双引擎~~ → **R32 已实现**（wiki `--diagram
   plantuml|mermaid`，默认 plantuml——HTML 渲染 PNG base64 嵌入、md
   输出 plantuml 文本块；mermaid 模式保持浏览器渲染）
-- 3. **urfave/cli/v2 命令解析支持**：命令/入口分析不依赖具体文件路径
-  （现基于 root.go Main switch 硬编码文件），识别 cli/v2 注册的命令树
-- 4. **系统流程基于 http/grpc 分析出的入口**：processes 页（R28 起基于
-  main 入口 + 一级调用）进一步以路由入口（handle/gin handler/grpc
-  方法）生成流程，与待办 1 联动（grpc 部分数据源已就绪——grpc-routes）
-- 5. **redis client / kafka（sarama）调用分析**：外部库语义标注（衔接
-  field-summary.yaml 机制——自研 ORM 已有，redis/kafka 是高频外部
-  依赖）
+- ~~3. urfave/cli/v2 命令解析支持~~ → **R35 已实现**（query
+  cli-routes——命令树节点 + wiki 命令清单页）
+- ~~4. 系统流程基于 http/grpc 分析出的入口~~ → **R37 已实现**：
+  processes 页 = main 入口节（保留）+ HTTP 路由入口节（handler_id
+  展开/去重/resolver 分组）+ gRPC 服务入口节（每服务独立子页，
+  (Impl).Method 方法级展开）；上限折叠 --max-entries 默认 15
+- ~~5. redis client / kafka（sarama）调用分析~~ → **R36 已实现**
+  （query external-deps——redis 方法式+命令式、kafka producer/consumer）
 - ~~6. grpc 枚举分析~~ → **R29 已实现**（.proto 源枚举并入 query
   enums，Source=proto 标注；生成代码 .pb.go 排除）
 
@@ -1026,8 +1082,8 @@ notify——跨包常量键名 + 调用方函数全识别）；全仓 -race 13 �
 - 4. **新人实测演练**：挑一个陌生项目，用 wiki 走通 onboarding 流程，
   验证"新人视角无死角"是否真实成立（覆盖度全勾选后终极验证，
   需外部项目）
-- 5. **ana 自身索引 update**（收尾后 update 一次；R28 后分析/渲染
-  代码已变——update 工作区干净会跳过，用 reindex 确保新逻辑生效）
+- ~~5. ana 自身索引 update~~ → **R37 已 reindex**（含 R35-R37 分析逻辑；
+  后续再改分析逻辑用 reindex——update 工作区干净会跳过）
 - 6. **F2 实体分组对非 DDD 项目效果**（validSplit 降级逻辑已测；
   go2o 是 DDD 样例——普通项目待观察）
 

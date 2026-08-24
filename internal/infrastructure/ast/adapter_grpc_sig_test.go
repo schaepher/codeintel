@@ -88,6 +88,13 @@ type HandService interface {
 type Repo interface {
 	Save(order string) error
 }
+
+// 客户端接口（R37 误伤修复）：方法签名同服务模式，但命名 Client 结尾
+// ——调用方桩，不得识别为服务（go2o 实测 31 个 XxxServiceClient 误伤）
+type HandServiceClient interface {
+	Do(ctx context.Context, req string) (string, error)
+	Get(ctx context.Context, id int) (string, error)
+}
 `,
 	})
 	svcNode := false
@@ -99,6 +106,9 @@ type Repo interface {
 		}
 		if n.Kind == domain.KindGrpcService && n.Property("service_name") == "Repo" {
 			t.Error("非 grpc 模式接口（无 ctx 参数）不应识别为服务")
+		}
+		if n.Kind == domain.KindGrpcService && n.Property("service_name") == "HandServiceClient" {
+			t.Error("客户端接口（XxxClient）不应识别为服务（R37 误伤修复）")
 		}
 	}
 	if !svcNode {
