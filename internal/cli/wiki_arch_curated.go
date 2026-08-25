@@ -56,6 +56,17 @@ func archMermaidCurated(data []*domain.WikiModule) string {
 	if len(counts) == 0 {
 		return ""
 	}
+	// R42：分组规则硬编码 ana 自身包名（R7 定制）——不识别该项目时
+	// 有效节点过少（go2o 实测只剩 domain 1 包 1 自环边）→ 降级返回空
+	// （不显示贫瘠的 AI 整理版，保留自动聚合版 archMermaidFallback）
+	usedNodes := map[string]bool{}
+	for k := range counts {
+		usedNodes[k.from] = true
+		usedNodes[k.to] = true
+	}
+	if len(usedNodes) < 3 {
+		return ""
+	}
 	// 确定性排序
 	keys := make([]key, 0, len(counts))
 	for k := range counts {

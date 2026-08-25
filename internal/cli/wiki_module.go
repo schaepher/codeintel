@@ -169,11 +169,18 @@ func renderModulePage(wm *domain.WikiModule, eg *domain.EntityGraph, keyFlows []
 func archMermaidFallback(data []*domain.WikiModule, doms []wikiDomainCfg) string {
 	type key struct{ from, to string }
 	counts := map[key]int{}
-	// R34：包 → 领域索引（短名匹配，同 splitEntityDomains）
+	// R34：包 → 领域索引（短名匹配，同 splitEntityDomains）。
+	// R42：domains.packages 兼容完整路径（R38 起 AI 输出完整路径——
+	// PkgCalls 的 From/To 是包短名，精确 map 查找失效 → 整体架构图
+	// 消失）——取路径末段做键
 	pkgDomain := map[string]string{}
 	for _, d := range doms {
 		for _, p := range d.Packages {
-			pkgDomain[p] = d.Name
+			short := p
+			if i := strings.LastIndex(p, "/"); i >= 0 {
+				short = p[i+1:]
+			}
+			pkgDomain[short] = d.Name
 		}
 	}
 	for _, wm := range data {

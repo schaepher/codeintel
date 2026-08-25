@@ -31,6 +31,29 @@ func TestArchMermaidFallback(t *testing.T) {
 	}
 }
 
+// TestArchMermaidFallbackFullPathPackages：R42——domains.packages 完整
+// 路径（R38 起 AI 输出）→ 领域聚合仍生效（末段短名匹配——PkgCalls
+// 的 From/To 是包短名）。
+func TestArchMermaidFallbackFullPathPackages(t *testing.T) {
+	data := []*domain.WikiModule{
+		{Name: "m1", PkgCalls: []*domain.WikiPkgCall{
+			{From: "order", To: "member", Count: 7},
+			{From: "order", To: "item", Count: 3},
+		}},
+	}
+	doms := []wikiDomainCfg{
+		{Name: "交易域", Packages: []string{"github.com/ixre/go2o/internal/impl/domain/order"}},
+		{Name: "会员域", Packages: []string{"github.com/ixre/go2o/internal/impl/domain/member"}},
+		{Name: "商品域", Packages: []string{"github.com/ixre/go2o/internal/impl/domain/item"}},
+	}
+	got := archMermaidFallback(data, doms)
+	for _, want := range []string{`D交易域["交易域（1 包）"]`, `D会员域["会员域（1 包）"]`, "D交易域 -->|7| D会员域", "D交易域 -->|3| D商品域"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("完整路径 packages 领域聚合应含 %q:\n%s", want, got)
+		}
+	}
+}
+
 // TestMergeTableColumnsHidden：R3——yaml 列 hidden 同时过滤自动列
 // （解析噪音列：别名列错误归属产生的表.列虚拟节点）。
 func TestMergeTableColumnsHidden(t *testing.T) {
@@ -130,5 +153,20 @@ func TestArchMermaidCurated(t *testing.T) {
 		if strings.Contains(got, bad) {
 			t.Errorf("curated 不应含 %q:\n%s", bad, got)
 		}
+	}
+}
+
+// TestArchMermaidCuratedUnrecognized：R42——分组规则不识别该项目
+// （go2o 实测：包名不在硬编码分层里，只剩 domain 1 包 1 自环边）→
+// 有效节点 < 3 降级返回空（不显示贫瘠的 AI 整理版，保留自动聚合版）。
+func TestArchMermaidCuratedUnrecognized(t *testing.T) {
+	data := []*domain.WikiModule{
+		{Name: "m1", PkgCalls: []*domain.WikiPkgCall{
+			{From: "domain", To: "domain", Count: 2}, // 仅命中"支撑层"的 domain
+			{From: "app", To: "infra", Count: 9},     // 未分组包——边丢弃
+		}},
+	}
+	if got := archMermaidCurated(data); got != "" {
+		t.Errorf("不识别项目 curated 应降级为空（有效节点 <3）:\n%s", got)
 	}
 }
