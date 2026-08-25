@@ -209,6 +209,9 @@ document.addEventListener('DOMContentLoaded', renderVisibleMermaid);
   });
   document.querySelectorAll('.fold-btn').forEach(function (btn) {
     var id = btn.getAttribute('data-target');
+    // R53：领域内折叠（entity-dom/er-dom）默认每次折叠——不恢复上次
+    // 展开状态（用户要求所有领域内图默认折叠）；模块页等折叠仍持久化
+    if (id && (id.indexOf('entity-dom') === 0 || id.indexOf('er-dom') === 0)) return;
     var target = document.getElementById(id);
     if (target && state[id]) { target.style.display = 'none'; apply(btn); }
   });
