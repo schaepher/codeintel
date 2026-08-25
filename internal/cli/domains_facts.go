@@ -51,9 +51,16 @@ type entityFacts struct {
 
 // pkgCallFacts 包级调用矩阵（R65：跨包子域划分的直接依据——子域 =
 // 高内聚包组；同包调用与子域划分无关，不计）。
+// R74：聚合数组形态——同 from 的多个 to 合并进 to 数组（重复 from
+// 字符串只出现一次，减小 facts 文件大小）。
 type pkgCallFacts struct {
-	From  string `json:"from"`  // 调用方包完整路径
-	To    string `json:"to"`    // 被调包完整路径
+	From string          `json:"from"` // 调用方包完整路径
+	To   []pkgCallTarget `json:"to"`   // 被调目标数组（同 from 聚合）
+}
+
+// pkgCallTarget 一个调用目标（被调包 + 次数）。
+type pkgCallTarget struct {
+	Pkg   string `json:"pkg"`   // 被调包完整路径
 	Count int    `json:"count"` // 调用次数（聚合）
 }
 
@@ -175,15 +182,16 @@ func collectDomainFacts(acts *action.Actions, repoAbs string, cfg wikiConfig, db
 		for i := range f.Pkgs {
 			f.Pkgs[i].Ents = pkgEnts[f.Pkgs[i].Path]
 		}
+		// R74：同 from 聚合到 to 数组（减小 facts 体积）
+		byFrom := map[string][]pkgCallTarget{}
 		for pair, c := range pkgCalls {
-			f.PkgCalls = append(f.PkgCalls, pkgCallFacts{From: pair[0], To: pair[1], Count: c})
+			byFrom[pair[0]] = append(byFrom[pair[0]], pkgCallTarget{Pkg: pair[1], Count: c})
 		}
-		sort.Slice(f.PkgCalls, func(i, j int) bool {
-			if f.PkgCalls[i].From != f.PkgCalls[j].From {
-				return f.PkgCalls[i].From < f.PkgCalls[j].From
-			}
-			return f.PkgCalls[i].To < f.PkgCalls[j].To
-		})
+		for from, targets := range byFrom {
+			sort.Slice(targets, func(i, j int) bool { return targets[i].Pkg < targets[j].Pkg })
+			f.PkgCalls = append(f.PkgCalls, pkgCallFacts{From: from, To: targets})
+		}
+		sort.Slice(f.PkgCalls, func(i, j int) bool { return f.PkgCalls[i].From < f.PkgCalls[j].From })
 	}
 
 	if res, err := grpcRoutes(db, repoAbs); err == nil {
@@ -262,7 +270,7 @@ func domainPrompt(factsPath, extraPrompt string) string {
 	b.WriteString("6. 只输出 YAML，不要解释：\n")
 	b.WriteString("domains:\n  - name: 商品域\n    description: 商品/SKU/类目管理\n    packages: [github.com/ixre/go2o/pkg/interface/domain/item]\n    tables: [item_info, item_sku]\n    services: [ItemService]\n")
 	b.WriteString("\n7. **调用热度辅助**（entities 的 out/in = 调出/被调聚合边数）：相互调用密集（out/in 高且互相关联）的实体尽量归同一域——领域内聚、跨域调用边少；单域实体过多（密集调用域内边会爆炸）时优先把调用稀疏的边界实体拆到其他域\n")
-	b.WriteString("\n8. **包级调用矩阵**（pkg_calls：from/to = 包完整路径、count = 调用次数——同包调用已不计）：子域划分参考包间调用密度——**调用密集的包组归同一子域（内聚），包间调用稀疏处是子域边界**；实体归属先归包（entities.pkg）再随包归子域\n")
+	b.WriteString("\n8. **包级调用矩阵**（pkg_calls：from = 调用方包完整路径，to = [{pkg, count}] 被调目标数组——同 from 聚合、同包调用已不计）：子域划分参考包间调用密度——**调用密集的包组归同一子域（内聚），包间调用稀疏处是子域边界**；实体归属先归包（entities.pkg）再随包归子域\n")
 	b.WriteString("\n9. **包规模与角色**：packages[].ents = 包内实体数（大头包——实体多的包建议拆子域或与其他包分域）；entities[].service = 行为载体（无字段/组合注入——service 按职责归域）vs 数据载体（字段被写——随所属 service 归域，不独立成域）\n")
 	b.WriteString("\n10. **规模基准（渲染上限）**：每个域的内部协作图调用边超过 500 条、实体超过约 30 个时渲染失败或降级。划分时**每域实体数建议 ≤15**（按 packages[].ents 预估）——实体多的包拆到多个域或拆子域；宁可多几个域，不要单域过大\n")
 	b.WriteString("\n11. **输出方式（R73）**：把归纳结果**直接输出到响应文本**（JSON 格式：{\"domains\": [{\"name\", \"description\", \"packages\": [], \"tables\": [], \"services\": []}]}）——**不要任何说明文字、不要 markdown 围栏**；如环境支持写文件（Write 工具）可同时写入 `.codeintel/domains-ai.json`（可选，响应仍是主交付物）\n")

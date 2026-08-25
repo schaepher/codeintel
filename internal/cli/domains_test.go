@@ -240,15 +240,18 @@ func TestDomainFactsPkgCalls(t *testing.T) {
 	if len(f.PkgCalls) != 2 {
 		t.Fatalf("pkg_calls = %+v; want 2 条跨包边", f.PkgCalls)
 	}
-	byPair := map[string]pkgCallFacts{}
+	// R74：聚合数组形态——同 from 的 to 在 to 数组里
+	byFrom := map[string]pkgCallFacts{}
 	for _, pc := range f.PkgCalls {
-		byPair[pc.From+"|"+pc.To] = pc
+		byFrom[pc.From] = pc
 	}
-	if pc := byPair["example.com/m/order|example.com/m/pay"]; pc.Count != 3 {
-		t.Errorf("order→pay count = %d; want 3", pc.Count)
+	order, ok := byFrom["example.com/m/order"]
+	if !ok || len(order.To) != 1 || order.To[0].Pkg != "example.com/m/pay" || order.To[0].Count != 3 {
+		t.Errorf("order→pay 聚合 = %+v; want to=[{pay,3}]（R74 数组形态）", order.To)
 	}
-	if pc := byPair["example.com/m/pay|example.com/m/order"]; pc.Count != 1 {
-		t.Errorf("pay→order count = %d; want 1", pc.Count)
+	pay, ok := byFrom["example.com/m/pay"]
+	if !ok || len(pay.To) != 1 || pay.To[0].Pkg != "example.com/m/order" || pay.To[0].Count != 1 {
+		t.Errorf("pay→order 聚合 = %+v; want to=[{order,1}]", pay.To)
 	}
 }
 

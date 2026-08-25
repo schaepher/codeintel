@@ -1409,6 +1409,17 @@ domain 1 包 1 自环边。
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
 
+### R74（2026-08-26）——pkg_calls 聚合数组形态（减小 facts 体积）
+
+用户：pkg_calls 的 to 改为数组（[{pkg, count}]），同 from 聚合。
+
+- pkgCallFacts 改 `{from, to: [{pkg, count}]}`——同 from 的多个 to
+  合并（重复 from 字符串只出现一次）；to 按 pkg 排序、from 排序
+- prompt 第 8 条说明更新（to 数组形态）
+- 测试：TestDomainFactsPkgCalls 断言改聚合形态
+- 实测（go2o）：扁平 290 条 → 53 个 from（条目减 82%）；facts
+  48.2KB（紧凑版 AI 读取省 ~5-8KB 重复 from 字符串）
+
 ### R72（2026-08-25）——AI 输出 JSON 文件 + 超时诊断（不盲目重试）
 
 用户：AI 把结果输出到 JSON 文件，程序读文件转 YAML；下次超时检测
