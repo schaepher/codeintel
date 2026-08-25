@@ -54,6 +54,8 @@ func Main(ctx context.Context, args []string) int {
 		return cmdDomainsArgs(args[1:])
 	case "ask":
 		return cmdAsk(args[1:])
+	case "config":
+		return cmdConfig(args[1:])
 	case "version", "--version", "-v":
 		return cmdVersion(args[1:])
 	case "help", "-h", "--help":
@@ -125,6 +127,9 @@ const usageText = `codeintel - Go 代码库智能索引与查询（MVP）
   codeintel wiki --ai --agent codex|claude
                                   AI 增量补缺（无描述模块/无别名表/无说明
                                   列 → 写回 wiki.yaml 标注 # AI 初稿）
+  codeintel config default        输出默认全局配置（~/.codeintel/
+                                  config.yaml 模板——Makefile install
+                                  首次安装自动写入）
   codeintel version                输出编译时的 commit hash
 
 符号可用 canonical ID（symbol:go:<pkg>:<name>）或名称精确/模糊查找。

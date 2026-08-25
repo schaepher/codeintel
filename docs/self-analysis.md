@@ -1409,6 +1409,25 @@ domain 1 包 1 自环边。
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
 
+### R60（2026-08-25）——config default 命令 + Makefile install 初始化
+
+用户：Makefile install 判断配置文件不存在 → 触发 `codeintel config
+default` 命令输出默认配置写入。
+
+- `codeintel config default`：输出内置模板（go:embed configExample——
+  全部选项 + 默认值 + 注释）到 stdout；root.go 注册 + usage 加行。
+  Makefile install 重定向写入，与运行时自动初始化（R58）同源。
+- Makefile install：go install 后判断 ~/.codeintel/config.yaml 不存在
+  → mkdir + `go run ./cmd/codeintel config default > $CONFIG`；已存在
+  跳过（用户改动保留）。
+- 测试：TestCmdConfigDefault（输出 = 模板）/TestCmdConfigHelp；实测
+  真实 make install（已存在跳过）+ 手动 if 逻辑（首次创建 1344 字节
+  /再次跳过不覆盖 user-modified）。
+- 教训：**make install 测试别用 fake HOME**——HOME 影响 GOPATH/
+  GOMODCACHE/GOCACHE（模块缓存重建 + 下载依赖超时）；go env 命令
+  替换在 HOME 赋值后执行也取到 fake 路径。验证 install 的配置逻辑
+  用「真实 install（跳过分支）+ 手动执行 if 分支」组合。
+
 ### R59（2026-08-25）——全量验证提速（51.9s → 1.9s）
 
 用户：为什么全量验证这么慢？找原因 + 方案 grilling 决定（四问全接受

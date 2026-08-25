@@ -19,9 +19,19 @@ LDFLAGS    := -X '$(VERSION_PKG).gitCommit=$(GIT_COMMIT)'
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/codeintel
 
-## install: 安装到 GOBIN（默认 GOPATH/bin），同样注入 commit hash
+## install: 安装到 GOBIN（默认 GOPATH/bin）+ 首次自动初始化全局配置
+##           （~/.codeintel/config.yaml 不存在时用 `codeintel config
+##           default` 写入——R60；已存在不覆盖，用户改动保留）
 install:
 	go install -ldflags "$(LDFLAGS)" ./cmd/codeintel
+	@CONFIG=$${HOME}/.codeintel/config.yaml; \
+	if [ ! -f "$$CONFIG" ]; then \
+	  echo "== 初始化全局配置：$$CONFIG =="; \
+	  mkdir -p $${HOME}/.codeintel; \
+	  go run ./cmd/codeintel config default > "$$CONFIG"; \
+	else \
+	  echo "== 全局配置已存在：$$CONFIG（跳过） =="; \
+	fi
 
 ## release: 交叉编译多平台发布包（#227 分发简化）——dist/codeintel-<os>-<arch>.tar.gz
 ##          （包内二进制名 codeintel，与 scripts/install.sh 约定一致）+ SHA256SUMS
