@@ -6,6 +6,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"sort"
 	"strings"
@@ -187,11 +188,19 @@ func collectDomainFacts(acts *action.Actions, repoAbs string, cfg wikiConfig, db
 
 	if res, err := grpcRoutes(db, repoAbs); err == nil {
 		for _, s := range res.Services {
-			// R54：服务带方法名（一个服务可能含多域方法——分开部署）
+			// R54：服务带方法名（一个服务可能含多域方法——分开部署）；
+			// R71：方法名截断（前 20 + 总数——MemberService 100+ 方法
+			// 全量是 token 大头；AI 多域归属判断不需要全部方法名）
 			svc := svcFacts{Type: "grpc", Name: s.Name}
+			names := make([]string, 0, len(s.Methods))
 			for _, m := range s.Methods {
-				svc.Methods = append(svc.Methods, m.Name)
+				names = append(names, m.Name)
 			}
+			const maxMethods = 20
+			if len(names) > maxMethods {
+				names = append(names[:maxMethods], fmt.Sprintf("…共 %d 个", len(names)))
+			}
+			svc.Methods = names
 			f.Svcs = append(f.Svcs, svc)
 		}
 	}
@@ -252,6 +261,7 @@ func domainPrompt(factsPath, extraPrompt string) string {
 	b.WriteString("\n7. **调用热度辅助**（entities 的 out/in = 调出/被调聚合边数）：相互调用密集（out/in 高且互相关联）的实体尽量归同一域——领域内聚、跨域调用边少；单域实体过多（密集调用域内边会爆炸）时优先把调用稀疏的边界实体拆到其他域\n")
 	b.WriteString("\n8. **包级调用矩阵**（pkg_calls：from/to = 包完整路径、count = 调用次数——同包调用已不计）：子域划分参考包间调用密度——**调用密集的包组归同一子域（内聚），包间调用稀疏处是子域边界**；实体归属先归包（entities.pkg）再随包归子域\n")
 	b.WriteString("\n9. **包规模与角色**：packages[].ents = 包内实体数（大头包——实体多的包建议拆子域或与其他包分域）；entities[].service = 行为载体（无字段/组合注入——service 按职责归域）vs 数据载体（字段被写——随所属 service 归域，不独立成域）\n")
+	b.WriteString("\n10. **规模基准（渲染上限）**：每个域的内部协作图调用边超过 500 条、实体超过约 30 个时渲染失败或降级。划分时**每域实体数建议 ≤15**（按 packages[].ents 预估）——实体多的包拆到多个域或拆子域；宁可多几个域，不要单域过大\n")
 	if extraPrompt != "" {
 		b.WriteString("\n用户额外约束（**必须优先遵守**，冲突时以用户约束为准）：\n" + extraPrompt + "\n")
 	}

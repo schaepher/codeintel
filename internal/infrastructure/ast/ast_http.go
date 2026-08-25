@@ -38,6 +38,13 @@ func extractStringArg(pkg *packages.Package, methodVars map[string]string, arg a
 			if l != "" && r != "" {
 				return l + r
 			}
+			// R71：部分解析——一端可解析返回该端（动态 URL 拼接的
+			// host/path 前缀：go2o sms/alipay/geo 形态 `"https://..."
+			// + 变量`——只提取字面量部分，出站调用不再漏检）
+			if l != "" {
+				return l
+			}
+			return r
 		}
 	}
 	return ""

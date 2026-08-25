@@ -1409,6 +1409,34 @@ domain 1 包 1 自环边。
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
 
+### R71（2026-08-25）——渲染基准告知 + 动态 URL 部分解析 + facts token 优化
+
+用户：做 1+4（渲染基准告知 / 动态 URL 盲区）；优化 facts——AI 识别
+效果更好 + 减少不必要 token。
+
+**1. 渲染基准告知（P0-1）**：prompt 第 10 条——域内调用边 >500/
+实体 >30 渲染失败；每域实体数建议 ≤15（按 packages[].ents 预估）
+——AI 输出 domains 时自带子域划分与"过大"判断（实体收敛前置已
+就绪，R66/R68）。
+
+**2. 动态 URL 部分解析（P0-4）**：extractStringArg 的 ADD 拼接两端
+之一可解析时返回该端（`"https://..." + 变量` 提取 host/path 前缀）
+——go2o sms/alipay/geo 形态不再漏检 http_call 边。测试
+TestHTTPCallEdgePartialURL。
+
+**3. facts token 优化**：
+- **grpc 方法名截断**（最大头）：MemberService 100+ 方法全量 → 前
+  20 + "…共 N 个"——AI 多域归属判断不需要全部方法名（svcFacts.
+  Methods 截断）
+- 已确认的低消耗：packages.doc 60 runes 截断、tables.cols 是 int、
+  entities 60 热度截断、compact JSON——无额外冗余
+- **识别效果优化**（R64-R70 已叠加）：实体热度排序/包路径/service
+  标记/包规模/包级调用矩阵/渲染基准——AI 划分领域的信息已完备
+
+测试：TestDomainPromptRenderLimit / TestDomainFactsGrpcMethodsTrim /
+TestHTTPCallEdgePartialURL；行数治理（adapter_http_test.go 拆出
+r71 测试）。
+
 ### R70（2026-08-25）——facts 包规模统计 + 实体 service 区分
 
 用户：edge count 收益高就加进 facts（已自动生效——pkg_calls.count/
