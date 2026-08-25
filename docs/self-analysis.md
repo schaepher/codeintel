@@ -1260,6 +1260,30 @@ domain 1 包 1 自环边。
 - 真实仓库可能无可用数据（调用形态不在识别范围）——机制验证靠真实
   加载的 fixture（indexFixture = go/packages），不能只看仓库结果
 
+### R46（2026-08-25）——kafka topic 生产/消费归属分类（query kafka-topics）
+
+用户：kafka 按 topic 分类——① 内部生产内部消费 ② 内部生产外部消费
+③ 外部生产内部消费。
+
+- **实现**：`codeintel query kafka-topics`——kafka_topic 节点 +
+  kafka_produce/kafka_consume 边（R36 发射）聚合每 topic 的
+  producer/consumer 调用点（函数 + file:line）→ 分类：
+  - producers>0 && consumers>0 → internal（内部生产，内部消费）
+  - producers>0 && consumers==0 → produced-internally（内部生产，
+    外部消费）
+  - producers==0 && consumers>0 → consumed-internally（外部生产，
+    内部消费）
+- 输出：JSON 契约 {topics: [{topic, category, producers, consumers}]}
+  （category 英文枚举稳定契约，展示转中文）+ 文本分组展示。
+- 实测：go2o 无 kafka topic（消息走 msq/events 非 kafka）——功能由
+  fixture 三分类测试验证。
+- 测试：三分类判定 + 调用点位置 + CLI 分组输出。
+
+**AI 杠杆点**（R46 实证）：
+- "外部"判定的通用模式：调用边两侧的**项目内存在性**组合成分类矩阵
+  （生产有/无 × 消费有/无）——与 R45 的接口特征判定互补，纯查询层
+  实现（发射端零改动）
+
 ## 待办与候选方向（未定优先级）
 
 **高优先级待办**（2026-08-24 用户提出，6 项）：
