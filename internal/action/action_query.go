@@ -23,6 +23,47 @@ func (a *Actions) Callees(id domain.CanonicalID, depth int) ([]*domain.Fact, err
 	return a.repo.GetCallees(id, depth, MinConfidence)
 }
 
+// CalleesConcrete 调用链 + 接口具体化（R76：时序图反映实际执行——
+// 接口调用经 implements 落到实现方法/类型，接口跳板不占层数）。
+func (a *Actions) CalleesConcrete(id domain.CanonicalID, depth int) ([]*domain.Fact, error) {
+	logger := zap.L()
+	logger.Info("enter (Actions).CalleesConcrete", zap.String("id", string(id)), zap.Int("depth", depth))
+	defer logger.Info("exit (Actions).CalleesConcrete")
+	facts, err := a.repo.GetCallees(id, depth, MinConfidence)
+	if err != nil {
+		return nil, err
+	}
+	return ResolveIfaceCalls(a, facts), nil
+}
+
+// ResolveIfaceCalls 调用链接口方法/类型具体化（R75/R76——wiki 流程页
+// 与 query sequence 共用）：target 是接口 → implements 边落实现 +
+// 展开实现方法一级调用（接口跳板不占层数；Metadata/line_num 保留——
+// 调用点行号不变，时序顺序准确）。
+func ResolveIfaceCalls(acts *Actions, facts []*domain.Fact) []*domain.Fact {
+	var out []*domain.Fact
+	expanded := map[string]bool{}
+	for _, f := range facts {
+		if impl, ok := acts.InterfaceMethodImpl(string(f.TargetID)); ok {
+			out = append(out, &domain.Fact{
+				SourceID: f.SourceID, TargetID: domain.CanonicalID(impl),
+				Kind: f.Kind, Confidence: f.Confidence, Metadata: f.Metadata,
+			})
+			// 实现方法形态（含 :( ）→ 展开其一级调用；实现类型形态
+			// （无方法名——调用点未记录）→ 只替换实体
+			if strings.Contains(impl, ":(") && !expanded[impl] {
+				expanded[impl] = true
+				if cs, err := acts.Callees(domain.CanonicalID(impl), 1); err == nil {
+					out = append(out, cs...)
+				}
+			}
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
 // InterfaceMethodImpl 接口方法 → 实现方法（R75：调用链接口具体化——
 // implements 边 + 方法名匹配，排除 Unimplemented 桩）。
 func (a *Actions) InterfaceMethodImpl(methodID string) (string, bool) {

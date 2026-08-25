@@ -158,6 +158,9 @@ func cmdQuery(args []string) int {
 		return queryPath(acts, f.positional[0], f.positional[1], f)
 	case "table-path":
 		return queryTablePath(acts, f.positional, f.json, f.full)
+	case "sequence":
+		// R76：时序图（接口具体化——wiki 流程页同款数据源）
+		return cmdQuerySequence(acts, target, f.depth, f.format == "mermaid", f.json)
 	case "callers", "callees", "impact":
 		d := f.depth
 		if d <= 0 {

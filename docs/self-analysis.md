@@ -1409,6 +1409,29 @@ domain 1 包 1 自环边。
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
 
+### R76（2026-08-26）——query sequence 命令 + 接口具体化下沉 action 层
+
+用户：不只是 wiki——要支持查询任何一个函数或方法的时序图；wiki
+调用这个特性（不集成到 wiki）；wiki 内容都应能用命令行/MCP 查询。
+
+**架构重构**：
+- action.Actions.CalleesConcrete(id, depth)：Callees + 接口具体化
+  （ResolveIfaceCalls 从 cli 移入 action——wiki 与命令共用同一数据源）
+- wiki queryChain 改用 CalleesConcrete（cli 的 resolveIfaceCalls 删除）
+
+**新命令** `codeintel query sequence <符号> [--depth N] [--format mermaid]`：
+- 输出步骤列表（入口 → 具体化后的实现，含行号排序）+ --format
+  mermaid 输出 sequenceDiagram（连续同向调用合并计数）
+- 独立于 wiki——任何函数/方法可查
+- 实测（go2o PrepareOrder）：输出全部为实现实体（cartImpl/
+  orderManagerImpl/baseOrderImpl/memberImpl/accountImpl）——接口
+  全部具体化，真实反映执行逻辑
+
+**MCP sequence 工具**：symbol → CalleesConcrete 步骤（SequenceOut
+契约——symbol/id/depth/steps）——agent 可直接查任意符号时序。
+
+测试：TestQuerySequenceCmd / TestQueryChainIfaceImpl（兼容）。
+
 ### R75（2026-08-26）——调用链接口具体化（时序图反映实际执行逻辑）
 
 用户：以 PrepareOrder 为例检查实体间调用时序——"都是接口，没有

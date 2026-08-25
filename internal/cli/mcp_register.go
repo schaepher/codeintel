@@ -52,6 +52,24 @@ func registerQueryTools(server *mcp.Server, env *mcpEnv, r *sqlite.Repo, repoAbs
 			res2, out := graphTool(a, args, "callees")
 			return res2, out, nil
 		})))
+	mcp.AddTool(server, &mcp.Tool{Name: "sequence", Description: "符号时序图（R76——接口具体化后反映实际执行；返回步骤 + mermaid）"},
+		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args graphParams) (*mcp.CallToolResult, SequenceOut, error) {
+			n, err := a.ResolveSymbol(args.Symbol)
+			if err != nil {
+				return toolErr(err.Error()), SequenceOut{}, nil
+			}
+			depth := args.Depth
+			if depth <= 0 {
+				depth = 2
+			}
+			facts, err := a.CalleesConcrete(n.ID, depth)
+			if err != nil {
+				return toolErr(err.Error()), SequenceOut{}, nil
+			}
+			steps := sortChainByCallLine(string(n.ID), facts)
+			out := SequenceOut{Symbol: shortSymbolName(n), ID: string(n.ID), Depth: depth, Steps: steps}
+			return toolJSON(out), out, nil
+		})))
 	mcp.AddTool(server, &mcp.Tool{Name: "impact", Description: "影响分析（depth 默认 3）"},
 		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args graphParams) (*mcp.CallToolResult, ImpactOut, error) {
 			n, err := a.ResolveSymbol(args.Symbol)
