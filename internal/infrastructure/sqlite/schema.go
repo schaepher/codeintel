@@ -30,6 +30,8 @@ CREATE TABLE IF NOT EXISTS edges (
     tool_source TEXT NOT NULL,
     confidence REAL NOT NULL DEFAULT 0.5,
     metadata JSON,
+    -- R69：同义边调用次数（UNIQUE 合并时累加——真实调用频率）
+    count INTEGER NOT NULL DEFAULT 1,
     FOREIGN KEY (source_id) REFERENCES nodes(id) ON DELETE CASCADE,
     FOREIGN KEY (target_id) REFERENCES nodes(id) ON DELETE CASCADE,
     -- 同义边合并：同一 (source, target, kind) 保留最高置信度（TD.md 5.3）

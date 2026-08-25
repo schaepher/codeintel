@@ -151,6 +151,9 @@ type Fact struct {
 	ToolSource ToolSource     `json:"tool_source,omitempty"`
 	Confidence float64        `json:"confidence"` // 0.0~1.0
 	Metadata   map[string]any `json:"metadata,omitempty"`
+	// Count R69：同义边调用次数（edges.count——UNIQUE(source,target,kind)
+	// 合并时累加；实体聚合/热度/包矩阵的真实次数来源）
+	Count int `json:"count,omitempty"`
 }
 
 // BuildMeta 构建元数据（build_metadata 表），status 三态：success/degraded/failed。

@@ -85,6 +85,12 @@ func (db *DB) init() error {
 			!strings.Contains(err.Error(), "duplicate column") {
 			return fmt.Errorf("add degrade_stats column: %w", err)
 		}
+		// R69：edges.count 列加法迁移（同义边调用次数——旧库自动获得，
+		// 存量数据 count=1（历史合并行），reindex 后累加真实次数）
+		if _, err := db.Exec(`ALTER TABLE edges ADD COLUMN count INTEGER NOT NULL DEFAULT 1`); err != nil &&
+			!strings.Contains(err.Error(), "duplicate column") {
+			return fmt.Errorf("add edges.count column: %w", err)
+		}
 		if _, err := db.Exec(schema); err != nil {
 			// 缺列（破坏性变更）：补建表达式索引/生成列引用缺失列 →
 			// 包装 clean 提示（verifySchema 覆盖不到的早期失败路径）

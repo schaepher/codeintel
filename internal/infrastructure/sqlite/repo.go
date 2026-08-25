@@ -48,14 +48,16 @@ VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
     properties = json_patch(COALESCE(properties, '{}'), excluded.properties)`
 
+// R69：count 累加（同义边合并保留真实调用次数——每次插入 +1，
+// 与置信度无关）；confidence/tool/metadata 仍只在高置信度时覆盖。
 const insertEdgeSQL = `
-INSERT INTO edges (source_id, target_id, kind, tool_source, confidence, metadata)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO edges (source_id, target_id, kind, tool_source, confidence, metadata, count)
+VALUES (?, ?, ?, ?, ?, ?, 1)
 ON CONFLICT(source_id, target_id, kind) DO UPDATE SET
-    confidence = excluded.confidence,
-    tool_source = excluded.tool_source,
-    metadata = excluded.metadata
-WHERE excluded.confidence > edges.confidence`
+    count = edges.count + 1,
+    confidence = CASE WHEN excluded.confidence > edges.confidence THEN excluded.confidence ELSE edges.confidence END,
+    tool_source = CASE WHEN excluded.confidence > edges.confidence THEN excluded.tool_source ELSE edges.tool_source END,
+    metadata = CASE WHEN excluded.confidence > edges.confidence THEN excluded.metadata ELSE edges.metadata END`
 
 // insertSummarySQL Q215：OR REPLACE 覆盖（原 OR IGNORE——UNIQUE 冲突
 // 保留旧行，函数修改后行号/代码片段陈旧，fields 展示旧数据）。行残留

@@ -30,11 +30,11 @@ func (r *Repo) GetEntityRaw() (*domain.EntityRaw, error) {
 		WHERE kind = 'method'`, &out.Methods); err != nil {
 		return nil, err
 	}
-	if err := r.queryEdges(`SELECT source_id, target_id, kind, tool_source, confidence FROM edges
+	if err := r.queryEdges(`SELECT source_id, target_id, kind, tool_source, confidence, count FROM edges
 		WHERE kind = 'has_method'`, &out.HasM); err != nil {
 		return nil, err
 	}
-	if err := r.queryEdges(`SELECT source_id, target_id, kind, tool_source, confidence FROM edges
+	if err := r.queryEdges(`SELECT source_id, target_id, kind, tool_source, confidence, count FROM edges
 		WHERE kind = 'calls'`, &out.Calls); err != nil {
 		return nil, err
 	}
@@ -70,7 +70,7 @@ func (r *Repo) queryNodes(q string, out *[]*domain.CodeEntity) error {
 	return rows.Err()
 }
 
-// queryEdges 通用边查询。
+// queryEdges 通用边查询（R69：带 count——同义边调用次数）。
 func (r *Repo) queryEdges(q string, out *[]*domain.Fact) error {
 	rows, err := r.Query(q)
 	if err != nil {
@@ -79,7 +79,7 @@ func (r *Repo) queryEdges(q string, out *[]*domain.Fact) error {
 	defer rows.Close()
 	for rows.Next() {
 		var f domain.Fact
-		if err := rows.Scan(&f.SourceID, &f.TargetID, &f.Kind, &f.ToolSource, &f.Confidence); err != nil {
+		if err := rows.Scan(&f.SourceID, &f.TargetID, &f.Kind, &f.ToolSource, &f.Confidence, &f.Count); err != nil {
 			return err
 		}
 		*out = append(*out, &f)

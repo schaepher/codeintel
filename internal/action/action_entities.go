@@ -169,12 +169,18 @@ func aggregateEntities(raw *domain.EntityRaw, keep func(string) bool) *domain.En
 		}
 		entityOf[string(c.SourceID)] = src
 		entityOf[string(c.TargetID)] = dst
+		// R69：edges.count = 真实调用次数（同义边合并累加）——实体边
+		// 聚合/OutCalls 用 count（此前 ++ 丢次数）
+		n := c.Count
+		if n <= 0 {
+			n = 1
+		}
 		if src == dst {
-			byID[src].InnerCalls++
+			byID[src].InnerCalls += n
 			continue
 		}
-		edges[ekey{src, dst}]++
-		byID[src].OutCalls++
+		edges[ekey{src, dst}] += n
+		byID[src].OutCalls += n
 	}
 
 	// 3. 行为门槛过滤（聚合后——OutCalls 已算）：无方法（纯数据

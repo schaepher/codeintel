@@ -1409,6 +1409,26 @@ domain 1 包 1 自环边。
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
 
+### R69（2026-08-25）——edge count（同义边调用次数累加）
+
+用户：做 edge count（成本收益分析后拍板——核心事实 + 三处下游
+失真修复）。
+
+- edges 表加 count INTEGER DEFAULT 1（新库 schema + 旧库 ALTER 自动
+  迁移——duplicate column 忽略，存量行 count=1，reindex 后真实）
+- insertEdgeSQL 改 UPSERT：冲突时 count=edges.count+1（**所有调用
+  都计数**，与置信度无关）；confidence/tool/metadata 仍只在高置信度
+  时覆盖（CASE 条件更新）
+- queryEdges 带 count → Fact.Count；实体聚合 edges[ekey]+=c.Count
+  （此前 ++ 丢次数——同方法对多次调用合并后 Count=1 失真）、
+  InnerCalls/OutCalls 同用 count
+- 测试：TestEdgeCountUpsert（3 次调用 count=3 + 高置信度覆盖保留）、
+  TestEdgeCountRead（queryEdges 带 count）
+- 实测（go2o reindex 后）：边 Count 分布 {1:416, 2:203, 3:105, ...}
+  ——仅 38% 边 Count=1，62% 恢复真实调用次数（此前全失真为 1）
+- 教训：UPSERT 的 WHERE 条件更新与计数冲突——count 累加不能受
+  "高置信度才更新"限制（调用次数是事实）；用 CASE 分别处理
+
 ### R68（2026-08-25）——struct service 角色判定（无字段写 = service）
 
 用户：无字段的 struct 要算 service；有字段但所有字段在方法里只有
