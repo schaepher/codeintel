@@ -124,11 +124,20 @@ func renderPackagesHTML(pkgs []*domain.CodeEntity, repo *sqlite.Repo) string {
 			if len(facts.Structs) > 0 {
 				b.WriteString("<p><strong>结构体</strong>：" + htmlEsc(strings.Join(facts.Structs, "、")) + "</p>")
 			}
+			// R62：方法/函数列表格
 			if len(facts.Methods) > 0 {
-				b.WriteString("<p><strong>方法</strong>：" + htmlEsc(strings.Join(facts.Methods, "、")) + "</p>")
+				b.WriteString("<p><strong>方法</strong></p><table><thead><tr><th>方法</th></tr></thead><tbody>")
+				for _, m := range facts.Methods {
+					b.WriteString("<tr><td><code>" + htmlEsc(m) + "</code></td></tr>")
+				}
+				b.WriteString("</tbody></table>")
 			}
 			if len(facts.Funcs) > 0 {
-				b.WriteString("<p><strong>函数</strong>：" + htmlEsc(strings.Join(facts.Funcs, "、")) + "</p>")
+				b.WriteString("<p><strong>函数</strong></p><table><thead><tr><th>函数</th></tr></thead><tbody>")
+				for _, f := range facts.Funcs {
+					b.WriteString("<tr><td><code>" + htmlEsc(f) + "</code></td></tr>")
+				}
+				b.WriteString("</tbody></table>")
 			}
 		}
 	}
@@ -160,11 +169,22 @@ func renderPackagesMD(pkgs []*domain.CodeEntity, repo *sqlite.Repo) string {
 			if len(facts.Structs) > 0 {
 				b.WriteString("**结构体**：" + strings.Join(facts.Structs, "、") + "\n\n")
 			}
+			// R62：方法/函数列表格（用户要求——长清单可读性）
 			if len(facts.Methods) > 0 {
-				b.WriteString("**方法**：" + strings.Join(facts.Methods, "、") + "\n\n")
+				b.WriteString("**方法**\n\n")
+				b.WriteString("| 方法 |\n|---|\n")
+				for _, m := range facts.Methods {
+					b.WriteString("| `" + m + "` |\n")
+				}
+				b.WriteString("\n")
 			}
 			if len(facts.Funcs) > 0 {
-				b.WriteString("**函数**：" + strings.Join(facts.Funcs, "、") + "\n\n")
+				b.WriteString("**函数**\n\n")
+				b.WriteString("| 函数 |\n|---|\n")
+				for _, f := range facts.Funcs {
+					b.WriteString("| `" + f + "` |\n")
+				}
+				b.WriteString("\n")
 			}
 		}
 	}

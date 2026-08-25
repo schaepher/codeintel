@@ -1409,6 +1409,33 @@ domain 1 包 1 自环边。
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
 
+### R62（2026-08-25）——wiki 渲染四改（折叠/全展示/表格）
+
+用户五项需求（第 5 项为问答——facts entity 来源，见下）：
+
+1. **设计诊断默认折叠**：实体协作节的"设计诊断"改为 `<details>`（md +
+   html 双通道）默认折叠，展开看信号 → 行动。
+2. **领域内实体协作不全修复**（根因）：entityMermaid 只画强边
+   （Count ≥3）涉及的实体——弱协作/孤立实体被过滤掉 → 领域内图缺
+   实体。修复：**节点全画**（边仍过滤防噪音）；单实体领域保留
+   "（无内部协作）"文字（R39 行为——单节点图无意义）。
+3. **grpc 服务方法表格**：服务子页顶部加"全部方法"表格（方法 /
+   handler / 调用链状态——`grpcMethodStatus`：有图/无调用链原因）——
+   图太严格（无调用链）时表格兜底，完整方法清单可见（md + html）。
+4. **包结构方法/函数表格**：无包说明 fallback 的方法/函数从顿号连接
+   改为表格（md + html；结构体保持文本）。
+5. **facts entities 来源（问答）**：`collectDomainFacts` 的 Ents 来自
+   `acts.Entities()`（构建期实体图：有行为类型 + 游离函数按包聚合
+   门面），记录 Name + MethodCount，**上限 60 个截断**。局限：信息
+   粒度粗（无方法名/无包路径），对 domains 分析的价值有限——候选
+   改进：带包路径 + 门面游离函数数。
+
+测试：TestEntitiesSectionDiagFolded / TestEntityMermaidAllNodes /
+TestGrpcServicePageMethodsTable / TestPackagesMethodsTable；
+TestEntityMermaidFilter 断言更新（弱边实体应显示——R16 行为变更）；
+TestEntityDomainEmptyInner 保留（单实体文字）。
+行数：全部改动文件 <300。
+
 ### R61（2026-08-25）——domain-facts 扩展改 .json + 默认 compact
 
 用户：domain-facts 文件扩展改为 json；默认不 format——避免文件过大

@@ -74,27 +74,20 @@ func printEntityDiags(g *domain.EntityGraph) {
 
 // entityMermaid 实体协作图 mermaid（graph LR：节点 + 聚合计数边；
 // R15：节点按调用方向拓扑排序——线尽量从左往右；R16：弱关联边
-// （count < EntityMinEdgeCount）不画、孤立实体隐藏——聚焦真实协作）。
+// （count < EntityMinEdgeCount）不画；R62：**节点全画**（弱协作/孤立
+// 实体不丢——用户：领域内实体协作不全展示；边仍过滤防噪音）。
 func entityMermaid(g *domain.EntityGraph) string {
 	if len(g.Nodes) == 0 {
 		return ""
 	}
-	// 弱边过滤 + 涉及的实体（有真实协作的）
-	involved := map[string]bool{}
+	// 弱边过滤仅影响边——节点全量参与
 	var strong []*domain.EntityEdge
 	for _, e := range g.Edges {
 		if e.Count >= domain.EntityMinEdgeCount {
 			strong = append(strong, e)
-			involved[e.From] = true
-			involved[e.To] = true
 		}
 	}
-	var nodes []*domain.EntityNode
-	for _, n := range g.Nodes {
-		if involved[n.ID] {
-			nodes = append(nodes, n)
-		}
-	}
+	nodes := g.Nodes
 	if len(nodes) == 0 {
 		return ""
 	}

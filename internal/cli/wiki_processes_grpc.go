@@ -190,6 +190,8 @@ func renderGrpcIndexHTML(rc *wikiRenderCtx, services []grpcRouteService, max int
 }
 
 // renderGrpcServiceMD 单个 gRPC 服务子页（md）：方法入口逐个展开。
+// R62：顶部加全部方法表格（方法/handler/调用链状态——图太严格
+// （无调用链）时表格兜底，至少能看到完整方法清单）。
 func renderGrpcServiceMD(rc *wikiRenderCtx, svc grpcRouteService, max int) string {
 	var b strings.Builder
 	b.WriteString("# gRPC 服务流程：" + svc.Name + "\n\n")
@@ -201,6 +203,12 @@ func renderGrpcServiceMD(rc *wikiRenderCtx, svc grpcRouteService, max int) strin
 		b.WriteString("；注册：" + svc.Register + "\n\n")
 	}
 	methods := grpcProcMethods(rc.acts, svc)
+	b.WriteString("### 全部方法\n\n")
+	b.WriteString("| 方法 | handler | 调用链 |\n|---|---|---|\n")
+	for _, p := range methods {
+		b.WriteString(fmt.Sprintf("| %s | %s | %s |\n", p.Name, p.Handler, grpcMethodStatus(p)))
+	}
+	b.WriteString("\n")
 	expanded, folded := procFold(max, methods)
 	for _, p := range expanded {
 		b.WriteString("## " + p.Name + "\n\n")
@@ -219,6 +227,17 @@ func renderGrpcServiceMD(rc *wikiRenderCtx, svc grpcRouteService, max int) strin
 	return b.String()
 }
 
+// grpcMethodStatus 方法调用链状态（表格列：有图/无调用链原因）。
+func grpcMethodStatus(p grpcMethodProc) string {
+	if p.Chain != nil && len(p.Chain.Steps) > 0 {
+		return "有调用链（见下）"
+	}
+	if p.Chain != nil && p.Chain.Miss != "" {
+		return p.Chain.Miss
+	}
+	return grpcMethodMissNote(p)
+}
+
 // renderGrpcServiceHTML 单个 gRPC 服务流程内容（R40：内嵌进 index.html
 // 单文件——<details> 折叠；summary = 服务名 + 实现 + 方法数）。
 func renderGrpcServiceHTML(rc *wikiRenderCtx, svc grpcRouteService, max int) string {
@@ -233,6 +252,12 @@ func renderGrpcServiceHTML(rc *wikiRenderCtx, svc grpcRouteService, max int) str
 		b.WriteString(`<p class="muted">实现位置：` + htmlEsc(svc.ImplFile) + `；注册：` + htmlEsc(svc.Register) + `</p>`)
 	}
 	methods := grpcProcMethods(rc.acts, svc)
+	// R62：全部方法表格（图太严格时表格兜底——完整方法清单可见）
+	b.WriteString(`<table><thead><tr><th>方法</th><th>handler</th><th>调用链</th></tr></thead><tbody>`)
+	for _, p := range methods {
+		b.WriteString("<tr><td><code>" + htmlEsc(p.Name) + "</code></td><td><code>" + htmlEsc(p.Handler) + "</code></td><td>" + htmlEsc(grpcMethodStatus(p)) + "</td></tr>")
+	}
+	b.WriteString("</tbody></table>")
 	expanded, folded := procFold(max, methods)
 	for _, p := range expanded {
 		b.WriteString("<h4>" + htmlEsc(p.Name) + "</h4>")

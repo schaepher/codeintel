@@ -69,8 +69,9 @@ func TestSortEntitiesByCallFlowCycle(t *testing.T) {
 	}
 }
 
-// TestEntityMermaidFilter：全图弱关联边过滤（count < 3 不画）+
-// 孤立节点隐藏——概览实体图聚焦真实协作。
+// TestEntityMermaidFilter：全图弱关联边过滤（count < 3 不画）——
+// R62：节点全画（弱协作/孤立实体不丢——领域内实体协作不全 bug），
+// 边仍过滤防噪音。
 func TestEntityMermaidFilter(t *testing.T) {
 	g := &domain.EntityGraph{
 		Nodes: []*domain.EntityNode{
@@ -88,11 +89,11 @@ func TestEntityMermaidFilter(t *testing.T) {
 	if !strings.Contains(out, `A["A"]`) || !strings.Contains(out, `B["B"]`) {
 		t.Errorf("强关联实体应保留:\n%s", out)
 	}
-	if strings.Contains(out, `C["C"]`) {
-		t.Errorf("仅弱边实体应隐藏:\n%s", out)
+	if !strings.Contains(out, `C["C"]`) {
+		t.Errorf("仅弱边实体应显示（R62 节点全画）:\n%s", out)
 	}
-	if strings.Contains(out, `D["D"]`) {
-		t.Errorf("孤立实体应隐藏:\n%s", out)
+	if !strings.Contains(out, `D["D"]`) {
+		t.Errorf("孤立实体应显示（R62 节点全画）:\n%s", out)
 	}
 	if strings.Contains(out, "-->|1|") {
 		t.Errorf("弱边（count<3）不应画:\n%s", out)

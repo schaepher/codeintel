@@ -115,9 +115,11 @@ func renderEntitiesSectionMD(g *domain.EntityGraph, rc *wikiRenderCtx) string {
 		for _, d := range doms {
 			b.WriteString(fmt.Sprintf("<details><summary>领域 <code>%s</code>（%d 实体）——展开查看内部协作</summary>\n\n",
 				htmlEsc(d.Name), len(d.Nodes)))
-			// R39：单实体无内部协作时渲染空 mermaid 块（自身 wiki 实测
-			// "基础支撑域 1 实体"空图）——显示文字说明
-			if sub := entityMermaid(&domain.EntityGraph{Nodes: d.Nodes, Edges: d.Edges}); sub != "" {
+			// R39：单实体无内部协作时显示文字说明（空图无意义）；
+			// R62：多实体节点全画（弱协作/孤立实体不丢）
+			if len(d.Nodes) < 2 {
+				b.WriteString("（无内部协作）\n\n")
+			} else if sub := entityMermaid(&domain.EntityGraph{Nodes: d.Nodes, Edges: d.Edges}); sub != "" {
 				b.WriteString(rc.diagramMD(sub))
 			} else {
 				b.WriteString("（无内部协作）\n\n")
@@ -133,7 +135,8 @@ func renderEntitiesSectionMD(g *domain.EntityGraph, rc *wikiRenderCtx) string {
 		}
 	}
 	if len(g.Diags) > 0 {
-		b.WriteString("**设计诊断**（信号 → 行动；阈值见 `codeintel query entities`）：\n\n")
+		// R62：设计诊断默认折叠（用户要求——展开和折叠形式）
+		b.WriteString(fmt.Sprintf("<details><summary><strong>设计诊断</strong>（%d 条——信号 → 行动；展开查看）</summary>\n\n", len(g.Diags)))
 		labels := map[string]string{
 			domain.DiagCoupled:	"高耦合对",
 			domain.DiagCycle:	"循环依赖",
@@ -149,6 +152,7 @@ func renderEntitiesSectionMD(g *domain.EntityGraph, rc *wikiRenderCtx) string {
 			}
 		}
 		b.WriteString("\n诊断是设计信号不是结论——先核实具体调用（`query callees <符号>`）再重构。\n\n")
+		b.WriteString("</details>\n\n")
 	}
 	return b.String()
 }
@@ -167,10 +171,12 @@ func renderEntitiesSectionHTML(g *domain.EntityGraph, rc *wikiRenderCtx) string 
 		b.WriteString("<h3>领域间关系</h3>" + rc.diagramHTML(domainMermaid(doms, g.Edges)))
 		for i, d := range doms {
 			id := fmt.Sprintf("entity-dom-%d", i)
-			// R39：单实体无内部协作时渲染空 mermaid 块——显示文字说明
+			// R39：单实体无内部协作显示文字说明；R62：多实体节点全画
 			inner := "（无内部协作）"
-			if sub := entityMermaid(&domain.EntityGraph{Nodes: d.Nodes, Edges: d.Edges}); sub != "" {
-				inner = rc.diagramHTML(sub)
+			if len(d.Nodes) >= 2 {
+				if sub := entityMermaid(&domain.EntityGraph{Nodes: d.Nodes, Edges: d.Edges}); sub != "" {
+					inner = rc.diagramHTML(sub)
+				}
 			}
 			b.WriteString(fmt.Sprintf(`<h4 class="fold-btn" data-target="%s" data-label="1">▸ 领域 %s（%d 实体）——内部协作</h4><div class="sec-body" id="%s" style="display:none">%s</div>`,
 				id, htmlEsc(d.Name), len(d.Nodes), id, inner))
@@ -184,19 +190,20 @@ func renderEntitiesSectionHTML(g *domain.EntityGraph, rc *wikiRenderCtx) string 
 		}
 	}
 	if len(g.Diags) > 0 {
+		// R62：设计诊断默认折叠（details 无 open）
 		labels := map[string]string{
 			domain.DiagCoupled:	"高耦合对",
 			domain.DiagCycle:	"循环依赖",
 			domain.DiagGodObject:	"上帝对象",
 			domain.DiagFaceHeavy:	"游离函数占比",
 		}
-		b.WriteString("<h3>设计诊断（信号 → 行动）</h3><ul>")
+		b.WriteString(fmt.Sprintf("<details><summary>设计诊断（%d 条——信号 → 行动；展开查看）</summary><ul>", len(g.Diags)))
 		for _, d := range g.Diags {
 			exp := entityDiagExplain[d.Kind]
 			b.WriteString(fmt.Sprintf("<li><strong>%s</strong> %s：%s<br><span class=\"muted\">含义：%s；建议：%s</span></li>",
 				labels[d.Kind], htmlEsc(d.Target), htmlEsc(d.Detail), htmlEsc(exp[0]), htmlEsc(exp[1])))
 		}
-		b.WriteString("</ul><p class=\"muted\">诊断是设计信号不是结论——先核实具体调用（query callees &lt;符号&gt;）再重构。</p>")
+		b.WriteString("</ul><p class=\"muted\">诊断是设计信号不是结论——先核实具体调用（query callees &lt;符号&gt;）再重构。</p></details>")
 	}
 	b.WriteString("</section>")
 	return b.String()
