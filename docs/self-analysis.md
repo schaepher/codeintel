@@ -1409,6 +1409,22 @@ domain 1 包 1 自环边。
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
 
+### R64（2026-08-25）——facts 实体调用热度（out/in）+ 待办清单更新
+
+用户：facts 提供节点出度/入度 + 调用边数量（低 token 增量），帮助
+AI 划分领域——一开始就减少领域内部调用边（域内聚/均衡）。
+
+- entityFacts 加 Out/In（出度/入度 = 聚合调用边数——compact JSON 下
+  每实体仅多 ~8 字节）；collectDomainFacts 从 EntityGraph 边统计
+- domainPrompt 加第 7 条：调用密集实体（out/in 高且互相关联）尽量
+  同域（内聚、跨域边少）；单域实体过多（域内边会爆炸）时把调用
+  稀疏的边界实体拆出（均衡——500 边超限防复发）
+- 测试：TestDomainFactsEntityOutIn（a/c 出/入度验证；b 被行为门槛
+  过滤——1 方法 0 出边 DTO 语义，顺带确认实体图语义）
+- 待办清单：全部候选改进项按优先级入档（P0 新增 facts 实体增强；
+  P1 新增 R50 残留；P2 新增 ER 500 边细分复用；已完成标注补充
+  R57-R63）
+
 ### R63（2026-08-25）——领域太大自动按包子域细分（500 边触发）
 
 用户：如果有 500 边，是否可以理解为域太大？可再细分。
@@ -1627,7 +1643,7 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
 - 排障捷径：wiki 命令把 zap 日志写到目标仓库 .codeintel/codeintel.log
   ——ResolveSymbol 输入/成败一目了然（grep input 定位渲染路径）
 
-## 待办与已知不足（按优先级，2026-08-25 统一整理）
+## 待办与已知不足（按优先级，2026-08-25 统一整理，R64 补充候选）
 
 **P0——高优先级（影响交付质量/机制未闭环）**：
 - 1. **--with-qa 实战验证**（交接遗留）：qa_history 已积累真实问答
@@ -1644,28 +1660,34 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
   host/path 前缀）+ 常量拼接
 - 4. **术语表 24 条 / flows 5 条 review**（交接遗留）：AI 初稿已入
   wiki.yaml，人工最后确认（wiki skill「人工是最后一道工序」）
+- 5. **facts 实体信息增强**（R62 候选）：实体带包路径 + 门面游离函数
+  数（现仅 Name+Methods+out/in——AI 领域划分的包归属信息更全）
 
 **P1——中优先级（补全/验证）**：
-- 5. **表字段类型剩余 10 列**（交接遗留）：repos 全局注册表，schema
+- 6. **表字段类型剩余 10 列**（交接遗留）：repos 全局注册表，schema
   在 ~/.codeintel——yaml 补或读全局 db
-- 6. **新人实测演练**（交接遗留）：挑一个陌生项目用 wiki 走通
+- 7. **新人实测演练**（交接遗留）：挑一个陌生项目用 wiki 走通
   onboarding，验证"新人视角无死角"（覆盖度终极验证，需外部项目）
-- 7. **F2 实体分组对非 DDD 项目效果**（交接遗留）：go2o 是 DDD 样例，
+- 8. **F2 实体分组对非 DDD 项目效果**（交接遗留）：go2o 是 DDD 样例，
   普通项目待观察
-- 8. **external-interfaces 的 http 请求对象判定缺失**（R45 已知局限）：
+- 9. **external-interfaces 的 http 请求对象判定缺失**（R45 已知局限）：
   gin handler 无显式请求类型——http 只按"路由未定义"判定（条件②
   只对 grpc 生效）；可在 handler 参数绑定结构体（ShouldBind/参数
   类型）方向增强
+- 10. **R50 残留：4 个空 mermaid pre**（极小影响）：go2o 559 图中 4 个
+  空块（diagramHTML 空串未判空）
 
 **P2——低优先级/候选**：
-- 9. **流程页深度**（候选）：入口调用链 → 关键数据流（value-trace
+- 11. **流程页深度**（候选）：入口调用链 → 关键数据流（value-trace
   串联）
-- 10. **服务归属静态兜底改进**（R38 可选）：投票被基础设施兜底域
+- 12. **服务归属静态兜底改进**（R38 可选）：投票被基础设施兜底域
   污染——可排除服务实现包再投票
-- 11. **外部依赖识别形态扩展**（候选）：kafka 对 go2o 无数据（go2o
+- 13. **外部依赖识别形态扩展**（候选）：kafka 对 go2o 无数据（go2o
   消息走 msq/events 非 sarama）——待真实 kafka 项目验证；redis 命令
   式（conn.Do("BLPOP", key)）是 go2o 主流（R36 已覆盖），其他客户端
   库形态后置
+- 14. **ER 图 500 边细分复用 R63 思路**（候选）：ER 域内图超限时
+  自动按表前缀/域再细分（实体协作已实现——ER 待同款处理）
 
 **已完成标注**（随轮次更新）：
 - ~~6 项高优先级待办（2026-08-24 用户提出）~~ → R29/R31/R32/R35/R36/
@@ -1675,3 +1697,9 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
 - ~~ana 自身索引 update~~ → R37 reindex；~~ana domains 补 services~~ →
   R39 重跑（7 域 + services 写入）
 - ~~yaml 语义层/术语表接入/列说明带 rels/ask REPL~~ → R23/R24/R26
+- ~~facts 实体调用热度（out/in）~~ → R64（AI 领域划分参考 + prompt
+  指导内聚/均衡）；~~wiki 强制 domains/ai.fill 细分~~ → R57；
+  ~~全局配置自动初始化~~ → R58；~~验证提速~~ → R59；
+  ~~config default~~ → R60；~~domain-facts compact~~ → R61；
+  ~~设计诊断折叠/实体全展示/grpc 方法表格/包结构表格~~ → R62；
+  ~~领域 500 边自动细分~~ → R63

@@ -28,10 +28,14 @@ type tableFacts struct {
 	Alias string `json:"alias,omitempty"`
 }
 
-// entityFacts 一个核心实体（类型 + 方法数）。
+// entityFacts 一个核心实体（类型 + 方法数 + 调用热度）。
+// R64：Out/In = 调出/被调聚合边数——AI 划分领域参考调用热度（高内聚
+// 实体同域、跨域调用边少；实体多的域提示可再细分——防域内边爆炸）。
 type entityFacts struct {
 	Name    string `json:"name"`
 	Methods int    `json:"methods"`
+	Out     int    `json:"out,omitempty"` // 出度：调出边数
+	In      int    `json:"in,omitempty"`  // 入度：被调边数
 }
 
 // svcFacts 一个服务（grpc 服务名 / http 方法+路径）。
@@ -98,11 +102,18 @@ func collectDomainFacts(acts *action.Actions, repoAbs string, cfg wikiConfig, db
 	}
 
 	if g, err := acts.Entities(); err == nil && g != nil {
+		// R64：实体出度/入度（聚合边数——调用热度；AI 领域划分参考）
+		out := map[string]int{}
+		in := map[string]int{}
+		for _, e := range g.Edges {
+			out[e.From]++
+			in[e.To]++
+		}
 		for _, n := range g.Nodes {
 			if len(f.Ents) >= 60 {
 				break
 			}
-			f.Ents = append(f.Ents, entityFacts{Name: n.Name, Methods: n.MethodCount})
+			f.Ents = append(f.Ents, entityFacts{Name: n.Name, Methods: n.MethodCount, Out: out[n.ID], In: in[n.ID]})
 		}
 	}
 
@@ -170,6 +181,7 @@ func domainPrompt(factsPath, extraPrompt string) string {
 	b.WriteString("5. **services 字段必填**：每个域给出归属的服务名列表（grpc 服务名如 OrderService/MemberService 按业务语义归属；无法归属的服务可以不放任何域，但能归属的必须写上）\n")
 	b.WriteString("6. 只输出 YAML，不要解释：\n")
 	b.WriteString("domains:\n  - name: 商品域\n    description: 商品/SKU/类目管理\n    packages: [github.com/ixre/go2o/pkg/interface/domain/item]\n    tables: [item_info, item_sku]\n    services: [ItemService]\n")
+	b.WriteString("\n7. **调用热度辅助**（entities 的 out/in = 调出/被调聚合边数）：相互调用密集（out/in 高且互相关联）的实体尽量归同一域——领域内聚、跨域调用边少；单域实体过多（密集调用域内边会爆炸）时优先把调用稀疏的边界实体拆到其他域\n")
 	if extraPrompt != "" {
 		b.WriteString("\n用户额外约束（**必须优先遵守**，冲突时以用户约束为准）：\n" + extraPrompt + "\n")
 	}
