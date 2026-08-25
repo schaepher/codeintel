@@ -140,6 +140,56 @@ func agentFromConfig() string {
 	return strings.TrimSpace(c.Agent)
 }
 
+// aiConfigFromGlobal 读全局配置的 AI 使用点开关（`ai: {domains, fill,
+// ask: auto|off}`）——R56：~/.codeintel/config.yaml，仓库级 wiki.yaml
+// 优先（aiEnabled 里合并）。
+func aiConfigFromGlobal() wikiAICfg {
+	p := agentConfigPath()
+	if p == "" {
+		return wikiAICfg{}
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return wikiAICfg{}
+	}
+	var c struct {
+		AI wikiAICfg `yaml:"ai"`
+	}
+	if err := yaml.Unmarshal(b, &c); err != nil {
+		return wikiAICfg{}
+	}
+	return c.AI
+}
+
+// aiEnabled AI 使用点开关判定（R56）：wiki.yaml ai.<key>（仓库级）>
+// ~/.codeintel/config.yaml ai.<key>（全局）> 默认启用。值 off 才禁用
+// （其他值/空 = auto 启用）。
+func aiEnabled(key string, cfg wikiConfig) bool {
+	val := aiValue(key, cfg.AI)
+	if val != "" {
+		return val != "off"
+	}
+	g := aiConfigFromGlobal()
+	val = aiValue(key, g)
+	if val != "" {
+		return val != "off"
+	}
+	return true
+}
+
+// aiValue 取开关值（domains|fill|ask）。
+func aiValue(key string, c wikiAICfg) string {
+	switch key {
+	case "domains":
+		return strings.TrimSpace(c.Domains)
+	case "fill":
+		return strings.TrimSpace(c.Fill)
+	case "ask":
+		return strings.TrimSpace(c.Ask)
+	}
+	return ""
+}
+
 // resolveAgent --agent 参数 → 生效 agent：显式 > config > auto。
 func resolveAgent(flagAgent string) (string, error) {
 	cfg := agentFromConfig()

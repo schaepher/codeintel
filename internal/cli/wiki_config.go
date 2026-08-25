@@ -39,6 +39,17 @@ type wikiConfig struct {
 	Glossary []wikiGlossaryItem `yaml:"glossary"`
 	// 业务域（R34：AI 分析产出 → 人工确认；ER/实体分组统一消费）
 	Domains []wikiDomainCfg `yaml:"domains"`
+	// AI 使用点开关（R56：wiki.yaml 仓库级 > ~/.codeintel/config.yaml
+	// 全局 > 默认 auto）：domains（业务域分析）/fill（wiki --ai 补缺）/
+	// ask（ask/serve 问答）——off 时整步跳过，不调 AI
+	AI wikiAICfg `yaml:"ai"`
+}
+
+// wikiAICfg AI 使用点开关值（auto=启用（默认）| off=跳过/禁用）。
+type wikiAICfg struct {
+	Domains string `yaml:"domains"`
+	Fill    string `yaml:"fill"`
+	Ask     string `yaml:"ask"`
 }
 
 // wikiGlossaryItem 术语条目（命名类型——wiki --ai 补缺时追加/更新）。

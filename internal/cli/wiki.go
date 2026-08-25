@@ -35,6 +35,7 @@ func cmdWiki(args []string) int {
 	aiWithQA := false
 	diagram := "plantuml" // R32：图引擎（默认 plantuml，Q3 定案）
 	maxEntries := 0       // R37：流程页入口展开上限（0 = 默认 15）
+	extraPrompt := ""     // R56：用户约束传给 AI（业务域分析）
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
@@ -79,8 +80,13 @@ func cmdWiki(args []string) int {
 			i++
 		case strings.HasPrefix(a, "--max-entries="):
 			maxEntries, _ = strconv.Atoi(strings.TrimPrefix(a, "--max-entries="))
+		case a == "--prompt" && i+1 < len(args):
+			extraPrompt = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--prompt="):
+			extraPrompt = strings.TrimPrefix(a, "--prompt=")
 		case a == "--help" || a == "-h":
-			fmt.Println("用法: codeintel wiki [--repo <path>] [--out <dir=docs/wiki>] [--yaml <file>] [--format md|html] [--init] [--ai] [--agent codex|claude|auto] [--with-qa] [--diagram plantuml|mermaid] [--max-entries <N>]\n  从代码生成业务 wiki（Markdown 或单文件 HTML）——wiki.yaml 可补充业务描述/别名/隐藏符号；--init 生成 wiki.yaml 骨架；--ai 用 AI 增量补缺（无描述模块/无别名表/无说明列/术语表 → 写回 wiki.yaml 标注 # AI 初稿）；--with-qa 从历史问答（ask/serve 对话收集）读取相关 Q&A 作为参考资料；--diagram 图引擎（默认 plantuml——HTML 渲染 PNG 嵌入；mermaid 浏览器端渲染）；--max-entries 流程页每节/每页入口展开上限（默认 15，超出折叠为清单）")
+			fmt.Println("用法: codeintel wiki [--repo <path>] [--out <dir=docs/wiki>] [--yaml <file>] [--format md|html] [--init] [--ai] [--agent codex|claude|auto] [--with-qa] [--diagram plantuml|mermaid] [--max-entries <N>] [--prompt <text>]\n  从代码生成业务 wiki（Markdown 或单文件 HTML）——wiki.yaml 可补充业务描述/别名/隐藏符号；--init 生成 wiki.yaml 骨架；--ai 用 AI 增量补缺（无描述模块/无别名表/无说明列/术语表 → 写回 wiki.yaml 标注 # AI 初稿）；--with-qa 从历史问答（ask/serve 对话收集）读取相关 Q&A 作为参考资料；--diagram 图引擎（默认 plantuml——HTML 渲染 PNG 嵌入；mermaid 浏览器端渲染）；--max-entries 流程页每节/每页入口展开上限（默认 15，超出折叠为清单）；--prompt 用户约束传给 AI（业务域分析——可预先指定部分域）；AI 使用点可用配置关闭（wiki.yaml 或 ~/.codeintel/config.yaml 的 ai: {domains, fill, ask: auto|off}）")
 			return 0
 		default:
 			fmt.Fprintf(os.Stderr, "error: 未知参数 %q\n", a)
@@ -145,9 +151,10 @@ func cmdWiki(args []string) int {
 	// R34：业务域——wiki.yaml 无 domains 时自动调 AI 分析（已生成过
 	// 就不再生成；失败降级现有规则，不阻断 wiki 生成；
 	// CODEINTEL_SKIP_DOMAINS=1 跳过——测试环境避免真实 AI 调用）
-	if os.Getenv("CODEINTEL_SKIP_DOMAINS") == "" && len(cfg.Domains) == 0 {
+	// R56：ai.domains=off（wiki.yaml/全局）→ 整步跳过
+	if os.Getenv("CODEINTEL_SKIP_DOMAINS") == "" && len(cfg.Domains) == 0 && aiEnabled("domains", cfg) {
 		if agent, err := resolveAgent(aiAgent); err == nil {
-			if doms, warns := analyzeDomains(abs, &cfg, acts, sqlite.NewRepo(db), agent, yamlPath, ""); len(doms) > 0 {
+			if doms, warns := analyzeDomains(abs, &cfg, acts, sqlite.NewRepo(db), agent, yamlPath, "", extraPrompt); len(doms) > 0 {
 				for _, w := range warns {
 					fmt.Fprintf(os.Stderr, "warning: %s\n", w)
 				}
@@ -183,20 +190,25 @@ func cmdWiki(args []string) int {
 		return 1
 	}
 	// #0 wiki --ai：缺口收集 → AI 初稿 → 合并 wiki.yaml（先补缺再渲染，
-	// 渲染用更新后的 cfg）
+	// 渲染用更新后的 cfg）。R56：ai.fill=off（wiki.yaml/全局）→ 整步
+	// 跳过（不调 resolveAgent）
 	if aiMode {
-		agent, err := resolveAgent(aiAgent)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			return 1
+		if !aiEnabled("fill", cfg) {
+			fmt.Println("ai.fill=off——跳过 AI 补缺（wiki.yaml 或 ~/.codeintel/config.yaml 配置）")
+		} else {
+			agent, err := resolveAgent(aiAgent)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				return 1
+			}
+			yp := yamlPath
+			if yp == "" {
+				yp = filepath.Join(abs, "wiki.yaml")
+			}
+			okN, skipN, failN := wikiAIFill(yp, &cfg, data, cols, rels, agent, aiTimeout, aiWithQA, sqlite.NewRepo(db), abs)
+			fmt.Printf("wiki --ai：补全 %d 条、跳过 %d 条、失败 %d 条（已写回 %s，标注 # AI 初稿——git diff 可回滚）\n",
+				okN, skipN, failN, yp)
 		}
-		yp := yamlPath
-		if yp == "" {
-			yp = filepath.Join(abs, "wiki.yaml")
-		}
-		okN, skipN, failN := wikiAIFill(yp, &cfg, data, cols, rels, agent, aiTimeout, aiWithQA, sqlite.NewRepo(db), abs)
-		fmt.Printf("wiki --ai：补全 %d 条、跳过 %d 条、失败 %d 条（已写回 %s，标注 # AI 初稿——git diff 可回滚）\n",
-			okN, skipN, failN, yp)
 	}
 	// R1：包职责地图（包节点 doc_comment）
 	pkgs, err := acts.Packages()

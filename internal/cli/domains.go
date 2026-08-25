@@ -88,7 +88,8 @@ func parseDomains(resp string, f *domainFacts) ([]wikiDomainCfg, []string) {
 // analyzeDomains 核心流程：事实包导出文件 → AI 读文件归纳 → 解析校验
 // → 写回 wiki.yaml。返回写回是否发生（无 domains 不写）。wiki 集成
 // 复用（已生成跳过）。factsPath 为空时写仓库 .codeintel/ 下。
-func analyzeDomains(repoAbs string, cfg *wikiConfig, acts *action.Actions, db *sqlite.Repo, agent string, yamlPath string, factsPath string) ([]wikiDomainCfg, []string) {
+// extraPrompt：用户约束（R56 wiki --prompt）——传入 domainPrompt。
+func analyzeDomains(repoAbs string, cfg *wikiConfig, acts *action.Actions, db *sqlite.Repo, agent string, yamlPath string, factsPath string, extraPrompt string) ([]wikiDomainCfg, []string) {
 	f := collectDomainFacts(acts, repoAbs, *cfg, db)
 	if factsPath == "" {
 		factsPath = filepath.Join(repoAbs, ".codeintel", "domain-facts.txt")
@@ -102,7 +103,7 @@ func analyzeDomains(repoAbs string, cfg *wikiConfig, acts *action.Actions, db *s
 	}
 	// R38：任务加重（读事实包 JSON + 归纳 packages/tables/services）——
 	// 超时 240s → 360s（go2o 30 服务实测 4m 仍超）
-	resp, err := agentRunner(agent, domainPrompt(factsPath), 360*time.Second, repoAbs)
+	resp, err := agentRunner(agent, domainPrompt(factsPath, extraPrompt), 360*time.Second, repoAbs)
 	if err != nil {
 		return nil, []string{fmt.Sprintf("AI 业务域分析失败: %v", err)}
 	}
@@ -225,7 +226,12 @@ func cmdDomains(repoAbs string, f queryFlags, agent, yamlPath, factsPath, export
 			exportOnly, len(f.Pkgs), len(f.Tables))
 		return 0
 	}
-	doms, warns := analyzeDomains(repoAbs, &cfg, acts, sqlite.NewRepo(db), agent, yamlPath, factsPath)
+	// R56：ai.domains=off（wiki.yaml/全局）→ 整步跳过（不调 AI）
+	if !aiEnabled("domains", cfg) {
+		fmt.Fprintln(os.Stderr, "ai.domains=off——跳过业务域分析（wiki.yaml 或 ~/.codeintel/config.yaml 配置）")
+		return 0
+	}
+	doms, warns := analyzeDomains(repoAbs, &cfg, acts, sqlite.NewRepo(db), agent, yamlPath, factsPath, "")
 	for _, w := range warns {
 		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
 	}

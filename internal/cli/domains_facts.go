@@ -150,7 +150,9 @@ func exportDomainFacts(repoAbs string, acts *action.Actions, cfg wikiConfig, db 
 
 // domainPrompt 组装 AI prompt（**事实不内联**——引用已导出的 JSON
 // 事实文件，agent 先读文件再分析；信息充分性靠文件完整性）。
-func domainPrompt(factsPath string) string {
+// extraPrompt：用户约束（R56 wiki --prompt——预先指定部分域，帮助
+// AI 判断；空 = 无约束）。
+func domainPrompt(factsPath, extraPrompt string) string {
 	var b strings.Builder
 	b.WriteString("你是代码架构分析师。代码静态分析事实已导出到 JSON 文件 `" + factsPath + "`（packages/tables/entities/services，权威可靠）。\n")
 	b.WriteString("请先用 Read 工具读取该文件，然后归纳该项目的**业务域（领域）划分**。\n\n")
@@ -162,5 +164,8 @@ func domainPrompt(factsPath string) string {
 	b.WriteString("5. **services 字段必填**：每个域给出归属的服务名列表（grpc 服务名如 OrderService/MemberService 按业务语义归属；无法归属的服务可以不放任何域，但能归属的必须写上）\n")
 	b.WriteString("6. 只输出 YAML，不要解释：\n")
 	b.WriteString("domains:\n  - name: 商品域\n    description: 商品/SKU/类目管理\n    packages: [github.com/ixre/go2o/pkg/interface/domain/item]\n    tables: [item_info, item_sku]\n    services: [ItemService]\n")
+	if extraPrompt != "" {
+		b.WriteString("\n用户额外约束（**必须优先遵守**，冲突时以用户约束为准）：\n" + extraPrompt + "\n")
+	}
 	return b.String()
 }

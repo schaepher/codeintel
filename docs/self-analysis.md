@@ -1409,6 +1409,39 @@ domain 1 包 1 自环边。
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
 
+### R56（2026-08-25）——AI 使用点配置开关 + wiki --prompt
+
+用户：列出所有用到 AI 的地方，允许配置项控制是否用 AI（必须 AI 的
+步骤整体跳过）；wiki 命令加 --prompt 预先指定部分域帮助 AI 判断。
+
+**AI 使用点清单**（5 处）：
+1. **domains 自动分析**（wiki.go——wiki.yaml 无 domains 时自动调 AI 归纳业务域）
+2. **wiki --ai 补缺**（wiki.go——模块描述/表别名/列说明/术语表/flows）
+3. **domains 命令**（domains.go——独立业务域分析）
+4. **ask 命令**（ask.go——项目上下文问答）
+5. **serve 对话界面**（wiki_serve.go——POST /wiki/ask）
+
+**配置**：`ai: {domains, fill, ask: auto|off}`——wiki.yaml（仓库级）>
+~/.codeintel/config.yaml（全局）> 默认 auto。off = 整步跳过不调 AI：
+- ai.domains=off：wiki 自动分析跳过（无领域分组，ER/架构图降级）、
+  domains 命令提示跳过返回 0
+- ai.fill=off：wiki --ai 直接打印"跳过 AI 补缺"（不调 resolveAgent）
+- ai.ask=off：ask 命令报"AI 问答已禁用"返回 1；serve 接口 403
+
+**wiki --prompt <text>**：用户约束传进 domainPrompt（"用户额外约束
+（必须优先遵守）"段）——预先指定部分域，帮助 AI 判断。
+
+- 测试：TestAIEnabled（两级优先级）/TestWikiDomainsOff/TestWikiFillOff/
+  TestAskAskOff/TestCmdWikiPrompt（--prompt 传递端到端）/
+  TestDomainPromptExtra；TestCmdWikiPrompt 需 t.Setenv 取消
+  testmain 全局 CODEINTEL_SKIP_DOMAINS（自动 domains 触发条件）
+- 教训：**cmdWiki 自动 domains 在测试环境永远被跳过**——testmain
+  TestMain 里 os.Setenv("CODEINTEL_SKIP_DOMAINS","1") 全局生效，
+  测自动分析分支需 t.Setenv 置空
+- 回答用户：# AI 初稿 注释是**程序加上的**（wiki_ai_merge.go
+  aiDraftComment 常量）——AI 只返回值，程序写回 wiki.yaml 时统一
+  标注（git diff 可回滚）
+
 ### R55（2026-08-25）——grpc 方法入口用 Go 方法名（handler 提取）
 
 用户：grpc 服务入口底下领域服务的方法开始的调用链要能看到——现在是

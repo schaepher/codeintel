@@ -8,6 +8,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 	"github.com/schaepher/codeintel/internal/logging"
+	"gopkg.in/yaml.v3"
 )
 
 // askPreamble 系统提示（透传给 AI 的第一段）。
@@ -73,17 +75,26 @@ func cmdAsk(args []string) int {
 			question = append(question, a)
 		}
 	}
-	agent, err := resolveAgent(agentFlag)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
-	}
 	abs, _, err := resolveRepo(repoPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		if repoPath == "." {
 			printRepoHint()
 		}
+		return 1
+	}
+	// R56：ai.ask=off（wiki.yaml 仓库级/全局）→ 禁用问答（整步跳过）
+	cfg := wikiConfig{}
+	if b, err := os.ReadFile(filepath.Join(abs, "wiki.yaml")); err == nil {
+		_ = yaml.Unmarshal(b, &cfg)
+	}
+	if !aiEnabled("ask", cfg) {
+		fmt.Fprintln(os.Stderr, "error: AI 问答已禁用（ai.ask=off——wiki.yaml 或 ~/.codeintel/config.yaml 配置）")
+		return 1
+	}
+	agent, err := resolveAgent(agentFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
 	if err := logging.ToFile(abs); err != nil {

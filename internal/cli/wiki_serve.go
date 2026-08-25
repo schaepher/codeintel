@@ -127,6 +127,15 @@ func (ws *wikiServe) handleAsk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := strings.TrimSpace(req.Question)
+	// R56：ai.ask=off（wiki.yaml 仓库级/全局）→ 禁用问答
+	cfg := wikiConfig{}
+	if b, err := os.ReadFile(filepath.Join(ws.repoAbs, "wiki.yaml")); err == nil {
+		_ = yaml.Unmarshal(b, &cfg)
+	}
+	if !aiEnabled("ask", cfg) {
+		http.Error(w, "AI 问答已禁用（ai.ask=off——wiki.yaml 或 ~/.codeintel/config.yaml 配置）", http.StatusForbidden)
+		return
+	}
 	agent, err := resolveAgent("")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
