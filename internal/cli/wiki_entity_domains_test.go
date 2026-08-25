@@ -65,6 +65,34 @@ func TestSplitEntityDomainsInvalid(t *testing.T) {
 	}
 }
 
+// TestSplitEntityDomainsSkewedConfig：R43——有 domains 配置时实体分布
+// 偏斜（go2o 实测最大组 >80%）也强制分组（用户要求分领域间/领域内；
+// 领域内大图由 500 边降级兜底）——80% 检查仅用于无配置的 DDD 降级。
+func TestSplitEntityDomainsSkewedConfig(t *testing.T) {
+	g := &domain.EntityGraph{}
+	for i := 0; i < 20; i++ { // 20 个 big 域实体（集中）
+		g.Nodes = append(g.Nodes, &domain.EntityNode{
+			ID:  "symbol:go:example.com/m/big:T" + string(rune('0'+i)),
+			Pkg: "example.com/m/big",
+		})
+	}
+	g.Nodes = append(g.Nodes, &domain.EntityNode{ // 1 个小域实体
+		ID: "symbol:go:example.com/m/small:T", Pkg: "example.com/m/small",
+	})
+	doms := splitEntityDomains(g, []wikiDomainCfg{
+		{Name: "大域", Packages: []string{"big"}},
+		{Name: "小域", Packages: []string{"small"}},
+	})
+	if len(doms) != 2 {
+		t.Fatalf("有配置应强制分组（偏斜也分）: %+v", doms)
+	}
+	// 无配置（DDD 降级）同样偏斜 → 80% 检查拦截 → 整图一组
+	doms2 := splitEntityDomains(g, nil)
+	if len(doms2) > 1 {
+		t.Fatalf("无配置偏斜应被 80%% 检查拦为整图: %+v", doms2)
+	}
+}
+
 // TestDomainMermaid：领域间图含节点与聚合边（order→wallet count 3）。
 func TestDomainMermaid(t *testing.T) {
 	g := go2oStyleGraph()

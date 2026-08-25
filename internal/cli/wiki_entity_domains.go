@@ -25,18 +25,26 @@ type entityDomain struct {
 // splitEntityDomains 实体按领域分组：**R34 统一消费 wiki.yaml domains**
 // （包归属优先——domains.packages 短名匹配包路径；未覆盖走 DDD 子域
 // 目录降级），程序验证有效性，逐级降级直到可用（单组=不分组）。
+// R43（用户要求分领域间/领域内）：有显式 domains 配置时强制分组——
+// 实体分布偏斜（go2o 实测实体集中在系统与平台域 → 80% 检查失败 → 整
+// 图 753 行渲染崩溃）也要分；领域内大图由 mermaid 500 边降级兜底。
 func splitEntityDomains(g *domain.EntityGraph, doms []wikiDomainCfg) []*entityDomain {
-	// R34：包 → 域名索引（domains.packages 短名——包路径包含匹配）
+	// R34：包 → 域名索引（domains.packages 短名/完整路径——包路径包含匹配）
 	domainOfPkg := func(pkg string) string {
 		for _, d := range doms {
 			for _, p := range d.Packages {
-				if p != "" && (strings.HasSuffix(pkg, "/"+p) || pkg == p) {
+				short := p
+				if i := strings.LastIndex(p, "/"); i >= 0 {
+					short = p[i+1:]
+				}
+				if short != "" && (strings.HasSuffix(pkg, "/"+short) || pkg == short) {
 					return d.Name
 				}
 			}
 		}
 		return ""
 	}
+	hasConfig := len(doms) > 0
 	modRoot := pkgCommonPrefix(g)
 	// lvl=2 默认（跳过 pkg/internal 等容器目录——go2o: pkg/infra → infra）；
 	// 无效时降级 lvl=1
@@ -49,7 +57,7 @@ func splitEntityDomains(g *domain.EntityGraph, doms []wikiDomainCfg) []*entityDo
 			}
 			groups[d] = append(groups[d], n)
 		}
-		if doms2 := buildDomains(g, groups); validSplit(doms2) {
+		if doms2 := buildDomains(g, groups); validSplit(doms2, hasConfig) {
 			return doms2
 		}
 	}
@@ -127,10 +135,16 @@ func buildDomains(g *domain.EntityGraph, groups map[string][]*domain.EntityNode)
 	return doms
 }
 
-// validSplit 拆分有效性：组数 ≥2 且最大组实体占比 ≤80%。
-func validSplit(doms []*entityDomain) bool {
+// validSplit 拆分有效性：组数 ≥2；有显式 domains 配置时直接通过
+// （R43：用户要求分领域间/领域内——配置即意图，实体偏斜也分，领域内
+// 大图由 500 边降级兜底）；无配置（DDD 目录降级）保留最大组占比
+// ≤80% 检查（防无效拆分）。
+func validSplit(doms []*entityDomain, hasConfig bool) bool {
 	if len(doms) < 2 {
 		return false
+	}
+	if hasConfig {
+		return true
 	}
 	total := 0
 	max := 0
