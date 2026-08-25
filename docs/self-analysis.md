@@ -1409,6 +1409,46 @@ domain 1 包 1 自环边。
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
 
+### R55（2026-08-25）——grpc 方法入口用 Go 方法名（handler 提取）
+
+用户：grpc 服务入口底下领域服务的方法开始的调用链要能看到——现在是
+直接看不到；"这种一定会有调用链，否则就是无效的 grpc 服务"。
+
+实测定位（go2o）：21 个方法入口显示"索引中无此符号"——两类：
+1. **19 个小写方法名**：ServiceDesc 方法名是 proto 定义名（sendCode/
+   forbid/getPage 小写），实现方法是 Go 导出名（SendCode/Forbid/
+   GetPage）——grpcMethodEntryID 用小写名构造 `(Impl).sendCode` 在
+   索引中无符号 → 无调用链（CheckService 5 个、ContentService 12 个、
+   OrderService.forbid、MerchantService.updateLockStatus）
+2. **2 个真无效方法**：SaveAreaTemplate/FlushCache——ServiceDesc 有
+   声明但 go2o 源码无实现（grep 确认；注册靠 Unimplemented 桩）——
+   渲染"索引中无此符号"误导为索引问题
+
+修复：
+- `grpcHandlerGoMethod(handler, svcName)`：从生成代码 handler
+  `_<Svc>_<GoMethod>_Handler` 提取 Go 导出名（尾下划线方法名
+  PrepareOrderWithCoupon_ 兼容）；grpcProcMethods 用 Go 名构造
+  入口 ID，p.Name 展示也用 Go 名（与调用链入口一致）
+- 无效方法文案：仅当 chain.Miss 是"索引中无此符号"（ResolveSymbol
+  失败）时覆盖为"ServiceDesc 声明但实现类型无此方法（未实现——
+  无效 gRPC 方法；或未重建索引）"；"未调用项目内函数"（Ping/Hello
+  健康检查形态——节点存在但无项目内调用）保留诚实文案不覆盖
+  （初版覆盖条件过宽误标 7 个——Ping 只是返回空响应）
+
+实测（go2o r55c）："索引中无此符号" 21 → 0；无效方法文案 2（仅真
+无效）；SendCode/Forbid/GetPage 调用链全部恢复；5 个"未调用项目内
+函数"（Ping/Hello/DeleteStore/DeleteWorkorder/GetAllTradeConf_）。
+测试：TestProcGrpcMethodsLowerName/TestGrpcHandlerGoMethod/
+TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
+
+- 教训：**grpc 方法名 ≠ Go 方法名**——ServiceDesc 用 proto 定义名
+  （go2o 大量小写），实现是 Go 导出名；handler 名携带真实实现名
+  （`_XxxService_GoMethod_Handler`）。判"无调用链"先分三类：索引
+  无符号（识别/索引问题）、仅调用外部库（合法）、真无实现（无效
+  方法——需 ServiceDesc vs 实现方法集对比）
+- 排障捷径：wiki 命令把 zap 日志写到目标仓库 .codeintel/codeintel.log
+  ——ResolveSymbol 输入/成败一目了然（grep input 定位渲染路径）
+
 ## 待办与已知不足（按优先级，2026-08-25 统一整理）
 
 **P0——高优先级（影响交付质量/机制未闭环）**：

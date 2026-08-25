@@ -62,6 +62,14 @@ func seedRoutesProcRepo(t *testing.T) string {
 			Name: "(queryServiceImpl).Query", FilePath: "impl/query.go", LineStart: 25},
 		{ID: "symbol:go:example.com/m/impl:queryHelper", Kind: domain.KindFunction,
 			Name: "queryHelper", FilePath: "impl/query.go", LineStart: 30},
+		// R55：ServiceDesc 方法名小写（proto 定义名 sendCode）→ 实现是
+		// Go 导出名（SendCode）——handler 提取场景
+		{ID: "symbol:go:example.com/m/impl:checkServiceImpl", Kind: domain.KindStruct,
+			Name: "checkServiceImpl", FilePath: "impl/check.go", LineStart: 10},
+		{ID: "symbol:go:example.com/m/impl:(checkServiceImpl).SendCode", Kind: domain.KindMethod,
+			Name: "(checkServiceImpl).SendCode", FilePath: "impl/check.go", LineStart: 15},
+		{ID: "symbol:go:example.com/m/impl:checkHelper", Kind: domain.KindFunction,
+			Name: "checkHelper", FilePath: "impl/check.go", LineStart: 20},
 	}
 	if _, err := r.SaveBatchStats(nodes, nil, nil); err != nil {
 		t.Fatalf("save nodes: %v", err)
@@ -78,6 +86,9 @@ func seedRoutesProcRepo(t *testing.T) string {
 		// grpc 方法一级调用
 		{SourceID: "symbol:go:example.com/m/impl:(queryServiceImpl).Query", TargetID: "symbol:go:example.com/m/impl:queryHelper",
 			Kind: domain.FactCalls, Confidence: 0.8, Metadata: map[string]any{"line_num": 26}},
+		// R55：小写 proto 名方法的实现（Go 导出名）调用链
+		{SourceID: "symbol:go:example.com/m/impl:(checkServiceImpl).SendCode", TargetID: "symbol:go:example.com/m/impl:checkHelper",
+			Kind: domain.FactCalls, Confidence: 0.8, Metadata: map[string]any{"line_num": 16}},
 	}
 	if _, err := r.SaveBatchStats(nil, facts, nil); err != nil {
 		t.Fatalf("save facts: %v", err)
@@ -146,6 +157,9 @@ func TestProcGrpcMethods(t *testing.T) {
 		t.Errorf("PagingShops 未定义方法节点——应返回带 Miss 说明的 chain（非 nil 非崩溃）: %+v", ms[1].Chain)
 	}
 }
+
+// R55 新测试（小写方法名/handler 提取/无调用边文案）已拆到
+// wiki_processes_r55_test.go（行数治理）。
 
 // TestRenderProcessesRoutes：流程页含 main 节 + HTTP 路由节 + gRPC 服务
 // 索引（main 节保留——R37 用户定案）。
