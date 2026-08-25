@@ -20,6 +20,9 @@ type Reader interface {
 	GetCallers(id domain.CanonicalID, depth int, minConfidence float64) ([]*domain.Fact, error)
 	GetCallees(id domain.CanonicalID, depth int, minConfidence float64) ([]*domain.Fact, error)
 	GetImpact(id domain.CanonicalID, depth int) ([]*domain.CodeEntity, error)
+	// InterfaceMethodImpl R75：接口方法 → 实现方法（implements 边 +
+	// 方法名匹配——调用链接口具体化）
+	InterfaceMethodImpl(methodID string) (string, bool)
 	GetFunctionFields(funcID domain.CanonicalID) ([]*domain.FunctionFieldSummary, error)
 	TraceBackward(field string, funcID domain.CanonicalID, maxDepth int) ([]*domain.TraceRow, error)
 	TraceBackwardIndirect(field string, funcID domain.CanonicalID, maxDepth int) ([]*domain.TraceRow, error) // Q172 --follow-indirect

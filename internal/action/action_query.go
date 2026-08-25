@@ -23,6 +23,15 @@ func (a *Actions) Callees(id domain.CanonicalID, depth int) ([]*domain.Fact, err
 	return a.repo.GetCallees(id, depth, MinConfidence)
 }
 
+// InterfaceMethodImpl 接口方法 → 实现方法（R75：调用链接口具体化——
+// implements 边 + 方法名匹配，排除 Unimplemented 桩）。
+func (a *Actions) InterfaceMethodImpl(methodID string) (string, bool) {
+	logger := zap.L()
+	logger.Info("enter (Actions).InterfaceMethodImpl", zap.String("method", methodID))
+	defer logger.Info("exit (Actions).InterfaceMethodImpl")
+	return a.repo.InterfaceMethodImpl(methodID)
+}
+
 // Impact 返回变更影响范围（深度 ≤ depth）。
 func (a *Actions) Impact(id domain.CanonicalID, depth int) ([]*domain.CodeEntity, error) {
 	logger := zap.L()

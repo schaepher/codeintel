@@ -217,3 +217,76 @@ ORDER BY name`)
 	}
 	return out, nil
 }
+
+// InterfaceMethodImpl 接口方法/类型 → 实现（R75：调用链接口具体化——
+// implements 边 + 方法名匹配；排除 Unimplemented 桩；多实现取首个有
+// 该方法者）。两种输入形态：
+//  1. 接口方法：symbol:go:<pkg>:(Iface).Method → 实现类型同名方法
+//  2. 接口类型：symbol:go:<pkg>:Iface（go2o 实测 calls 边 target 是
+//     接口类型节点——调用点未记录方法名）→ 实现类型节点
+func (r *Repo) InterfaceMethodImpl(methodID string) (string, bool) {
+	i := strings.Index(methodID, ":(")
+	if i < 0 {
+		// 形态 2：接口类型节点 → 实现类型节点
+		implIDs := r.interfaceImpls(methodID)
+		if len(implIDs) == 0 {
+			return "", false
+		}
+		return implIDs[0], true
+	}
+	pkg := methodID[:i]
+	rest := methodID[i+2:]
+	j := strings.Index(rest, ").")
+	if j < 0 {
+		return "", false
+	}
+	ifaceID := pkg + ":" + rest[:j]
+	methodName := rest[j+2:]
+	implIDs := r.interfaceImpls(ifaceID)
+	for _, implID := range implIDs {
+		// 3. 实现类型同名方法：symbol:go:<pkg>:(Type).Method
+		mi := strings.LastIndex(implID, ":")
+		if mi < 0 {
+			continue
+		}
+		implMethod := implID[:mi+1] + "(" + implID[mi+1:] + ")." + methodName
+		var cnt int
+		rows, err := r.Query(`SELECT COUNT(*) FROM nodes WHERE id = ?`, implMethod)
+		if err == nil && rows.Next() {
+			_ = rows.Scan(&cnt)
+		}
+		rows.Close()
+		if cnt > 0 {
+			return implMethod, true
+		}
+	}
+	return "", false
+}
+
+// interfaceImpls 接口的 implements 实现类型列表（校验接口 kind；排除
+// Unimplemented 桩）。
+func (r *Repo) interfaceImpls(ifaceID string) []string {
+	var kind string
+	rows, err := r.Query(`SELECT kind FROM nodes WHERE id = ?`, ifaceID)
+	if err == nil && rows.Next() {
+		_ = rows.Scan(&kind)
+	}
+	rows.Close()
+	if kind != "interface" {
+		return nil
+	}
+	implRows, err := r.Query(`SELECT target_id FROM edges
+		WHERE source_id = ? AND kind = 'implements' AND target_id NOT LIKE '%Unimplemented%'`, ifaceID)
+	if err != nil {
+		return nil
+	}
+	var implIDs []string
+	for implRows.Next() {
+		var id string
+		if implRows.Scan(&id) == nil {
+			implIDs = append(implIDs, id)
+		}
+	}
+	implRows.Close()
+	return implIDs
+}

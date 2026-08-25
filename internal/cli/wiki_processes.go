@@ -39,6 +39,10 @@ func queryChain(acts *action.Actions, entryName string) *procChain {
 	if err != nil {
 		return &procChain{Entry: shortSymbolName(entry), Miss: "查询调用链失败"}
 	}
+	// R75：接口方法具体化——调用目标是指向接口方法（静态类型）的
+	// 边 → 经 implements 边落到实现方法 + 展开实现方法一级调用（接口
+	// 是跳板不占层数——时序图反映实际执行逻辑而非接口列表）
+	facts = resolveIfaceCalls(acts, facts)
 	chain := &procChain{Entry: shortSymbolName(entry)}
 	chain.Steps = sortChainByCallLine(string(entry.ID), facts)
 	pkgs := map[string]bool{}
@@ -57,6 +61,34 @@ func queryChain(acts *action.Actions, entryName string) *procChain {
 		chain.Miss = "该函数未调用项目内其他函数（可能仅调用外部库）"
 	}
 	return chain
+}
+
+// resolveIfaceCalls 调用链接口方法具体化（R75）：target 是接口方法 →
+// implements 边找实现方法（InterfaceMethodImpl）→ 替换 target + 展开
+// 实现方法的一级调用（接口跳板不占层数；Metadata/line_num 保留——
+// 调用点行号不变，时序顺序准确）。
+func resolveIfaceCalls(acts *action.Actions, facts []*domain.Fact) []*domain.Fact {
+	var out []*domain.Fact
+	expanded := map[string]bool{}
+	for _, f := range facts {
+		if impl, ok := acts.InterfaceMethodImpl(string(f.TargetID)); ok {
+			out = append(out, &domain.Fact{
+				SourceID: f.SourceID, TargetID: domain.CanonicalID(impl),
+				Kind: f.Kind, Confidence: f.Confidence, Metadata: f.Metadata,
+			})
+			// 实现方法形态（含 :( ）→ 展开其一级调用；实现类型形态
+			// （无方法名——调用点未记录）→ 只替换实体
+			if strings.Contains(impl, ":(") && !expanded[impl] {
+				expanded[impl] = true
+				if cs, err := acts.Callees(domain.CanonicalID(impl), 1); err == nil {
+					out = append(out, cs...)
+				}
+			}
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
 }
 
 // shortSymbolName 符号短名（(T).m / 函数名）。

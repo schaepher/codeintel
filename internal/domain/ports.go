@@ -241,6 +241,9 @@ type CodeRepository interface {
 	GetCallers(id CanonicalID, depth int, minConfidence float64) ([]*Fact, error)
 	GetCallees(id CanonicalID, depth int, minConfidence float64) ([]*Fact, error)
 	GetImpact(id CanonicalID, depth int) ([]*CodeEntity, error)
+	// InterfaceMethodImpl R75：接口方法 → 实现方法（implements 边 +
+	// 方法名匹配——调用链接口具体化）
+	InterfaceMethodImpl(methodID string) (string, bool)
 	Counts() (nodes int, edges int, err error)
 }
 

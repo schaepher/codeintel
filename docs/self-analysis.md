@@ -1409,6 +1409,30 @@ domain 1 包 1 自环边。
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
 
+### R75（2026-08-26）——调用链接口具体化（时序图反映实际执行逻辑）
+
+用户：以 PrepareOrder 为例检查实体间调用时序——"都是接口，没有
+多少调用，不能反映实际代码运行逻辑"。
+
+**问题确认**：PrepareOrder 的 18 个被调者 15 个是接口（ICartRepo/
+IOrderManager 等）——calls 边按**静态类型**发射（`repo.Save()` 的
+target = 接口类型/接口方法），实际执行的实现方法没进调用链——时序
+图止于接口，无法反映真实运行。
+
+**修复**（查询期具体化，不影响通用 query 语义）：
+- Repo.InterfaceMethodImpl：两种输入形态——
+  1. 接口方法（(Iface).Method）→ implements 边 + 方法名匹配 → 实现
+     方法；2. **接口类型节点**（go2o 实测 calls 边 target 是接口类型
+     非方法——调用点未记录方法名）→ 实现类型节点
+- queryChain resolveIfaceCalls：target 接口 → 替换为实现 + 方法形态
+  展开实现方法一级调用（接口跳板不占层数；line_num 保留时序准确）
+- 测试：TestQueryChainIfaceImpl（接口方法形态）+ 类型形态路径
+- 实测（go2o PrepareOrder）：时序实体从接口 → 实现（IOrderManager→
+  orderManagerImpl、ICartRepo→cartImpl）——真实反映执行逻辑
+- 教训：calls 边的 target 形态不统一（接口类型 vs 接口方法）——
+  具体化需双形态兼容；接口类型形态无方法名（调用点信息缺失），
+  只能落到实现类型实体不能继续展开
+
 ### R74（2026-08-26）——pkg_calls 聚合数组形态（减小 facts 体积）
 
 用户：pkg_calls 的 to 改为数组（[{pkg, count}]），同 from 聚合。
