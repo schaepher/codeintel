@@ -46,7 +46,7 @@ func (a *Adapter) markGrpcServiceInterfaces(repo *domain.Repository, pkg *packag
 				if strings.HasSuffix(named.Obj().Name(), "Client") {
 					continue
 				}
-				svcName, methods, paramTypes := grpcServiceFromInterface(iface, named.Obj().Name())
+				svcName, methods, paramTypes := grpcServiceFromInterface(pkg, iface, named.Obj().Name())
 				if svcName == "" {
 					continue
 				}
@@ -72,13 +72,14 @@ func (a *Adapter) markGrpcServiceInterfaces(repo *domain.Repository, pkg *packag
 
 // grpcServiceFromInterface 接口方法全部符合 grpc 模式 → 服务名（接口名
 // 去 Server 后缀）+ 方法名列表 + 首参类型完整路径列表（R45 外部接口
-// 判定）；任一方法不符合返回空。
-func grpcServiceFromInterface(iface *types.Interface, typeName string) (string, []string, []string) {
+// 判定）；任一方法不符合返回空。R48：方法须有 .pb.go 业务类型信号
+// （仅 ctx+err 不算 grpc）。
+func grpcServiceFromInterface(pkg *packages.Package, iface *types.Interface, typeName string) (string, []string, []string) {
 	var methods, paramTypes []string
 	for i := 0; i < iface.NumMethods(); i++ {
 		m := iface.Method(i)
 		sig, ok := m.Type().(*types.Signature)
-		if !ok || !isGrpcMethodSig(sig) {
+		if !ok || !isGrpcMethodSig(pkg, sig) {
 			return "", nil, nil
 		}
 		methods = append(methods, m.Name())
@@ -121,31 +122,8 @@ func grpcRequestType(sig *types.Signature) string {
 	return typePath(sig.Params().At(0).Type())
 }
 
-// isGrpcMethodSig grpc 方法签名模式：末返回值是 error，且首参是
-// context.Context 或参数/返回值含 grpc 包类型（流式方法）。
-func isGrpcMethodSig(sig *types.Signature) bool {
-	res := sig.Results()
-	if res == nil || res.Len() == 0 {
-		return false
-	}
-	if !isErrorType(res.At(res.Len() - 1).Type()) {
-		return false
-	}
-	if sig.Params().Len() > 0 && isContextType(sig.Params().At(0).Type()) {
-		return true
-	}
-	for i := 0; i < sig.Params().Len(); i++ {
-		if inGrpcPackage(sig.Params().At(i).Type()) {
-			return true
-		}
-	}
-	for i := 0; i < res.Len(); i++ {
-		if inGrpcPackage(res.At(i).Type()) {
-			return true
-		}
-	}
-	return false
-}
+// isGrpcMethodSig / hasPBType / pbDefinedType 已拆到 ast_grpc_sig.go
+// （R48 判定——行数治理）。
 
 // isContextType context.Context 类型。
 func isContextType(t types.Type) bool {

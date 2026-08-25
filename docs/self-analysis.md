@@ -1308,6 +1308,33 @@ domain 1 包 1 自环边。
 - mermaid 节点 id 必须清洗任意文本（域名/服务名含点横线）——
   mermaidID 通用 helper
 
+### R48（2026-08-25）——grpc 接口判定收紧：仅 .pb.go 类型引用 + 注册点
+
+用户：facts 导出把很多非 grpc 接口识别为 grpc——仅"含 ctx 参数 +
+含 err 返回值"不应视为 grpc；注册点之外，仅根据 .pb.go 文件被谁引用，
+且引用的是否作为参数和返回值（Xxx(ctx, pbreq) (pbresp, err)）。
+
+- **根因**：isGrpcMethodSig 第一分支（首参 ctx + 末返回 err）即判定
+  grpc——普通业务接口 (ctx, req)(resp, err) 形态全被误识别（facts
+  导出 Svcs 大量假 grpc）。
+- **修复**：isGrpcMethodSig 保留基础形态（末 err + 首参 ctx/grpc 类型）
+  后追加 **pb 类型信号**——参数/返回中任一业务类型（非 ctx/err/grpc
+  的 Named，解指针/容器）**定义在 .pb.go 文件**（pkg.Fset.PositionFor
+  obj.Pos() 后缀判定）才算 grpc；注册点识别（collectRegisterServers）
+  不受影响。
+- 测试：fixture 改 pb 类型（.pb.go 定义 DoRequest 等）+ PlainService
+  （ctx+err 但业务类型 string/int 非 pb）排除断言。
+- 实测：go2o reindex 后仍 30 服务（全真 grpc——未误杀），facts 导出
+  不再混入假 grpc。
+
+**AI 杠杆点**（R48 实证）：
+- "ctx+err" 是通用业务方法形态——grpc 的判别信号不是签名形状而是
+  **类型来源**（protoc 生成文件）；用类型定义位置（.pb.go）做权威
+  信号比签名启发式可靠
+- 注册点之外的口径：接口方法参数/返回引用生成类型 = grpc 服务——
+  与用户直觉完全一致（Xxx(ctx, pbreq) (pbresp, err) 的 pbreq/pbresp
+  来自 .pb.go）
+
 ## 待办与已知不足（按优先级，2026-08-25 统一整理）
 
 **P0——高优先级（影响交付质量/机制未闭环）**：
