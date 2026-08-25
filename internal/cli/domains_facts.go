@@ -35,9 +35,12 @@ type entityFacts struct {
 }
 
 // svcFacts 一个服务（grpc 服务名 / http 方法+路径）。
+// R54：grpc 服务带方法名列表——一个服务定义可能包含多个域的方法
+// （分开部署），AI 需要方法级归属信息。
 type svcFacts struct {
-	Type string `json:"type"` // grpc | http
-	Name string `json:"name"`
+	Type    string   `json:"type"`    // grpc | http
+	Name    string   `json:"name"`    // grpc 服务名 / http "METHOD path"
+	Methods []string `json:"methods,omitempty"` // grpc 服务方法名（http 空）
 }
 
 // domainFacts AI 分析前的结构化事实包（JSON 序列化——导出文件）。
@@ -105,7 +108,12 @@ func collectDomainFacts(acts *action.Actions, repoAbs string, cfg wikiConfig, db
 
 	if res, err := grpcRoutes(db, repoAbs); err == nil {
 		for _, s := range res.Services {
-			f.Svcs = append(f.Svcs, svcFacts{Type: "grpc", Name: s.Name})
+			// R54：服务带方法名（一个服务可能含多域方法——分开部署）
+			svc := svcFacts{Type: "grpc", Name: s.Name}
+			for _, m := range s.Methods {
+				svc.Methods = append(svc.Methods, m.Name)
+			}
+			f.Svcs = append(f.Svcs, svc)
 		}
 	}
 	if res, err := httpRoutes(db); err == nil {
@@ -149,9 +157,10 @@ func domainPrompt(factsPath string) string {
 	b.WriteString("要求：\n")
 	b.WriteString("1. 划分 3~8 个业务域，**覆盖文件中的全部包与表**（未覆盖的会丢失归属）\n")
 	b.WriteString("2. 每个域：name（中文业务名，如「商品域」）、description（一句话职责）、packages（归属包**完整路径**列表——用文件中 packages[].path）、tables（归属表名列表——用文件中 tables[].name）、services（归属服务名列表——用文件中 services[].name，grpc 服务名或 http \"METHOD path\"）\n")
-	b.WriteString("3. 包、表、服务只归属一个域；文件里没有的包路径、表名、服务名一律不要写\n")
-	b.WriteString("4. **services 字段必填**：每个域给出归属的服务名列表（grpc 服务名如 OrderService/MemberService 按业务语义归属；无法归属的服务可以不放任何域，但能归属的必须写上）\n")
-	b.WriteString("5. 只输出 YAML，不要解释：\n")
+	b.WriteString("3. **grpc 服务可能含多域方法**（services[].methods 方法名列表——服务定义大而分开部署）：方法明显属于其他域时，把服务名写入方法所属域（服务仍可在原域）\n")
+	b.WriteString("4. 包、表、服务只归属一个域；文件里没有的包路径、表名、服务名一律不要写\n")
+	b.WriteString("5. **services 字段必填**：每个域给出归属的服务名列表（grpc 服务名如 OrderService/MemberService 按业务语义归属；无法归属的服务可以不放任何域，但能归属的必须写上）\n")
+	b.WriteString("6. 只输出 YAML，不要解释：\n")
 	b.WriteString("domains:\n  - name: 商品域\n    description: 商品/SKU/类目管理\n    packages: [github.com/ixre/go2o/pkg/interface/domain/item]\n    tables: [item_info, item_sku]\n    services: [ItemService]\n")
 	return b.String()
 }

@@ -1399,6 +1399,16 @@ domain 1 包 1 自环边。
 - 教训：`go build ./...` 不产出二进制——验证用 `go build -o codeintel`
   后重跑（R51 实测旧二进制验证白跑一轮）。
 
+### R54（2026-08-25）——facts 的 grpc 服务带方法名（方法级归属）
+
+用户：facts 里所有 grpc 服务都要包含其方法名——一个服务定义可能
+包含多个域的方法，但会分开部署（服务级归属不够，需要方法级信息）。
+
+- svcFacts 加 Methods []string（grpc 服务方法名；http 空）——来自
+  grpcRoutes 的方法全集；domainPrompt 说明"grpc 服务可能含多域方法，
+  方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
+- 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
+
 ## 待办与已知不足（按优先级，2026-08-25 统一整理）
 
 **P0——高优先级（影响交付质量/机制未闭环）**：

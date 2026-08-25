@@ -83,3 +83,32 @@ func TestExportDomainFacts(t *testing.T) {
 		}
 	}
 }
+
+// TestDomainFactsGrpcMethods：R54——grpc 服务带方法名列表（一个服务
+// 可能含多域方法、分开部署——方法级归属信息）。
+func TestDomainFactsGrpcMethods(t *testing.T) {
+	dir := seedGrpcRoutesRepo(t)
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	acts := action.New(sqlite.NewRepo(db))
+	f := collectDomainFacts(acts, dir, wikiConfig{}, sqlite.NewRepo(db))
+	found := false
+	for _, s := range f.Svcs {
+		if s.Type == "grpc" && s.Name == "QueryService" {
+			found = true
+			if len(s.Methods) == 0 {
+				t.Fatal("grpc 服务应带方法名列表（R54）")
+			}
+			joined := strings.Join(s.Methods, ",")
+			if !strings.Contains(joined, "Query") || !strings.Contains(joined, "PagingShops") {
+				t.Errorf("QueryService.Methods = %v; want 含 Query,PagingShops", s.Methods)
+			}
+		}
+	}
+	if !found {
+		t.Error("事实包应含 grpc QueryService 服务")
+	}
+}
