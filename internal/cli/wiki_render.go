@@ -72,7 +72,7 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	if cfg.Architecture != "" {
 		idx.WriteString("## 整体架构图\n\n> 来源：wiki.yaml architecture\n\n" + rc.diagramMD(cfg.Architecture))
 	} else if arch := archMermaidFallback(data, rc.cfg.Domains); arch != "" {
-		idx.WriteString("## 整体架构图\n\n> 自动生成：包间调用聚合（yaml architecture 可覆盖）\n\n" + rc.diagramMD(arch))
+		idx.WriteString("## 整体架构图\n\n> 自动生成：接入层→领域→存储层三层架构（yaml architecture 可覆盖）\n\n" + rc.diagramMD(arch))
 	}
 	// R7：AI 整理架构图（过滤 logging/seed 等基础包 + 分层分组）
 	if curated != "" {

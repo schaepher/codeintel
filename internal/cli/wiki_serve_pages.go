@@ -128,7 +128,7 @@ func (ws *wikiServe) overviewPage(snap *wikiSnapshot) string {
 	archNote := "（来源：wiki.yaml architecture）"
 	if archMermaid == "" {
 		archMermaid = archMermaidFallback(snap.data, snap.cfg.Domains)
-		archNote = "（自动生成：包间调用聚合——yaml architecture 可覆盖）"
+		archNote = "（自动生成：接入层→领域→存储层三层架构——yaml architecture 可覆盖）"
 	}
 	if archMermaid != "" {
 		b.WriteString(`<section id="arch"><h2>架构图</h2><p class="muted">` + archNote + `</p><pre class="mermaid">` + htmlEsc(archMermaid) + `</pre></section>` + "\n")

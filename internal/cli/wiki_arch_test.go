@@ -8,20 +8,31 @@ import (
 	"github.com/schaepher/codeintel/internal/domain"
 )
 
-// TestArchMermaidFallback：R2——yaml architecture 空时自动包间调用
-// 聚合图（同 from→to 计数相加，确定性排序）。
+// TestArchMermaidFallback：R44——yaml architecture 空时自动三层架构图
+// （graph TB：接入层 subgraph → 领域层 → 存储层；跨层调用聚合 + 占位
+// 节点等宽）。
 func TestArchMermaidFallback(t *testing.T) {
 	data := []*domain.WikiModule{
 		{Name: "m1", PkgCalls: []*domain.WikiPkgCall{
 			{From: "cli", To: "action", Count: 5},
 			{From: "cli", To: "server", Count: 1},
+			{From: "action", To: "sqlite", Count: 3},
 		}},
 		{Name: "m2", PkgCalls: []*domain.WikiPkgCall{
 			{From: "cli", To: "action", Count: 3},
 		}},
 	}
 	got := archMermaidFallback(data, nil)
-	for _, want := range []string{"cli[cli] -->|8| action[action]", "cli[cli] -->|1| server[server]"} {
+	for _, want := range []string{
+		"graph TB",
+		"subgraph 接入层[接入层：入口]",
+		"subgraph 领域层[领域层]",
+		"subgraph 存储层[存储层]",
+		"cli -->|8| action", // 接入 → 领域 聚合
+		"cli -->|1| server", // 接入层内
+		"action -->|3| sqlite", // 领域 → 存储
+		"padA", "padB", "padC", // 三层占位节点（等宽）
+	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("fallback 应含 %q:\n%s", want, got)
 		}
@@ -31,12 +42,13 @@ func TestArchMermaidFallback(t *testing.T) {
 	}
 }
 
-// TestArchMermaidFallbackFullPathPackages：R42——domains.packages 完整
-// 路径（R38 起 AI 输出）→ 领域聚合仍生效（末段短名匹配——PkgCalls
-// 的 From/To 是包短名）。
+// TestArchMermaidFallbackFullPathPackages：R42/R44——domains.packages
+// 完整路径（R38 起 AI 输出）→ 领域聚合仍生效（末段短名匹配——PkgCalls
+// 的 From/To 是包短名）；领域层用领域聚合节点。
 func TestArchMermaidFallbackFullPathPackages(t *testing.T) {
 	data := []*domain.WikiModule{
 		{Name: "m1", PkgCalls: []*domain.WikiPkgCall{
+			{From: "cli", To: "order", Count: 4},
 			{From: "order", To: "member", Count: 7},
 			{From: "order", To: "item", Count: 3},
 		}},
@@ -47,7 +59,14 @@ func TestArchMermaidFallbackFullPathPackages(t *testing.T) {
 		{Name: "商品域", Packages: []string{"github.com/ixre/go2o/internal/impl/domain/item"}},
 	}
 	got := archMermaidFallback(data, doms)
-	for _, want := range []string{`D交易域["交易域（1 包）"]`, `D会员域["会员域（1 包）"]`, "D交易域 -->|7| D会员域", "D交易域 -->|3| D商品域"} {
+	for _, want := range []string{
+		"subgraph 领域层[领域层]",
+		`D交易域["交易域（1 包）"]`,
+		`D会员域["会员域（1 包）"]`,
+		"cli -->|4| D交易域", // 接入 → 领域
+		"D交易域 -->|7| D会员域",
+		"D交易域 -->|3| D商品域",
+	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("完整路径 packages 领域聚合应含 %q:\n%s", want, got)
 		}

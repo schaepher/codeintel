@@ -1205,6 +1205,30 @@ domain 1 包 1 自环边。
   分组——**配置即意图，校验只该拦"无配置时的猜测"**；领域内大图由
   渲染降级（500 边）兜底而非拒绝分组
 
+### R44（2026-08-25）——架构图三层结构（接入层→领域→存储层）
+
+用户：第 1 张架构图要反映整个系统架构——从上到下接入层入口 → 领域 →
+存储层；每层一个大框框住；三层框宽对齐。
+
+- **archMermaidFallback → archLayeredMermaid**（新文件 wiki_arch_layers.go）：
+  - graph TB（从上到下）+ 三个 subgraph 大框：接入层（包短名
+    cmd/app/cli/server）、领域层（有 domains 时领域聚合节点，无则
+    包节点）、存储层（sqlite/git/db/dao/storage/redis/kafka/cache/
+    clickhouse）
+  - 跨层/层内调用边聚合（接入→领域、领域→存储、接入层内等）
+  - **占位节点等宽**：每层 subgraph 加 padA/padB/padC 固定宽度占位
+    label（mermaid subgraph 宽度由内容决定——占位撑到一致）
+  - 分层识别零配置通用（包短名模式）；md/html/serve 三通道共用
+- 实测 go2o：接入层 app、领域层 8 领域节点、存储层 dao/clickhouse。
+- 测试：三层结构断言（subgraph/跨层边/占位节点）+ 完整路径 packages
+  领域聚合兼容。
+
+**AI 杠杆点**（R44 实证）：
+- mermaid subgraph 无等宽属性——固定宽度占位节点是通用 trick；
+  graph LR → TB 改变布局语义（横向→纵向层级）
+- 分层识别用包短名模式零配置通用；接入/存储是跨项目通用概念
+  （cmd/app/server、db/dao/storage），领域层靠 domains 配置
+
 ## 待办与候选方向（未定优先级）
 
 **高优先级待办**（2026-08-24 用户提出，6 项）：
