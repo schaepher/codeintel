@@ -46,7 +46,7 @@ func (a *Adapter) markGrpcServiceInterfaces(repo *domain.Repository, pkg *packag
 				if strings.HasSuffix(named.Obj().Name(), "Client") {
 					continue
 				}
-				svcName, methods := grpcServiceFromInterface(iface, named.Obj().Name())
+				svcName, methods, paramTypes := grpcServiceFromInterface(iface, named.Obj().Name())
 				if svcName == "" {
 					continue
 				}
@@ -57,6 +57,9 @@ func (a *Adapter) markGrpcServiceInterfaces(repo *domain.Repository, pkg *packag
 					Properties: map[string]any{
 						"service_name": svcName,
 						"methods":      strings.Join(methods, ","),
+						// R45：方法首参类型完整路径（外部接口判定——
+						// 客户端实参类型 ∉ 本项目服务参数集合）
+						"param_types": strings.Join(paramTypes, ","),
 					},
 				}}); err != nil {
 					return err
@@ -68,25 +71,54 @@ func (a *Adapter) markGrpcServiceInterfaces(repo *domain.Repository, pkg *packag
 }
 
 // grpcServiceFromInterface 接口方法全部符合 grpc 模式 → 服务名（接口名
-// 去 Server 后缀）+ 方法名列表；任一方法不符合返回空。
-func grpcServiceFromInterface(iface *types.Interface, typeName string) (string, []string) {
-	var methods []string
+// 去 Server 后缀）+ 方法名列表 + 首参类型完整路径列表（R45 外部接口
+// 判定）；任一方法不符合返回空。
+func grpcServiceFromInterface(iface *types.Interface, typeName string) (string, []string, []string) {
+	var methods, paramTypes []string
 	for i := 0; i < iface.NumMethods(); i++ {
 		m := iface.Method(i)
 		sig, ok := m.Type().(*types.Signature)
 		if !ok || !isGrpcMethodSig(sig) {
-			return "", nil
+			return "", nil, nil
 		}
 		methods = append(methods, m.Name())
+		// R45：请求对象类型——首参是 context.Context（常规形态 (ctx, req)）
+		// 取第 2 参；否则取第 1 参（流式形态 (req, stream)）
+		if pt := grpcRequestType(sig); pt != "" {
+			paramTypes = append(paramTypes, pt)
+		}
 	}
 	if len(methods) == 0 {
-		return "", nil
+		return "", nil, nil
 	}
 	svc := typeName
 	if strings.HasSuffix(svc, "Server") && len(svc) > len("Server") {
 		svc = strings.TrimSuffix(svc, "Server")
 	}
-	return svc, methods
+	return svc, methods, paramTypes
+}
+
+// typePath 类型 → 完整路径（pkg.Type；指针解包；非 Named 返回类型字符串）。
+func typePath(t types.Type) string {
+	if p, ok := t.(*types.Pointer); ok {
+		return typePath(p.Elem())
+	}
+	if n, ok := t.(*types.Named); ok && n.Obj().Pkg() != nil {
+		return n.Obj().Pkg().Path() + "." + n.Obj().Name()
+	}
+	return t.String()
+}
+
+// grpcRequestType 服务方法请求对象类型（R45）：首参是 context.Context
+// → 第 2 参（常规 (ctx, req)）；否则第 1 参（流式 (req, stream)）。
+func grpcRequestType(sig *types.Signature) string {
+	if sig.Params().Len() == 0 {
+		return ""
+	}
+	if sig.Params().Len() > 1 && isContextType(sig.Params().At(0).Type()) {
+		return typePath(sig.Params().At(1).Type())
+	}
+	return typePath(sig.Params().At(0).Type())
 }
 
 // isGrpcMethodSig grpc 方法签名模式：末返回值是 error，且首参是

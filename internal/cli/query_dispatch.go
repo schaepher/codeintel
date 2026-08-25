@@ -43,7 +43,7 @@ func cmdQuery(args []string) int {
 	f := parseQueryFlags(rest)
 	target := ""
 
-	if sub != "unused" && sub != "module-calls" && sub != "enums" && sub != "entities" && sub != "grpc-routes" && sub != "http-routes" && sub != "cli-routes" && sub != "external-deps" && !(sub == "relations" && f.all) {
+	if sub != "unused" && sub != "module-calls" && sub != "enums" && sub != "entities" && sub != "grpc-routes" && sub != "http-routes" && sub != "cli-routes" && sub != "external-deps" && sub != "external-interfaces" && !(sub == "relations" && f.all) {
 		if len(f.positional) < 1 {
 			fmt.Fprintf(os.Stderr, "error: 缺少符号参数\n")
 			return 2
@@ -99,6 +99,11 @@ func cmdQuery(args []string) int {
 	// R36：外部依赖（redis 键 / kafka topic——不依赖符号参数）
 	if sub == "external-deps" {
 		return cmdExternalDeps(abs, f)
+	}
+	// R45：外部系统接口调用识别（grpc/http 调用但接口未在本项目定义 +
+	// 请求对象不在本项目服务参数中）
+	if sub == "external-interfaces" {
+		return cmdExternalInterfaces(abs, f)
 	}
 
 	opts := outputOpts{json: f.json, compact: f.compact, repoPath: f.repoPath}

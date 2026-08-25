@@ -75,6 +75,11 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	nav.WriteString(`<li><a href="#commands">命令清单</a></li>`)
 	main.WriteString(renderAPIHTML(repoAbs))
 	nav.WriteString(`<li><a href="#api">HTTP 接口</a></li>`)
+	// R45：外部系统接口调用（grpc/http 调用但接口未在本项目定义）
+	if ext := renderExternalInterfacesHTML(rc.repo); ext != "" {
+		main.WriteString(ext)
+		nav.WriteString(`<li><a href="#external">外部接口调用</a></li>`)
+	}
 	// R2：系统流程区块（进程视角）
 	main.WriteString(renderProcessesHTML(rc))
 	nav.WriteString(`<li><a href="#processes">系统流程</a></li>`)

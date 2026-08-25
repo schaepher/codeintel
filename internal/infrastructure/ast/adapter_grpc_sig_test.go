@@ -99,10 +99,12 @@ type HandServiceClient interface {
 	})
 	svcNode := false
 	methods := ""
+	paramTypes := ""
 	for _, n := range nodes {
 		if n.Kind == domain.KindGrpcService && n.Property("service_name") == "HandService" {
 			svcNode = true
 			methods = n.Property("methods")
+			paramTypes = n.Property("param_types")
 		}
 		if n.Kind == domain.KindGrpcService && n.Property("service_name") == "Repo" {
 			t.Error("非 grpc 模式接口（无 ctx 参数）不应识别为服务")
@@ -116,6 +118,58 @@ type HandServiceClient interface {
 	}
 	if methods != "Do,Get" {
 		t.Errorf("methods = %q; want Do,Get", methods)
+	}
+	// R45：param_types——请求对象类型完整路径（首参是 ctx 取第 2 参：
+	// Do(ctx, req string)、Get(ctx, id int)）
+	if paramTypes != "string,int" {
+		t.Errorf("param_types = %q; want string,int（请求对象类型）", paramTypes)
+	}
+}
+
+// TestGrpcCallReqType：R45——grpc_call 边 metadata 带请求实参类型
+// （req_type）——外部接口判定第二条件（实参 ∉ 本项目服务参数集合）。
+func TestGrpcCallReqType(t *testing.T) {
+	nodes, facts := indexFixture(t, map[string]string{
+		"go.mod": "module example.com/mtest\n\ngo 1.21\n",
+		"grpc/grpc.go": `package grpc
+
+type ServiceRegistrar interface{ RegisterService(desc any, impl any) }
+
+type Conn struct{}
+
+func Dial(addr string) (*Conn, error) { return nil, nil }
+
+func (c *Conn) Invoke(ctx any, method string, args, reply any) error { return nil }
+`,
+		"svc/call.go": `package svc
+
+import (
+	"context"
+	"example.com/mtest/grpc"
+)
+
+type ChargeRequest struct{ Amount int }
+
+// 手写客户端调用（Invoke——请求实参 Args[2]）
+func doCharge(conn *grpc.Conn) {
+	conn.Invoke(context.Background(), "/ext.pay.PayService/Charge", &ChargeRequest{}, nil)
+}
+`,
+	})
+	_ = nodes
+	reqType := ""
+	methodPath := ""
+	for _, f := range facts {
+		if f.Kind == domain.FactGrpcCall {
+			reqType, _ = f.Metadata["req_type"].(string)
+			methodPath, _ = f.Metadata["method_path"].(string)
+		}
+	}
+	if methodPath != "/ext.pay.PayService/Charge" {
+		t.Fatalf("method_path = %q; want /ext.pay.PayService/Charge", methodPath)
+	}
+	if reqType != "example.com/mtest/svc.ChargeRequest" {
+		t.Errorf("req_type = %q; want example.com/mtest/svc.ChargeRequest（typePath 解指针）", reqType)
 	}
 }
 

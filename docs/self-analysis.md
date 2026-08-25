@@ -1229,6 +1229,37 @@ domain 1 包 1 自环边。
 - 分层识别用包短名模式零配置通用；接入/存储是跨项目通用概念
   （cmd/app/server、db/dao/storage），领域层靠 domains 配置
 
+### R45（2026-08-25）——外部系统接口调用识别（query external-interfaces）
+
+用户：识别本系统内 grpc/http 接口调用，但被调接口在本项目内没有定义，
+且请求对象不在本项目服务的接口参数中（外部系统集成点）。
+
+- **判定（用户定案：节点特征 + 构建期类型比对）**：
+  - 接口未定义：grpc——目标服务无注册点（registers_service）/方法
+    （methods）属性（外部调用创建的 grpc_service 只有 service_name）；
+    http——目标路由无 handler 属性（外部 URL 创建的只有 path/method）
+  - 请求对象：构建期两处采集——① grpc_service 节点 param_types
+    （接口方法请求对象类型：首参是 ctx 取第 2 参，流式取第 1 参）；
+    ② grpc_call 边 metadata req_type（调用实参类型，typePath 解指针）。
+    比对：req_type ∉ 本项目 param_types 集合 → 确认外部。http 的 gin
+    handler 无显式请求类型——http 只按路由判定
+- **输出**：`codeintel query external-interfaces`（JSON 契约
+  {interfaces: [{kind, service, method, req_type, callers}]}）+ wiki
+  「外部接口调用」节（md/html 双通道，有结果才渲染）
+- 实测：go2o/ana 库无 http_call/grpc_call 边（出站调用 URL 全动态/
+  库封装——既有识别盲区）；真实形态由 indexFixture 测试验证
+  （TestGrpcCallReqType：Invoke 手写客户端 req_type 采集）。
+- 测试：查询端（外部 grpc/http 识别 + 内部排除 + CLI 输出）+ 发射端
+  （param_types/req_type）。
+
+**AI 杠杆点**（R45 实证）：
+- grpc_call 无条件建服务节点的设计反而让"外部"可判定——节点特征
+  （有注册/方法 vs 只有 service_name）是天然内外分界
+- grpc 请求对象类型位置随形态变化（(ctx, req) 第 2 参 vs 流式第 1 参）
+  ——采集要按签名形态分支
+- 真实仓库可能无可用数据（调用形态不在识别范围）——机制验证靠真实
+  加载的 fixture（indexFixture = go/packages），不能只看仓库结果
+
 ## 待办与候选方向（未定优先级）
 
 **高优先级待办**（2026-08-24 用户提出，6 项）：

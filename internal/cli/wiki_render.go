@@ -91,6 +91,10 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	idx.WriteString("- [命令清单](commands.md)\n")
 	idx.WriteString("- [HTTP 接口](api.md)\n")
 	idx.WriteString("- [系统流程](processes.md)\n")
+	// R45：外部系统接口调用（grpc/http 调用但接口未在本项目定义）
+	if ext := renderExternalInterfacesMD(rc.repo); ext != "" {
+		idx.WriteString(ext)
+	}
 	if len(cfg.Glossary) > 0 {
 		idx.WriteString("\n## 术语表\n\n")
 		for _, g := range cfg.Glossary {

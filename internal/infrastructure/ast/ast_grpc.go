@@ -176,6 +176,12 @@ func (ctx *fileCtx) emitSelectorCall(call *ast.CallExpr, callee *types.Func, sel
 			Name:       "svc." + svc,
 			Properties: map[string]any{"service_name": svc},
 		}})
+		// R45：请求实参类型（c.Method(ctx, req)——Args[1]）——外部接口
+		// 判定：实参类型 ∉ 本项目服务参数类型集合
+		reqType := ""
+		if len(call.Args) > 1 {
+			reqType = typePath(pkg.TypesInfo.TypeOf(call.Args[1]))
+		}
 		_ = ctx.emit(domain.Item{Fact: &domain.Fact{
 			SourceID:   callerID,
 			TargetID:   svcID,
@@ -184,6 +190,7 @@ func (ctx *fileCtx) emitSelectorCall(call *ast.CallExpr, callee *types.Func, sel
 			Confidence: 1.0,
 			Metadata: map[string]any{
 				"method":   sel.Sel.Name,
+				"req_type": reqType,
 				"line_num": pkg.Fset.PositionFor(call.Pos(), false).Line,
 			},
 		}})
@@ -204,6 +211,11 @@ func (ctx *fileCtx) emitSelectorCall(call *ast.CallExpr, callee *types.Func, sel
 				Name:       "svc." + svcName,
 				Properties: map[string]any{"service_name": svcName},
 			}})
+			// R45：Invoke(ctx, path, args, reply)——请求实参在 Args[2]
+			reqType := ""
+			if len(call.Args) > 2 {
+				reqType = typePath(pkg.TypesInfo.TypeOf(call.Args[2]))
+			}
 			_ = ctx.emit(domain.Item{Fact: &domain.Fact{
 				SourceID:   callerID,
 				TargetID:   svcID,
@@ -213,6 +225,7 @@ func (ctx *fileCtx) emitSelectorCall(call *ast.CallExpr, callee *types.Func, sel
 				Metadata: map[string]any{
 					"method":      parts[1],
 					"method_path": mp,
+					"req_type":    reqType,
 					"line_num":    pkg.Fset.PositionFor(call.Pos(), false).Line,
 				},
 			}})
