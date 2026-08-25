@@ -1409,6 +1409,24 @@ domain 1 包 1 自环边。
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
 
+### R70（2026-08-25）——facts 包规模统计 + 实体 service 区分
+
+用户：edge count 收益高就加进 facts（已自动生效——pkg_calls.count/
+out/in 都是 count 派生）；包规模统计加入；facts 里 service 和 entity
+区分；待办整理（建议优先级入档）。
+
+- pkgFacts 加 Ents（包内实体数——实体图按包统计；AI 识别大头包：
+  实体多的包必然要拆子域）
+- entityFacts 加 Service（R68 EntityNode.Service——行为载体 vs 数据
+  载体；AI 划分时 service 按职责归域、数据载体随所属 service 归域）
+- prompt 第 9 条（包规模与角色指导）
+- **edge count 进 facts 评估**：pkg_calls.count、entity out/in 在
+  R69 后已是真实调用次数（count 派生）——收益已自动兑现，无需
+  额外字段；实体对级 Top-N 收益边际（入 P2 候选）
+- 测试：TestDomainFactsPkgEnts / TestDomainFactsEntityService
+- 待办：3 号（渲染基准告知）升 P0-1（前置就绪）；P0 #5 原 facts
+  实体增强已拆解完成（包路径 R65/热度 R64/service R70）——划掉
+
 ### R69（2026-08-25）——edge count（同义边调用次数累加）
 
 用户：做 edge count（成本收益分析后拍板——核心事实 + 三处下游
@@ -1752,25 +1770,26 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
 - 排障捷径：wiki 命令把 zap 日志写到目标仓库 .codeintel/codeintel.log
   ——ResolveSymbol 输入/成败一目了然（grep input 定位渲染路径）
 
-## 待办与已知不足（按优先级，2026-08-25 统一整理，R64 补充候选）
+## 待办与已知不足（按优先级，2026-08-25 统一整理，R70 更新——建议优先级）
 
-**P0——高优先级（影响交付质量/机制未闭环）**：
-- 1. **--with-qa 实战验证**（交接遗留）：qa_history 已积累真实问答
+**P0——高优先级（机制未闭环/影响交付质量）**：
+- 1. **渲染基准告知设计（3 号待办）**（R70 起前置就绪——实体定义已
+  收敛）：prompt 告知 AI 渲染基准（域内实体数/调用边上限 500）——
+  让 AI 输出 domains 时自带子域划分与"过大"判断
+- 2. **--with-qa 实战验证**（交接遗留）：qa_history 已积累真实问答
   （ask/serve 用过）——`wiki --ai --with-qa` 端到端确认参考资料生效
   （机制已测——TestWikiAIFillWithQA）
-- 2. **go2o domains.services 人工确认**（R38 写回 AI 初稿）：30 个服务
+- 3. **go2o domains.services 人工确认**（R38 写回 AI 初稿）：30 个服务
   归属（ItemService→商品域/OrderService→交易域等）维护者过目
   （git diff 可回滚）
-- 3. **动态 URL 出站调用识别盲区**（R45 实测暴露）：http 出站调用
+- 4. **动态 URL 出站调用识别盲区**（R45 实测暴露）：http 出站调用
   URL 是变量拼接/动态（go2o 的 sms/http_sms.go、alipay_wap.go、
   geo.go 等形态）→ httpURLString 只认字面量 → http_call 边漏检 →
   external-interfaces 的 http 部分与模块间调用对这类项目失效。
   增强方向：extractStringArg 支持"字面量+变量"部分解析（至少提取
   host/path 前缀）+ 常量拼接
-- 4. **术语表 24 条 / flows 5 条 review**（交接遗留）：AI 初稿已入
+- 5. **术语表 24 条 / flows 5 条 review**（交接遗留）：AI 初稿已入
   wiki.yaml，人工最后确认（wiki skill「人工是最后一道工序」）
-- 5. **facts 实体信息增强**（R62 候选）：实体带包路径 + 门面游离函数
-  数（现仅 Name+Methods+out/in——AI 领域划分的包归属信息更全）
 
 **P1——中优先级（补全/验证）**：
 - 6. **表字段类型剩余 10 列**（交接遗留）：repos 全局注册表，schema
@@ -1797,6 +1816,8 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
   库形态后置
 - 14. **ER 图 500 边细分复用 R63 思路**（候选）：ER 域内图超限时
   自动按表前缀/域再细分（实体协作已实现——ER 待同款处理）
+- 15. **实体对级调用 Top-N**（候选）：facts 输出调用最热的 N 对实体
+  （内聚捆绑补充——pkg_calls/热度已覆盖主信号，此条收益边际）
 
 **已完成标注**（随轮次更新）：
 - ~~6 项高优先级待办（2026-08-24 用户提出）~~ → R29/R31/R32/R35/R36/
@@ -1811,4 +1832,6 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
   ~~全局配置自动初始化~~ → R58；~~验证提速~~ → R59；
   ~~config default~~ → R60；~~domain-facts compact~~ → R61；
   ~~设计诊断折叠/实体全展示/grpc 方法表格/包结构表格~~ → R62；
-  ~~领域 500 边自动细分~~ → R63
+  ~~领域 500 边自动细分~~ → R63；~~实体定义收敛~~ → R66；
+  ~~临时目录 .tmp~~ → R67；~~service 角色判定~~ → R68；
+  ~~edge count~~ → R69；~~facts 包规模/实体 service 区分~~ → R70

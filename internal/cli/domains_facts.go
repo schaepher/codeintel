@@ -19,6 +19,9 @@ import (
 type pkgFacts struct {
 	Path string `json:"path"` // 完整包路径
 	Doc  string `json:"doc,omitempty"`
+	// Ents R70：包内实体数（实体图按包统计——包规模信号；AI 识别
+	// 大头包：实体多的包必然要拆子域）
+	Ents int `json:"ents,omitempty"`
 }
 
 // tableFacts 一张表的事实。
@@ -33,12 +36,16 @@ type tableFacts struct {
 // 实体同域、跨域调用边少；实体多的域提示可再细分——防域内边爆炸）。
 // R65：Pkg = 所属包完整路径（与 packages[].path 一致——AI 归属实体
 // → 包 → 子域，三层打通）。
+// R68/R70：Service = struct 角色（方法里无字段 direct_write——无字段
+// 结构体/组合注入/client 字段 → service 行为载体；字段被写 → 数据
+// 载体）——AI 划分时区分行为载体与数据载体。
 type entityFacts struct {
 	Name    string `json:"name"`
 	Pkg     string `json:"pkg"`
 	Methods int    `json:"methods"`
-	Out     int    `json:"out,omitempty"` // 出度：调出边数
-	In      int    `json:"in,omitempty"`  // 入度：被调边数
+	Out     int    `json:"out,omitempty"` // 出度：调出调用次数
+	In      int    `json:"in,omitempty"`  // 入度：被调调用次数
+	Service bool   `json:"service,omitempty"`
 }
 
 // pkgCallFacts 包级调用矩阵（R65：跨包子域划分的直接依据——子域 =
@@ -124,9 +131,11 @@ func collectDomainFacts(acts *action.Actions, repoAbs string, cfg wikiConfig, db
 		}
 		// R65：实体带包路径（与 packages[].path 一致——实体→包→子域）；
 		// R66：截断前按调用热度（Out+In）降序——AI 看到的是核心实体
-		// （此前按字母序截断——前 60 个是 a/aftersales 开头，偏差）
+		// （此前按字母序截断——前 60 个是 a/aftersales 开头，偏差）；
+		// R68/R70：Service 标记（struct 角色——行为载体 vs 数据载体）
 		for _, n := range g.Nodes {
-			f.Ents = append(f.Ents, entityFacts{Name: n.Name, Pkg: n.Pkg, Methods: n.MethodCount, Out: out[n.ID], In: in[n.ID]})
+			f.Ents = append(f.Ents, entityFacts{Name: n.Name, Pkg: n.Pkg, Methods: n.MethodCount,
+				Out: out[n.ID], In: in[n.ID], Service: n.Service})
 		}
 		sort.Slice(f.Ents, func(i, j int) bool {
 			hi := f.Ents[i].Out + f.Ents[i].In
@@ -156,6 +165,14 @@ func collectDomainFacts(acts *action.Actions, repoAbs string, cfg wikiConfig, db
 				continue
 			}
 			pkgCalls[[2]string{fp, tp}] += e.Count
+		}
+		// R70：包规模统计——包内实体数（实体图按包；AI 识别大头包）
+		pkgEnts := map[string]int{}
+		for _, n := range g.Nodes {
+			pkgEnts[n.Pkg]++
+		}
+		for i := range f.Pkgs {
+			f.Pkgs[i].Ents = pkgEnts[f.Pkgs[i].Path]
 		}
 		for pair, c := range pkgCalls {
 			f.PkgCalls = append(f.PkgCalls, pkgCallFacts{From: pair[0], To: pair[1], Count: c})
@@ -234,6 +251,7 @@ func domainPrompt(factsPath, extraPrompt string) string {
 	b.WriteString("domains:\n  - name: 商品域\n    description: 商品/SKU/类目管理\n    packages: [github.com/ixre/go2o/pkg/interface/domain/item]\n    tables: [item_info, item_sku]\n    services: [ItemService]\n")
 	b.WriteString("\n7. **调用热度辅助**（entities 的 out/in = 调出/被调聚合边数）：相互调用密集（out/in 高且互相关联）的实体尽量归同一域——领域内聚、跨域调用边少；单域实体过多（密集调用域内边会爆炸）时优先把调用稀疏的边界实体拆到其他域\n")
 	b.WriteString("\n8. **包级调用矩阵**（pkg_calls：from/to = 包完整路径、count = 调用次数——同包调用已不计）：子域划分参考包间调用密度——**调用密集的包组归同一子域（内聚），包间调用稀疏处是子域边界**；实体归属先归包（entities.pkg）再随包归子域\n")
+	b.WriteString("\n9. **包规模与角色**：packages[].ents = 包内实体数（大头包——实体多的包建议拆子域或与其他包分域）；entities[].service = 行为载体（无字段/组合注入——service 按职责归域）vs 数据载体（字段被写——随所属 service 归域，不独立成域）\n")
 	if extraPrompt != "" {
 		b.WriteString("\n用户额外约束（**必须优先遵守**，冲突时以用户约束为准）：\n" + extraPrompt + "\n")
 	}
