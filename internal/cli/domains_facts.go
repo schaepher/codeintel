@@ -131,17 +131,23 @@ func collectDomainFacts(acts *action.Actions, repoAbs string, cfg wikiConfig, db
 	return f
 }
 
-// domainFactsJSON 事实包 JSON（导出文件内容——用户要求 JSON 格式，
-// agent 读 JSON；indent 2 可读）。
+// domainFactsJSON 事实包 JSON（compact——R61：AI 读取的文件不 format，
+// 避免文件过大消耗 token；agent 用 Read 工具读，缩进无收益）。
 func domainFactsJSON(f *domainFacts) ([]byte, error) {
+	return json.Marshal(f)
+}
+
+// domainFactsJSONIndent 事实包 JSON（缩进版——--export-facts 人工检查
+// 用；AI 读取路径用 compact 版）。
+func domainFactsJSONIndent(f *domainFacts) ([]byte, error) {
 	return json.MarshalIndent(f, "", "  ")
 }
 
 // exportDomainFacts 事实包导出到文件（--export-facts——JSON 格式，
-// 可人工检查/喂给任何 agent）。
+// 可人工检查/喂给任何 agent；缩进版可读）。
 func exportDomainFacts(repoAbs string, acts *action.Actions, cfg wikiConfig, db *sqlite.Repo, path string) error {
 	f := collectDomainFacts(acts, repoAbs, cfg, db)
-	b, err := domainFactsJSON(f)
+	b, err := domainFactsJSONIndent(f)
 	if err != nil {
 		return err
 	}

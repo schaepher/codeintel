@@ -92,7 +92,7 @@ func parseDomains(resp string, f *domainFacts) ([]wikiDomainCfg, []string) {
 func analyzeDomains(repoAbs string, cfg *wikiConfig, acts *action.Actions, db *sqlite.Repo, agent string, yamlPath string, factsPath string, extraPrompt string) ([]wikiDomainCfg, []string) {
 	f := collectDomainFacts(acts, repoAbs, *cfg, db)
 	if factsPath == "" {
-		factsPath = filepath.Join(repoAbs, ".codeintel", "domain-facts.txt")
+		factsPath = filepath.Join(repoAbs, ".codeintel", "domain-facts.json")
 	}
 	if err := os.MkdirAll(filepath.Dir(factsPath), 0o755); err == nil {
 		if b, err := domainFactsJSON(f); err == nil {

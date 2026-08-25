@@ -84,6 +84,31 @@ func TestExportDomainFacts(t *testing.T) {
 	}
 }
 
+// TestDomainFactsJSONCompact：R61——AI 读取的事实包不 format（compact
+// JSON——避免文件过大消耗 token）；--export-facts 人工检查用缩进版。
+func TestDomainFactsJSONCompact(t *testing.T) {
+	f := &domainFacts{Pkgs: []pkgFacts{{Path: "example.com/m", Doc: "主包"}},
+		Tables: []tableFacts{{Name: "orders"}},
+	}
+	b, err := domainFactsJSON(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "\n  ") {
+		t.Errorf("AI 读取的事实包不应缩进（compact）:\n%s", b)
+	}
+	bi, err := domainFactsJSONIndent(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(bi), "\n  ") {
+		t.Error("缩进版（--export-facts）应含换行缩进")
+	}
+	if len(b) >= len(bi) {
+		t.Errorf("compact 应小于缩进版（%d >= %d）", len(b), len(bi))
+	}
+}
+
 // TestDomainFactsGrpcMethods：R54——grpc 服务带方法名列表（一个服务
 // 可能含多域方法、分开部署——方法级归属信息）。
 func TestDomainFactsGrpcMethods(t *testing.T) {

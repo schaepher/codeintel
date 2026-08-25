@@ -896,7 +896,7 @@ prompt），并加导出命令。
 
 **改进方案**：
 - `codeintel domains`：静态事实包（包清单/表清单/实体/grpc+http 服务
-  ——静态分析全算好）→ **导出事实文件**（默认 .codeintel/domain-facts.txt）
+  ——静态分析全算好）→ **导出事实文件**（默认 .codeintel/domain-facts.json）
   → prompt 只含指令并引用文件路径（agent 先 Read 文件再归纳——信息
   充分性靠文件完整性）→ **校验**（归属包/表须在事实包中——AI 编造
   剔除+警告）→ 写回 wiki.yaml domains（# AI 初稿）
@@ -1408,6 +1408,18 @@ domain 1 包 1 自环边。
   grpcRoutes 的方法全集；domainPrompt 说明"grpc 服务可能含多域方法，
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
+
+### R61（2026-08-25）——domain-facts 扩展改 .json + 默认 compact
+
+用户：domain-facts 文件扩展改为 json；默认不 format——避免文件过大
+消耗 token（agent 用 Read 工具读，缩进无收益）。
+
+- 默认路径 `.codeintel/domain-facts.txt` → `.codeintel/domain-facts.json`
+- domainFactsJSON 改 compact（json.Marshal——AI 读取路径）；新增
+  domainFactsJSONIndent（MarshalIndent——--export-facts 人工检查用）
+- 测试：TestDomainFactsJSONCompact（compact 无缩进/indent 版有缩进/
+  compact 更小）
+- 文档同步：self-analysis R34 描述改 .json
 
 ### R60（2026-08-25）——config default 命令 + Makefile install 初始化
 
