@@ -1284,6 +1284,30 @@ domain 1 包 1 自环边。
   （生产有/无 × 消费有/无）——与 R45 的接口特征判定互补，纯查询层
   实现（发射端零改动）
 
+### R47（2026-08-25）——外部接口聚合进架构图 + Kafka 存储层 + wiki 独立节
+
+用户：① 外部接口调用按服务聚合放第一张架构图（领域层右侧）；
+② Kafka 放存储层；③ 外部接口调用和 kafka 在 wiki 各自单独一节。
+
+- **架构图**：archLayeredMermaid 加 repo 参数——externalInterfaces 结果
+  按服务聚合（grpc 服务名 / http host）为领域层右侧节点
+  （EXT_<服务>，mermaidID 清洗域名/点横线），边 = 调用方领域 → 外部
+  服务（extCaller 加 Pkg——调用方包路径 → pkgDomain 领域映射）；
+  repo nil（纯函数测试）跳过。archMermaidFallback 签名贯通
+  md/html/serve 三通道。
+- **Kafka 存储层**：archStoragePkgs 已含 kafka（R44 规则）——无需改动，
+  有 kafka 包调用的项目自动归存储层。
+- **wiki 独立节**：外部接口调用节已有（R45）；新增 Kafka Topic 节
+  （wiki_kafka.go——三分类分组 + 生产/消费调用点，md/html 双通道，
+  有 topic 才渲染）。
+- 测试：外部节点聚合（EXT_ 节点 + 领域 → 外部边 + repo nil 跳过）。
+
+**AI 杠杆点**（R47 实证）：
+- 架构图的"外部系统集成点"用查询端已有数据（externalInterfaces）
+  直接聚合——渲染层零新采集，只加调用方包字段（extCaller.Pkg）
+- mermaid 节点 id 必须清洗任意文本（域名/服务名含点横线）——
+  mermaidID 通用 helper
+
 ## 待办与已知不足（按优先级，2026-08-25 统一整理）
 
 **P0——高优先级（影响交付质量/机制未闭环）**：

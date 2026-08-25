@@ -46,7 +46,7 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	archMermaid := cfg.Architecture
 	archNote := "（来源：wiki.yaml architecture）"
 	if archMermaid == "" {
-		archMermaid = archMermaidFallback(data, rc.cfg.Domains)
+		archMermaid = archMermaidFallback(data, rc.cfg.Domains, rc.repo)
 		archNote = "（自动生成：接入层→领域→存储层三层架构——yaml architecture 可覆盖）"
 	}
 	if archMermaid != "" {
@@ -79,6 +79,11 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	if ext := renderExternalInterfacesHTML(rc.repo); ext != "" {
 		main.WriteString(ext)
 		nav.WriteString(`<li><a href="#external">外部接口调用</a></li>`)
+	}
+	// R47：kafka topic 分类（生产/消费归属三分类）
+	if kt := renderKafkaTopicsHTML(rc.repo); kt != "" {
+		main.WriteString(kt)
+		nav.WriteString(`<li><a href="#kafka">Kafka Topic</a></li>`)
 	}
 	// R2：系统流程区块（进程视角）
 	main.WriteString(renderProcessesHTML(rc))

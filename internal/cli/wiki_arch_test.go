@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/schaepher/codeintel/internal/domain"
+	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
 
 // TestArchMermaidFallback：R44——yaml architecture 空时自动三层架构图
@@ -22,7 +23,7 @@ func TestArchMermaidFallback(t *testing.T) {
 			{From: "cli", To: "action", Count: 3},
 		}},
 	}
-	got := archMermaidFallback(data, nil)
+	got := archMermaidFallback(data, nil, nil)
 	for _, want := range []string{
 		"graph TB",
 		"subgraph 接入层[接入层：入口]",
@@ -37,7 +38,7 @@ func TestArchMermaidFallback(t *testing.T) {
 			t.Errorf("fallback 应含 %q:\n%s", want, got)
 		}
 	}
-	if archMermaidFallback(nil, nil) != "" {
+	if archMermaidFallback(nil, nil, nil) != "" {
 		t.Errorf("空数据 fallback 应为空")
 	}
 }
@@ -58,7 +59,7 @@ func TestArchMermaidFallbackFullPathPackages(t *testing.T) {
 		{Name: "会员域", Packages: []string{"github.com/ixre/go2o/internal/impl/domain/member"}},
 		{Name: "商品域", Packages: []string{"github.com/ixre/go2o/internal/impl/domain/item"}},
 	}
-	got := archMermaidFallback(data, doms)
+	got := archMermaidFallback(data, doms, nil)
 	for _, want := range []string{
 		"subgraph 领域层[领域层]",
 		`D交易域["交易域（1 包）"]`,
@@ -147,6 +148,42 @@ const (
 	}
 	if !foundAll["StatusOK"] || !foundAll["EdgeCalls"] {
 		t.Errorf("include-untyped 应含无类型常量: %v", foundAll)
+	}
+}
+
+// TestArchMermaidFallbackExternal：R47——外部接口按服务聚合为领域层
+// 节点（EXT_<服务>），边 = 调用方领域 → 外部服务。
+func TestArchMermaidFallbackExternal(t *testing.T) {
+	dir := seedExternalInterfacesRepo(t)
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	data := []*domain.WikiModule{
+		{Name: "m1", PkgCalls: []*domain.WikiPkgCall{
+			{From: "cli", To: "app", Count: 2},
+			{From: "app", To: "order", Count: 5},
+		}},
+	}
+	doms := []wikiDomainCfg{
+		{Name: "接入域", Packages: []string{"github.com/ixre/go2o/internal/app"}},
+		{Name: "交易域", Packages: []string{"github.com/ixre/go2o/internal/impl/domain/order"}},
+	}
+	got := archMermaidFallback(data, doms, sqlite.NewRepo(db))
+	for _, want := range []string{
+		`EXT_PayService["PayService"]`,                    // 外部 grpc 服务节点
+		`EXT_api_ext_pay_com["api.ext-pay.com"]`,          // 外部 http host 节点
+		"接入域 -->|1| EXT_PayService",                     // 调用方领域 → 外部服务
+		"接入域 -->|1| EXT_api_ext_pay_com",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("外部节点应含 %q:\n%s", want, got)
+		}
+	}
+	// repo nil（纯函数测试）→ 无外部节点
+	if got2 := archMermaidFallback(data, doms, nil); strings.Contains(got2, "EXT_") {
+		t.Errorf("repo nil 不应有外部节点:\n%s", got2)
 	}
 }
 

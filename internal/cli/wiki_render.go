@@ -71,7 +71,7 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	curated := archMermaidCurated(data)
 	if cfg.Architecture != "" {
 		idx.WriteString("## 整体架构图\n\n> 来源：wiki.yaml architecture\n\n" + rc.diagramMD(cfg.Architecture))
-	} else if arch := archMermaidFallback(data, rc.cfg.Domains); arch != "" {
+	} else if arch := archMermaidFallback(data, rc.cfg.Domains, rc.repo); arch != "" {
 		idx.WriteString("## 整体架构图\n\n> 自动生成：接入层→领域→存储层三层架构（yaml architecture 可覆盖）\n\n" + rc.diagramMD(arch))
 	}
 	// R7：AI 整理架构图（过滤 logging/seed 等基础包 + 分层分组）
@@ -94,6 +94,10 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	// R45：外部系统接口调用（grpc/http 调用但接口未在本项目定义）
 	if ext := renderExternalInterfacesMD(rc.repo); ext != "" {
 		idx.WriteString(ext)
+	}
+	// R47：kafka topic 分类（生产/消费归属三分类）
+	if kt := renderKafkaTopicsMD(rc.repo); kt != "" {
+		idx.WriteString(kt)
 	}
 	if len(cfg.Glossary) > 0 {
 		idx.WriteString("\n## 术语表\n\n")

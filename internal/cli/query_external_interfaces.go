@@ -24,6 +24,7 @@ import (
 // extCaller 一个外部接口调用点。
 type extCaller struct {
 	Func string `json:"func"` // 调用函数短名
+	Pkg  string `json:"pkg"`  // 调用方包路径（R47 架构图聚合——领域归属）
 	Loc  string `json:"loc"`  // file:line
 }
 
@@ -73,6 +74,7 @@ func externalInterfaces(repo *sqlite.Repo) (*externalInterfacesResult, error) {
 		}
 		grouped[key].Callers = append(grouped[key].Callers, extCaller{
 			Func: shortSymbolNameID(srcID),
+			Pkg:  symbolPkg(srcID), // R47：调用方包路径（架构图领域聚合）
 			Loc:  callerLoc(repo, srcID, line),
 		})
 	}
