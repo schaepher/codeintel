@@ -139,6 +139,7 @@ func cmdDomainsArgs(args []string) int {
 	yamlPath := ""
 	factsPath := ""
 	exportOnly := ""
+	extraPrompt := "" // R57：用户约束（可预先指定部分域——wiki 生成前置 domains 已配置时提示用它）
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
@@ -167,10 +168,15 @@ func cmdDomainsArgs(args []string) int {
 			i++
 		case strings.HasPrefix(a, "--export-facts="):
 			exportOnly = strings.TrimPrefix(a, "--export-facts=")
+		case a == "--prompt" && i+1 < len(args):
+			extraPrompt = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--prompt="):
+			extraPrompt = strings.TrimPrefix(a, "--prompt=")
 		case a == "--json":
 			f.json = true
 		case a == "--help" || a == "-h":
-			fmt.Println("用法: codeintel domains [--repo <path>] [--agent claude|codex|auto] [--yaml <file>] [--facts <file>] [--export-facts <file>] [--json]\n  AI 业务域分析：静态事实包（包/表/实体/服务）导出文件 → agent 读文件归纳业务域 → 写回 wiki.yaml domains 区块（# AI 初稿 → 人工确认）——ER/实体分组统一消费\n  --export-facts <file>：只导出事实包到文件（不调 AI，可人工检查/喂给任意 agent）")
+			fmt.Println("用法: codeintel domains [--repo <path>] [--agent claude|codex|auto] [--yaml <file>] [--facts <file>] [--export-facts <file>] [--prompt <text>] [--json]\n  AI 业务域分析：静态事实包（包/表/实体/服务）导出文件 → agent 读文件归纳业务域 → 写回 wiki.yaml domains 区块（# AI 初稿 → 人工确认）——ER/实体分组统一消费；wiki 生成前置要求 domains 已配置（未配置时 wiki 拒绝生成）\n  --export-facts <file>：只导出事实包到文件（不调 AI，可人工检查/喂给任意 agent）；--prompt 用户约束（可预先指定部分域，如 \"商品域：交易域，会员域\"）")
 			return 0
 		default:
 			fmt.Fprintf(os.Stderr, "error: 未知参数 %q\n", a)
@@ -190,11 +196,11 @@ func cmdDomainsArgs(args []string) int {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
-	return cmdDomains(abs, f, resolved, yamlPath, factsPath, exportOnly)
+	return cmdDomains(abs, f, resolved, yamlPath, factsPath, exportOnly, extraPrompt)
 }
 
 // cmdDomains 实现 `codeintel domains [--repo <path>] [--agent claude|codex] [--json]`
-func cmdDomains(repoAbs string, f queryFlags, agent, yamlPath, factsPath, exportOnly string) int {
+func cmdDomains(repoAbs string, f queryFlags, agent, yamlPath, factsPath, exportOnly, extraPrompt string) int {
 	db, err := sqlite.Open(repoAbs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -231,7 +237,7 @@ func cmdDomains(repoAbs string, f queryFlags, agent, yamlPath, factsPath, export
 		fmt.Fprintln(os.Stderr, "ai.domains=off——跳过业务域分析（wiki.yaml 或 ~/.codeintel/config.yaml 配置）")
 		return 0
 	}
-	doms, warns := analyzeDomains(repoAbs, &cfg, acts, sqlite.NewRepo(db), agent, yamlPath, factsPath, "")
+	doms, warns := analyzeDomains(repoAbs, &cfg, acts, sqlite.NewRepo(db), agent, yamlPath, factsPath, extraPrompt)
 	for _, w := range warns {
 		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
 	}

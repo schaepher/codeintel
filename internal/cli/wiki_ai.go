@@ -120,6 +120,16 @@ const (
 func wikiAIFill(yamlPath string, cfg *wikiConfig, data []*domain.WikiModule, cols []*domain.TableColumn, rels []*domain.TableRelation, agent string, timeout time.Duration, withQA bool, repo *sqlite.Repo, repoAbs string) (ok, skip, fail int) {
 	_ = repo
 	mods, tbls, colGaps := wikiAIGaps(data, *cfg, cols)
+	// R57：ai.fill.<类别>=off（wiki.yaml/全局）→ 该类别缺口剔除（整类跳过）
+	if !aiEnabled("fill.modules", *cfg) {
+		mods = nil
+	}
+	if !aiEnabled("fill.tables", *cfg) {
+		tbls = nil
+	}
+	if !aiEnabled("fill.columns", *cfg) {
+		colGaps = nil
+	}
 	if len(mods)+len(tbls)+len(colGaps) == 0 {
 		return 0, 0, 0
 	}
@@ -128,32 +138,43 @@ func wikiAIFill(yamlPath string, cfg *wikiConfig, data []*domain.WikiModule, col
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 0, 0, 0
 	}
+	// R57：apply 按类别开关过滤——off 类别即使 AI 返回也不写回
 	apply := func(out wikiBatchOut) {
-		for _, m := range out.Modules {
-			e.setModuleDesc(m.Name, m.Description)
-			cfgSetModuleDesc(cfg, m.Name, m.Description)
-			ok++
-		}
-		for _, t := range out.Tables {
-			if t.Alias != "" {
-				e.setTableAlias(t.Name, t.Alias)
-				cfgSetTableAlias(cfg, t.Name, t.Alias)
+		if aiEnabled("fill.modules", *cfg) {
+			for _, m := range out.Modules {
+				e.setModuleDesc(m.Name, m.Description)
+				cfgSetModuleDesc(cfg, m.Name, m.Description)
 				ok++
 			}
-			if len(t.Columns) > 0 {
-				comments := map[string]string{}
-				for _, c := range t.Columns {
-					comments[c.Name] = c.Comment
+		}
+		if aiEnabled("fill.tables", *cfg) {
+			for _, t := range out.Tables {
+				if t.Alias != "" {
+					e.setTableAlias(t.Name, t.Alias)
+					cfgSetTableAlias(cfg, t.Name, t.Alias)
+					ok++
 				}
-				e.setColumnComments(t.Name, comments)
-				cfgSetColumnComments(cfg, t.Name, comments)
-				ok++
 			}
 		}
-		for _, g := range out.Glossary {
-			e.setGlossary(g.Term, g.Definition)
-			cfgSetGlossary(cfg, g.Term, g.Definition)
-			ok++
+		if aiEnabled("fill.columns", *cfg) {
+			for _, t := range out.Tables {
+				if len(t.Columns) > 0 {
+					comments := map[string]string{}
+					for _, c := range t.Columns {
+						comments[c.Name] = c.Comment
+					}
+					e.setColumnComments(t.Name, comments)
+					cfgSetColumnComments(cfg, t.Name, comments)
+					ok++
+				}
+			}
+		}
+		if aiEnabled("fill.glossary", *cfg) {
+			for _, g := range out.Glossary {
+				e.setGlossary(g.Term, g.Definition)
+				cfgSetGlossary(cfg, g.Term, g.Definition)
+				ok++
+			}
 		}
 	}
 	// 分批：模块/表/列组按条数切（每批 ≤ aiBatchMax），列组额外按
@@ -167,8 +188,10 @@ func wikiAIFill(yamlPath string, cfg *wikiConfig, data []*domain.WikiModule, col
 	if withQA {
 		qaRefs = wikiQAReferences(repo, mods, tbls, colGaps)
 	}
+	// R57：ai.fill.glossary=off → prompt 不带术语表段（AI 不生成）
+	withGlossary := aiEnabled("fill.glossary", *cfg)
 	for _, b := range batches {
-		out, err := aiCallOnce(agent, wikiAIBatchPrompt(b.mods, b.tbls, b.colGaps, rels, qaRefs), timeout, repoAbs, parseWikiBatch)
+		out, err := aiCallOnce(agent, wikiAIBatchPrompt(b.mods, b.tbls, b.colGaps, rels, qaRefs, withGlossary), timeout, repoAbs, parseWikiBatch)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: AI 批量补缺失败: %v\n", err)
 			fail += len(b.mods) + len(b.tbls) + len(b.colGaps)

@@ -35,7 +35,6 @@ func cmdWiki(args []string) int {
 	aiWithQA := false
 	diagram := "plantuml" // R32：图引擎（默认 plantuml，Q3 定案）
 	maxEntries := 0       // R37：流程页入口展开上限（0 = 默认 15）
-	extraPrompt := ""     // R56：用户约束传给 AI（业务域分析）
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
@@ -80,13 +79,8 @@ func cmdWiki(args []string) int {
 			i++
 		case strings.HasPrefix(a, "--max-entries="):
 			maxEntries, _ = strconv.Atoi(strings.TrimPrefix(a, "--max-entries="))
-		case a == "--prompt" && i+1 < len(args):
-			extraPrompt = args[i+1]
-			i++
-		case strings.HasPrefix(a, "--prompt="):
-			extraPrompt = strings.TrimPrefix(a, "--prompt=")
 		case a == "--help" || a == "-h":
-			fmt.Println("用法: codeintel wiki [--repo <path>] [--out <dir=docs/wiki>] [--yaml <file>] [--format md|html] [--init] [--ai] [--agent codex|claude|auto] [--with-qa] [--diagram plantuml|mermaid] [--max-entries <N>] [--prompt <text>]\n  从代码生成业务 wiki（Markdown 或单文件 HTML）——wiki.yaml 可补充业务描述/别名/隐藏符号；--init 生成 wiki.yaml 骨架；--ai 用 AI 增量补缺（无描述模块/无别名表/无说明列/术语表 → 写回 wiki.yaml 标注 # AI 初稿）；--with-qa 从历史问答（ask/serve 对话收集）读取相关 Q&A 作为参考资料；--diagram 图引擎（默认 plantuml——HTML 渲染 PNG 嵌入；mermaid 浏览器端渲染）；--max-entries 流程页每节/每页入口展开上限（默认 15，超出折叠为清单）；--prompt 用户约束传给 AI（业务域分析——可预先指定部分域）；AI 使用点可用配置关闭（wiki.yaml 或 ~/.codeintel/config.yaml 的 ai: {domains, fill, ask: auto|off}）")
+			fmt.Println("用法: codeintel wiki [--repo <path>] [--out <dir=docs/wiki>] [--yaml <file>] [--format md|html] [--init] [--ai] [--agent codex|claude|auto] [--with-qa] [--diagram plantuml|mermaid] [--max-entries <N>]\n  从代码生成业务 wiki（Markdown 或单文件 HTML）——wiki.yaml 可补充业务描述/别名/隐藏符号；--init 生成 wiki.yaml 骨架；--ai 用 AI 增量补缺（无描述模块/无别名表/无说明列/术语表 → 写回 wiki.yaml 标注 # AI 初稿；ai.fill 可细分到类别 modules/tables/columns/glossary）；--with-qa 从历史问答（ask/serve 对话收集）读取相关 Q&A 作为参考资料；--diagram 图引擎（默认 plantuml——HTML 渲染 PNG 嵌入；mermaid 浏览器端渲染）；--max-entries 流程页每节/每页入口展开上限（默认 15，超出折叠为清单）；wiki.yaml 必须配置 domains（业务域）才能生成——先跑 `codeintel domains --prompt \"<用户约束>\"`（可预先指定部分域）生成 AI 初稿并确认；AI 使用点可用配置关闭（wiki.yaml 或 ~/.codeintel/config.yaml 的 ai: {domains, fill, ask: auto|off}，fill 可细分）")
 			return 0
 		default:
 			fmt.Fprintf(os.Stderr, "error: 未知参数 %q\n", a)
@@ -148,21 +142,13 @@ func cmdWiki(args []string) int {
 			return 1
 		}
 	}
-	// R34：业务域——wiki.yaml 无 domains 时自动调 AI 分析（已生成过
-	// 就不再生成；失败降级现有规则，不阻断 wiki 生成；
-	// CODEINTEL_SKIP_DOMAINS=1 跳过——测试环境避免真实 AI 调用）
-	// R56：ai.domains=off（wiki.yaml/全局）→ 整步跳过
-	if os.Getenv("CODEINTEL_SKIP_DOMAINS") == "" && len(cfg.Domains) == 0 && aiEnabled("domains", cfg) {
-		if agent, err := resolveAgent(aiAgent); err == nil {
-			if doms, warns := analyzeDomains(abs, &cfg, acts, sqlite.NewRepo(db), agent, yamlPath, "", extraPrompt); len(doms) > 0 {
-				for _, w := range warns {
-					fmt.Fprintf(os.Stderr, "warning: %s\n", w)
-				}
-				fmt.Printf("domains：AI 分析出 %d 个业务域（已写回 %s，标注 # AI 初稿）\n", len(doms), yamlPath)
-			} else {
-				fmt.Fprintf(os.Stderr, "warning: 业务域分析未产出有效结果（用现有规则划分）\n")
-			}
-		}
+	// R57：业务域前置检查——wiki.yaml（或 --yaml）必须配置 domains，
+	// 否则不允许继续生成（不再自动调 AI 分析：domains 是 AI 初稿 →
+	// 人工确认的契约，未配置说明未完成确认）。生成手段：先跑
+	// `codeintel domains --prompt "<约束>"` 或手动在 wiki.yaml 配置
+	if len(cfg.Domains) == 0 && !initOnly {
+		fmt.Fprintf(os.Stderr, "error: wiki.yaml 未配置 domains（业务域）——不允许生成。请先运行 `codeintel domains --prompt \"<用户约束>\"` 生成 AI 初稿并确认，或手动在 wiki.yaml 配置 domains 区块\n")
+		return 1
 	}
 	// yaml 模块白名单：列出则只生成这些模块（fixture/子模块噪音过滤）
 	if len(cfg.Modules) > 0 {

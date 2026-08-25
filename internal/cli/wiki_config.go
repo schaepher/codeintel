@@ -1,5 +1,11 @@
 package cli
 
+import (
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
+
 // wikiModuleCfg 模块配置（命名类型——wiki --ai 补缺时追加/更新）。
 type wikiModuleCfg struct {
 	Name        string `yaml:"name"`
@@ -40,16 +46,54 @@ type wikiConfig struct {
 	// 业务域（R34：AI 分析产出 → 人工确认；ER/实体分组统一消费）
 	Domains []wikiDomainCfg `yaml:"domains"`
 	// AI 使用点开关（R56：wiki.yaml 仓库级 > ~/.codeintel/config.yaml
-	// 全局 > 默认 auto）：domains（业务域分析）/fill（wiki --ai 补缺）/
-	// ask（ask/serve 问答）——off 时整步跳过，不调 AI
+	// 全局 > 默认 auto）：domains（业务域分析）/fill（wiki --ai 补缺——
+	// R57 细分到类别 modules/tables/columns/glossary）/ask（ask/serve
+	// 问答）——off 时整步跳过，不调 AI
 	AI wikiAICfg `yaml:"ai"`
 }
 
 // wikiAICfg AI 使用点开关值（auto=启用（默认）| off=跳过/禁用）。
 type wikiAICfg struct {
-	Domains string `yaml:"domains"`
-	Fill    string `yaml:"fill"`
-	Ask     string `yaml:"ask"`
+	Domains string        `yaml:"domains"`
+	Fill    wikiAIFillCfg `yaml:"fill"`
+	Ask     string        `yaml:"ask"`
+}
+
+// wikiAIFillCfg fill 细分开关（R57）：`fill: off`（字符串 = 全部禁用）
+// 或 `fill: {modules, tables, columns, glossary: auto|off}`（按类别）。
+// 空 map 键 "" 存总开关值（字符串形态）。
+type wikiAIFillCfg map[string]string
+
+// UnmarshalYAML 兼容两种形态：fill: off（标量）| fill: {...}（映射）。
+func (c *wikiAIFillCfg) UnmarshalYAML(node *yaml.Node) error {
+	*c = wikiAIFillCfg{}
+	switch node.Kind {
+	case yaml.ScalarNode:
+		v := strings.TrimSpace(node.Value)
+		if v != "" {
+			(*c)[""] = v
+		}
+	case yaml.MappingNode:
+		var m map[string]string
+		if err := node.Decode(&m); err != nil {
+			return err
+		}
+		for k, v := range m {
+			(*c)[strings.TrimSpace(k)] = strings.TrimSpace(v)
+		}
+	}
+	return nil
+}
+
+// value 取开关值：类别键优先，总开关（""）兜底。
+func (c wikiAIFillCfg) value(key string) string {
+	if v, ok := c[key]; ok {
+		return v
+	}
+	if v, ok := c[""]; ok {
+		return v
+	}
+	return ""
 }
 
 // wikiGlossaryItem 术语条目（命名类型——wiki --ai 补缺时追加/更新）。

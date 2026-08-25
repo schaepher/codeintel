@@ -1409,6 +1409,32 @@ domain 1 包 1 自环边。
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
 
+### R57（2026-08-25）——wiki 强制 domains 配置 + ai.fill 细分
+
+用户：domain 没有在 wiki.yaml 配置就不允许继续往下走；ai.fill 要细分。
+
+- **wiki 前置检查**：cfg.Domains 为空（且非 --init）→ 报错退出——
+  "wiki.yaml 未配置 domains（业务域）——不允许生成。请先运行
+  `codeintel domains --prompt "<用户约束>"` 生成 AI 初稿并确认"。
+  **移除自动 domains 分析**（不再无 domains 时自动调 AI——domains 是
+  AI 初稿 → 人工确认的契约，未配置 = 未完成确认）。--prompt 从 wiki
+  移到 domains 命令（用户约束帮助 AI 判断——wiki 不再做域分析）。
+- **ai.fill 细分**：`fill: off`（字符串总开关）或
+  `fill: {modules, tables, columns, glossary: auto|off}`（按类别）——
+  wikiAIFillCfg 自定义 UnmarshalYAML 兼容两形态；缺口收集按类别过滤
+  + apply 按类别过滤（AI 返回了也不写回）；glossary off 时 prompt
+  省略"四、术语表"段。aiEnabled key 支持 fill.<类别>。
+- **架构图单域降级修复**（实测暴露）：单域项目领域包全折叠为同一
+  领域节点（f==t 边全跳过）→ counts 空 → 架构图消失。修复：
+  counts 空且 doms 非空 → 递归降级包级模式（archLayeredMermaid
+  (data, nil, repo)——域内包间调用可见；go2o 多域不受影响）。
+- 测试：TestWikiNoDomains（无 domains 拒绝）/TestCmdDomainsPrompt/
+  TestWikiFillPartial（columns off 只跳列）/TestWikiFillGlossaryOff/
+  TestAIEnabled fill 细分；seed 统一加 wiki.yaml domains（前置检查
+  通过）；TestWikiPlantumlDefault 暴露架构图单域 bug。
+- 教训：**R44 架构图对单域项目失效**——领域聚合后域内边全折叠，
+  需要包级降级兜底；"无调用链/无图"排查先看节点折叠（f==t 跳过）
+
 ### R56（2026-08-25）——AI 使用点配置开关 + wiki --prompt
 
 用户：列出所有用到 AI 的地方，允许配置项控制是否用 AI（必须 AI 的

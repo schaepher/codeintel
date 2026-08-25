@@ -33,11 +33,15 @@ func seedWikiRepo(t *testing.T) string {
 	run := &domain.CodeEntity{ID: "symbol:go:example.com/m/svc:(Svc).Run", Kind: domain.KindMethod, Name: "(Svc).Run", FilePath: "svc/svc.go", LineStart: 5}
 	f1 := &domain.CodeEntity{ID: "symbol:go:example.com/m/util:F1", Kind: domain.KindFunction, Name: "F1", FilePath: "util/util.go", LineStart: 2}
 	f2 := &domain.CodeEntity{ID: "symbol:go:example.com/m/util:F2", Kind: domain.KindFunction, Name: "F2", FilePath: "util/util.go", LineStart: 9}
+	// R57：第二个包节点——架构图（领域层按 domains.packages 分组）节点
+	// ≥3 才非空（R42 有效节点 <3 降级空），单包测试域会让架构图消失
+	svcPkg := &domain.CodeEntity{ID: "symbol:go:example.com/m/svc:svc", Kind: domain.KindPackage, Name: "svc",
+		Properties: map[string]any{"doc_comment": "服务层"}}
 	// gorm 表列虚拟节点（orders 表）
 	col := &domain.CodeEntity{ID: "symbol:go:example.com/m:main#ext.gorm.orders.id.write@6", Kind: domain.KindFieldAccess, Name: "orders.id",
 		FilePath: "main.go", LineStart: 6,
 		Properties: map[string]any{"is_external": "true", "type_string": "gorm", "func_id": "symbol:go:example.com/m:main"}}
-	if _, err := r.SaveBatchStats([]*domain.CodeEntity{pkg, main, run, f1, f2, col}, nil, nil); err != nil {
+	if _, err := r.SaveBatchStats([]*domain.CodeEntity{pkg, main, run, f1, f2, svcPkg, col}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	// calls：main 被 f1/f2 调用（callers=2 第一），main→(Svc).Run
@@ -46,6 +50,11 @@ func seedWikiRepo(t *testing.T) string {
 		{SourceID: "symbol:go:example.com/m/util:F2", TargetID: "symbol:go:example.com/m:main", Kind: domain.FactCalls, Confidence: 0.9},
 		{SourceID: "symbol:go:example.com/m:main", TargetID: "symbol:go:example.com/m/svc:(Svc).Run", Kind: domain.FactCalls, Confidence: 0.9},
 	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	// R57：wiki 生成前置要求 domains 已配置（未配置拒绝生成）
+	if err := os.WriteFile(filepath.Join(dir, "wiki.yaml"),
+		[]byte("domains:\n  - name: 测试域\n    packages: [example.com/m, example.com/m/svc]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return dir
@@ -110,6 +119,9 @@ func TestWikiYAML(t *testing.T) {
 modules:
   - name: example.com/m
     description: 核心结算域
+domains:
+  - name: 测试域
+    packages: [example.com/m, example.com/m/svc]
 tables:
   - name: orders
     alias: 订单表

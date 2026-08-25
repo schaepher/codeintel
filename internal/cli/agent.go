@@ -164,6 +164,8 @@ func aiConfigFromGlobal() wikiAICfg {
 // aiEnabled AI 使用点开关判定（R56）：wiki.yaml ai.<key>（仓库级）>
 // ~/.codeintel/config.yaml ai.<key>（全局）> 默认启用。值 off 才禁用
 // （其他值/空 = auto 启用）。
+// key：domains | fill（总开关）| fill.modules/fill.tables/fill.columns/
+// fill.glossary（R57 细分）| ask。
 func aiEnabled(key string, cfg wikiConfig) bool {
 	val := aiValue(key, cfg.AI)
 	if val != "" {
@@ -177,15 +179,16 @@ func aiEnabled(key string, cfg wikiConfig) bool {
 	return true
 }
 
-// aiValue 取开关值（domains|fill|ask）。
+// aiValue 取开关值（domains|fill|fill.<类别>|ask）。
 func aiValue(key string, c wikiAICfg) string {
-	switch key {
-	case "domains":
+	switch {
+	case key == "domains":
 		return strings.TrimSpace(c.Domains)
-	case "fill":
-		return strings.TrimSpace(c.Fill)
-	case "ask":
+	case key == "ask":
 		return strings.TrimSpace(c.Ask)
+	case key == "fill" || strings.HasPrefix(key, "fill."):
+		cat := strings.TrimPrefix(key, "fill.")
+		return c.Fill.value(cat)
 	}
 	return ""
 }

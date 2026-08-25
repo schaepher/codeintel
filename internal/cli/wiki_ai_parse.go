@@ -82,8 +82,9 @@ func wikiQAReferences(repo *sqlite.Repo, mods []aiModuleGap, tbls []aiTableGap, 
 // wikiAIBatchPrompt 批量缺口 prompt：模块描述 + 表别名 + 列说明 +
 // 术语表一次请求全部带上（省调用次数、AI 上下文连贯）。rels 提供
 // 表间关联事实（列说明的读写上下文）；qaRefs 为历史问答参考资料
-// （--with-qa，可选）。
-func wikiAIBatchPrompt(mods []aiModuleGap, tbls []aiTableGap, colGaps []aiColGap, rels []*domain.TableRelation, qaRefs []string) string {
+// （--with-qa，可选）。withGlossary：R57 ai.fill.glossary=off 时省略
+// 术语表段（AI 不生成术语）。
+func wikiAIBatchPrompt(mods []aiModuleGap, tbls []aiTableGap, colGaps []aiColGap, rels []*domain.TableRelation, qaRefs []string, withGlossary bool) string {
 	var b strings.Builder
 	b.WriteString("你是代码仓库文档助手。根据以下代码事实，为缺失内容生成中文描述。一次全部处理。\n\n")
 	if len(mods) > 0 {
@@ -132,8 +133,10 @@ func wikiAIBatchPrompt(mods []aiModuleGap, tbls []aiTableGap, colGaps []aiColGap
 		}
 		b.WriteString("\n")
 	}
-	b.WriteString(`四、术语表：从以上模块/表/列事实中识别 3-8 个专业术语（缩写/内部黑话，如 ssa/ast/ER/MCP），给出中文定义。
-只输出 YAML（结构严格如下，缺哪个部分就省略哪个）：
+	if withGlossary {
+		b.WriteString("四、术语表：从以上模块/表/列事实中识别 3-8 个专业术语（缩写/内部黑话，如 ssa/ast/ER/MCP），给出中文定义。\n")
+	}
+	b.WriteString(`只输出 YAML（结构严格如下，缺哪个部分就省略哪个）：
 modules:
   - name: <模块名>
     description: <描述>

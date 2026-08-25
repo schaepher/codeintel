@@ -129,6 +129,12 @@ func archLayeredMermaid(data []*domain.WikiModule, doms []wikiDomainCfg, repo *s
 		}
 	}
 	if len(counts) == 0 {
+		// 单域/无跨域边：领域包全折叠为同一领域节点（f==t 全被跳过）
+		// → 降级包级模式（等同无 domains——域内包间调用可见；go2o
+		// 多域不受影响）
+		if len(doms) > 0 {
+			return archLayeredMermaid(data, nil, repo)
+		}
 		return ""
 	}
 	keys := make([]key, 0, len(counts))

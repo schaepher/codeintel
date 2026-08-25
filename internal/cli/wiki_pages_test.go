@@ -72,6 +72,9 @@ func TestWikiMermaid(t *testing.T) {
 	yamlPath := filepath.Join(t.TempDir(), "wiki.yaml")
 	yaml := `modules:
   - name: example.com/m
+domains:
+  - name: 测试域
+    packages: [example.com/m]
 architecture: |
   graph LR
     A[用户] --> B[系统]
@@ -184,6 +187,9 @@ func TestWikiTableDetail(t *testing.T) {
 	yamlPath := filepath.Join(t.TempDir(), "wiki.yaml")
 	yaml := `modules:
   - name: example.com/m
+domains:
+  - name: 测试域
+    packages: [example.com/m]
 tables:
   - name: orders
     alias: 订单表

@@ -71,6 +71,12 @@ func seedRepo(t *testing.T) string {
 	}}, nil); err != nil {
 		t.Fatalf("save edge: %v", err)
 	}
+	// R57：wiki 生成前置要求 domains 已配置（未配置拒绝生成）——
+	// 共享 seed 默认带上
+	if err := os.WriteFile(filepath.Join(dir, "wiki.yaml"),
+		[]byte("domains:\n  - name: 测试域\n    packages: [example.com/m]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	return dir
 }
 
