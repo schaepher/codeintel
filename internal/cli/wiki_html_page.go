@@ -44,6 +44,7 @@ body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
 #main th { background: #f7f8fa; }
 #main .muted { color: #86909c; }
 #main section { margin-bottom: 32px; }
+#main pre.mermaid, #main svg.mermaid { display: block; margin: 8px 0; }
 .fold-btn { cursor: pointer; }
 .guide { margin: 12px 0 24px; padding: 10px 14px; background: #e8f3ff; border-radius: 6px; font-size: 13px; line-height: 1.8; }
 .guide a { color: #1677ff; }
