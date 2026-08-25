@@ -1284,60 +1284,51 @@ domain 1 包 1 自环边。
   （生产有/无 × 消费有/无）——与 R45 的接口特征判定互补，纯查询层
   实现（发射端零改动）
 
-## 待办与候选方向（未定优先级）
+## 待办与已知不足（按优先级，2026-08-25 统一整理）
 
-**高优先级待办**（2026-08-24 用户提出，6 项）：
-- ~~1. HTTP/GRPC 路由自动分析~~ → **R29/R31 全完成**：grpc 部分
-  （`query grpc-routes`——R29 注册签名识别 + R29-2 接口方法模式识别）；
-  http 部分（`query http-routes`——R31 两个 resolver：原生 net/http
-  [包级 Handle/HandleFunc + ServeMux 方法调用] + gin [路由方法 + Group
-  前缀拼接/链式]，其他框架后置）
-- ~~2. 图渲染双引擎~~ → **R32 已实现**（wiki `--diagram
-  plantuml|mermaid`，默认 plantuml——HTML 渲染 PNG base64 嵌入、md
-  输出 plantuml 文本块；mermaid 模式保持浏览器渲染）
-- ~~3. urfave/cli/v2 命令解析支持~~ → **R35 已实现**（query
-  cli-routes——命令树节点 + wiki 命令清单页）
-- ~~4. 系统流程基于 http/grpc 分析出的入口~~ → **R37 已实现**：
-  processes 页 = main 入口节（保留）+ HTTP 路由入口节（handler_id
-  展开/去重/resolver 分组）+ gRPC 服务入口节（每服务独立子页，
-  (Impl).Method 方法级展开）；上限折叠 --max-entries 默认 15
-- ~~5. redis client / kafka（sarama）调用分析~~ → **R36 已实现**
-  （query external-deps——redis 方法式+命令式、kafka producer/consumer）
-- ~~6. grpc 枚举分析~~ → **R29 已实现**（.proto 源枚举并入 query
-  enums，Source=proto 标注；生成代码 .pb.go 排除）
+**P0——高优先级（影响交付质量/机制未闭环）**：
+- 1. **--with-qa 实战验证**（交接遗留）：qa_history 已积累真实问答
+  （ask/serve 用过）——`wiki --ai --with-qa` 端到端确认参考资料生效
+  （机制已测——TestWikiAIFillWithQA）
+- 2. **go2o domains.services 人工确认**（R38 写回 AI 初稿）：30 个服务
+  归属（ItemService→商品域/OrderService→交易域等）维护者过目
+  （git diff 可回滚）
+- 3. **动态 URL 出站调用识别盲区**（R45 实测暴露）：http 出站调用
+  URL 是变量拼接/动态（go2o 的 sms/http_sms.go、alipay_wap.go、
+  geo.go 等形态）→ httpURLString 只认字面量 → http_call 边漏检 →
+  external-interfaces 的 http 部分与模块间调用对这类项目失效。
+  增强方向：extractStringArg 支持"字面量+变量"部分解析（至少提取
+  host/path 前缀）+ 常量拼接
+- 4. **术语表 24 条 / flows 5 条 review**（交接遗留）：AI 初稿已入
+  wiki.yaml，人工最后确认（wiki skill「人工是最后一道工序」）
 
-**交接遗留**（2026-08-24 交接文档 I §3 并入，随轮次更新状态）：
-- ~~0. go2o AI 剩余缺口（31 表别名 + 283 列说明）~~ → **R28 已清零**
-  （44 条补全、0 失败；150 表全有别名与列说明；wiki-check 7/7）
-- 1. **--with-qa 实战未验证**：qa_history 需真实对话积累后 `wiki --ai
-  --with-qa` 端到端生效（机制已测——TestWikiAIFillWithQA，待真实数据）
-- 2. **表字段类型剩余 10 列**（repos 全局注册表，schema 在 ~/.codeintel
-  ——yaml 补或读全局 db）
-- 3. **术语表 24 条 / flows 5 条 review**（R11/R14 AI 初稿已入
-  wiki.yaml，人工最后确认——wiki skill「人工是最后一道工序」）
-- 4. **新人实测演练**：挑一个陌生项目，用 wiki 走通 onboarding 流程，
-  验证"新人视角无死角"是否真实成立（覆盖度全勾选后终极验证，
-  需外部项目）
-- ~~5. ana 自身索引 update~~ → **R37 已 reindex**（含 R35-R37 分析逻辑；
-  后续再改分析逻辑用 reindex——update 工作区干净会跳过）
-- 6. **F2 实体分组对非 DDD 项目效果**（validSplit 降级逻辑已测；
-  go2o 是 DDD 样例——普通项目待观察）
+**P1——中优先级（补全/验证）**：
+- 5. **表字段类型剩余 10 列**（交接遗留）：repos 全局注册表，schema
+  在 ~/.codeintel——yaml 补或读全局 db
+- 6. **新人实测演练**（交接遗留）：挑一个陌生项目用 wiki 走通
+  onboarding，验证"新人视角无死角"（覆盖度终极验证，需外部项目）
+- 7. **F2 实体分组对非 DDD 项目效果**（交接遗留）：go2o 是 DDD 样例，
+  普通项目待观察
+- 8. **external-interfaces 的 http 请求对象判定缺失**（R45 已知局限）：
+  gin handler 无显式请求类型——http 只按"路由未定义"判定（条件②
+  只对 grpc 生效）；可在 handler 参数绑定结构体（ShouldBind/参数
+  类型）方向增强
 
-**R38 新增**：
-- 1. **go2o domains.services 人工确认**：R38 重跑写回 30 个服务归属
-  （AI 初稿——ItemService→商品域/OrderService→交易域等），维护者
-  过目（git diff 可回滚）
-- 2. **ana 自身 domains 补 services**：R37 分析的 7 域是旧格式（无
-  services）——重跑 `codeintel domains` 后流程页服务归属生效（一次
-  AI 调用）
-- 3. 服务归属静态兜底改进（可选）：投票被基础设施兜底域污染
-  （R38 实测）——可排除服务实现包再投票
+**P2——低优先级/候选**：
+- 9. **流程页深度**（候选）：入口调用链 → 关键数据流（value-trace
+  串联）
+- 10. **服务归属静态兜底改进**（R38 可选）：投票被基础设施兜底域
+  污染——可排除服务实现包再投票
+- 11. **外部依赖识别形态扩展**（候选）：kafka 对 go2o 无数据（go2o
+  消息走 msq/events 非 sarama）——待真实 kafka 项目验证；redis 命令
+  式（conn.Do("BLPOP", key)）是 go2o 主流（R36 已覆盖），其他客户端
+  库形态后置
 
-**候选方向**：
-- 流程页深度：入口调用链 → 关键数据流（value-trace 串联）
-- ~~yaml 语义层：表列说明/表别名/模块描述 AI 初稿~~ → **R23 已实现**
-  （`codeintel wiki --ai` 增量补缺，写回 wiki.yaml 标注 # AI 初稿）；
-  ~~术语表接入~~ → **R24 已实现**（批量 prompt 带 glossary 区块）
-- ~~wiki --ai 增强：列 prompt 加入表间关联事实（rels 已传入未用）~~ →
-  **R24 已实现**（列说明带 rels 上下文）；~~ask 支持交互式 REPL~~ →
-  **R26 已实现**（多轮追问复用上下文）
+**已完成标注**（随轮次更新）：
+- ~~6 项高优先级待办（2026-08-24 用户提出）~~ → R29/R31/R32/R35/R36/
+  R37 全完成（grpc/http 路由、图双引擎、cli 命令树、redis/kafka、
+  grpc 枚举、流程页入口化）
+- ~~go2o AI 缺口清零~~ → R28（44 条补全，wiki-check 7/7）
+- ~~ana 自身索引 update~~ → R37 reindex；~~ana domains 补 services~~ →
+  R39 重跑（7 域 + services 写入）
+- ~~yaml 语义层/术语表接入/列说明带 rels/ask REPL~~ → R23/R24/R26
