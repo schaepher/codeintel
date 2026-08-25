@@ -16,6 +16,10 @@ type EntityNode struct {
 	FreeFuncs   int    `json:"free_funcs"`   // 门面聚合的游离函数数（类型 = 0）
 	InnerCalls  int    `json:"inner_calls"`  // 实体内方法互调次数
 	OutCalls    int    `json:"out_calls"`    // 出边调用总数（聚合计数）
+	// Service R68：struct 角色——方法里无字段 direct_write（无字段结构
+	// 体 / 组合注入 / client 字段只被调用）→ service（行为载体）；字段
+	// 被赋值（状态）→ 数据载体。接口/门面 = false。
+	Service bool `json:"service"`
 }
 
 // EntityEdge 实体间调用边（方法互调聚合计数）。
@@ -51,6 +55,9 @@ type EntityRaw struct {
 	Methods []*CodeEntity // method 节点（R66：接口方法统计——has_method 不覆盖接口）
 	HasM    []*Fact       // has_method 边（类型 → 方法）
 	Calls   []*Fact       // 全量 calls 边
+	// FieldWrites R68：字段 direct_write 摘要（service 判定——方法里
+	// 无字段写入 = service；只查写，读不区分数据/注入）
+	FieldWrites []*FunctionFieldSummary
 }
 
 // 实体诊断阈值（Q6：固定起步，自举首份报告后按实际分布调整）。

@@ -111,6 +111,26 @@ func aggregateEntities(raw *domain.EntityRaw, keep func(string) bool) *domain.En
 		}
 		pkgFreeFuncs[pkg]++
 	}
+	// R68：struct service 判定——方法里无字段 direct_write（无字段
+	// 结构体 / 组合注入 / client 字段只被调用）→ service；字段被赋值
+	// （状态）→ 数据载体。FieldPath 形如 <pkg>.<Type>.<field>——按
+	// 类型名前缀匹配方法集（function_id 的方法写入）
+	writeFuncs := map[string]bool{} // 有 direct_write 的方法
+	for _, s := range raw.FieldWrites {
+		writeFuncs[string(s.FunctionID)] = true
+	}
+	// 类型 → 方法 → 是否有写（methodToType 在此前已填 has_method + 接口方法）
+	methodHasWrite := map[string]bool{}
+	for mid := range writeFuncs {
+		if tid, ok := methodToType[mid]; ok {
+			methodHasWrite[tid] = true
+		}
+	}
+	for id, n := range byID {
+		if n.Kind == domain.EntityKindStruct {
+			n.Service = !methodHasWrite[id]
+		}
+	}
 	for pkg, cnt := range pkgFreeFuncs {
 		if cnt >= domain.FaceMinFreeFuncs {
 			byID["symbol:go:"+pkg+":"+shortPkg(pkg)] = &domain.EntityNode{

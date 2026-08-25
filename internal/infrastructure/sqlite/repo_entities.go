@@ -38,6 +38,14 @@ func (r *Repo) GetEntityRaw() (*domain.EntityRaw, error) {
 		WHERE kind = 'calls'`, &out.Calls); err != nil {
 		return nil, err
 	}
+	// R68：字段 direct_write 摘要（service 判定——只查写；读不区分
+	// 数据/注入语义）
+	if rows, err := r.Query(`SELECT function_id, access_kind, field_path, instance_path, line_start, code_snippet
+		FROM function_field_summary WHERE access_kind = 'direct_write'`); err == nil {
+		if summaries, err := scanSummaries(rows); err == nil {
+			out.FieldWrites = summaries
+		}
+	}
 	return out, nil
 }
 

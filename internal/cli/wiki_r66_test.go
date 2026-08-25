@@ -136,3 +136,75 @@ func TestDomainFactsEntsHotFirst(t *testing.T) {
 	}
 }
 
+
+// TestEntityServiceDetection：R68——struct service 判定：方法里无字段
+// direct_write（无字段结构体 / 组合注入 / client 字段只被调用）→
+// service；字段被赋值（状态）→ 数据载体。
+func TestEntityServiceDetection(t *testing.T) {
+	dir := seedRepo(t)
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	r := sqlite.NewRepo(db)
+	// Svc：无字段（方法只调外部）；Svc2：有 repo 字段但只调用（无写）；
+	// Data：有字段且被写（状态）
+	if _, err := r.SaveBatchStats([]*domain.CodeEntity{
+		{ID: "symbol:go:example.com/m/svc:Svc", Kind: domain.KindStruct, Name: "Svc", FilePath: "svc/svc.go"},
+		{ID: "symbol:go:example.com/m/svc:(Svc).Run", Kind: domain.KindMethod, Name: "(Svc).Run", FilePath: "svc/svc.go"},
+		{ID: "symbol:go:example.com/m/svc:Svc2", Kind: domain.KindStruct, Name: "Svc2", FilePath: "svc/svc2.go"},
+		{ID: "symbol:go:example.com/m/svc:(Svc2).Get", Kind: domain.KindMethod, Name: "(Svc2).Get", FilePath: "svc/svc2.go"},
+		{ID: "symbol:go:example.com/m/data:Data", Kind: domain.KindStruct, Name: "Data", FilePath: "data/data.go"},
+		{ID: "symbol:go:example.com/m/data:(Data).Load", Kind: domain.KindMethod, Name: "(Data).Load", FilePath: "data/data.go"},
+		{ID: "symbol:go:example.com/m/data:(Data).Save", Kind: domain.KindMethod, Name: "(Data).Save", FilePath: "data/data.go"},
+	}, []*domain.Fact{
+		{SourceID: "symbol:go:example.com/m/svc:Svc", TargetID: "symbol:go:example.com/m/svc:(Svc).Run", Kind: domain.FactHasMethod, Confidence: 1.0},
+		{SourceID: "symbol:go:example.com/m/svc:Svc2", TargetID: "symbol:go:example.com/m/svc:(Svc2).Get", Kind: domain.FactHasMethod, Confidence: 1.0},
+		{SourceID: "symbol:go:example.com/m/data:Data", TargetID: "symbol:go:example.com/m/data:(Data).Load", Kind: domain.FactHasMethod, Confidence: 1.0},
+		{SourceID: "symbol:go:example.com/m/data:Data", TargetID: "symbol:go:example.com/m/data:(Data).Save", Kind: domain.FactHasMethod, Confidence: 1.0},
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	// 字段写入摘要：Data.Load 写 Data.v（direct_write）；Svc2.Get 只调用
+	// repo（无写）
+	if _, err := r.SaveBatchStats(nil, nil, []*domain.FunctionFieldSummary{
+		{FunctionID: "symbol:go:example.com/m/data:(Data).Load", AccessKind: domain.SummaryDirectWrite,
+			FieldPath: "example.com/m/data.Data.v", InstancePath: "d.v", LineStart: 5},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// 出边（行为门槛：1 方法 0 出边被滤——Svc/Svc2 需有出边；调用目标
+	// 需是实体——ext 包 5 个游离函数建门面，调用边 dst=门面）
+	extNodes := make([]*domain.CodeEntity, 0, 5)
+	for i := 0; i < 5; i++ {
+		extNodes = append(extNodes, &domain.CodeEntity{
+			ID: domain.CanonicalID("symbol:go:example.com/m/ext:h" + itoa(i)),
+			Kind: domain.KindFunction, Name: "h" + itoa(i), FilePath: "ext/helper.go"})
+	}
+	if _, err := r.SaveBatchStats(extNodes, []*domain.Fact{
+		{SourceID: "symbol:go:example.com/m/svc:(Svc).Run", TargetID: "symbol:go:example.com/m/ext:h0", Kind: domain.FactCalls, Confidence: 0.9},
+		{SourceID: "symbol:go:example.com/m/svc:(Svc2).Get", TargetID: "symbol:go:example.com/m/ext:h0", Kind: domain.FactCalls, Confidence: 0.9},
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	g, err := action.New(r).Entities()
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := map[string]bool{}
+	for _, n := range g.Nodes {
+		if n.Name == "Svc" || n.Name == "Svc2" || n.Name == "Data" {
+			svc[n.Name] = n.Service
+		}
+	}
+	if !svc["Svc"] {
+		t.Error("无字段 struct 应判定为 service")
+	}
+	if !svc["Svc2"] {
+		t.Error("字段只被调用（无 direct_write）应判定为 service——组合注入")
+	}
+	if svc["Data"] {
+		t.Error("字段被写（状态）不应判定为 service——数据载体")
+	}
+}

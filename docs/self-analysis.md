@@ -1409,6 +1409,25 @@ domain 1 包 1 自环边。
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
 
+### R68（2026-08-25）——struct service 角色判定（无字段写 = service）
+
+用户：无字段的 struct 要算 service；有字段但所有字段在方法里只有
+方法调用（组合/service 里 client）也算 service。
+
+- 判定（合并两类）：**struct 方法里无字段 direct_write → service**
+  ——无字段结构体自然无写；组合注入/依赖（repo/client 字段只被调用
+  不赋值）也无写；字段被赋值（状态）→ 数据载体
+- 数据源：function_field_summary 的 direct_write 行（GetEntityRaw 加
+  FieldWrites 查询——只查写，读不区分数据/注入语义）；FieldPath
+  类型限定 → 方法集（methodToType）匹配
+- EntityNode 加 Service bool（渲染/facts 可用——AI 划分时识别
+  行为载体）
+- 测试：TestEntityServiceDetection（无字段 service/组合注入 service/
+  字段写数据载体）；ext 包 5 游离函数建门面作为调用目标（游离函数
+  <5 不成实体——调用边 dst 为空会丢，实体无出边被门槛滤）
+- 教训：**实体调用边的目标必须是实体**（类型/门面）——调游离函数
+  （<5 不建门面）的边被丢弃；测试构造调用目标需满足实体条件
+
 ### R67（2026-08-25）——临时目录迁到仓库 .tmp（不再写 /tmp）
 
 用户：当前工作目录创建 .tmp，以后不写 /tmp；.gitignore 排除 .tmp。
