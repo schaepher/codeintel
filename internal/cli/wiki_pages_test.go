@@ -104,6 +104,39 @@ flows:
 	if !strings.Contains(ms, `participant P0 as "main"`) || !strings.Contains(ms, "P0->>P1: call") {
 		t.Errorf("应含自动时序（main 调用链）:\n%s", ms)
 	}
+
+	// R41：html mermaid 模式——script 块闭合（mermaid.initialize 块缺
+	// </script> 会把主 JS（fold 逻辑）吞进同一块 → Unexpected token '<'
+	// → 折叠点击失效；闭合后 mermaid.initialize 是独立 script 块
+	outH := filepath.Join(t.TempDir(), "wikiH")
+	if code := cmdWiki([]string{"--repo", dir, "--out", outH, "--yaml", yamlPath, "--diagram", "mermaid", "--format", "html"}); code != 0 {
+		t.Fatalf("cmdWiki html exit = %d", code)
+	}
+	htmlB, err := os.ReadFile(filepath.Join(outH, "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hs := string(htmlB)
+	// mermaid.initialize 块必须闭合（否则主 JS 并入同一 script 块）
+	if !strings.Contains(hs, "mermaid.initialize({ startOnLoad: true, theme: 'neutral' });\n</script>") {
+		t.Errorf("mermaid.initialize 块应独立闭合（缺 </script> 会吞主 JS）:\n%s", hs)
+	}
+	// fold JS 存在且独立：最后一个内联 script 块（主 JS）内部不应含
+	// <script> 字面量（否则该块被 HTML 解析器截断——折叠失效）
+	mainScriptStart := strings.LastIndex(hs, "<script>\n// 目录当前模块高亮")
+	if mainScriptStart < 0 {
+		t.Error("未找到主 script 块（目录高亮 IIFE）")
+	} else {
+		// 内容从打开标签之后开始（排除 <script> 本身；JS 里 <= / (<) /
+		// '<span' 字符串是合法语法，真正致命的是 <script> 字面量——HTML
+		// 解析器在 script 块内遇 </script> 提前终止）
+		openTag := "<script>"
+		mainScriptEnd := strings.Index(hs[mainScriptStart:], "</script>")
+		mainBody := hs[mainScriptStart+len(openTag) : mainScriptStart+mainScriptEnd]
+		if strings.Contains(mainBody, "<script>") || strings.Contains(mainBody, "</script>") {
+			t.Error("主 script 块内不应含 script 标签字面量（折叠 JS 解析失败）")
+		}
+	}
 }
 
 // TestWikiPlantumlDefault：R32——默认 plantuml 模式：md 输出 ```plantuml

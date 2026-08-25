@@ -122,7 +122,8 @@ body.sidebar-off #main { margin-left: 0; }
 		}
 		return `<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 <script>
-mermaid.initialize({ startOnLoad: true, theme: 'neutral' });`
+mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
+</script>`
 	}()) + `
 <script>
 // 目录当前模块高亮（scrollspy）

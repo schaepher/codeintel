@@ -1138,6 +1138,29 @@ processes.md）发现并修复：
 - 折叠语义随模式变化：独立子页时代用链接导航，单文件时代用
   details/summary 就地折叠——导航结构跟着交付形态走
 
+### R41（2026-08-25）——mermaid 模式 html 折叠失效（script 块未闭合）
+
+用户报告：ER 图和实体协作图的领域内关系点击后无法展开。
+
+- **根因**：wikiHTMLPage 的 mermaid CDN script 块**缺少闭合 `</script>`**
+  ——`mermaid.initialize(...)` 块未闭合，HTML 解析器把后面的主 JS
+  （含 fold 交互）整个吞进同一 script 块，块内出现 `<script>` 字面量
+  → `Unexpected token '<'` 语法错误 → **fold JS 从未执行**。
+  plantuml 模式无 mermaid 块（返回空串）所以一直正常——mermaid 模式
+  的折叠从 R26（CDN script 引入）起就是坏的，用户首次测交互才暴露。
+- **修复**：mermaid 块补 `</script>`（独立 script 块）。
+- **验证**：playwright 实测——entity-dom-0~5 / er-dom-0~2 点击全部
+  none → block 展开、JS 错误归零；Go 测试加断言（mermaid.initialize
+  块独立闭合 + 主 script 块内无 script 标签字面量）。
+
+**AI 杠杆点**（R41 实证）：
+- **HTML 里 JS 字符串/模板中的 `</script>` 字面量会提前终止 script
+  标签**（HTML 解析层不认 JS 字符串）——任何内嵌 JS 的模板必须保证
+  script 块闭合完整；playwright 点击交互测试是唯一能抓到的（Go 测试
+  只能查文本结构）
+- 交互类 bug（点击/折叠）必须实测浏览器行为——文本断言查不出
+  "JS 语法错误导致整个交互失效"
+
 ## 待办与候选方向（未定优先级）
 
 **高优先级待办**（2026-08-24 用户提出，6 项）：
