@@ -1409,6 +1409,35 @@ domain 1 包 1 自环边。
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
 
+### R72（2026-08-25）——AI 输出 JSON 文件 + 超时诊断（不盲目重试）
+
+用户：AI 把结果输出到 JSON 文件，程序读文件转 YAML；下次超时检测
+进程/resume 检查情况而非完整重试（调试方法论）。
+
+**背景**（go2o 全新流程三次失败排查——用户问是否 OOM，结论不是）：
+1. AI 响应 YAML 格式错误（"mapping values are not allowed"）
+2. 6m 真实超时（claude 分析 30 服务慢——R38 已知）
+3. exit 137——dmesg 无今日 OOM、内存充足（MemAvailable 6.2G）、
+   空输出文件——外部终止（后台任务被清理），非 OOM（历史确有 OOM：
+   8/16 ast.test、8/24 6.6GB 进程——cc-connect cgroup 内存压力史）
+
+**实现**：
+- **AI 写 JSON 文件**：prompt 第 11 条——结果写入 .codeintel/
+  domains-ai.json（Write 工具，JSON 格式），响应只回 "done"；
+  程序读文件 parseDomains（JSON 是 YAML 子集，复用校验）
+- **超时文件兜底**：analyzeDomains 调用前删旧文件；响应无有效结果
+  （含超时）→ 读输出文件（AI 可能实际已完成）——不重试；
+  错误信息带输出文件路径
+- **超时诊断**：runAgentExec 超时 → agentProcesses（pgrep -x 精确
+  进程名防误杀自身）检测残留 → kill 孤儿；错误信息区分"有残留
+  （AI 可能仍在思考）"vs"无残留（已退出）——调用方决定重试/resume
+- 测试：TestAnalyzeDomainsJSONFile / TestAnalyzeDomainsTimeoutFileCheck
+  / TestDomainPromptOutputFile
+- 调试教训：KindPackage 节点 ID 保存时规范化为路径形态
+  （symbol:go:example.com/m/pkg）——symbolPkg 提取出完整路径而非包
+  路径；包节点正确 ID = symbol:go:<path>（无 name 段）——测试 seed
+  用错误形态导致 parseDomains 校验剔除（"包不在事实包中"）
+
 ### R71（2026-08-25）——渲染基准告知 + 动态 URL 部分解析 + facts token 优化
 
 用户：做 1+4（渲染基准告知 / 动态 URL 盲区）；优化 facts——AI 识别

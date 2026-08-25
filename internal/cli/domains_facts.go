@@ -246,6 +246,9 @@ func exportDomainFacts(repoAbs string, acts *action.Actions, cfg wikiConfig, db 
 // 事实文件，agent 先读文件再分析；信息充分性靠文件完整性）。
 // extraPrompt：用户约束（R56 wiki --prompt——预先指定部分域，帮助
 // AI 判断；空 = 无约束）。
+// R72：要求 AI 把归纳结果写入 JSON 文件（.codeintel/domains-ai.json）
+// ——响应只回 done；程序读文件解析（文件是权威来源——响应文本解析
+// 失败/超时不影响；AI 写文件比回文本更可靠）。
 func domainPrompt(factsPath, extraPrompt string) string {
 	var b strings.Builder
 	b.WriteString("你是代码架构分析师。代码静态分析事实已导出到 JSON 文件 `" + factsPath + "`（packages/tables/entities/services，权威可靠）。\n")
@@ -262,6 +265,7 @@ func domainPrompt(factsPath, extraPrompt string) string {
 	b.WriteString("\n8. **包级调用矩阵**（pkg_calls：from/to = 包完整路径、count = 调用次数——同包调用已不计）：子域划分参考包间调用密度——**调用密集的包组归同一子域（内聚），包间调用稀疏处是子域边界**；实体归属先归包（entities.pkg）再随包归子域\n")
 	b.WriteString("\n9. **包规模与角色**：packages[].ents = 包内实体数（大头包——实体多的包建议拆子域或与其他包分域）；entities[].service = 行为载体（无字段/组合注入——service 按职责归域）vs 数据载体（字段被写——随所属 service 归域，不独立成域）\n")
 	b.WriteString("\n10. **规模基准（渲染上限）**：每个域的内部协作图调用边超过 500 条、实体超过约 30 个时渲染失败或降级。划分时**每域实体数建议 ≤15**（按 packages[].ents 预估）——实体多的包拆到多个域或拆子域；宁可多几个域，不要单域过大\n")
+	b.WriteString("\n11. **输出方式（R72）**：把归纳结果**写入文件** `.codeintel/domains-ai.json`（用 Write 工具，JSON 格式：{\"domains\": [{\"name\", \"description\", \"packages\": [], \"tables\": [], \"services\": []}]}）；响应文本只回 \"done\"。文件是唯一交付物——**不要输出 YAML 到响应**\n")
 	if extraPrompt != "" {
 		b.WriteString("\n用户额外约束（**必须优先遵守**，冲突时以用户约束为准）：\n" + extraPrompt + "\n")
 	}

@@ -68,7 +68,17 @@ func runAgentExec(agent, prompt string, timeout time.Duration, dir string) (stri
 	}
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() != nil {
-		return "", fmt.Errorf("agent %s 超时（超过 %s）", agent, timeout)
+		// R72：超时诊断——检测残留进程（AI 可能仍在思考/卡住），
+		// 残留则终止（防孤儿）；错误信息带进程状态——调用方据此
+		// 决定重试/resume/检查输出文件，而非盲目完整重试
+		left := agentProcesses(agent)
+		if len(left) > 0 {
+			for _, p := range left {
+				_ = p.Kill()
+			}
+			return "", fmt.Errorf("agent %s 超时（超过 %s）——已终止 %d 个残留进程（AI 可能仍在思考）；若 AI 已写完输出文件可直接使用", agent, timeout, len(left))
+		}
+		return "", fmt.Errorf("agent %s 超时（超过 %s）——无残留进程（进程已退出）；检查输出文件是否已写入", agent, timeout)
 	}
 	if err != nil {
 		if strings.Contains(err.Error(), "executable file not found") {
@@ -245,4 +255,27 @@ func resolveAgentWith(flagAgent, cfgAgent string, hasClaude, hasCodex bool) (str
 func agentAvailable(agent string) bool {
 	_, err := exec.LookPath(agent)
 	return err == nil
+}
+
+// agentProcesses 检测 agent CLI 残留进程（R72 超时诊断——pgrep 精确
+// 进程名，防误杀自身；输出为空 = 无残留）。
+func agentProcesses(agent string) []*os.Process {
+	cmd := exec.Command("pgrep", "-x", agent)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	var procs []*os.Process
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		var pid int
+		if _, err := fmt.Sscanf(line, "%d", &pid); err == nil && pid > 0 {
+			if p, err := os.FindProcess(pid); err == nil {
+				procs = append(procs, p)
+			}
+		}
+	}
+	return procs
 }

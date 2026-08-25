@@ -103,11 +103,29 @@ func analyzeDomains(repoAbs string, cfg *wikiConfig, acts *action.Actions, db *s
 	}
 	// R38：任务加重（读事实包 JSON + 归纳 packages/tables/services）——
 	// 超时 240s → 360s（go2o 30 服务实测 4m 仍超）
+	// R72：AI 把结果写入 .codeintel/domains-ai.json（文件是权威来源——
+	// 响应文本解析失败/超时不影响）；超时后检查文件（AI 可能已写完
+	// ——不盲目完整重试）
+	outPath := filepath.Join(repoAbs, ".codeintel", "domains-ai.json")
+	_ = os.Remove(outPath) // 清理旧结果（防读陈旧文件）
 	resp, err := agentRunner(agent, domainPrompt(factsPath, extraPrompt), 360*time.Second, repoAbs)
-	if err != nil {
-		return nil, []string{fmt.Sprintf("AI 业务域分析失败: %v", err)}
-	}
 	doms, warns := parseDomains(resp, f)
+	if len(doms) == 0 {
+		// 响应无有效结果（含超时）——读 AI 写的 JSON 文件（超时但已
+		// 写完 = AI 实际完成；文件是权威交付物）
+		if b, rerr := os.ReadFile(outPath); rerr == nil && len(b) > 0 {
+			if doms2, w2 := parseDomains(string(b), f); len(doms2) > 0 {
+				doms, warns = doms2, w2
+			}
+		}
+	}
+	if err != nil {
+		if len(doms) > 0 {
+			warns = append(warns, fmt.Sprintf("AI 响应异常（%v）——已用输出文件结果", err))
+		} else {
+			return nil, []string{fmt.Sprintf("AI 业务域分析失败: %v（若 AI 进程仍残留可手动 kill；输出文件 %s 无结果）", err, outPath)}
+		}
+	}
 	if len(doms) == 0 {
 		warns = append(warns, "无有效业务域（保留现有规则划分）")
 		return nil, warns
