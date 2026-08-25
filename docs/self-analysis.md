@@ -1409,6 +1409,30 @@ domain 1 包 1 自环边。
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
 
+### R59（2026-08-25）——全量验证提速（51.9s → 1.9s）
+
+用户：为什么全量验证这么慢？找原因 + 方案 grilling 决定（四问全接受
+推荐：Q1 并行+缓存 / Q2 增量层 / Q3 慢测试不动 / Q4 race 去 -count=1）。
+
+原因（实测）：
+- `-count=1 -p 1`：禁测试缓存 + 串行跑所有包——串行浪费 22.6s
+  （并行实测 29.3s）；缓存命中时全仓 0.5s
+- cli 包 470+ 测试累计 20.6s（3 个 cmdWiki 渲染测试占 5s：GrpcSubpages
+  2.4s / HTML 1.3s / PlantumlDefault 1.3s）
+- pre-commit 每 commit 跑 quick（51.9s）
+
+实施：
+- verify.sh --quick：`go test ./...`（并行 + 缓存）——51.9s → 首次
+  ~29s / 缓存命中 1.9s
+- verify.sh --changed（新）：git 变更（diff + 未跟踪）的 Go 文件所属
+  包 + 依赖它们的包（go list -f '{{.ImportPath}} {{join .Deps " "}}'
+  一次取全）；无受影响包回退全量——pre-commit hook 改用 --changed
+  （实测 1.7-2s）
+- race 模式去 -count=1（race 结果也缓存——实测 (cached)）；保留 -p 1
+  逐包（timeout 300s 防挂起定位）
+- 实测：--changed 无 Go 变更 2.0s / 有变更 1.7s / --quick 缓存 1.9s /
+  race 缓存 (cached)
+
 ### R58（2026-08-25）——全局配置自动初始化（内置模板 + 仓库 example）
 
 用户：配置文件不存在时自动初始化（所有选项 + 默认值 + 注释）；仓库
