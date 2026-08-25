@@ -1409,6 +1409,21 @@ domain 1 包 1 自环边。
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
 
+### R67（2026-08-25）——临时目录迁到仓库 .tmp（不再写 /tmp）
+
+用户：当前工作目录创建 .tmp，以后不写 /tmp；.gitignore 排除 .tmp。
+
+- 创建仓库 .tmp/ + .gitignore 加 /.tmp/
+- verify.sh / Makefile 的 TMPDIR 逻辑改为 `$PWD/.tmp`（目录存在才设
+  ——CI/其他机器无该目录保持默认，避免泄漏到 runner）
+- AGENTS.md R28 教训更新、runbook #1 更新（TMPDIR=$PWD/.tmp）
+- **R28 问题复发与治本**：TMPDIR 指仓库内 → t.TempDir() 在仓库内 →
+  git 包 TestIndexNonGitDir 假失败（"非 git 目录"向上命中仓库 .git）
+  ——修复：测试环境检测（git rev-parse 成功则 SKIP——该场景在仓库
+  内 TMPDIR 下无法构造）；其余测试全绿（cli 全量 + git 包 + quick）
+- 教训：**测试不该假设 TMPDIR 在 git 仓库外**——TMPDIR 位置是环境
+  配置，测试用环境检测跳过无法构造的场景（诚实调整而非绕过断言）
+
 ### R66（2026-08-25）——实体定义收敛（接口门槛 + 生成代码门面排除 + 热度截断）
 
 用户：开始解决实体定义问题（3 的前置——实体噪音会划分过多子域）。

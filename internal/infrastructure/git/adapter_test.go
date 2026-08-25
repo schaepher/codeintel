@@ -99,8 +99,13 @@ func TestIndexGitHistory(t *testing.T) {
 
 func TestIndexNonGitDir(t *testing.T) {
 	// 非 git 目录：git log 失败 → 返回错误
-	adapter := &Adapter{}
+	// R67：TMPDIR 指向仓库 .tmp（git 仓库内）时 t.TempDir() 有 git 祖先
+	// ——"非 git 目录"场景无法构造，跳过（原 R28 假失败根因）
 	dir := t.TempDir()
+	if out, err := exec.Command("git", "-C", dir, "rev-parse", "--git-dir").Output(); err == nil && len(out) > 0 {
+		t.Skip("TMPDIR 在 git 仓库内——无法构造非 git 目录（R67）")
+	}
+	adapter := &Adapter{}
 	err := adapter.Index(context.Background(), &domain.Repository{Path: dir}, nil, func(domain.Item) error { return nil })
 	if err == nil {
 		t.Error("Index on non-git dir should fail")

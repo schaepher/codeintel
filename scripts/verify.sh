@@ -14,7 +14,8 @@
 #                              依赖它们的包——pre-commit hook 用；quick
 #                              全量兜底）
 #
-# 环境：/tmp 配额满时自动切 TMPDIR（runbook #1）。
+# 环境：临时目录用仓库 .tmp/（R67：不再写 /tmp——配额满；.gitignore
+# 已排除 .tmp/）。
 set -uo pipefail
 # pre-commit hook 环境下 git 会设置 GIT_INDEX_FILE 等变量指向主仓库
 # index——嵌套 git 命令（测试里的 git worktree add / 增量构建 git 检测）
@@ -23,12 +24,9 @@ set -uo pipefail
 unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE 2>/dev/null || true
 cd "$(dirname "$0")/.." || exit 1
 
-if [ ! -d /home/schaepher/.tmp-build ]; then
-  mkdir -p /home/schaepher/.tmp-build
-fi
-if [ "${TMPDIR:-}" != "/home/schaepher/.tmp-build" ]; then
-  export TMPDIR=/home/schaepher/.tmp-build
-  echo "TMPDIR -> $TMPDIR（runbook #1：/tmp 配额满）"
+# R67：TMPDIR 指向仓库 .tmp（存在才设置——CI/其他机器无该目录保持默认）
+if [ -d "$PWD/.tmp" ]; then
+  export TMPDIR="$PWD/.tmp"
 fi
 
 echo "== go build ./... =="

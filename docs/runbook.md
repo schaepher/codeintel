@@ -8,7 +8,7 @@
 
 | # | 现象 | 处理 | 原因与预防 |
 |---|---|---|---|
-| 1 | go build/test 链接失败 `No space left on device` | `rm -rf /tmp/go-build*`；或 `TMPDIR=/home/schaepher/.tmp-build go build` | /tmp 是 tmpfs，配额小。预防：大构建显式 TMPDIR |
+| 1 | go build/test 链接失败 `No space left on device` | `rm -rf /tmp/go-build*`；或 `TMPDIR=$PWD/.tmp go build` | /tmp 是 tmpfs，配额小。预防（R67）：Makefile/verify.sh 自动设 `TMPDIR=$PWD/.tmp`（仓库 .tmp/，.gitignore 排除）；手动 go 命令同样带 |
 | 2 | 大仓库 reindex/init 后 db 损坏 | 后台运行 + 轮询日志等完成，**勿强杀**；损坏则 clean + 重建 | 强杀写进程损坏 WAL。预防：大仓库计算一律后台+轮询 |
 | 3 | `make e2e-fixture` 起不来 / 8096 被占 | 停掉占 8096 的进程（如 go2o serve）再跑 | 端口冲突。预防：跑 e2e 前检查 `ss -tlnp \| grep 8096` |
 | 4 | pgrep 误杀自己（进程自杀） | 用 `pgrep -x <名>` + kill，不用 `pgrep -f` | `-f` 匹配整条命令行，会匹配自身。预防：精确进程名 |

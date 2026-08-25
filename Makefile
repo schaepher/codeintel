@@ -1,10 +1,10 @@
 # codeintel 构建配置
 # version 通过 -ldflags 注入编译时的 git commit hash。
 
-# /tmp 是 tmpfs 配额小（runbook #1）：构建临时目录统一切到 .tmp-build。
-# 仅本机（存在该目录）时生效；CI/其他机器保持系统默认——硬编码会
-# 泄漏到 GitHub Actions runner（目录不存在，go 建目录失败）。
-TMPDIR ?= $(if $(shell test -d /home/schaepher/.tmp-build && echo yes),/home/schaepher/.tmp-build,)
+# 临时目录用仓库 .tmp/（R67：不再写 /tmp——tmpfs 配额小；.gitignore
+# 已排除 .tmp/）。目录存在才设置（CI/其他机器无该目录保持系统默认
+# ——避免泄漏到 runner）。
+TMPDIR ?= $(if $(shell test -d .tmp && echo yes),$(CURDIR)/.tmp,)
 export TMPDIR
 
 BINARY     := codeintel

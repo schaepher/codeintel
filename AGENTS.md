@@ -376,10 +376,12 @@ defer logger.Debug("exit <name>")
   （曾因旧库缺 GORM 虚拟节点误判功能未生效）。
 - **日志已切文件**：所有带 `--repo` 的命令日志写入 `.codeintel/codeintel.log`，
   stdout 只承载查询结果——排查问题看日志文件，不要从 stdout 找日志。
-- **go build/test 的 TMPDIR 不能放 git 仓库内**（2026-08-24 R28 教训）：临时
-  目录落在仓库内时 t.TempDir() 也在仓库内，TestIndexNonGitDir 假失败（git log
-  向上命中仓库 .git）。Makefile 已自动把 TMPDIR 指到 /home/schaepher/.tmp-build
-  （runbook #1：/tmp 配额满）；**手动跑 go 命令同样带 TMPDIR 或指到仓库外**。
+- **TMPDIR 指向仓库 .tmp/**（R67：不再写 /tmp——tmpfs 配额小；.gitignore
+  已排除 .tmp/）。R28 曾因"TMPDIR 在仓库内 → t.TempDir() 在仓库内 →
+  git 检测假失败"切到仓库外 .tmp-build——R67 实测（TMPDIR=$PWD/.tmp
+  全量 cli 测试 -count=1 通过）问题未复发（当时修复已根治）。Makefile/
+  verify.sh 自动设置（目录存在才设——CI 保持默认）；**手动跑 go 命令
+  同样带 TMPDIR=$PWD/.tmp**。
 - **验证矩阵**：make test（-race 全量，13 包）/ make it（integration，需 scip-go）/
   make e2e（playwright 前端回归，端口 8096，E2E_REPO 指定）——改完代码三件套都要过。
 - **工作流约定**（用户明确）：每个功能先写测试再实现（测试先行）；开发中的
