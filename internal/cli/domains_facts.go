@@ -28,14 +28,25 @@ type tableFacts struct {
 	Alias string `json:"alias,omitempty"`
 }
 
-// entityFacts 一个核心实体（类型 + 方法数 + 调用热度）。
+// entityFacts 一个核心实体（类型 + 方法数 + 调用热度 + 所属包）。
 // R64：Out/In = 调出/被调聚合边数——AI 划分领域参考调用热度（高内聚
 // 实体同域、跨域调用边少；实体多的域提示可再细分——防域内边爆炸）。
+// R65：Pkg = 所属包完整路径（与 packages[].path 一致——AI 归属实体
+// → 包 → 子域，三层打通）。
 type entityFacts struct {
 	Name    string `json:"name"`
+	Pkg     string `json:"pkg"`
 	Methods int    `json:"methods"`
 	Out     int    `json:"out,omitempty"` // 出度：调出边数
 	In      int    `json:"in,omitempty"`  // 入度：被调边数
+}
+
+// pkgCallFacts 包级调用矩阵（R65：跨包子域划分的直接依据——子域 =
+// 高内聚包组；同包调用与子域划分无关，不计）。
+type pkgCallFacts struct {
+	From  string `json:"from"`  // 调用方包完整路径
+	To    string `json:"to"`    // 被调包完整路径
+	Count int    `json:"count"` // 调用次数（聚合）
 }
 
 // svcFacts 一个服务（grpc 服务名 / http 方法+路径）。
@@ -49,10 +60,11 @@ type svcFacts struct {
 
 // domainFacts AI 分析前的结构化事实包（JSON 序列化——导出文件）。
 type domainFacts struct {
-	Pkgs   []pkgFacts    `json:"packages"`
-	Tables []tableFacts  `json:"tables"`
-	Ents   []entityFacts `json:"entities"`
-	Svcs   []svcFacts    `json:"services"`
+	Pkgs     []pkgFacts      `json:"packages"`
+	Tables   []tableFacts    `json:"tables"`
+	Ents     []entityFacts   `json:"entities"`
+	Svcs     []svcFacts      `json:"services"`
+	PkgCalls []pkgCallFacts  `json:"pkg_calls,omitempty"` // R65：包级调用矩阵
 }
 
 // collectDomainFacts 收集事实包（复用索引查询——动作层 API）。
@@ -109,12 +121,37 @@ func collectDomainFacts(acts *action.Actions, repoAbs string, cfg wikiConfig, db
 			out[e.From]++
 			in[e.To]++
 		}
+		// R65：实体带包路径（与 packages[].path 一致——实体→包→子域）
 		for _, n := range g.Nodes {
 			if len(f.Ents) >= 60 {
 				break
 			}
-			f.Ents = append(f.Ents, entityFacts{Name: n.Name, Methods: n.MethodCount, Out: out[n.ID], In: in[n.ID]})
+			f.Ents = append(f.Ents, entityFacts{Name: n.Name, Pkg: n.Pkg, Methods: n.MethodCount, Out: out[n.ID], In: in[n.ID]})
 		}
+		// R65：包级调用矩阵（跨包非零边——子域划分的直接依据；
+		// 同包调用与子域划分无关不计）
+		pkgOfID := map[string]string{}
+		for _, n := range g.Nodes {
+			pkgOfID[n.ID] = n.Pkg
+		}
+		pkgCalls := map[[2]string]int{}
+		for _, e := range g.Edges {
+			fp, ok1 := pkgOfID[e.From]
+			tp, ok2 := pkgOfID[e.To]
+			if !ok1 || !ok2 || fp == tp {
+				continue
+			}
+			pkgCalls[[2]string{fp, tp}] += e.Count
+		}
+		for pair, c := range pkgCalls {
+			f.PkgCalls = append(f.PkgCalls, pkgCallFacts{From: pair[0], To: pair[1], Count: c})
+		}
+		sort.Slice(f.PkgCalls, func(i, j int) bool {
+			if f.PkgCalls[i].From != f.PkgCalls[j].From {
+				return f.PkgCalls[i].From < f.PkgCalls[j].From
+			}
+			return f.PkgCalls[i].To < f.PkgCalls[j].To
+		})
 	}
 
 	if res, err := grpcRoutes(db, repoAbs); err == nil {
@@ -182,6 +219,7 @@ func domainPrompt(factsPath, extraPrompt string) string {
 	b.WriteString("6. 只输出 YAML，不要解释：\n")
 	b.WriteString("domains:\n  - name: 商品域\n    description: 商品/SKU/类目管理\n    packages: [github.com/ixre/go2o/pkg/interface/domain/item]\n    tables: [item_info, item_sku]\n    services: [ItemService]\n")
 	b.WriteString("\n7. **调用热度辅助**（entities 的 out/in = 调出/被调聚合边数）：相互调用密集（out/in 高且互相关联）的实体尽量归同一域——领域内聚、跨域调用边少；单域实体过多（密集调用域内边会爆炸）时优先把调用稀疏的边界实体拆到其他域\n")
+	b.WriteString("\n8. **包级调用矩阵**（pkg_calls：from/to = 包完整路径、count = 调用次数——同包调用已不计）：子域划分参考包间调用密度——**调用密集的包组归同一子域（内聚），包间调用稀疏处是子域边界**；实体归属先归包（entities.pkg）再随包归子域\n")
 	if extraPrompt != "" {
 		b.WriteString("\n用户额外约束（**必须优先遵守**，冲突时以用户约束为准）：\n" + extraPrompt + "\n")
 	}

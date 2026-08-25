@@ -1409,6 +1409,25 @@ domain 1 包 1 自环边。
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
 
+### R65（2026-08-25）——facts 包级调用矩阵 + 实体带包路径
+
+用户：先做 1+2（包级调用矩阵 + 实体带包路径），3（渲染基准告知）
+暂缓——需先严格收敛实体定义（实体噪音会划分过多子域）。
+
+- entityFacts 加 Pkg（所属包**完整路径**——与 packages[].path 一致：
+  实体→包→子域三层打通）
+- domainFacts 加 pkg_calls（包级调用矩阵：from/to = 包完整路径、
+  count = 调用次数——**跨包非零边**；同包调用与子域划分无关不计；
+  AI 划分子域的直接依据：调用密集包组同子域、稀疏处是边界）
+- 数据源：实体图边按实体 Pkg 聚合（行为门槛已滤噪音，与实体语义
+  一致）；prompt 加第 8 条指导
+- 测试：TestDomainFactsEntityPkg（实体带完整路径）/
+  TestDomainFactsPkgCalls（跨包聚合、同包不计、双向计数）
+- 教训：**edges 表 UNIQUE(source,target,kind) 同义边合并**——测试
+  构造 Count>1 需用不同方法 target（真实 Count>1 来自方法级→实体级
+  聚合）；调试文件勿放项目 tmp/（go vet 扫描该包）
+- **3（渲染基准告知）待办**：实体定义收敛调查后设计（见待办节）
+
 ### R64（2026-08-25）——facts 实体调用热度（out/in）+ 待办清单更新
 
 用户：facts 提供节点出度/入度 + 调用边数量（低 token 增量），帮助

@@ -165,6 +165,88 @@ func TestDomainFactsEntityOutIn(t *testing.T) {
 	}
 }
 
+// TestDomainFactsEntityPkg：R65——实体带包路径（AI 归属实体→包→子域）。
+func TestDomainFactsEntityPkg(t *testing.T) {
+	dir := seedRepo(t)
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	r := sqlite.NewRepo(db)
+	if _, err := r.SaveBatchStats([]*domain.CodeEntity{
+		{ID: "symbol:go:example.com/m/order:svc", Kind: domain.KindStruct, Name: "svc", FilePath: "order/svc.go"},
+		{ID: "symbol:go:example.com/m/order:(svc).Run", Kind: domain.KindMethod, Name: "(svc).Run", FilePath: "order/svc.go"},
+	}, []*domain.Fact{
+		{SourceID: "symbol:go:example.com/m/order:svc", TargetID: "symbol:go:example.com/m/order:(svc).Run", Kind: domain.FactHasMethod, Confidence: 1.0},
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	f := collectDomainFacts(action.New(r), dir, wikiConfig{}, r)
+	for _, e := range f.Ents {
+		if e.Name == "svc" && e.Pkg != "example.com/m/order" {
+			t.Errorf("实体 Pkg = %q; want example.com/m/order（完整路径——与 packages 对应）", e.Pkg)
+		}
+	}
+	if len(f.Ents) > 0 && f.Ents[0].Pkg == "" {
+		t.Error("实体应带 Pkg 字段")
+	}
+}
+
+// TestDomainFactsPkgCalls：R65——包级调用矩阵（跨包聚合；同包调用与
+// 子域划分无关不计）。
+func TestDomainFactsPkgCalls(t *testing.T) {
+	dir := seedRepo(t)
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	r := sqlite.NewRepo(db)
+	// 实体：x/y 同包 order、z 在 pay——x→y 同包不计；x→z 跨包计 3 次
+	// （edges UNIQUE(source,target,kind) 同义边合并——Count>1 来自不同
+	// 方法对聚合：z 用 3 个方法）
+	if _, err := r.SaveBatchStats([]*domain.CodeEntity{
+		{ID: "symbol:go:example.com/m/order:x", Kind: domain.KindStruct, Name: "x", FilePath: "order/x.go"},
+		{ID: "symbol:go:example.com/m/order:(x).m", Kind: domain.KindMethod, Name: "(x).m", FilePath: "order/x.go"},
+		{ID: "symbol:go:example.com/m/order:y", Kind: domain.KindStruct, Name: "y", FilePath: "order/y.go"},
+		{ID: "symbol:go:example.com/m/order:(y).m", Kind: domain.KindMethod, Name: "(y).m", FilePath: "order/y.go"},
+		{ID: "symbol:go:example.com/m/pay:z", Kind: domain.KindStruct, Name: "z", FilePath: "pay/z.go"},
+		{ID: "symbol:go:example.com/m/pay:(z).m1", Kind: domain.KindMethod, Name: "(z).m1", FilePath: "pay/z.go"},
+		{ID: "symbol:go:example.com/m/pay:(z).m2", Kind: domain.KindMethod, Name: "(z).m2", FilePath: "pay/z.go"},
+		{ID: "symbol:go:example.com/m/pay:(z).m3", Kind: domain.KindMethod, Name: "(z).m3", FilePath: "pay/z.go"},
+	}, []*domain.Fact{
+		{SourceID: "symbol:go:example.com/m/order:x", TargetID: "symbol:go:example.com/m/order:(x).m", Kind: domain.FactHasMethod, Confidence: 1.0},
+		{SourceID: "symbol:go:example.com/m/order:y", TargetID: "symbol:go:example.com/m/order:(y).m", Kind: domain.FactHasMethod, Confidence: 1.0},
+		{SourceID: "symbol:go:example.com/m/pay:z", TargetID: "symbol:go:example.com/m/pay:(z).m1", Kind: domain.FactHasMethod, Confidence: 1.0},
+		{SourceID: "symbol:go:example.com/m/pay:z", TargetID: "symbol:go:example.com/m/pay:(z).m2", Kind: domain.FactHasMethod, Confidence: 1.0},
+		{SourceID: "symbol:go:example.com/m/pay:z", TargetID: "symbol:go:example.com/m/pay:(z).m3", Kind: domain.FactHasMethod, Confidence: 1.0},
+		// (x).m → (y).m（同包——不计）；(x).m → z 的 3 个方法（跨包——计 3）；
+		// (z).m1 → (x).m（跨包——z 需出边过行为门槛，计 1）
+		{SourceID: "symbol:go:example.com/m/order:(x).m", TargetID: "symbol:go:example.com/m/order:(y).m", Kind: domain.FactCalls, Confidence: 0.9},
+		{SourceID: "symbol:go:example.com/m/order:(x).m", TargetID: "symbol:go:example.com/m/pay:(z).m1", Kind: domain.FactCalls, Confidence: 0.9},
+		{SourceID: "symbol:go:example.com/m/order:(x).m", TargetID: "symbol:go:example.com/m/pay:(z).m2", Kind: domain.FactCalls, Confidence: 0.9},
+		{SourceID: "symbol:go:example.com/m/order:(x).m", TargetID: "symbol:go:example.com/m/pay:(z).m3", Kind: domain.FactCalls, Confidence: 0.9},
+		{SourceID: "symbol:go:example.com/m/pay:(z).m1", TargetID: "symbol:go:example.com/m/order:(x).m", Kind: domain.FactCalls, Confidence: 0.9},
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	f := collectDomainFacts(action.New(r), dir, wikiConfig{}, r)
+	if len(f.PkgCalls) != 2 {
+		t.Fatalf("pkg_calls = %+v; want 2 条跨包边", f.PkgCalls)
+	}
+	byPair := map[string]pkgCallFacts{}
+	for _, pc := range f.PkgCalls {
+		byPair[pc.From+"|"+pc.To] = pc
+	}
+	if pc := byPair["example.com/m/order|example.com/m/pay"]; pc.Count != 3 {
+		t.Errorf("order→pay count = %d; want 3", pc.Count)
+	}
+	if pc := byPair["example.com/m/pay|example.com/m/order"]; pc.Count != 1 {
+		t.Errorf("pay→order count = %d; want 1", pc.Count)
+	}
+}
+
 // TestDomainFactsGrpcMethods：R54——grpc 服务带方法名列表（一个服务
 // 可能含多域方法、分开部署——方法级归属信息）。
 func TestDomainFactsGrpcMethods(t *testing.T) {
