@@ -108,7 +108,7 @@ func analyzeDomains(repoAbs string, cfg *wikiConfig, acts *action.Actions, db *s
 	// ——不盲目完整重试）
 	outPath := filepath.Join(repoAbs, ".codeintel", "domains-ai.json")
 	_ = os.Remove(outPath) // 清理旧结果（防读陈旧文件）
-	resp, err := agentRunner(agent, domainPrompt(factsPath, extraPrompt), 360*time.Second, repoAbs)
+	resp, err := agentRunner(agent, domainPrompt(factsPath, extraPrompt), 600*time.Second, repoAbs)
 	doms, warns := parseDomains(resp, f)
 	if len(doms) == 0 {
 		// 响应无有效结果（含超时）——读 AI 写的 JSON 文件（超时但已

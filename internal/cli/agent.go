@@ -68,15 +68,14 @@ func runAgentExec(agent, prompt string, timeout time.Duration, dir string) (stri
 	}
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() != nil {
-		// R72：超时诊断——检测残留进程（AI 可能仍在思考/卡住），
-		// 残留则终止（防孤儿）；错误信息带进程状态——调用方据此
-		// 决定重试/resume/检查输出文件，而非盲目完整重试
+		// R72/R73：超时诊断——检测本次调用形态的残留进程（claude -p
+		// 单次调用），**只报告不 kill**（pgrep 按名匹配会误杀
+		// cc-connect 长驻会话进程——实测超时 kill 掉会话 claude 导致
+		// 执行中断/重新要权限）。ctx 取消已终止子进程；残留信息供
+		// 调用方决定重试/resume/检查输出文件
 		left := agentProcesses(agent)
 		if len(left) > 0 {
-			for _, p := range left {
-				_ = p.Kill()
-			}
-			return "", fmt.Errorf("agent %s 超时（超过 %s）——已终止 %d 个残留进程（AI 可能仍在思考）；若 AI 已写完输出文件可直接使用", agent, timeout, len(left))
+			return "", fmt.Errorf("agent %s 超时（超过 %s）——检测到 %d 个本调用形态残留进程（AI 可能仍在思考，勿手动 kill 会话进程）；若 AI 已写完输出文件可直接使用", agent, timeout, len(left))
 		}
 		return "", fmt.Errorf("agent %s 超时（超过 %s）——无残留进程（进程已退出）；检查输出文件是否已写入", agent, timeout)
 	}
@@ -257,10 +256,21 @@ func agentAvailable(agent string) bool {
 	return err == nil
 }
 
-// agentProcesses 检测 agent CLI 残留进程（R72 超时诊断——pgrep 精确
-// 进程名，防误杀自身；输出为空 = 无残留）。
+// agentProcesses 检测 agent CLI 残留进程（R73 修复：**只匹配本次调用
+// 形态**——pgrep -x 按名匹配会误伤 cc-connect 长驻会话进程（实测
+// 被杀导致会话中断/重新要权限）。claude 单次调用 = `claude -p ...`；
+// codex 单次调用 = `codex exec`。返回 PID 列表供报告，不 kill。
 func agentProcesses(agent string) []*os.Process {
-	cmd := exec.Command("pgrep", "-x", agent)
+	var pattern string
+	switch agent {
+	case "claude":
+		pattern = "[c]laude -p "
+	case "codex":
+		pattern = "[c]odex exec"
+	default:
+		return nil
+	}
+	cmd := exec.Command("pgrep", "-f", pattern)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil
