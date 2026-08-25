@@ -156,13 +156,15 @@ func renderERDomainsMD(rels []*domain.TableRelation, hideTable map[string]bool, 
 		b.WriteString(rc.diagramMD(erCrossMermaid(cross, rc.cfg.Domains)))
 	}
 	for _, d := range doms {
-		b.WriteString(fmt.Sprintf("### 领域 <code>%s</code>（%d 张表，%d 条关系）\n\n",
+		// R51：领域内图默认折叠（details）——默认只展示领域间图
+		b.WriteString(fmt.Sprintf("<details><summary>领域 <code>%s</code>（%d 张表，%d 条关系）——展开查看内部</summary>\n\n",
 			d.name, len(d.tables), len(d.rels)))
 		if len(d.rels) == 0 {
 			b.WriteString("（领域内无直接键关联）\n\n")
-			continue
+		} else {
+			b.WriteString(rc.diagramMD(renderERMermaid(d.rels, nil)))
 		}
-		b.WriteString(rc.diagramMD(renderERMermaid(d.rels, nil)))
+		b.WriteString("</details>\n\n")
 	}
 	return b.String()
 }
