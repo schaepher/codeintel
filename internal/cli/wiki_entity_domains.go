@@ -107,6 +107,36 @@ func domainOf(pkg, modRoot string, lvl int) string {
 	return rel
 }
 
+// splitEntitySubDomains 领域内按包子域分组（R63：领域内图 >500 边 =
+// 域太大——自动细分，不再直接"图过大"提示；组名 = 包短名）。复用
+// buildDomains（领域内边两端同子域）。
+func splitEntitySubDomains(d *entityDomain) []*entityDomain {
+	groups := map[string][]*domain.EntityNode{}
+	for _, n := range d.Nodes {
+		short := n.Pkg
+		if i := strings.LastIndex(short, "/"); i >= 0 {
+			short = short[i+1:]
+		}
+		if short == "" {
+			short = "(未知包)"
+		}
+		groups[short] = append(groups[short], n)
+	}
+	return buildDomains(&domain.EntityGraph{Nodes: d.Nodes, Edges: d.Edges}, groups)
+}
+
+// strongEdgeCount 强协作边数（Count ≥ EntityMinEdgeCount——entityMermaid
+// 实际绘制的边）。
+func strongEdgeCount(edges []*domain.EntityEdge) int {
+	n := 0
+	for _, e := range edges {
+		if e.Count >= domain.EntityMinEdgeCount {
+			n++
+		}
+	}
+	return n
+}
+
 // buildDomains 从分组构造领域（含领域内边）。
 func buildDomains(g *domain.EntityGraph, groups map[string][]*domain.EntityNode) []*entityDomain {
 	byID := map[string]*entityDomain{}

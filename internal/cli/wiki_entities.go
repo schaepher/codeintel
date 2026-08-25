@@ -6,7 +6,6 @@ package cli
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/schaepher/codeintel/internal/domain"
@@ -116,9 +115,12 @@ func renderEntitiesSectionMD(g *domain.EntityGraph, rc *wikiRenderCtx) string {
 			b.WriteString(fmt.Sprintf("<details><summary>领域 <code>%s</code>（%d 实体）——展开查看内部协作</summary>\n\n",
 				htmlEsc(d.Name), len(d.Nodes)))
 			// R39：单实体无内部协作时显示文字说明（空图无意义）；
-			// R62：多实体节点全画（弱协作/孤立实体不丢）
+			// R62：多实体节点全画（弱协作/孤立实体不丢）；
+			// R63：强边 >500 = 域太大——按包子域细分
 			if len(d.Nodes) < 2 {
 				b.WriteString("（无内部协作）\n\n")
+			} else if strongEdgeCount(d.Edges) > mermaidEdgeLimit {
+				b.WriteString(renderEntitySubDomainsMD(rc, d))
 			} else if sub := entityMermaid(&domain.EntityGraph{Nodes: d.Nodes, Edges: d.Edges}); sub != "" {
 				b.WriteString(rc.diagramMD(sub))
 			} else {
@@ -127,8 +129,11 @@ func renderEntitiesSectionMD(g *domain.EntityGraph, rc *wikiRenderCtx) string {
 			b.WriteString("</details>\n\n")
 		}
 	} else {
-		// R39：无强协作边时 entityMermaid 为空——不渲染空块
-		if sub := entityMermaid(g); sub != "" {
+		// R39：无强协作边时 entityMermaid 为空——不渲染空块；
+		// R63：单领域全图超限同样按包子域细分（域太大可再细分）
+		if strongEdgeCount(g.Edges) > mermaidEdgeLimit {
+			b.WriteString(renderEntitySubDomainsMD(rc, &entityDomain{Name: "全部", Nodes: g.Nodes, Edges: g.Edges}))
+		} else if sub := entityMermaid(g); sub != "" {
 			b.WriteString(rc.diagramMD(sub))
 		} else {
 			b.WriteString("（无内部协作）\n\n")
@@ -157,6 +162,47 @@ func renderEntitiesSectionMD(g *domain.EntityGraph, rc *wikiRenderCtx) string {
 	return b.String()
 }
 
+// renderEntitySubDomainsMD 领域过大（>500 边）→ 按包子域细分（md）：
+// 子域间关系图 + 每子域内部图（details 折叠）。
+func renderEntitySubDomainsMD(rc *wikiRenderCtx, d *entityDomain) string {
+	var b strings.Builder
+	subs := splitEntitySubDomains(d)
+	b.WriteString(fmt.Sprintf("**子域分组**（领域内图 %d 条边超限（上限 %d）——域过大，按包细分）：\n\n",
+		strongEdgeCount(d.Edges), mermaidEdgeLimit))
+	b.WriteString(rc.diagramMD(domainMermaid(subs, d.Edges)))
+	for _, sd := range subs {
+		b.WriteString(fmt.Sprintf("<details><summary>子域 <code>%s</code>（%d 实体）</summary>\n\n",
+			htmlEsc(sd.Name), len(sd.Nodes)))
+		if ssub := entityMermaid(&domain.EntityGraph{Nodes: sd.Nodes, Edges: sd.Edges}); ssub != "" {
+			b.WriteString(rc.diagramMD(ssub))
+		} else {
+			b.WriteString("（无内部协作）\n\n")
+		}
+		b.WriteString("</details>\n\n")
+	}
+	return b.String()
+}
+
+// renderEntitySubDomainsHTML 领域过大 → 按包子域细分（html：fold-btn
+// 折叠——领域内子域默认折叠）。
+func renderEntitySubDomainsHTML(rc *wikiRenderCtx, d *entityDomain, baseID string) string {
+	var sb strings.Builder
+	subs := splitEntitySubDomains(d)
+	sb.WriteString(fmt.Sprintf("<p class=\"muted\">子域分组（领域内图 %d 条边超限——域过大，按包细分）：</p>",
+		strongEdgeCount(d.Edges)))
+	sb.WriteString(rc.diagramHTML(domainMermaid(subs, d.Edges)))
+	for _, sd := range subs {
+		sid := baseID + "-" + htmlEsc(sd.Name)
+		sInner := "（无内部协作）"
+		if ssub := entityMermaid(&domain.EntityGraph{Nodes: sd.Nodes, Edges: sd.Edges}); ssub != "" {
+			sInner = rc.diagramHTML(ssub)
+		}
+		sb.WriteString(fmt.Sprintf(`<h5 class="fold-btn" data-target="%s" data-label="1">▸ 子域 %s（%d 实体）</h5><div class="sec-body" id="%s" style="display:none">%s</div>`,
+			sid, htmlEsc(sd.Name), len(sd.Nodes), sid, sInner))
+	}
+	return sb.String()
+}
+
 // renderEntitiesSectionHTML 概览「实体协作」区块（html/serve 共用）。
 func renderEntitiesSectionHTML(g *domain.EntityGraph, rc *wikiRenderCtx) string {
 	if g == nil || len(g.Nodes) == 0 {
@@ -171,10 +217,13 @@ func renderEntitiesSectionHTML(g *domain.EntityGraph, rc *wikiRenderCtx) string 
 		b.WriteString("<h3>领域间关系</h3>" + rc.diagramHTML(domainMermaid(doms, g.Edges)))
 		for i, d := range doms {
 			id := fmt.Sprintf("entity-dom-%d", i)
-			// R39：单实体无内部协作显示文字说明；R62：多实体节点全画
+			// R39：单实体无内部协作显示文字说明；R62：多实体节点全画；
+			// R63：强边 >500 = 域太大——按包子域细分
 			inner := "（无内部协作）"
 			if len(d.Nodes) >= 2 {
-				if sub := entityMermaid(&domain.EntityGraph{Nodes: d.Nodes, Edges: d.Edges}); sub != "" {
+				if strongEdgeCount(d.Edges) > mermaidEdgeLimit {
+					inner = renderEntitySubDomainsHTML(rc, d, id)
+				} else if sub := entityMermaid(&domain.EntityGraph{Nodes: d.Nodes, Edges: d.Edges}); sub != "" {
 					inner = rc.diagramHTML(sub)
 				}
 			}
@@ -182,8 +231,11 @@ func renderEntitiesSectionHTML(g *domain.EntityGraph, rc *wikiRenderCtx) string 
 				id, htmlEsc(d.Name), len(d.Nodes), id, inner))
 		}
 	} else {
-		// R39：无强协作边时 entityMermaid 为空——不渲染空块
-		if sub := entityMermaid(g); sub != "" {
+		// R39：无强协作边时 entityMermaid 为空——不渲染空块；
+		// R63：单领域全图超限同样按包子域细分
+		if strongEdgeCount(g.Edges) > mermaidEdgeLimit {
+			b.WriteString(renderEntitySubDomainsHTML(rc, &entityDomain{Name: "全部", Nodes: g.Nodes, Edges: g.Edges}, "entity-sub"))
+		} else if sub := entityMermaid(g); sub != "" {
 			b.WriteString(rc.diagramHTML(sub))
 		} else {
 			b.WriteString("<p class=\"muted\">（无内部协作）</p>")
@@ -209,67 +261,3 @@ func renderEntitiesSectionHTML(g *domain.EntityGraph, rc *wikiRenderCtx) string 
 	return b.String()
 }
 
-// entitySubgraphMermaid 函数级调用链 → 实体协作子图 mermaid。
-// steps 两端的符号短名经 ByName 映射实体；节点 = 涉及的实体，
-// 边 = 集合内全局实体边聚合计数。
-func entitySubgraphMermaid(g *domain.EntityGraph, steps []domain.WikiSeqStep) string {
-	if g == nil || len(g.ByName) == 0 {
-		return ""
-	}
-	involved := map[string]bool{}
-	for _, st := range steps {
-		for _, sym := range []string{st.Caller, st.Callee} {
-			for _, eid := range g.ByName[sym] {
-				involved[eid] = true
-			}
-		}
-	}
-	if len(involved) == 0 {
-		return ""
-	}
-	// 涉及实体（按 Pkg/Name 确定性排序）
-	var nodes []*domain.EntityNode
-	for _, n := range g.Nodes {
-		if involved[n.ID] {
-			nodes = append(nodes, n)
-		}
-	}
-	if len(nodes) == 0 {
-		return ""
-	}
-	// 先确定性排序（Pkg/Name），再按调用方向拓扑（R15：线从左往右）
-	sort.Slice(nodes, func(i, j int) bool {
-		if nodes[i].Pkg != nodes[j].Pkg {
-			return nodes[i].Pkg < nodes[j].Pkg
-		}
-		return nodes[i].Name < nodes[j].Name
-	})
-	// 集合内边聚合（拓扑排序用）
-	type key struct{ from, to string }
-	counts := map[key]int{}
-	var subEdges []*domain.EntityEdge
-	for _, e := range g.Edges {
-		if involved[e.From] && involved[e.To] {
-			counts[key{e.From, e.To}] += e.Count
-			subEdges = append(subEdges, e)
-		}
-	}
-	nodes = sortEntitiesByCallFlow(nodes, subEdges)
-	var b strings.Builder
-	b.WriteString("graph LR\n")
-	for _, n := range nodes {
-		label := shortMod(n.Pkg) + ":" + n.Name
-		if n.Kind == domain.EntityKindPkgFace {
-			label = shortMod(n.Pkg) + "（门面" + fmt.Sprint(n.FreeFuncs) + "）"
-		} else if n.InnerCalls > 0 {
-			label += fmt.Sprintf("（内%d）", n.InnerCalls)
-		}
-		b.WriteString(fmt.Sprintf("  %s[\"%s\"]\n", entityNodeID(n.ID), label))
-	}
-	for _, e := range g.Edges {
-		if c, ok := counts[key{e.From, e.To}]; ok {
-			b.WriteString(fmt.Sprintf("  %s -->|%d| %s\n", entityNodeID(e.From), c, entityNodeID(e.To)))
-		}
-	}
-	return b.String()
-}

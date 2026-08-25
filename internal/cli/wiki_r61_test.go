@@ -5,6 +5,7 @@ package cli
 // 函数表格。
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -58,6 +59,58 @@ func TestEntityMermaidAllNodes(t *testing.T) {
 	}
 	if !strings.Contains(got, "A") {
 		t.Errorf("强边实体 A 应出现:\n%s", got)
+	}
+}
+
+// TestEntitySubDomainSplit：领域内图超 500 边 → 域太大自动按包子域
+// 细分（R63——不再直接"图过大"提示）。
+func TestEntitySubDomainSplit(t *testing.T) {
+	// 40 实体跨 2 包，强边 C(40,2)=780 > 500
+	var nodes []*domain.EntityNode
+	var edges []*domain.EntityEdge
+	for i := 0; i < 40; i++ {
+		pkg := "example.com/m/a"
+		if i >= 20 {
+			pkg = "example.com/m/b"
+		}
+		nodes = append(nodes, &domain.EntityNode{ID: fmt.Sprintf("N%d", i), Name: fmt.Sprintf("N%d", i), Pkg: pkg, Kind: domain.EntityKindStruct})
+	}
+	for i := 0; i < 40; i++ {
+		for j := i + 1; j < 40; j++ {
+			edges = append(edges, &domain.EntityEdge{From: fmt.Sprintf("N%d", i), To: fmt.Sprintf("N%d", j), Count: 5})
+		}
+	}
+	g := &domain.EntityGraph{Nodes: nodes, Edges: edges}
+	rc := &wikiRenderCtx{cfg: wikiConfig{Domains: []wikiDomainCfg{
+		{Name: "大域", Packages: []string{"a", "b"}},
+	}}, Diagram: "mermaid"}
+	m := renderEntitiesSectionMD(g, rc)
+	for _, want := range []string{"子域分组", "<code>a</code>", "<code>b</code>", "子域"} {
+		if !strings.Contains(m, want) {
+			t.Errorf("域太大应自动子域细分，应含 %q", want)
+		}
+	}
+	if strings.Contains(m, "图过大") {
+		t.Error("子域细分后不应提示图过大")
+	}
+	html := renderEntitiesSectionHTML(g, rc)
+	if !strings.Contains(html, "子域分组") {
+		t.Errorf("html 也应子域细分")
+	}
+}
+
+// TestEntitySubDomainSplitSmall：领域内图未超限 → 保持单图（不细分）。
+func TestEntitySubDomainSplitSmall(t *testing.T) {
+	g := &domain.EntityGraph{Nodes: []*domain.EntityNode{
+		{ID: "A", Name: "A", Pkg: "example.com/m/a", Kind: domain.EntityKindStruct},
+		{ID: "B", Name: "B", Pkg: "example.com/m/b", Kind: domain.EntityKindStruct},
+	}, Edges: []*domain.EntityEdge{{From: "A", To: "B", Count: 5}}}
+	rc := &wikiRenderCtx{cfg: wikiConfig{Domains: []wikiDomainCfg{
+		{Name: "大域", Packages: []string{"a", "b"}},
+	}}, Diagram: "mermaid"}
+	m := renderEntitiesSectionMD(g, rc)
+	if strings.Contains(m, "子域分组") {
+		t.Error("小图不应子域细分")
 	}
 }
 

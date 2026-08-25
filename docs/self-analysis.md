@@ -1409,6 +1409,22 @@ domain 1 包 1 自环边。
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
 
+### R63（2026-08-25）——领域太大自动按包子域细分（500 边触发）
+
+用户：如果有 500 边，是否可以理解为域太大？可再细分。
+
+- 触发：领域内（或单领域全图）强边数（Count≥3，entityMermaid 实际
+  绘制边）> mermaidEdgeLimit(500) → **按包子域自动细分**——不再直接
+  "图过大"提示（diagramMD/HTML 的 500 降级仍作为子域内部图的兜底）
+- 实现：splitEntitySubDomains（领域内实体按包短名分组，复用
+  buildDomains）+ renderEntitySubDomainsMD/HTML（子域间关系图
+  domainMermaid + 每子域内部图；md 用 details 折叠，html 用 fold-btn
+  默认折叠）——领域内分支与单领域全图（else 分支）都接细分
+- 测试：TestEntitySubDomainSplit（780 边跨 2 包 → 子域分组渲染，无
+  "图过大"提示）/TestEntitySubDomainSplitSmall（小图不细分）
+- 行数治理：wiki_entities.go 308 行超限——entitySubgraphMermaid 拆到
+  wiki_entities_subgraph.go（263 行）
+
 ### R62（2026-08-25）——wiki 渲染四改（折叠/全展示/表格）
 
 用户五项需求（第 5 项为问答——facts entity 来源，见下）：
