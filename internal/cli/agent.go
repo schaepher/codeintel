@@ -7,6 +7,7 @@ package cli
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -18,6 +19,10 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+//go:embed config_example.yaml
+var configExample string // 全局配置模板（含全部选项 + 默认值 + 注释；
+// 仓库根 config.yaml.example 为同步副本）
 
 // agentRunner 实际 agent 调用（可注入——测试替换）。dir = 子进程工作
 // 目录（目标仓库根——R38：claude/codex 对 cwd 项目内文件 Read 免权限
@@ -121,8 +126,26 @@ var agentConfigPath = func() string {
 	return filepath.Join(home, ".codeintel", "config.yaml")
 }
 
+// ensureGlobalConfig 首次运行时自动初始化全局配置（R58）：文件不存在
+// → 创建 ~/.codeintel 目录 + 从内置模板复制（含全部选项 + 默认值 +
+// 注释）。幂等——已存在（含用户改过的）不覆盖。
+func ensureGlobalConfig() {
+	p := agentConfigPath()
+	if p == "" {
+		return
+	}
+	if _, err := os.Stat(p); err == nil {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return
+	}
+	_ = os.WriteFile(p, []byte(configExample), 0o644)
+}
+
 // agentFromConfig 读全局配置的默认 agent（`agent: claude|codex|auto`）。
 func agentFromConfig() string {
+	ensureGlobalConfig()
 	p := agentConfigPath()
 	if p == "" {
 		return ""
@@ -142,8 +165,9 @@ func agentFromConfig() string {
 
 // aiConfigFromGlobal 读全局配置的 AI 使用点开关（`ai: {domains, fill,
 // ask: auto|off}`）——R56：~/.codeintel/config.yaml，仓库级 wiki.yaml
-// 优先（aiEnabled 里合并）。
+// 优先（aiEnabled 里合并）。R58：文件不存在时自动初始化（模板）。
 func aiConfigFromGlobal() wikiAICfg {
+	ensureGlobalConfig()
 	p := agentConfigPath()
 	if p == "" {
 		return wikiAICfg{}

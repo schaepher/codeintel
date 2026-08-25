@@ -54,13 +54,17 @@ func TestResolveAgentAuto(t *testing.T) {
 }
 
 // TestAgentFromConfig：~/.codeintel/config.yaml 读取（agent 键）。
+// R58：无文件时自动初始化（模板默认 agent: auto）——不再返回空。
 func TestAgentFromConfig(t *testing.T) {
 	dir := t.TempDir()
 	old := agentConfigPath
 	agentConfigPath = func() string { return filepath.Join(dir, "config.yaml") }
 	defer func() { agentConfigPath = old }()
-	if got := agentFromConfig(); got != "" {
-		t.Fatalf("无文件 → %q; want 空", got)
+	if got := agentFromConfig(); got != "auto" {
+		t.Fatalf("无文件 → %q; want auto（自动初始化模板默认值）", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "config.yaml")); err != nil {
+		t.Errorf("无文件时应自动创建 config.yaml: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("agent: codex\n"), 0o644); err != nil {
 		t.Fatal(err)

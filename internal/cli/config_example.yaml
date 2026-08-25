@@ -1,0 +1,28 @@
+# codeintel 全局配置（~/.codeintel/config.yaml）
+# 首次运行任一命令时若文件不存在，自动从内置模板初始化本文件
+# （仓库根 config.yaml.example 为同步副本；仓库级 wiki.yaml 的 ai: 段
+# 可覆盖本文件同名选项——仓库级优先）
+
+# 默认 AI agent：codex | claude | auto
+# auto = 自动检测本机已安装的 CLI（claude 优先，其次 codex）
+# 命令行 --agent 参数优先于本配置
+agent: auto
+
+# AI 使用点开关：auto = 启用（默认）| off = 跳过/禁用
+# 每个使用点独立控制；off 时该步骤整体跳过，不调用 AI
+ai:
+  # 业务域分析（codeintel domains 命令）
+  # 注意：wiki 生成前置要求 wiki.yaml 已配置 domains——可先运行
+  #   codeintel domains --prompt "<用户约束>" 生成 AI 初稿并人工确认
+  domains: auto
+  # wiki --ai 增量补缺总开关（模块描述/表别名/列说明/术语表）
+  # 需要按类别控制时改用映射形态（每个键 auto|off）：
+  #   fill:
+  #     modules: auto    # 模块职责描述补缺
+  #     tables: auto     # 表中文别名补缺
+  #     columns: auto    # 表列中文说明补缺
+  #     glossary: auto   # 术语表补缺
+  # 也支持 fill: off（全部禁用）
+  fill: auto
+  # 项目问答（codeintel ask 命令 + serve 对话界面）
+  ask: auto

@@ -1409,6 +1409,27 @@ domain 1 包 1 自环边。
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
 
+### R58（2026-08-25）——全局配置自动初始化（内置模板 + 仓库 example）
+
+用户：配置文件不存在时自动初始化（所有选项 + 默认值 + 注释）；仓库
+放 config.yaml.example，初始化时复制过去；每个参数加注释解释作用。
+
+- **内置模板**：internal/cli/config_example.yaml（go:embed 进二进制）
+  ——agent + ai 三段全部选项 + 默认值 + 逐参数注释（含 fill 细分两种
+  形态说明）；仓库根 config.yaml.example 为同步副本（测试
+  TestConfigExampleSync 校验两份一致，防漂移）
+- **自动初始化**：ensureGlobalConfig()——~/.codeintel/config.yaml 不
+  存在时 MkdirAll + 复制模板（幂等；用户改过的不覆盖）。调用点：
+  agentFromConfig / aiConfigFromGlobal（任何读配置的命令首次触发）。
+- 测试：TestEnsureGlobalConfig（创建含注释模板/幂等不覆盖）/
+  TestConfigExampleSync（副本一致）/TestResolveAgentInitializesConfig
+  （resolveAgent 路径触发）；TestAgentFromConfig 断言更新（无文件 →
+  auto 而非空——自动初始化语义）。
+- 实测：~/.codeintel/config.yaml 首次命令自动生成（1344 字节模板）。
+- 教训：**shell 里 `tail f >> f` 自追加死循环**（tail 读自己的输出
+  无限增长——verify 卡住排查半天实为命令 bug 非测试问题）；测试
+  注入 agentConfigPath 的用例注意 ensureGlobalConfig 会写文件
+
 ### R57（2026-08-25）——wiki 强制 domains 配置 + ai.fill 细分
 
 用户：domain 没有在 wiki.yaml 配置就不允许继续往下走；ai.fill 要细分。
