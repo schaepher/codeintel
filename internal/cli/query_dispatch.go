@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -21,20 +20,13 @@ type outputOpts struct {
 	repoPath string // 目标仓库根（Q235-10：value-trace 源码片段读取）
 }
 
-// encodeJSON 输出结构化 JSON（stdout 唯一内容）。
-func encodeJSON(v any) {
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	_ = enc.Encode(v)
-}
-
 // cmdQuery 实现 `codeintel query ...`。
 func cmdQuery(args []string) int {
 	logger := zap.L()
 	logger.Debug("enter cmdQuery")
 	defer logger.Debug("exit cmdQuery")
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "error: query 需要一个子命令（symbol/fields/trace-backward/trace-forward/value-trace/summary/path/unused/callers/callees/impact）")
+		fmt.Fprintln(os.Stderr, "error: query 需要一个子命令（symbol/fields/trace-backward/trace-forward/value-trace/summary/path/unused/callers/callees/impact/sequence/enums/entities/grpc-routes/http-routes/cli-routes/external-deps/external-interfaces/kafka-topics/grpc-composites/packages/architecture/er/processes/module）")
 		return 2
 	}
 	sub := args[0]
@@ -43,7 +35,7 @@ func cmdQuery(args []string) int {
 	f := parseQueryFlags(rest)
 	target := ""
 
-	if sub != "unused" && sub != "module-calls" && sub != "enums" && sub != "entities" && sub != "grpc-routes" && sub != "http-routes" && sub != "cli-routes" && sub != "external-deps" && sub != "external-interfaces" && sub != "kafka-topics" && sub != "grpc-composites" && !(sub == "relations" && f.all) {
+	if sub != "unused" && sub != "module-calls" && sub != "enums" && sub != "entities" && sub != "grpc-routes" && sub != "http-routes" && sub != "cli-routes" && sub != "external-deps" && sub != "external-interfaces" && sub != "kafka-topics" && sub != "grpc-composites" && sub != "packages" && sub != "architecture" && sub != "er" && sub != "processes" && !(sub == "relations" && f.all) {
 		if len(f.positional) < 1 {
 			fmt.Fprintf(os.Stderr, "error: 缺少符号参数\n")
 			return 2
@@ -115,6 +107,11 @@ func cmdQuery(args []string) int {
 	}
 
 	opts := outputOpts{json: f.json, compact: f.compact, repoPath: f.repoPath}
+	// R77：wiki 特性转命令——包结构/架构图/ER 图/系统流程/模块详情
+	// （拆分到 query_wiki_common.go——行数治理）
+	if code, done := dispatchWikiSub(sub, acts, db, abs, f, opts); done {
+		return code
+	}
 	// --since 标注（§17.2）：symbol/fields/callers/callees/impact 输出
 	// 对函数/方法节点标注 [new]/[mod]
 	var since *domain.SinceInfo
@@ -271,6 +268,16 @@ func parseQueryFlags(args []string) queryFlags {
 			i++
 		case strings.HasPrefix(a, "--memory="):
 			f.memory = strings.TrimPrefix(a, "--memory=")
+		case a == "--yaml" && i+1 < len(args):
+			f.yamlPath = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--yaml="):
+			f.yamlPath = strings.TrimPrefix(a, "--yaml=")
+		case a == "--max-entries" && i+1 < len(args):
+			f.maxEntries, _ = strconv.Atoi(args[i+1])
+			i++
+		case strings.HasPrefix(a, "--max-entries="):
+			f.maxEntries, _ = strconv.Atoi(strings.TrimPrefix(a, "--max-entries="))
 		case a == "--json":
 			f.json = true
 		case a == "--full":

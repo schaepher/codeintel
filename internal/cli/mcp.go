@@ -49,6 +49,7 @@ func registerMCPTools(server *mcp.Server, env *mcpEnv, r *sqlite.Repo, repoAbs s
 	registerQueryTools(server, env, r, repoAbs)
 	registerTableTools(server, env, r, repoAbs)
 	registerAdminTools(server, env, r, repoAbs)
+	registerWikiTools(server, env, r, repoAbs) // R77：wiki 特性工具（packages/architecture/er/processes/module）
 }
 
 

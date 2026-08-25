@@ -1409,6 +1409,51 @@ domain 1 包 1 自环边。
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
 
+### R77（2026-08-26）——wiki 剩余特性全部转命令（packages/architecture/er/processes/module）
+
+用户：以后都要自举（用工具分析改动影响）；wiki 还有哪些特性没转换
+成命令的？全部转过去。
+
+**盘点**（对照 wiki 渲染产物 vs 已有命令）——已转：实体协作/设计
+诊断（query entities）、时序（sequence）、http/grpc/cli 路由、外部
+接口、kafka、枚举、表、模块间调用、符号/字段/追溯。未转 5 项：
+包结构、架构图、ER 图、系统流程、模块详情。
+
+**新命令**（复用 wiki 渲染层数据函数——wiki 与命令行同源，R76
+"wiki 调用特性不集成"原则延续）：
+- `query packages`——包路径 + doc_comment（去 Copyright）+ 无说明时
+  包内代码事实（结构体/方法/函数）；--json
+- `query architecture [--format mermaid|plantuml] [--yaml <file>]`——
+  三层架构图（yaml architecture 优先，否则 archLayeredMermaid 自动：
+  domains 领域聚合 + 外部接口节点）
+- `query er [--format mermaid|plantuml] [--yaml <file>]`——表间直接
+  键关联（fk/query）erDiagram + 关系明细（首查自动 Precompute）
+- `query processes [--max-entries N] [--yaml <file>]`——系统流程：
+  main 入口 + HTTP 路由入口 + gRPC 服务方法入口聚合展开（接口具体化
+  调用链，与 wiki processes.md 同款数据源）
+- `query module <name> [--format mermaid]`——模块详情：核心符号/
+  关键数据流/模块间调用/相关表/包间调用（模块架构图）
+
+**MCP 新工具**（registerWikiTools 组）：packages/architecture/er/
+processes/module——agent 直接查 wiki 渲染同源数据。
+
+新 flag：query 通用 --yaml / --max-entries（parseQueryFlags）。
+
+测试：query_wiki_test.go（packages/architecture/er/module 9 例）、
+query_processes_test.go（main 入口 + 链展开 3 例）。
+
+**自举实测**（ana 自身 reindex——顺带完成交接文档"ana reindex"待办）：
+- packages：包 doc 输出 ✓（action 包注释等）
+- architecture：yaml architecture 优先输出 ✓
+- er：14 条 fk 键关联明细（首查自动计算关系）✓
+- processes：4 个 main 入口 + http 入口展开（接口具体化链）✓
+- module：核心符号 TOP/关键数据流/相关表/包间调用 ✓
+
+**环境教训**：bash 间歇失败根因 = /tmp 配额满（631M/788M——历史
+临时产物堆积；go build 写 /tmp/go-build importcfg 报 disk quota
+exceeded）——清理 /tmp 历史产物（旧二进制/验证截图/gopls-tempmod）
+后恢复。R67 约定（临时文件放仓库 .tmp）继续执行，/tmp 不再堆积。
+
 ### R76（2026-08-26）——query sequence 命令 + 接口具体化下沉 action 层
 
 用户：不只是 wiki——要支持查询任何一个函数或方法的时序图；wiki

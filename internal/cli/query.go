@@ -1,5 +1,17 @@
 package cli
 
+import (
+	"encoding/json"
+	"os"
+)
+
+// encodeJSON 输出结构化 JSON（stdout 唯一内容；query 命令共用）。
+func encodeJSON(v any) {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(v)
+}
+
 // queryFlags 是 query 子命令的手动解析结果。
 type queryFlags struct {
 	repoPath         string
@@ -27,6 +39,8 @@ type queryFlags struct {
 	writeMaxHops     int      // relations --write-max-hops：同源写跳数上限（0=不限制，默认 4）
 	readMaxHops      int      // relations --read-max-hops：间接读跳数上限（0=不限制，默认 4）
 	memory           string   // relations --memory：full/sql（默认 auto 按规模，P0④）
+	yamlPath         string   // R77：architecture/er/processes 的 wiki.yaml 路径（--yaml；缺省仓库根 wiki.yaml）
+	maxEntries       int      // R77：processes 每节/每页入口展开上限（0 = 默认 15，同 wiki --max-entries）
 }
 
 // dispatchJSON 候选派发标注（Q157 P1：value-trace --json 输出）。
