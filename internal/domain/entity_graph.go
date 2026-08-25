@@ -46,10 +46,11 @@ type EntityGraph struct {
 
 // EntityRaw 实体聚合原始数据（repo 层一次性读取，action 层聚合）。
 type EntityRaw struct {
-	Types []*CodeEntity // struct/interface 节点
-	Funcs []*CodeEntity // function 节点（游离函数）
-	HasM  []*Fact       // has_method 边（类型 → 方法）
-	Calls []*Fact       // 全量 calls 边
+	Types   []*CodeEntity // struct/interface 节点
+	Funcs   []*CodeEntity // function 节点（游离函数）
+	Methods []*CodeEntity // method 节点（R66：接口方法统计——has_method 不覆盖接口）
+	HasM    []*Fact       // has_method 边（类型 → 方法）
+	Calls   []*Fact       // 全量 calls 边
 }
 
 // 实体诊断阈值（Q6：固定起步，自举首份报告后按实际分布调整）。

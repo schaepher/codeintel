@@ -77,8 +77,34 @@ func aggregateEntities(raw *domain.EntityRaw, keep func(string) bool) *domain.En
 			methodToType[dst] = src
 		}
 	}
-	// 游离函数（function 节点）→ 包计数；包门面实体（仅 keep 包）
+	// R66：接口方法统计（has_method 不覆盖接口声明——method 节点按
+	// receiver 归属接口：symbol:go:<pkg>:(Iface).Method；同时写入
+	// methodToType——调用接口方法的边能映射到接口实体）
+	for _, m := range raw.Methods {
+		id := string(m.ID)
+		i := strings.Index(id, ":(")
+		if i < 0 {
+			continue
+		}
+		rest := id[i+2:]
+		j := strings.Index(rest, ").")
+		if j < 0 {
+			continue
+		}
+		ifaceName := rest[:j]
+		pkg := id[:i]
+		if n, ok := byID[pkg+":"+ifaceName]; ok && n.Kind == domain.EntityKindIface {
+			n.MethodCount++
+			methodToType[id] = pkg + ":" + ifaceName
+		}
+	}
+	// 游离函数（function 节点）→ 包计数；包门面实体（仅 keep 包）。
+	// R66：排除 .pb.go 生成代码函数（protoc 输出——proto 包 640 个函数
+	// 全生成代码，门面是纯噪音）
 	for _, f := range raw.Funcs {
+		if strings.HasSuffix(f.FilePath, ".pb.go") {
+			continue
+		}
 		pkg := pkgNameOf(string(f.ID))
 		if !keep(pkg) {
 			continue
@@ -133,10 +159,19 @@ func aggregateEntities(raw *domain.EntityRaw, keep func(string) bool) *domain.En
 
 	// 3. 行为门槛过滤（聚合后——OutCalls 已算）：无方法（纯数据
 	// 载体）或 1 方法 0 出边（MCP 参数 DTO/缓存结构）无协作语义，
-	// 不进实体图；同步清理指向被滤实体的边。接口豁免——依赖契约
-	// 语义（接口方法不在索引 has_method，MethodCount 统计不上）
+	// 不进实体图；同步清理指向被滤实体的边。
+	// R66：接口不再无条件豁免——0 方法接口（标记接口/纯类型约束，
+	// go2o 实测 277 个接口中 168 个无方法）是子域划分噪音；有方法
+	// 接口（DAO/Server/业务契约）保留——接口是依赖契约，1 方法 0
+	// 出边是合法形态（调用方通过接口调实现），不按 struct 门槛滤
 	for id, n := range byID {
-		if n.Kind == domain.EntityKindPkgFace || n.Kind == domain.EntityKindIface {
+		if n.Kind == domain.EntityKindPkgFace {
+			continue
+		}
+		if n.Kind == domain.EntityKindIface {
+			if n.MethodCount == 0 {
+				delete(byID, id)
+			}
 			continue
 		}
 		if n.MethodCount == 0 || (n.MethodCount <= 1 && n.OutCalls == 0) {

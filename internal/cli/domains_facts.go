@@ -114,19 +114,33 @@ func collectDomainFacts(acts *action.Actions, repoAbs string, cfg wikiConfig, db
 	}
 
 	if g, err := acts.Entities(); err == nil && g != nil {
-		// R64：实体出度/入度（聚合边数——调用热度；AI 领域划分参考）
+		// R64/R66：实体出度/入度（调用次数聚合 Count——真实调用热度，
+		// 非边条数；AI 领域划分参考）
 		out := map[string]int{}
 		in := map[string]int{}
 		for _, e := range g.Edges {
-			out[e.From]++
-			in[e.To]++
+			out[e.From] += e.Count
+			in[e.To] += e.Count
 		}
-		// R65：实体带包路径（与 packages[].path 一致——实体→包→子域）
+		// R65：实体带包路径（与 packages[].path 一致——实体→包→子域）；
+		// R66：截断前按调用热度（Out+In）降序——AI 看到的是核心实体
+		// （此前按字母序截断——前 60 个是 a/aftersales 开头，偏差）
 		for _, n := range g.Nodes {
-			if len(f.Ents) >= 60 {
-				break
-			}
 			f.Ents = append(f.Ents, entityFacts{Name: n.Name, Pkg: n.Pkg, Methods: n.MethodCount, Out: out[n.ID], In: in[n.ID]})
+		}
+		sort.Slice(f.Ents, func(i, j int) bool {
+			hi := f.Ents[i].Out + f.Ents[i].In
+			hj := f.Ents[j].Out + f.Ents[j].In
+			if hi != hj {
+				return hi > hj
+			}
+			if f.Ents[i].Pkg != f.Ents[j].Pkg {
+				return f.Ents[i].Pkg < f.Ents[j].Pkg
+			}
+			return f.Ents[i].Name < f.Ents[j].Name
+		})
+		if len(f.Ents) > 60 {
+			f.Ents = f.Ents[:60]
 		}
 		// R65：包级调用矩阵（跨包非零边——子域划分的直接依据；
 		// 同包调用与子域划分无关不计）

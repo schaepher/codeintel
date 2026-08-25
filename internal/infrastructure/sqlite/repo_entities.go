@@ -25,6 +25,11 @@ func (r *Repo) GetEntityRaw() (*domain.EntityRaw, error) {
 		WHERE kind = 'function'`, &out.Funcs); err != nil {
 		return nil, err
 	}
+	// R66：方法节点（接口方法统计——has_method 边不覆盖接口声明）
+	if err := r.queryNodes(`SELECT id, name, kind, file_path, line_start FROM nodes
+		WHERE kind = 'method'`, &out.Methods); err != nil {
+		return nil, err
+	}
 	if err := r.queryEdges(`SELECT source_id, target_id, kind, tool_source, confidence FROM edges
 		WHERE kind = 'has_method'`, &out.HasM); err != nil {
 		return nil, err

@@ -120,23 +120,26 @@ func TestDomainFactsEntityOutIn(t *testing.T) {
 	}
 	defer db.Close()
 	r := sqlite.NewRepo(db)
-	// 实体图：A→B（2 次）、A→C（1 次）、C→B（3 次）。
-	// 实体 = 有方法（has_method 边）的类型——无方法类型被剔除。
+	// 实体图：A→B（2 个方法 target——不同 calls 边不合并，Count=2）、
+	// A→C（1）、C→B（1）。实体 = 有方法（has_method 边）的类型。
 	acts := action.New(r)
 	if _, err := r.SaveBatchStats([]*domain.CodeEntity{
 		{ID: "symbol:go:example.com/m:a", Kind: domain.KindStruct, Name: "a", FilePath: "a.go"},
 		{ID: "symbol:go:example.com/m:(a).m1", Kind: domain.KindMethod, Name: "(a).m1", FilePath: "a.go"},
 		{ID: "symbol:go:example.com/m:b", Kind: domain.KindStruct, Name: "b", FilePath: "b.go"},
 		{ID: "symbol:go:example.com/m:(b).m1", Kind: domain.KindMethod, Name: "(b).m1", FilePath: "b.go"},
+		{ID: "symbol:go:example.com/m:(b).m2", Kind: domain.KindMethod, Name: "(b).m2", FilePath: "b.go"},
 		{ID: "symbol:go:example.com/m:c", Kind: domain.KindStruct, Name: "c", FilePath: "c.go"},
 		{ID: "symbol:go:example.com/m:(c).m1", Kind: domain.KindMethod, Name: "(c).m1", FilePath: "c.go"},
 	}, []*domain.Fact{
 		{SourceID: "symbol:go:example.com/m:a", TargetID: "symbol:go:example.com/m:(a).m1", Kind: domain.FactHasMethod, Confidence: 1.0},
 		{SourceID: "symbol:go:example.com/m:b", TargetID: "symbol:go:example.com/m:(b).m1", Kind: domain.FactHasMethod, Confidence: 1.0},
+		{SourceID: "symbol:go:example.com/m:b", TargetID: "symbol:go:example.com/m:(b).m2", Kind: domain.FactHasMethod, Confidence: 1.0},
 		{SourceID: "symbol:go:example.com/m:c", TargetID: "symbol:go:example.com/m:(c).m1", Kind: domain.FactHasMethod, Confidence: 1.0},
-		// 方法级 calls（实体边聚合）：(a).m1→(b).m1 ×2、(a).m1→(c).m1、(c).m1→(b).m1
+		// 方法级 calls：(a).m1→(b).m1、(a).m1→(b).m2（A→B Count=2）、
+		// (a).m1→(c).m1（A→C Count=1）、(c).m1→(b).m1（C→B Count=1）
 		{SourceID: "symbol:go:example.com/m:(a).m1", TargetID: "symbol:go:example.com/m:(b).m1", Kind: domain.FactCalls, Confidence: 0.9},
-		{SourceID: "symbol:go:example.com/m:(a).m1", TargetID: "symbol:go:example.com/m:(b).m1", Kind: domain.FactCalls, Confidence: 0.9},
+		{SourceID: "symbol:go:example.com/m:(a).m1", TargetID: "symbol:go:example.com/m:(b).m2", Kind: domain.FactCalls, Confidence: 0.9},
 		{SourceID: "symbol:go:example.com/m:(a).m1", TargetID: "symbol:go:example.com/m:(c).m1", Kind: domain.FactCalls, Confidence: 0.9},
 		{SourceID: "symbol:go:example.com/m:(c).m1", TargetID: "symbol:go:example.com/m:(b).m1", Kind: domain.FactCalls, Confidence: 0.9},
 	}, nil); err != nil {
@@ -148,17 +151,19 @@ func TestDomainFactsEntityOutIn(t *testing.T) {
 		byName[e.Name] = e
 	}
 	a, okA := byName["a"]
+	b, okB := byName["b"]
 	c, okC := byName["c"]
-	// b 不在实体图：行为门槛（1 方法 0 出边 = 纯数据载体/DTO 被滤）
-	if _, okB := byName["b"]; okB {
-		t.Error("b（1 方法 0 出边）应被行为门槛过滤")
+	if !okA || !okB || !okC {
+		t.Fatalf("实体缺失 a/b/c: %+v", byName)
 	}
-	if !okA || !okC {
-		t.Fatalf("实体缺失 a/c: %+v", byName)
+	// R66：out/in = 调用次数聚合（Count 累加）——A→B×2 + A→C×1 = 3；
+	// B 被调 A→B×2 + C→B×1 = 3（2 方法实体保留——门槛滤 1 方法 0 出边）；
+	// C 调出 1（C→B）、被调 1（A→C）
+	if a.Out != 3 || a.In != 0 {
+		t.Errorf("A out/in = %d/%d; want 3/0（Count 累加）", a.Out, a.In)
 	}
-	// A 调出 2 条边（A→B、A→C）、被调 0；C 调出 1（C→B）、被调 1（A→C）
-	if a.Out != 2 || a.In != 0 {
-		t.Errorf("A out/in = %d/%d; want 2/0", a.Out, a.In)
+	if b.Out != 0 || b.In != 3 {
+		t.Errorf("B out/in = %d/%d; want 0/3", b.Out, b.In)
 	}
 	if c.Out != 1 || c.In != 1 {
 		t.Errorf("C out/in = %d/%d; want 1/1", c.Out, c.In)
