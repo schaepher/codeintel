@@ -83,13 +83,60 @@ func splitERDomains(rels []*domain.TableRelation, hideTable map[string]bool, dom
 	return doms2, cross
 }
 
-// erCrossMermaid 领域间关系图（跨领域直接边——表级标注）。
-func erCrossMermaid(cross []*domain.TableRelation) string {
-	var b strings.Builder
-	b.WriteString("erDiagram\n")
+// erCrossMermaid 领域间关系图（R50 用户要求：只标领域 + 领域间直接
+// 关系——表级细节聚合到领域级；此前表级标注（表/列/fk 类型）内容
+// 太多）。领域名：domains.tables 归属优先，未覆盖走表前缀降级。
+func erCrossMermaid(cross []*domain.TableRelation, doms []wikiDomainCfg) string {
+	type key struct{ from, to string }
+	// 表名 → 领域（domains.tables 优先 + 前缀降级——同 splitERDomains）
+	tableDomain := map[string]string{}
+	for _, d := range doms {
+		for _, t := range d.Tables {
+			tableDomain[t] = d.Name
+		}
+	}
+	domainOf := func(table string) string {
+		if n := tableDomain[table]; n != "" {
+			return n
+		}
+		return splitTableDomain(table)
+	}
+	counts := map[key]int{}
+	seen := map[string]bool{}
 	for _, r := range cross {
-		fmt.Fprintf(&b, "    %s ||--o{ %s : \"%s → %s [%s]\"\n",
-			erEntityName(r.FromTable), erEntityName(r.ToTable), r.FromCol, r.ToCol, r.Type)
+		df, dt := domainOf(r.FromTable), domainOf(r.ToTable)
+		if df == dt {
+			continue // 已聚合到领域内
+		}
+		counts[key{df, dt}]++
+		seen[df] = true
+		seen[dt] = true
+	}
+	if len(counts) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("graph LR\n")
+	names := make([]string, 0, len(seen))
+	for n := range seen {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		b.WriteString(fmt.Sprintf("  %s[\"%s\"]\n", archDomainID(n), n))
+	}
+	keys := make([]key, 0, len(counts))
+	for k := range counts {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].from != keys[j].from {
+			return keys[i].from < keys[j].from
+		}
+		return keys[i].to < keys[j].to
+	})
+	for _, k := range keys {
+		b.WriteString(fmt.Sprintf("  %s -->|%d| %s\n", archDomainID(k.from), counts[k], archDomainID(k.to)))
 	}
 	return b.String()
 }
@@ -106,7 +153,7 @@ func renderERDomainsMD(rels []*domain.TableRelation, hideTable map[string]bool, 
 	b.WriteString("> 表名前缀（_ 前首段）分领域；领域间图 + 每领域内部图分开。\n\n")
 	if len(cross) > 0 {
 		b.WriteString("### 领域间关系\n\n")
-		b.WriteString(rc.diagramMD(erCrossMermaid(cross)))
+		b.WriteString(rc.diagramMD(erCrossMermaid(cross, rc.cfg.Domains)))
 	}
 	for _, d := range doms {
 		b.WriteString(fmt.Sprintf("### 领域 <code>%s</code>（%d 张表，%d 条关系）\n\n",
@@ -130,7 +177,7 @@ func renderERDomainsHTML(rels []*domain.TableRelation, hideTable map[string]bool
 	var b strings.Builder
 	b.WriteString(`<section id="er-domains"><h2>ER 图（按业务领域分组）</h2><p class="muted">业务域划分（AI 分析 → wiki.yaml domains）；领域间图 + 每领域内部图分开。</p>`)
 	if len(cross) > 0 {
-		b.WriteString("<h3>领域间关系</h3>" + rc.diagramHTML(erCrossMermaid(cross)))
+		b.WriteString("<h3>领域间关系</h3>" + rc.diagramHTML(erCrossMermaid(cross, rc.cfg.Domains)))
 	}
 	for i, d := range doms {
 		id := fmt.Sprintf("er-dom-%d", i)

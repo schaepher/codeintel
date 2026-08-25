@@ -142,8 +142,8 @@ func TestProcGrpcMethods(t *testing.T) {
 	if ms[0].Chain == nil || len(ms[0].Chain.Steps) == 0 {
 		t.Error("Query 应有调用链（ImplID.Method 解析成功）")
 	}
-	if ms[1].Chain != nil {
-		t.Error("PagingShops 未定义方法节点——应无链（索引缺失），不是崩溃")
+	if ms[1].Chain == nil || ms[1].Chain.Miss == "" {
+		t.Errorf("PagingShops 未定义方法节点——应返回带 Miss 说明的 chain（非 nil 非崩溃）: %+v", ms[1].Chain)
 	}
 }
 

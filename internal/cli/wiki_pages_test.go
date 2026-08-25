@@ -117,9 +117,11 @@ flows:
 		t.Fatal(err)
 	}
 	hs := string(htmlB)
-	// mermaid.initialize 块必须闭合（否则主 JS 并入同一 script 块）
-	if !strings.Contains(hs, "mermaid.initialize({ startOnLoad: true, theme: 'neutral' });\n</script>") {
-		t.Errorf("mermaid.initialize 块应独立闭合（缺 </script> 会吞主 JS）:\n%s", hs)
+	// mermaid.initialize 块必须闭合（否则主 JS 并入同一 script 块）；
+	// R50：startOnLoad false + renderVisibleMermaid（隐藏容器渲染 NaN 修复）
+	if !strings.Contains(hs, "mermaid.initialize({ startOnLoad: false, theme: 'neutral' });") ||
+		!strings.Contains(hs, "renderVisibleMermaid") {
+		t.Errorf("mermaid 块应独立闭合且含延迟渲染（startOnLoad false）:\n%s", hs)
 	}
 	// fold JS 存在且独立：最后一个内联 script 块（主 JS）内部不应含
 	// <script> 字面量（否则该块被 HTML 解析器截断——折叠失效）

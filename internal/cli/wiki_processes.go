@@ -21,20 +21,23 @@ type procChain struct {
 	Entry string // 入口符号名
 	Steps []domain.WikiSeqStep
 	Pkgs  []string
+	Miss  string // R50：无调用链的原因（区分索引问题 vs 仅调用外部库）
 }
 
 // queryChain 查询入口符号的深度 2 调用链 + 涉及包（短名展示）。
 // R13：steps 按源码调用行号排序（sortChainByCallLine）——顺序与
 // 实际代码一一对应（此前 SQL 遍历序与源码序不一致）。
+// R50：无链原因区分——符号不存在（索引问题）vs 符号存在但无项目内
+// 出边（仅调用外部库——go2o 实测 ParseFlags 只调 flag 标准库）。
 func queryChain(acts *action.Actions, entryName string) *procChain {
 	// action 层：ResolveSymbol 名称解析 + Callees 调用链
 	entry, err := acts.ResolveSymbol(entryName)
 	if err != nil {
-		return nil
+		return &procChain{Miss: "索引中无此符号——可能未重建索引"}
 	}
 	facts, err := acts.Callees(entry.ID, 2)
 	if err != nil {
-		return nil
+		return &procChain{Entry: shortSymbolName(entry), Miss: "查询调用链失败"}
 	}
 	chain := &procChain{Entry: shortSymbolName(entry)}
 	chain.Steps = sortChainByCallLine(string(entry.ID), facts)
@@ -50,6 +53,9 @@ func queryChain(acts *action.Actions, entryName string) *procChain {
 		}
 	}
 	sort.Strings(chain.Pkgs)
+	if len(chain.Steps) == 0 {
+		chain.Miss = "该函数未调用项目内其他函数（可能仅调用外部库）"
+	}
 	return chain
 }
 

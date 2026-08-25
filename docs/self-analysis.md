@@ -1363,6 +1363,32 @@ domain 1 包 1 自环边。
   保证）；但 protoc 生成接口的嵌入结构（Server 内嵌 Unsafe）会产生
   大量自包含噪音——**排除生成文件是必要过滤**
 
+### R50（2026-08-25）——ER 图渲染修复 + 领域间图领域级 + 流程页文案
+
+用户三问题：① ER 图点开有些渲染不出来；② ER 领域间关系只标领域及
+直接关系；③ 系统流程展开显示"索引中无调用链"。
+
+- **① mermaid 隐藏容器渲染 NaN（核心）**：display:none 折叠内元素
+  加载时渲染尺寸为 0 → 布局 NaN（translate(undefined, NaN)——展开后
+  图错位/空白）。修复：startOnLoad false + renderVisibleMermaid（只
+  渲染可见 pre）+ 折叠展开（fold-btn click / 原生 details toggle）时
+  触发新可见元素渲染 + run().catch 吞拒绝。playwright 实测：JS 错误
+  546 → 0，559 图展开后 555 渲染成功（4 个空 pre 残留——已知不足）。
+- **② ER 领域间图领域级**：erCrossMermaid 从表级（table ||--o{ table :
+  "col → col [fk]"）改为领域级聚合（graph LR 领域节点 + 领域间边
+  计数，domains.tables 归属优先）——只标领域及直接关系。
+- **③ 流程页文案区分**：queryChain 返回带 Miss 的 chain——符号不存在
+  （"索引中无此符号——可能未重建索引"）vs 符号存在但无项目内出边
+  （"该函数未调用项目内其他函数（可能仅调用外部库）"——go2o 实测
+  ParseFlags 只调 flag 标准库）。
+- 测试：mermaid 块延迟渲染断言 + Miss chain 断言更新。
+
+**AI 杠杆点**（R50 实证）：
+- mermaid 隐藏元素渲染 NaN 是折叠交互的通病——延迟渲染（可见才渲染
+  + 展开触发）是标准解法；浏览器实测（playwright）才能验证
+- "索引中无调用链"文案误导排查方向——区分"符号缺失"与"仅调用外部
+  库"（数据事实 vs 索引问题）是查询体验的关键
+
 ## 待办与已知不足（按优先级，2026-08-25 统一整理）
 
 **P0——高优先级（影响交付质量/机制未闭环）**：

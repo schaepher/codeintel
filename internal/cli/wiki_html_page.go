@@ -122,7 +122,20 @@ body.sidebar-off #main { margin-left: 0; }
 		}
 		return `<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 <script>
-mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
+// R50：startOnLoad false——隐藏容器（display:none 折叠）内渲染尺寸
+// 为 0 → 布局 NaN（translate(undefined, NaN)——图展开后错位/空白）。
+// 只渲染可见元素；折叠展开时对新可见的 pre 触发渲染。
+mermaid.initialize({ startOnLoad: false, theme: 'neutral' });
+function renderVisibleMermaid() {
+  document.querySelectorAll('pre.mermaid:not([data-rendered])').forEach(function (pre) {
+    if (pre.offsetParent !== null) {
+      pre.setAttribute('data-rendered', '1');
+      // run 返回 promise——catch 吞拒绝（语法错误图不崩页面）
+      try { mermaid.run({ nodes: [pre] }).catch(function () {}); } catch (e) {}
+    }
+  });
+}
+document.addEventListener('DOMContentLoaded', renderVisibleMermaid);
 </script>`
 	}()) + `
 <script>
@@ -188,6 +201,8 @@ mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
     var target = document.getElementById(id);
     if (!target) return;
     apply(btn);
+    // R50：折叠展开后渲染新可见的 mermaid（隐藏时渲染会 NaN 错位）
+    if (typeof renderVisibleMermaid === 'function') renderVisibleMermaid();
     state[id] = target.style.display === 'none';
     try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
   });
@@ -196,6 +211,10 @@ mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
     var target = document.getElementById(id);
     if (target && state[id]) { target.style.display = 'none'; apply(btn); }
   });
+  // R50：原生 <details>（gRPC 服务折叠等）展开时渲染新可见的 mermaid
+  document.addEventListener('toggle', function (ev) {
+    if (ev.target && ev.target.open && typeof renderVisibleMermaid === 'function') renderVisibleMermaid();
+  }, true);
   document.getElementById('nav-expand-all').addEventListener('click', function () {
     document.querySelectorAll('.fold-btn').forEach(function (btn) {
       var target = document.getElementById(btn.getAttribute('data-target'));
