@@ -12,59 +12,26 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-// isGrpcMethodSig grpc 方法签名模式：
-// ① 末返回值是 error
-// ② 首参是 context.Context 或参数/返回值含 grpc 包类型（流式/基本形态）
-// ③ 业务类型（非 ctx/err/grpc 的 Named 参数/返回）定义在 .pb.go
-//    （protoc 生成——grpc 服务强信号；普通业务接口 (ctx, req)(resp,
-//    err) 形态无 pb 类型 → 排除）
+// isGrpcMethodSig grpc 方法签名模式（R48/R49 严格化——用户要求：
+// 匹配 grpc 实现时参数一定要只有两个——context + pb request，返回
+// (pbresp, err)，严格遵守 Xxx(ctx, pbreq) (pbresp, err)）：
+// ① 参数恰好 2：ctx（context.Context）+ pbreq（定义在 .pb.go）
+// ② 返回恰好 2：pbresp（定义在 .pb.go）+ err
+// 流式形态（(req, stream) (error)）不满足 → 排除。
 func isGrpcMethodSig(pkg *packages.Package, sig *types.Signature) bool {
-	res := sig.Results()
-	if res == nil || res.Len() == 0 {
+	if sig.Params().Len() != 2 || sig.Results().Len() != 2 {
 		return false
 	}
-	if !isErrorType(res.At(res.Len() - 1).Type()) {
+	if !isContextType(sig.Params().At(0).Type()) {
 		return false
 	}
-	if sig.Params().Len() > 0 && isContextType(sig.Params().At(0).Type()) {
-		return hasPBType(pkg, sig)
+	if !pbDefinedType(pkg, sig.Params().At(1).Type()) {
+		return false
 	}
-	for i := 0; i < sig.Params().Len(); i++ {
-		if inGrpcPackage(sig.Params().At(i).Type()) {
-			return hasPBType(pkg, sig)
-		}
+	if !pbDefinedType(pkg, sig.Results().At(0).Type()) {
+		return false
 	}
-	for i := 0; i < res.Len(); i++ {
-		if inGrpcPackage(res.At(i).Type()) {
-			return hasPBType(pkg, sig)
-		}
-	}
-	return false
-}
-
-// hasPBType 参数/返回中任一业务类型定义在 .pb.go 文件（protoc 生成——
-// pbreq/pbresp 的强信号）。ctx（首参）/err（末返回）跳过；grpc 包类型
-// （流式 stream）跳过。
-func hasPBType(pkg *packages.Package, sig *types.Signature) bool {
-	for i := 0; i < sig.Params().Len(); i++ {
-		t := sig.Params().At(i).Type()
-		if i == 0 && isContextType(t) {
-			continue
-		}
-		if pbDefinedType(pkg, t) {
-			return true
-		}
-	}
-	for i := 0; i < sig.Results().Len(); i++ {
-		t := sig.Results().At(i).Type()
-		if i == sig.Results().Len()-1 && isErrorType(t) {
-			continue
-		}
-		if pbDefinedType(pkg, t) {
-			return true
-		}
-	}
-	return false
+	return isErrorType(sig.Results().At(1).Type())
 }
 
 // pbDefinedType 类型（解指针/解容器）定义文件是否 .pb.go（protoc

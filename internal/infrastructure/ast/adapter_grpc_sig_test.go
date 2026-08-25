@@ -144,6 +144,58 @@ type HandServiceClient interface {
 	}
 }
 
+// TestGrpcCompositesEmit：R49——接口完整包含 pb server 接口（方法名
+// 超集）→ 接口节点 pb_servers 属性；不完整接口不标注。
+func TestGrpcCompositesEmit(t *testing.T) {
+	nodes, _ := indexFixture(t, map[string]string{
+		"go.mod": "module example.com/mtest\n\ngo 1.21\n",
+		"api/api_grpc.pb.go": `package api
+
+import "context"
+
+type PingRequest struct{}
+type PingResponse struct{}
+
+// protoc 生成的 server 接口
+type PingServer interface {
+	Ping(ctx context.Context, req *PingRequest) (*PingResponse, error)
+}
+`,
+		"app/all.go": `package app
+
+import "example.com/mtest/api"
+
+// 组合接口：方法集完整包含 PingServer（内嵌 + 额外方法）
+type AllService interface {
+	api.PingServer
+	Extra(name string) error
+}
+
+// 不相关接口：方法集不含 PingServer 方法——不标注
+type OtherService interface {
+	DoSomething() error
+}
+`,
+	})
+	found := false
+	for _, n := range nodes {
+		if n.Kind == domain.KindInterface && n.Name == "AllService" {
+			found = true
+			if p := n.Property("pb_servers"); p != "example.com/mtest/api:PingServer" {
+				t.Errorf("AllService pb_servers = %q; want example.com/mtest/api:PingServer", p)
+			}
+		}
+		if n.Kind == domain.KindInterface && n.Name == "OtherService" {
+			if p := n.Property("pb_servers"); p != "" {
+				t.Errorf("OtherService 不应标注 pb_servers（方法集不包含）; 实际 %q", p)
+			}
+		}
+	}
+	if !found {
+		t.Error("AllService 未标注 pb_servers（组合接口检测失败）")
+	}
+}
+
 // TestGrpcCallReqType：R45——grpc_call 边 metadata 带请求实参类型
 // （req_type）——外部接口判定第二条件（实参 ∉ 本项目服务参数集合）。
 func TestGrpcCallReqType(t *testing.T) {

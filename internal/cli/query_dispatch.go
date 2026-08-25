@@ -43,7 +43,7 @@ func cmdQuery(args []string) int {
 	f := parseQueryFlags(rest)
 	target := ""
 
-	if sub != "unused" && sub != "module-calls" && sub != "enums" && sub != "entities" && sub != "grpc-routes" && sub != "http-routes" && sub != "cli-routes" && sub != "external-deps" && sub != "external-interfaces" && sub != "kafka-topics" && !(sub == "relations" && f.all) {
+	if sub != "unused" && sub != "module-calls" && sub != "enums" && sub != "entities" && sub != "grpc-routes" && sub != "http-routes" && sub != "cli-routes" && sub != "external-deps" && sub != "external-interfaces" && sub != "kafka-topics" && sub != "grpc-composites" && !(sub == "relations" && f.all) {
 		if len(f.positional) < 1 {
 			fmt.Fprintf(os.Stderr, "error: 缺少符号参数\n")
 			return 2
@@ -108,6 +108,10 @@ func cmdQuery(args []string) int {
 	// R46：kafka topic 生产/消费归属分类（内部产内消/内产外消/外产内消）
 	if sub == "kafka-topics" {
 		return cmdKafkaTopics(abs, f)
+	}
+	// R49：完整包含 grpc server 接口的组合接口
+	if sub == "grpc-composites" {
+		return cmdGrpcComposites(abs, f)
 	}
 
 	opts := outputOpts{json: f.json, compact: f.compact, repoPath: f.repoPath}

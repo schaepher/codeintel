@@ -1335,6 +1335,34 @@ domain 1 包 1 自环边。
   与用户直觉完全一致（Xxx(ctx, pbreq) (pbresp, err) 的 pbreq/pbresp
   来自 .pb.go）
 
+### R49（2026-08-25）——grpc 签名严格化 + 接口完整包含 server 接口检测
+
+用户：① 匹配 grpc 实现时参数一定要只有两个（context + pb request），
+严格遵守 Xxx(ctx, pbreq) (pbresp, err)；② 找哪些接口完整地包含了
+.pb.go 里 server 的接口（重要信息——组合/扩展接口）。
+
+- **签名严格化**：isGrpcMethodSig 改为参数恰好 2（ctx + pb request）、
+  返回恰好 2（pb resp + err）——流式形态（(req, stream) (error)）
+  排除；hasPBType 移除（不再需要"任一业务类型"宽松判定）。
+- **接口完整包含检测**（query grpc-composites）：
+  - 构建期：collectPBServers 预扫 .pb.go 里 XxxServer 接口方法名集；
+    emitInterfaceContainers 扫描项目内接口（types 层展开内嵌——
+    AST 层嵌入字段 Names 为空会漏方法）→ 方法名超集判定 → 接口节点
+    属性 pb_servers
+  - **排除 .pb.go 里定义的接口**（protoc 生成结构噪音——go2o 实测
+    64 条全是 XxxServiceServer 内嵌 Unsafe 的自包含关系）
+  - 查询端：JSON 契约 {composites: [{iface, servers, loc}]}
+- 实测：go2o 无业务侧组合接口（接口全是 protoc 生成）——0 条合理；
+  功能由 fixture 验证（AllService 内嵌 PingServer → pb_servers）。
+- 测试：构建期发射（内嵌展开 + 非包含排除 + .pb.go 排除）+ 查询端。
+
+**AI 杠杆点**（R49 实证）：
+- AST 层接口方法收集漏内嵌——types.Interface.NumMethods 展开才是
+  完整方法集（嵌入接口的 AST 字段 Names 为空）
+- "完整包含"用方法名超集是可靠近似（签名严格性由 grpc 服务识别
+  保证）；但 protoc 生成接口的嵌入结构（Server 内嵌 Unsafe）会产生
+  大量自包含噪音——**排除生成文件是必要过滤**
+
 ## 待办与已知不足（按优先级，2026-08-25 统一整理）
 
 **P0——高优先级（影响交付质量/机制未闭环）**：

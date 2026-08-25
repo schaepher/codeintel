@@ -22,6 +22,8 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	for _, p := range pkgs {
 		a.pkgsByPath[p.PkgPath] = p
 	}
+	// R49：预扫 .pb.go 的 XxxServer 接口（接口完整包含检测的跨包目标）
+	a.pbServers = collectPBServers(pkgs, repo.Modules)
 
 	serviceFlags := map[domain.CanonicalID]map[string]bool{}
 

@@ -26,6 +26,9 @@ type Adapter struct {
 	// 增量更新的变更文件（相对仓库根路径，§20.3 AST 文件级跳过）；
 	// nil = 全量分析所有文件
 	changedFiles map[string]bool
+	// R49：.pb.go 里 XxxServer 接口的方法名集（Index 预扫——接口完整
+	// 包含检测的跨包目标）
+	pbServers map[string][]string
 }
 
 // SetChangedFiles 限定增量分析的文件集合（orchestrator 增量构建注入，
@@ -82,6 +85,10 @@ func (a *Adapter) processFile(repo *domain.Repository, pkg *packages.Package, f 
 	// R37：编译期接口断言 `var _ Iface = new(T)` → implements 边（SCIP
 	// 盲区补丁——scip-go 对断言不输出 is_implementation）
 	if err := emitInterfaceAssertions(repo, pkg, f, emit); err != nil {
+		return err
+	}
+	// R49：接口完整包含 pb server 接口 → pb_servers 属性（组合接口）
+	if err := a.emitInterfaceContainers(repo, pkg, f, emit); err != nil {
 		return err
 	}
 
