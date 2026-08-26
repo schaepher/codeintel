@@ -144,9 +144,9 @@ func TestRenderCodeSeqOrder(t *testing.T) {
 	if idxV < 0 || idxS < 0 || idxV > idxS {
 		t.Errorf("参与者应按出现顺序（svc 在 repo 前）:\n%s", m)
 	}
-	// 参与者是对象（svc/repo），消息线保留完整调用名
-	if !strings.Contains(m, "P0->>P1: svc.Validate(order.Data)") {
-		t.Errorf("消息线应带参数类型:\n%s", m)
+	// 参与者是对象（svc/repo），消息线保留完整调用名 + 参数第二行
+	if !strings.Contains(m, "P0->>P1: svc.Validate<br/>(order.Data)") {
+		t.Errorf("消息线应带参数类型（第二行）:\n%s", m)
 	}
 	if !strings.Contains(m, "P1-->>P0: return bool, error") {
 		t.Errorf("应含 return 线（返回值类型）:\n%s", m)

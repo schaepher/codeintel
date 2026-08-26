@@ -1,7 +1,6 @@
 package cli
 
-// R81 `query sequence --code <符号>`——代码级时序图：源码 AST 转时序
-// （调用/分支/循环/嵌套展开；消息线=源码调用名，参与者=对象）。
+// R81 `query sequence --code <符号>`——代码级时序图（源码 AST 转时序）。
 
 import (
 	"fmt"
@@ -100,17 +99,20 @@ func walkStmts(acts *action.Actions, abs string, fset *token.FileSet, src []byte
 func walkStmt(acts *action.Actions, abs string, fset *token.FileSet, src []byte, stmt ast.Stmt, lineTargets map[int]string, depth int) []*codeSeqNode {
 	callNode := func(fun ast.Expr, line int) *codeSeqNode {
 		node := &codeSeqNode{Kind: "call", Label: callLabel(fset, src, fun), Actor: callActor(fset, src, fun), Line: line}
-		// R83：参与者短类型名 + 参数/返回类型（索引被调符号签名）
+		// R83：签名提取（类型节点用 AST 方法名构造 (Impl).Method 再查）
 		if tid, ok := lineTargets[line]; ok {
+			sigID := tid
+			if !strings.Contains(tid, ":(") {
+				if sel, isSel := fun.(*ast.SelectorExpr); isSel {
+					sigID = grpcMethodEntryID(tid, sel.Sel.Name)
+				}
+			}
 			node.Type = implTypeShort(tid)
-			if args, rets, ok2 := sigTypesOf(acts, tid); ok2 {
+			if args, rets, ok2 := sigTypesOf(acts, sigID); ok2 {
 				node.Args, node.Returns = args, rets
 			}
 		}
-		// R81：嵌套展开——行号对齐被调符号，递归解析其函数体（depth-1）。
-		// 接口调用具体化到实现**类型**节点（无方法名——调用点未记录）
-		// 时，用 AST 调用方法名构造 (Impl).Method 再解析（R75 形态）；
-		// 函数节点先试方法形态失败后回退原 ID（LoadItems → 非方法）
+		// R81：嵌套展开（类型节点用 AST 方法名构造 (Impl).Method；函数失败回退原 ID）
 		if depth > 1 {
 			if tid, ok := lineTargets[line]; ok {
 				// R83：停止包配置——命中不深入（节点保留，Nodes 空）

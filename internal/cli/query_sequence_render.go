@@ -85,10 +85,10 @@ func writeSeqNode(b *strings.Builder, alias map[string]string, from string, node
 			if to == "" {
 				to = alias[from]
 			}
-			// R83：消息线带参数类型短名（Method(ArgType, ...)）
+			// R83：消息线参数类型单独第二行（Method<br/>(ArgType, ...)）
 			label := n.Label
 			if len(n.Args) > 0 {
-				label += "(" + strings.Join(n.Args, ", ") + ")"
+				label += "<br/>(" + strings.Join(n.Args, ", ") + ")"
 			}
 			b.WriteString(fmt.Sprintf("  %s->>%s: %s\n", alias[from], to, label))
 			if len(n.Nodes) > 0 {

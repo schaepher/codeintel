@@ -158,13 +158,25 @@ func parseSigTypes(sig string) ([]string, []string, bool) {
 			}
 		}
 	}
-	// 3 对括号 = receiver + 参数 + 返回；2 对 = 参数 + 返回（无 receiver）
-	if len(parens) >= 6 {
+	// 第一对括号是 receiver（单 token：*cartRepo / T——无空格）还是参数
+	first := strings.TrimSpace(sig[parens[0]+1 : parens[1]])
+	isReceiver := first != "" && !strings.ContainsAny(first, " \t,")
+	switch {
+	case len(parens) >= 6:
+		// receiver + 参数 + 返回
 		args := splitSigParams(sig[parens[2]+1 : parens[3]])
 		rets := splitSigParams(sig[parens[4]+1 : parens[5]])
 		return args, rets, true
-	}
-	if len(parens) == 4 {
+	case len(parens) == 4 && isReceiver:
+		// receiver + 参数 + 单返回（无括号——参数闭括号后到签名尾）
+		args := splitSigParams(sig[parens[2]+1 : parens[3]])
+		var rets []string
+		if rest := strings.TrimSpace(sig[parens[3]+1:]); rest != "" {
+			rets = []string{shortSigType(rest)}
+		}
+		return args, rets, true
+	case len(parens) == 4:
+		// 无 receiver：参数 + 返回
 		args := splitSigParams(sig[parens[0]+1 : parens[1]])
 		rets := splitSigParams(sig[parens[2]+1 : parens[3]])
 		return args, rets, true
