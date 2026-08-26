@@ -4,8 +4,10 @@ package cli
 
 import "encoding/base64"
 
-// diagramMD md 图块：plantuml 模式输出 ```plantuml 文本（md 不嵌 PNG）；
-// mermaid 模式原样代码块（R33 方案 A：超 500 边降级提示——浏览器渲染挂）。
+// diagramMD md 图块：plantuml 模式渲染 PNG → base64 <img> 嵌入
+// （R83：凡是用 plantuml 的都要先转成图片再放进去——md 也看图，
+// 不再只给文本代码块；渲染失败降级文本块）；mermaid 模式原样代码块
+// （R33 方案 A：超 500 边降级提示——浏览器渲染挂）。
 func (rc *wikiRenderCtx) diagramMD(mermaid string) string {
 	if rc.Diagram != "plantuml" {
 		if n := diagramEdgeCount(mermaid); n > mermaidEdgeLimit {
@@ -13,7 +15,18 @@ func (rc *wikiRenderCtx) diagramMD(mermaid string) string {
 		}
 		return "```mermaid\n" + mermaid + "\n```\n\n"
 	}
-	return "```plantuml\n" + mermaidToPlantuml(mermaid) + "\n```\n\n"
+	// R83：plantuml 一律渲染 PNG 嵌入（md 支持 <img>）；超限直接提示
+	if n := diagramEdgeCount(mermaid); n > mermaidEdgeLimit {
+		return "（图过大：" + itoa(n) + " 条边——用 `query relations` 按表查询）\n\n"
+	}
+	puml := mermaidToPlantuml(mermaid)
+	if puml == "" {
+		return "```plantuml\n" + mermaid + "\n```\n\n"
+	}
+	if png, err := plantumlRender(puml); err == nil {
+		return "<img src=\"data:image/png;base64," + base64.StdEncoding.EncodeToString(png) + "\" alt=\"diagram\"/>\n\n"
+	}
+	return "```plantuml\n" + puml + "\n```\n\n"
 }
 
 // diagramHTML html 图块：plantuml 模式渲染 PNG → base64 <img>（单文件

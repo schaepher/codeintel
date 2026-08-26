@@ -168,8 +168,46 @@ func walkStmt(acts *action.Actions, abs string, fset *token.FileSet, src []byte,
 			}
 		}
 		return out
+	case *ast.SwitchStmt:
+		// R82：switch 分派（manager.SubmitOrder 实测——data.Type 分支里
+		// 才是真实业务调用；每 case 一个子分支）
+		tag := exprText(fset, src, s.Tag)
+		if tag == "" {
+			tag = "switch"
+		}
+		node := &codeSeqNode{Kind: "branch", Label: tag, Line: fset.Position(s.Pos()).Line}
+		for _, st := range s.Body.List {
+			if cc, ok := st.(*ast.CaseClause); ok {
+				caseNode := &codeSeqNode{Kind: "branch", Label: "case " + caseExpr(fset, src, cc), Line: fset.Position(cc.Pos()).Line}
+				caseNode.Nodes = walkStmts(acts, abs, fset, src, cc.Body, lineTargets, depth)
+				node.Nodes = append(node.Nodes, caseNode)
+			}
+		}
+		return []*codeSeqNode{node}
+	case *ast.TypeSwitchStmt:
+		node := &codeSeqNode{Kind: "branch", Label: "type switch", Line: fset.Position(s.Pos()).Line}
+		for _, st := range s.Body.List {
+			if cc, ok := st.(*ast.CaseClause); ok {
+				caseNode := &codeSeqNode{Kind: "branch", Label: "case " + caseExpr(fset, src, cc), Line: fset.Position(cc.Pos()).Line}
+				caseNode.Nodes = walkStmts(acts, abs, fset, src, cc.Body, lineTargets, depth)
+				node.Nodes = append(node.Nodes, caseNode)
+			}
+		}
+		return []*codeSeqNode{node}
 	}
 	return nil
+}
+
+// caseExpr case 子句条件文本（多值逗号连接；default 为空）。
+func caseExpr(fset *token.FileSet, src []byte, cc *ast.CaseClause) string {
+	if len(cc.List) == 0 {
+		return "default"
+	}
+	var parts []string
+	for _, e := range cc.List {
+		parts = append(parts, exprText(fset, src, e))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // callLabel 调用目标文本（obj.Method / fn() / (T).m——源码形态）。

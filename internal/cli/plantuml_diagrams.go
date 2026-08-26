@@ -110,7 +110,9 @@ func mermaidGraphToPlantuml(m string) string {
 	nodeRe := regexp.MustCompile(`([\p{L}\p{N}_]+)\[(?:"([^"]*)"|([^\[\]]*))\]`)
 	// -->|N| → --> N : （plantuml 冒号 label——实测 --check-syntax）
 	arrowLabelRe := regexp.MustCompile(`-->\|([^|]+)\|`)
-	// subgraph 名[名]（mermaid 分组标题）→ subgraph "名"
+	// subgraph 名[名]（mermaid 分组标题）→ package "名" {（R83：plantuml
+	// 部署图用 package 分组——subgraph 不识别，实测 "Assumed diagram
+	// type: sequence" 语法错误整图失败）
 	subgraphRe := regexp.MustCompile(`subgraph ([^\[<]+)\[([^\]]*)\]`)
 	for _, l := range strings.Split(m, "\n") {
 		t := strings.TrimSpace(l)
@@ -120,7 +122,7 @@ func mermaidGraphToPlantuml(m string) string {
 		// subgraph 行优先（`subgraph 名[名]` 的 [名] 与节点同格式——
 		// nodeRe 先处理会吃掉 label 致 subgraphRe 匹配不到）
 		if sg := subgraphRe.FindStringSubmatch(t); sg != nil {
-			b.WriteString(`subgraph "` + sg[1] + `" {` + "\n")
+			b.WriteString(`package "` + sg[1] + `" {` + "\n")
 			continue
 		}
 		// 先收集行内节点定义（边行端点），再输出替换后的行
@@ -134,9 +136,13 @@ func mermaidGraphToPlantuml(m string) string {
 			return id
 		})
 		// 纯节点行（`X["label"]` 单独行——无边）→ node 已定义，跳过
-		// 裸 id 行（plantuml 组件图不认裸标识符行）；end（subgraph 闭合）
-		// 保留
-		if !strings.Contains(out, "-->") && !strings.Contains(out, "subgraph") && strings.TrimSpace(out) != "end" {
+		// 裸 id 行（plantuml 组件图不认裸标识符行）；end（package 闭合
+		// ——R83：plantuml 组件图用 } 闭合，end 是语法错误）
+		if strings.TrimSpace(out) == "end" {
+			b.WriteString("}\n")
+			continue
+		}
+		if !strings.Contains(out, "-->") && !strings.Contains(out, "package") {
 			continue
 		}
 		// plantuml 不支持自环边（`ad -->|24| ad` 语法错误——go2o 同包

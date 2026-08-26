@@ -75,6 +75,9 @@ func writeSeqText(nodes []*codeSeqNode, depth int) {
 		switch n.Kind {
 		case "call":
 			fmt.Printf("%s%d. %s\n", pad, n.Line, n.Label)
+			if len(n.Nodes) > 0 {
+				writeSeqText(n.Nodes, depth+1) // 嵌套展开（--depth >1）
+			}
 		case "branch":
 			fmt.Printf("%sif %s\n", pad, n.Label)
 			writeSeqText(n.Nodes, depth+1)

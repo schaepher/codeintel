@@ -73,9 +73,9 @@ func TestMermaidGraphSubgraph(t *testing.T) {
   node api[api]
 `
 	out := mermaidGraphToPlantuml(m)
-	for _, want := range []string{`subgraph "支撑层" {`, `node "domain" as domain`, "\nend\n"} {
+	for _, want := range []string{`package "支撑层" {`, `node "domain" as domain`, "}\n"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("subgraph 转换缺 %q:\n%s", want, out)
+			t.Errorf("package 转换缺 %q:\n%s", want, out)
 		}
 	}
 	// 纯节点行（node api[api] 无边）→ 不输出裸 id

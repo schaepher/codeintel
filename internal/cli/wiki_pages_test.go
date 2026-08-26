@@ -163,7 +163,7 @@ func TestWikiPlantumlDefault(t *testing.T) {
 	if !strings.Contains(s, "data:image/png;base64,") {
 		t.Error("plantuml 模式 HTML 应含 PNG base64 图（ER/架构等）")
 	}
-	// md 版：plantuml 文本块
+	// md 版：R83——plantuml 一律渲染 PNG base64 <img> 嵌入（不再文本块）
 	out2 := filepath.Join(t.TempDir(), "wiki2")
 	if code := cmdWiki([]string{"--repo", dir, "--out", out2}); code != 0 {
 		t.Fatalf("cmdWiki md exit = %d", code)
@@ -172,10 +172,8 @@ func TestWikiPlantumlDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"```plantuml", "@startuml"} {
-		if !strings.Contains(string(idx), want) {
-			t.Errorf("md 应含 %q（plantuml 文本块）:\n%s", want, idx)
-		}
+	if !strings.Contains(string(idx), "data:image/png;base64,") {
+		t.Errorf("md 应含 PNG base64 图（R83 plantuml 一律转图片）:\n%s", idx[:min(len(idx), 400)])
 	}
 }
 
@@ -232,7 +230,7 @@ tables:
 		t.Errorf("相关表应链接 tables.md#orders:\n%s", ms)
 	}
 
-	if !strings.Contains(ms, "### 内部调用链：(Svc).Run") || !strings.Contains(ms, `participant "main" as P0`) || !strings.Contains(ms, "P0->>P1: call") {
-		t.Errorf("时序应按一级调用分支单独画:\n%s", ms)
+	if !strings.Contains(ms, "### 内部调用链：(Svc).Run") || !strings.Contains(ms, "data:image/png;base64,") {
+		t.Errorf("时序应按一级调用分支单独画（R83 plantuml 渲染 PNG）:\n%s", ms)
 	}
 }
