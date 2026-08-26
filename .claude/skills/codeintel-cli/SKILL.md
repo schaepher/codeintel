@@ -21,12 +21,19 @@ make install
 
 ```bash
 codeintel init --repo <path> [--workers N] # 全量构建索引（Q221：--workers 默认 min(NumCPU,8)——8 核实测冷启动 5m16s→15.6s；小内存机器可 --workers 1；CODEINTEL_GOGC 覆盖 GOGC 默认 40；CODEINTEL_CPU_PROFILE 输出构建期 CPU profile——须有 go.mod；go.work 根目录会提示进模块目录）
-codeintel update --repo <path> [--workers N] # 增量更新（R84：git 检测变更文件 → 按包增量分析——
+codeintel update --repo <path> [--workers N] [--base <dir>]
+                                           # 增量更新（R84：git 检测变更文件 → 按包增量分析——
                                            # 只 Load/分析变更文件所在包，依赖包走 export data，
                                            # 其他包复用库中已有索引；go.mod/go.work 变更或 analyzer
                                            # 版本变化自动全量降级；已知语义：SSA 全程序扫描
                                            # （dispatch 注册等）随分析范围收缩，改 impl 包后
                                            # dispatch_to 边少量缺失——reindex 恢复）
+                                           # R85 --base <dir>：多 workspace 分层——base 目录的
+                                           # .codeintel 为完整索引（只读共享）；变更基准 = base
+                                           # HEAD（diff base..当前），base 数据物化到本地（秒级
+                                           # 复制非分析，幂等），只分析变更包；新 workspace 首次
+                                           # 建索引 = 物化 + 变更包分析（go2o 实测 3.5s vs 全量
+                                           # 23s）；base commit 变化自动重新物化
 codeintel serve --repo <path> --addr :8096 # 启动图探索 Web 服务（前端 AntV G6，端口默认 :8090；另含数据库 ER 图页 /er.html：表卡片/嵌套双画法、双击表展开其关联线（全图画线开关刷新后自动恢复，Q217）、每条线独立配色、Q218 fk 类型默认线）
 codeintel mcp --repo <path>            # stdio MCP server（Q243：query 能力暴露为 tools——symbol/fields/callers/callees/impact/trace/value_trace/context/table/relations/table_path/summary/module_calls；输出复用 --json 契约 docs/json-contract.md；Claude Code 配置 `codeintel mcp --repo <path>` 即接入）
 codeintel query <sub> ... --repo <path>    # 查询（见下；默认加 --json 取结构化输出）

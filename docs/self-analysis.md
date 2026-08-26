@@ -1447,6 +1447,33 @@ AI prompt 输出 english/abbr + setGlossary/cfgSetGlossary 写回。
 - 事故：git stash push 不含 untracked 新文件（asttool split 产物）
   → pop 冲突；教训：stash 前先挪走 untracked
 
+### R85（2026-08-26）——--base 目录共享索引（多 workspace 分层复用）
+
+用户：多 workspace 支持指定 base 目录——base 分支先生成分析 cache；
+当前 workspace diff base 只分析变动的包，本地 .codeintel 只写这些，
+查询时本地没有的去 base 目录的 .codeintel 读。
+
+**SQLite 限制调研**：视图不能跨库引用（"view nodes cannot reference
+objects in database base" 实测确认）——"本地轻量 + 查询合并 base"
+的纯 SQL 方案不可行；代码层 fallback（85 个读方法逐一改）过重。
+**用户确认选型：物理物化**。
+
+**实现（物理物化）**：
+- `sqlite.MaterializeBase`：base 索引 INSERT SELECT 物化到本地（秒级
+  复制非分析；幂等——build_metadata tool_name='materialize' 记录
+  base commit，同 commit 跳过；base commit 变化自动重新物化；显式
+  列清单避开 nodes 生成列 signature_text——SELECT * 报 8 vs 9 列）
+- `update --base <dir>`：变更基准 = base HEAD（detectChangedGoFilesSince
+  diff base..HEAD + 工作区 + 未跟踪）；base.txt 持久化；**物化后写
+  analyzer marker**——新 workspace 首次 --base 缺 marker 会降级全量
+  （实测 27s 白物化），修复后走增量（3.5s）
+- 实测：go2o 新 workspace 首次 --base = 物化 + 只分析变更包
+  （构建 3.5s + 物化 ~6s vs 全量 23s）；索引一致性（120496 节点/
+  1790 dispatch 边）；幂等（第二次 3.3s 不重复物化）
+- 环境事故：/tmp（tmpfs 788M）放大文件（go2o 源码副本）写满 →
+  **shell 初始化静默失败**（任何命令 exit 1 无输出）——大文件必须放
+  非 tmpfs（~/.tmp-build）；测试 workspace 同理
+
 ### R83（2026-08-26）——plantuml 一律转图片 + switch 分派 + SubmitOrder 时序修复
 
 用户：1) 凡是用 plantuml 的都要先转成图片再放进去；2) 单独调试
