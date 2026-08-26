@@ -1409,6 +1409,49 @@ domain 1 包 1 自环边。
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
 
+### R79（2026-08-26）——渲染基准实测（go2o domains 16 域 → 8 域）+ R78 待办 5 项
+
+用户选待办 1+4+11+12+13+15（渲染基准实测 / 动态 URL / MCP 工具验证
+/ 流程页深度 / 服务归属投票 / ER 500 边细分）。
+
+**待办 1（P0）渲染基准实测**：go2o 全新 domains（--prompt 用户约束
+"域内调用边不超过 500"）——**16 域 → 8 域**：
+- 合并：商品域+商品模型域 → 商品域；营销域+内容域+门户 → 营销内容域；
+  支付并入交易域；钱包/资金并入会员域；新增售后物流域
+- services 归属更语义化（24 个显式 + 6 个投票）；重跑 wiki 后
+  「其他」域服务数 = 0（30 个服务全有归属）
+- 遗留：系统平台域仍是大兜底（100+ 包——基础设施+平台+权限+调度
+  并一起）——渲染基准 500 边约束未阻止；可下一轮人工拆分或 AI 再细分
+
+**待办 4（P0）动态 URL 扩展**：fmt.Sprintf 静态前缀求值（go2o cl253
+形态 `fmt.Sprintf("%s?un=%s...", url常量, 动态...)`）——格式串字面量
++ 可解析参数展开、首个不可解析参数截断；strUrl 变量记录 methodVars。
+实测：go2o http_call 3 → 6 条（新增 sms.253.com/msg/send、www.ip138.com）。
+
+**待办 11（P1）MCP 新工具端到端**：7 测试全绿（tools/list 5 新工具 +
+packages/architecture/er/processes/module 调用 + module 不存在 isError）。
+发现并修复：ListTools(nil ctx) 死锁（nil context 的 Done() 永不返回）；
+processesParams.max_entries 必填 → omitempty。
+
+**待办 12（P2）流程页深度（value-trace 串联）**：procChain.KeyFlows
+（链上符号字段读写——入口 + 被调者批量 FunctionFields，失败跳过）；
+wiki processes.md 与 query processes 双通道渲染。实测 go2o：
+`(advertisementService).GetPosition：读 _rep、Position.Enabled...；
+写 SAdPosition.Enabled...`——真实反映数据流。wikiKeyFlows 容错化
+（单符号失败不再整批丢弃）。
+
+**待办 13（P2）服务归属投票改进**：serviceDomain 投票排除服务实现包
+（ImplID 包——AI 归入基础设施兜底域，不排除时必然得票污染）。
+实测：go2o 30 服务全部分组干净（交易域 3/协作域 3/商家域 2...），
+「其他」域清零。
+
+**待办 15（P2）ER 500 边细分**：域内图 >500 边按表二级前缀子域细分
+（item_order_x → item_order；2 段表名回退一级前缀）——子域间图 +
+每子域折叠（R63 实体子域思路复用）。
+
+commit 7d212b9（R78 代码）+ wiki.yaml 新 domains 在 go2o 仓库
+（git diff 可回滚——备份 .tmp/go2o-wiki.yaml.bak-r78）。
+
 ### R77（2026-08-26）——wiki 剩余特性全部转命令（packages/architecture/er/processes/module）
 
 用户：以后都要自举（用工具分析改动影响）；wiki 还有哪些特性没转换
