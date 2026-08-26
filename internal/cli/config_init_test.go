@@ -28,8 +28,8 @@ func TestEnsureGlobalConfig(t *testing.T) {
 	s := string(b)
 	for _, want := range []string{
 		"# codeintel 全局配置", // 注释
-		"agent: auto",          // 默认值
-		"ai:",                  // 选项段
+		"agent: auto",      // 默认值
+		"ai:",              // 选项段
 		"domains: auto",
 		"fill: auto",
 		"ask: auto",

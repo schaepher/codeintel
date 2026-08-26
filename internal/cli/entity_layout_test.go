@@ -117,7 +117,7 @@ func TestEntitySubgraphFlowOrder(t *testing.T) {
 			{From: "symbol:go:example.com/action:Actions", To: "symbol:go:example.com/sqlite:Repo", Count: 3},
 		},
 		ByName: map[string][]string{
-			"cmdWiki": {"symbol:go:example.com/cli:cli"},
+			"cmdWiki":            {"symbol:go:example.com/cli:cli"},
 			"(Actions).WikiData": {"symbol:go:example.com/action:Actions"},
 			"(Repo).GetAllCalls": {"symbol:go:example.com/sqlite:Repo"},
 		},

@@ -94,7 +94,7 @@ func parseDomains(resp string, f *domainFacts) ([]wikiDomainCfg, []string) {
 // 复用（已生成跳过）。factsPath 为空时写仓库 .codeintel/ 下。
 // extraPrompt：用户约束（R56 wiki --prompt）——传入 domainPrompt。
 func analyzeDomains(repoAbs string, cfg *wikiConfig, acts *action.Actions, db *sqlite.Repo, agent string, yamlPath string, factsPath string, extraPrompt string) ([]wikiDomainCfg, []string) {
-	f := collectDomainFacts(acts, repoAbs, *cfg, db)
+	f := collectDomainFacts(acts, repoAbs, *cfg)
 	if factsPath == "" {
 		factsPath = filepath.Join(repoAbs, ".codeintel", "domain-facts.json")
 	}
@@ -240,7 +240,7 @@ func cmdDomains(repoAbs string, f queryFlags, agent, yamlPath, factsPath, export
 	}
 	// --export-facts：只导出事实包（不调 AI）
 	if exportOnly != "" {
-		f := collectDomainFacts(acts, repoAbs, cfg, sqlite.NewRepo(db))
+		f := collectDomainFacts(acts, repoAbs, cfg)
 		b, err := domainFactsJSON(f)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)

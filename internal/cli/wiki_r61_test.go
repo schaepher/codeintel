@@ -124,9 +124,9 @@ func TestGrpcServicePageMethodsTable(t *testing.T) {
 	}
 	defer db.Close()
 	acts := action.New(sqlite.NewRepo(db))
-	svc := grpcRouteService{Name: "QueryService", Impl: "queryServiceImpl",
+	svc := action.GrpcRouteService{Name: "QueryService", Impl: "queryServiceImpl",
 		ImplID: "symbol:go:example.com/m/impl:queryServiceImpl",
-		Methods: []grpcRouteMethod{
+		Methods: []action.GrpcRouteMethod{
 			{Name: "Query", Handler: "_QueryService_Query_Handler"},
 			{Name: "PagingShops", Handler: "_QueryService_PagingShops_Handler"},
 		}}

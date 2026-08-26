@@ -71,10 +71,10 @@ func cmdQuery(args []string) int {
 	}
 	// R29：gRPC 路由清单
 	if sub == "grpc-routes" {
-		return cmdGrpcRoutes(abs, f)
+		return cmdGrpcRoutes(acts, abs, f)
 	}
 	if sub == "http-routes" {
-		return cmdHTTPRoutes(abs, f)
+		return cmdHTTPRoutes(acts, f)
 	}
 	if sub == "cli-routes" {
 		return cmdCLIRoutes(abs, f)

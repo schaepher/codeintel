@@ -66,7 +66,7 @@ func registerQueryTools(server *mcp.Server, env *mcpEnv, r *sqlite.Repo, repoAbs
 			if err != nil {
 				return toolErr(err.Error()), SequenceOut{}, nil
 			}
-			steps := sortChainByCallLine(string(n.ID), facts)
+			steps := action.SortChainByCallLine(string(n.ID), facts)
 			out := SequenceOut{Symbol: shortSymbolName(n), ID: string(n.ID), Depth: depth, Steps: steps}
 			return toolJSON(out), out, nil
 		})))
@@ -142,8 +142,8 @@ func registerQueryTools(server *mcp.Server, env *mcpEnv, r *sqlite.Repo, repoAbs
 	// R29：服务端 gRPC 路由清单（索引 grpc_service 节点 + ServiceDesc
 	// 方法全集——了解服务暴露的方法，Agent 调服务前先查）
 	mcp.AddTool(server, &mcp.Tool{Name: "grpc_routes", Description: "服务端 gRPC 路由清单（服务名/实现类型/注册调用点/方法全集 ServiceDesc）——了解 gRPC 服务暴露了哪些方法"},
-		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args grpcRoutesParams) (*mcp.CallToolResult, *grpcRoutesResult, error) {
-			res, err := grpcRoutes(r, repoAbs)
+		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args grpcRoutesParams) (*mcp.CallToolResult, *action.GrpcRoutesResult, error) {
+			res, err := a.GrpcRoutes(repoAbs)
 			if err != nil {
 				return toolErr(err.Error()), nil, nil
 			}
@@ -152,8 +152,8 @@ func registerQueryTools(server *mcp.Server, env *mcpEnv, r *sqlite.Repo, repoAbs
 	// R31：HTTP 路由清单（两个 resolver——原生 net/http + gin，构建期
 	// 识别发射 http_route 节点）
 	mcp.AddTool(server, &mcp.Tool{Name: "http_routes", Description: "HTTP 路由清单（method/path/handler/register，resolver 标注 native|gin）——了解服务暴露了哪些 HTTP 接口"},
-		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args httpRoutesParams) (*mcp.CallToolResult, *httpRoutesResult, error) {
-			res, err := httpRoutes(r)
+		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args httpRoutesParams) (*mcp.CallToolResult, *action.HTTPRoutesResult, error) {
+			res, err := a.HTTPRoutes()
 			if err != nil {
 				return toolErr(err.Error()), nil, nil
 			}

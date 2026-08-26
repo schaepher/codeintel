@@ -42,7 +42,7 @@ func TestDomainFactsPkgEnts(t *testing.T) {
 	}, nil); err != nil {
 		t.Fatal(err)
 	}
-	f := collectDomainFacts(action.New(r), dir, wikiConfig{}, r)
+	f := collectDomainFacts(action.New(r), dir, wikiConfig{})
 	byPkg := map[string]int{}
 	for _, p := range f.Pkgs {
 		byPkg[p.Path] = p.Ents
@@ -87,7 +87,7 @@ func TestDomainFactsEntityService(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	f := collectDomainFacts(action.New(r), dir, wikiConfig{}, r)
+	f := collectDomainFacts(action.New(r), dir, wikiConfig{})
 	svc := map[string]bool{}
 	for _, e := range f.Ents {
 		svc[e.Name] = e.Service

@@ -29,7 +29,7 @@ func TestWikiKeyFlows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	flows := wikiKeyFlows(acts, "example.com/m", []string{"main"})
+	flows := acts.WikiKeyFlows("example.com/m", []string{"main"})
 	if len(flows) == 0 {
 		t.Fatal("应有 main 的数据流")
 	}
@@ -52,7 +52,7 @@ func TestWikiKeyFlowsNone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	flows := wikiKeyFlows(acts, "example.com/m", []string{"(Svc).Run"})
+	flows := acts.WikiKeyFlows("example.com/m", []string{"(Svc).Run"})
 	if len(flows) != 0 {
 		t.Errorf("(Svc).Run 无字段访问，flows 应为空: %v", flows)
 	}

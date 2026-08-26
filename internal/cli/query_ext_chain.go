@@ -27,8 +27,8 @@ type extChainNode struct {
 }
 
 // grpcServerMethods 服务名 → 服务端实现方法列表（(Impl).Method canonical ID）。
-func grpcServerMethods(acts *action.Actions, repo *sqlite.Repo, repoAbs, svcName string) []string {
-	res, err := grpcRoutes(repo, repoAbs)
+func grpcServerMethods(acts *action.Actions, repoAbs, svcName string) []string {
+	res, err := acts.GrpcRoutes(repoAbs)
 	if err != nil {
 		return nil
 	}
@@ -37,9 +37,9 @@ func grpcServerMethods(acts *action.Actions, repo *sqlite.Repo, repoAbs, svcName
 			continue
 		}
 		var out []string
-		for _, m := range grpcProcMethods(acts, s) {
+		for _, m := range acts.GrpcProcMethods(s) {
 			if m.Name != "" {
-				out = append(out, grpcMethodEntryID(s.ImplID, m.Name))
+				out = append(out, action.GrpcMethodEntryID(s.ImplID, m.Name))
 			}
 		}
 		return out
@@ -58,7 +58,7 @@ func extChain(acts *action.Actions, repo *sqlite.Repo, repoAbs, symbol string, v
 	for _, g := range io.Grpc {
 		eg := extChainGrpc{chainCallOut: g}
 		// 服务端方法（本仓库实现）——递归查其调用链
-		for _, m := range grpcServerMethods(acts, repo, repoAbs, g.Service) {
+		for _, m := range grpcServerMethods(acts, repoAbs, g.Service) {
 			key := g.Service + ":" + m
 			if seen[key] || visited[m] {
 				continue

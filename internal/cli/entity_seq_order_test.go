@@ -4,6 +4,7 @@ package cli
 // 验证"顺序与实际代码一一对应"（用户要求 1）。
 
 import (
+	"github.com/schaepher/codeintel/internal/action"
 	"strings"
 	"testing"
 
@@ -31,20 +32,20 @@ func TestSortChainByCallLine(t *testing.T) {
 		// 无行号边（fallback 排最后）
 		{SourceID: entry, TargetID: "symbol:go:example.com/m:NoLine", Kind: domain.FactCalls},
 	}
-	steps := sortChainByCallLine(string(entry), facts)
+	steps := action.SortChainByCallLine(string(entry), facts)
 	var got []string
 	for _, s := range steps {
 		got = append(got, s.Caller+"->"+s.Callee)
 	}
 	want := []string{
-		"cmdServe->Open",        // 43
-		"cmdServe->(Actions).Counts", // 52
-		"(Actions).Counts->(Reader).Count", // Counts 内部 3
+		"cmdServe->Open",                    // 43
+		"cmdServe->(Actions).Counts",        // 52
+		"(Actions).Counts->(Reader).Count",  // Counts 内部 3
 		"(Actions).Counts->(Reader).Latest", // Counts 内部 5
-		"cmdServe->(Actions).Latest", // 56
-		"cmdServe->serverNew",     // 73
-		"serverNew->handler",      // serverNew 内部 7
-		"cmdServe->NoLine",        // 无行号 fallback 最后
+		"cmdServe->(Actions).Latest",        // 56
+		"cmdServe->serverNew",               // 73
+		"serverNew->handler",                // serverNew 内部 7
+		"cmdServe->NoLine",                  // 无行号 fallback 最后
 	}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("顺序 = %v\nwant %v", got, want)

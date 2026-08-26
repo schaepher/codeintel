@@ -24,9 +24,9 @@ func TestServiceDomain(t *testing.T) {
 	}
 	defer db.Close()
 	acts := action.New(sqlite.NewRepo(db))
-	svc := grpcRouteService{Name: "QueryService", Impl: "queryServiceImpl",
-		ImplID: "symbol:go:example.com/m/impl:queryServiceImpl",
-		Methods: []grpcRouteMethod{{Name: "Query", Handler: "_QueryService_Query_Handler"}}}
+	svc := action.GrpcRouteService{Name: "QueryService", Impl: "queryServiceImpl",
+		ImplID:  "symbol:go:example.com/m/impl:queryServiceImpl",
+		Methods: []action.GrpcRouteMethod{{Name: "Query", Handler: "_QueryService_Query_Handler"}}}
 
 	// 1. yaml services 显式优先
 	rcExp := &wikiRenderCtx{acts: acts, repo: sqlite.NewRepo(db), cfg: wikiConfig{
@@ -82,13 +82,13 @@ func TestGrpcIndexByDomain(t *testing.T) {
 	}
 	defer db.Close()
 	acts := action.New(sqlite.NewRepo(db))
-	svcs := []grpcRouteService{
+	svcs := []action.GrpcRouteService{
 		{Name: "QueryService", Impl: "queryServiceImpl",
-			ImplID: "symbol:go:example.com/m/impl:queryServiceImpl",
-			Methods: []grpcRouteMethod{{Name: "Query"}}},
+			ImplID:  "symbol:go:example.com/m/impl:queryServiceImpl",
+			Methods: []action.GrpcRouteMethod{{Name: "Query"}}},
 		{Name: "AnotherService", Impl: "anotherImpl",
-			ImplID: "symbol:go:example.com/m/impl:anotherImpl",
-			Methods: []grpcRouteMethod{{Name: "Do"}}},
+			ImplID:  "symbol:go:example.com/m/impl:anotherImpl",
+			Methods: []action.GrpcRouteMethod{{Name: "Do"}}},
 	}
 	rc := &wikiRenderCtx{acts: acts, repo: sqlite.NewRepo(db), cfg: wikiConfig{
 		Domains: []wikiDomainCfg{

@@ -109,17 +109,3 @@ func TestMCPToolsList(t *testing.T) {
 		}
 	}
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-

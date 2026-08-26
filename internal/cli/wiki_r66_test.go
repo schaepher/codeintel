@@ -127,7 +127,7 @@ func TestDomainFactsEntsHotFirst(t *testing.T) {
 	}, nil); err != nil {
 		t.Fatal(err)
 	}
-	f := collectDomainFacts(action.New(r), dir, wikiConfig{}, r)
+	f := collectDomainFacts(action.New(r), dir, wikiConfig{})
 	if len(f.Ents) < 2 {
 		t.Fatalf("实体数 = %d; want ≥2", len(f.Ents))
 	}
@@ -135,7 +135,6 @@ func TestDomainFactsEntsHotFirst(t *testing.T) {
 		t.Errorf("热度排序后首个实体 = %s; want hot（Out+In 降序）", f.Ents[0].Name)
 	}
 }
-
 
 // TestEntityServiceDetection：R68——struct service 判定：方法里无字段
 // direct_write（无字段结构体 / 组合注入 / client 字段只被调用）→
@@ -179,7 +178,7 @@ func TestEntityServiceDetection(t *testing.T) {
 	extNodes := make([]*domain.CodeEntity, 0, 5)
 	for i := 0; i < 5; i++ {
 		extNodes = append(extNodes, &domain.CodeEntity{
-			ID: domain.CanonicalID("symbol:go:example.com/m/ext:h" + itoa(i)),
+			ID:   domain.CanonicalID("symbol:go:example.com/m/ext:h" + itoa(i)),
 			Kind: domain.KindFunction, Name: "h" + itoa(i), FilePath: "ext/helper.go"})
 	}
 	if _, err := r.SaveBatchStats(extNodes, []*domain.Fact{

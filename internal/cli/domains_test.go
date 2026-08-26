@@ -69,7 +69,7 @@ func TestExportDomainFacts(t *testing.T) {
 	defer db.Close()
 	acts := action.New(sqlite.NewRepo(db))
 	path := filepath.Join(t.TempDir(), "facts.json")
-	if err := exportDomainFacts(dir, acts, wikiConfig{}, sqlite.NewRepo(db), path); err != nil {
+	if err := exportDomainFacts(dir, acts, wikiConfig{}, path); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(path)
@@ -145,7 +145,7 @@ func TestDomainFactsEntityOutIn(t *testing.T) {
 	}, nil); err != nil {
 		t.Fatal(err)
 	}
-	f := collectDomainFacts(acts, dir, wikiConfig{}, r)
+	f := collectDomainFacts(acts, dir, wikiConfig{})
 	byName := map[string]entityFacts{}
 	for _, e := range f.Ents {
 		byName[e.Name] = e
@@ -187,7 +187,7 @@ func TestDomainFactsEntityPkg(t *testing.T) {
 	}, nil); err != nil {
 		t.Fatal(err)
 	}
-	f := collectDomainFacts(action.New(r), dir, wikiConfig{}, r)
+	f := collectDomainFacts(action.New(r), dir, wikiConfig{})
 	for _, e := range f.Ents {
 		if e.Name == "svc" && e.Pkg != "example.com/m/order" {
 			t.Errorf("实体 Pkg = %q; want example.com/m/order（完整路径——与 packages 对应）", e.Pkg)
@@ -236,7 +236,7 @@ func TestDomainFactsPkgCalls(t *testing.T) {
 	}, nil); err != nil {
 		t.Fatal(err)
 	}
-	f := collectDomainFacts(action.New(r), dir, wikiConfig{}, r)
+	f := collectDomainFacts(action.New(r), dir, wikiConfig{})
 	if len(f.PkgCalls) != 2 {
 		t.Fatalf("pkg_calls = %+v; want 2 条跨包边", f.PkgCalls)
 	}
@@ -258,14 +258,22 @@ func TestDomainFactsPkgCalls(t *testing.T) {
 // TestDomainFactsGrpcMethods：R54——grpc 服务带方法名列表（一个服务
 // 可能含多域方法、分开部署——方法级归属信息）。
 func TestDomainFactsGrpcMethods(t *testing.T) {
-	dir := seedGrpcRoutesRepo(t)
+	dir := seedRepo(t)
 	db, err := sqlite.Open(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	r := sqlite.NewRepo(db)
+	if _, err := r.SaveBatchStats([]*domain.CodeEntity{
+		{ID: "symbol:go:example.com/m/grpc:svc.QueryService", Kind: domain.KindGrpcService,
+			Name: "svc.QueryService", FilePath: "grpc/query_grpc.pb.go",
+			Properties: map[string]any{"service_name": "QueryService", "methods": "Query,PagingShops"}},
+	}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
 	acts := action.New(sqlite.NewRepo(db))
-	f := collectDomainFacts(acts, dir, wikiConfig{}, sqlite.NewRepo(db))
+	f := collectDomainFacts(acts, dir, wikiConfig{})
 	found := false
 	for _, s := range f.Svcs {
 		if s.Type == "grpc" && s.Name == "QueryService" {

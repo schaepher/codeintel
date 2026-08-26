@@ -16,13 +16,21 @@ import (
 // 拆出（行数治理；R30 签名识别后调用）。
 func (ctx *fileCtx) emitGrpcServiceEntry(call *ast.CallExpr, callee *types.Func, svcName string) {
 	pkg := ctx.pkg
-	// §18：grpc_service 节点
+	// §18：grpc_service 节点。R93：methods 属性从 Register 第二参接口
+	// 方法名提取（外部定义场景 ServiceDesc 文件读不到——接口方法名即
+	// 服务方法，查询端 svcMethodsProp 回退；无需读外部文件）
+	props := map[string]any{"service_name": svcName}
+	if sig, ok := callee.Type().(*types.Signature); ok && sig.Params().Len() >= 2 {
+		if methods := ifaceMethodNames(sig.Params().At(1).Type()); len(methods) > 0 {
+			props["methods"] = strings.Join(methods, ",")
+		}
+	}
 	svcID := domain.CanonicalID("symbol:go:" + callee.Pkg().Path() + ":svc." + svcName)
 	_ = ctx.emit(domain.Item{Node: &domain.CodeEntity{
 		ID:         svcID,
 		Kind:       domain.KindGrpcService,
 		Name:       "svc." + svcName,
-		Properties: map[string]any{"service_name": svcName},
+		Properties: props,
 	}})
 	// R30：注册函数节点打 registers_service 属性（nodeFor 的 extra 只
 	// 支持 bool 标记，服务名是字符串——直构）

@@ -42,7 +42,7 @@ func TestQueryChainIfaceImpl(t *testing.T) {
 		t.Fatal(err)
 	}
 	acts := action.New(r)
-	chain := queryChain(acts, "symbol:go:example.com/m/svc:(svc).Run")
+	chain := acts.QueryChain( "symbol:go:example.com/m/svc:(svc).Run")
 	if chain == nil || len(chain.Steps) == 0 {
 		t.Fatalf("chain 空: %+v", chain)
 	}

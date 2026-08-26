@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/schaepher/codeintel/internal/action"
-	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
 
 // pkgFacts 一个包的事实（完整路径——层级由 path 承载，归属校验用；
@@ -85,7 +84,7 @@ type domainFacts struct {
 // collectDomainFacts 收集事实包（复用索引查询——动作层 API）。
 // 包用**完整路径**；注释 rune 安全截断（字节截断会切坏 UTF-8 多字节
 // 字符——用户实测导出文件出现无效 UTF-8）。
-func collectDomainFacts(acts *action.Actions, repoAbs string, cfg wikiConfig, db *sqlite.Repo) *domainFacts {
+func collectDomainFacts(acts *action.Actions, repoAbs string, cfg wikiConfig) *domainFacts {
 	f := &domainFacts{}
 
 	if pkgs, err := acts.Packages(); err == nil {
@@ -194,7 +193,7 @@ func collectDomainFacts(acts *action.Actions, repoAbs string, cfg wikiConfig, db
 		sort.Slice(f.PkgCalls, func(i, j int) bool { return f.PkgCalls[i].From < f.PkgCalls[j].From })
 	}
 
-	if res, err := grpcRoutes(db, repoAbs); err == nil {
+	if res, err := acts.GrpcRoutes(repoAbs); err == nil {
 		for _, s := range res.Services {
 			// R54：服务带方法名（一个服务可能含多域方法——分开部署）；
 			// R71：方法名截断（前 20 + 总数——MemberService 100+ 方法
@@ -212,7 +211,7 @@ func collectDomainFacts(acts *action.Actions, repoAbs string, cfg wikiConfig, db
 			f.Svcs = append(f.Svcs, svc)
 		}
 	}
-	if res, err := httpRoutes(db); err == nil {
+	if res, err := acts.HTTPRoutes(); err == nil {
 		for _, r := range res.Routes {
 			m := r.Method
 			if m == "" {
@@ -241,8 +240,8 @@ func domainFactsJSONIndent(f *domainFacts) ([]byte, error) {
 
 // exportDomainFacts 事实包导出到文件（--export-facts——JSON 格式，
 // 可人工检查/喂给任何 agent；缩进版可读）。
-func exportDomainFacts(repoAbs string, acts *action.Actions, cfg wikiConfig, db *sqlite.Repo, path string) error {
-	f := collectDomainFacts(acts, repoAbs, cfg, db)
+func exportDomainFacts(repoAbs string, acts *action.Actions, cfg wikiConfig, path string) error {
+	f := collectDomainFacts(acts, repoAbs, cfg)
 	b, err := domainFactsJSONIndent(f)
 	if err != nil {
 		return err

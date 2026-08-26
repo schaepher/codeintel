@@ -9,13 +9,15 @@ package cli
 // - 规模控制（用户定案）：每节/每页展开上限 procMaxEntries（--max-entries
 //   可调），超出部分折叠为清单
 // 拆分：gRPC 渲染部分在 wiki_processes_grpc.go（行数治理）
+// R92：查询/数据函数迁 action（Actions.HTTPRoutes/QueryChain、
+// GrpcProcMethods/GrpcMethodEntryID/GrpcHandlerGoMethod）；本文件留
+// httpProcEntries 装配与渲染。
 
 import (
 	"sort"
 	"strings"
 
 	"github.com/schaepher/codeintel/internal/action"
-	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
 
 // procMaxEntries 每节/每页入口展开上限（R37：超出折叠为清单）。
@@ -36,20 +38,20 @@ type httpProcEntry struct {
 	Paths     []string // 该 handler 注册的路由（"GET /ping" 形态）
 	Resolver  string
 	Register  string // 首个注册点
-	Chain     *procChain
+	Chain     *action.ProcChain
 }
 
 // httpProcEntries 读 http_route 节点 → 按 handler_id 去重 → 展开调用链。
 // handler_id 空：匿名/方法值（s.orders 无法 fallback）→ Chain nil 仅列路由；
 // 具名函数短名 fallback ResolveSymbol（老索引兼容，多匹配失败为 nil）。
-func httpProcEntries(acts *action.Actions, repo *sqlite.Repo) []httpProcEntry {
-	res, err := httpRoutes(repo)
+func httpProcEntries(acts *action.Actions) []httpProcEntry {
+	res, err := acts.HTTPRoutes()
 	if err != nil || len(res.Routes) == 0 {
 		return nil
 	}
 	var out []httpProcEntry
 	// 无 handler_id 的短名 fallback 缓存（多路由同短名只解析一次）
-	shortResolved := map[string]*procChain{}
+	shortResolved := map[string]*action.ProcChain{}
 	for _, r := range res.Routes {
 		if r.HandlerID != "" {
 			if i := indexOfProc(out, r.HandlerID); i >= 0 {
@@ -60,7 +62,7 @@ func httpProcEntries(acts *action.Actions, repo *sqlite.Repo) []httpProcEntry {
 				}
 				continue
 			}
-			chain := queryChain(acts, r.HandlerID)
+			chain := acts.QueryChain(r.HandlerID)
 			out = append(out, httpProcEntry{
 				Handler: r.Handler, HandlerID: r.HandlerID,
 				Paths: []string{routeLabel(r)}, Resolver: r.Resolver,
@@ -69,12 +71,12 @@ func httpProcEntries(acts *action.Actions, repo *sqlite.Repo) []httpProcEntry {
 			continue
 		}
 		// 无 handler_id：方法值/匿名不可解析；具名短名 fallback
-		var chain *procChain
+		var chain *action.ProcChain
 		if !strings.Contains(r.Handler, ".") && r.Handler != "" && r.Handler != "(匿名)" {
 			if c, ok := shortResolved[r.Handler]; ok {
 				chain = c
 			} else {
-				chain = queryChain(acts, r.Handler)
+				chain = acts.QueryChain(r.Handler)
 				shortResolved[r.Handler] = chain
 			}
 		}
@@ -104,72 +106,11 @@ func indexOfProc(xs []httpProcEntry, handlerID string) int {
 }
 
 // routeLabel 路由展示标签（method 空 = ANY）。
-func routeLabel(r httpRouteEntry) string {
+func routeLabel(r action.HTTPRouteEntry) string {
 	if r.Method == "" {
 		return "ANY " + r.Path
 	}
 	return r.Method + " " + r.Path
-}
-
-// grpcMethodProc 一个 gRPC 服务方法入口（(Impl).Method 展开）。
-type grpcMethodProc struct {
-	Name    string
-	Handler string // ServiceDesc handler（生成代码包装）
-	Chain   *procChain
-}
-
-// grpcMethodEntryID 方法入口 canonical ID：ImplID（symbol:go:<pkg>:<Type>）
-// → symbol:go:<pkg>:(Type).Method（canonicalizer 统一 (T).m 形态）。
-func grpcMethodEntryID(implID, method string) string {
-	i := strings.LastIndex(implID, ":")
-	if i < 0 {
-		return ""
-	}
-	return implID[:i+1] + "(" + implID[i+1:] + ")." + method
-}
-
-// grpcProcMethods 服务方法 → 调用链：ImplID 构造 (Impl).Method。
-// 方法未索引/实现缺失 → Chain nil（渲染时说明，不崩溃）。
-// R55：ServiceDesc 方法名是 proto 定义名（go2o 实测小写 sendCode/forbid/
-// getPage），实现方法是 Go 导出名（SendCode/Forbid/GetPage）——用 handler
-// 提取 Go 方法名构造入口 ID，否则 19 个方法索引中无符号显示无调用链。
-func grpcProcMethods(acts *action.Actions, svc grpcRouteService) []grpcMethodProc {
-	out := make([]grpcMethodProc, 0, len(svc.Methods))
-	for _, m := range svc.Methods {
-		p := grpcMethodProc{Name: m.Name, Handler: m.Handler}
-		if svc.ImplID != "" && m.Name != "" {
-			entry := m.Name
-			goName := grpcHandlerGoMethod(m.Handler, svc.Name)
-			if goName != "" {
-				p.Name = goName // 展示与调用链入口一致（Go 导出名）
-				entry = goName
-			}
-			p.Chain = queryChain(acts, grpcMethodEntryID(svc.ImplID, entry))
-			// R55：ServiceDesc 声明了方法（handler 存在）但索引无此符号——
-			// 真无效方法（go2o SaveAreaTemplate/FlushCache：实现嵌
-			// Unimplemented 桩）——文案区别于"可能未重建索引"。
-			// 仅覆盖 ResolveSymbol 失败（索引中无此符号）；"未调用项目内
-			// 函数"（Ping/Hello 健康检查）保留诚实文案不覆盖。
-			if p.Chain != nil && strings.Contains(p.Chain.Miss, "索引中无此符号") && goName != "" {
-				p.Chain.Miss = "ServiceDesc 声明但实现类型无此方法（未实现——无效 gRPC 方法；或未重建索引）"
-			}
-		}
-		out = append(out, p)
-	}
-	return out
-}
-
-// grpcHandlerGoMethod handler 名提取 Go 方法名（R55）：生成代码 handler
-// 格式 `_<Service>_<GoMethod>_Handler`——ServiceDesc 方法名是 proto 定义
-// 名（小写 sendCode），Go 导出名在 handler 里（SendCode）。前缀/后缀不
-// 匹配（手写 handler、服务名不符）返回 ""。
-func grpcHandlerGoMethod(handler, svcName string) string {
-	prefix := "_" + svcName + "_"
-	const sfx = "_Handler"
-	if !strings.HasPrefix(handler, prefix) || !strings.HasSuffix(handler, sfx) {
-		return ""
-	}
-	return strings.TrimSuffix(strings.TrimPrefix(handler, prefix), sfx)
 }
 
 // procFold 入口超限拆分：前 max 完整展开，其余折叠（渲染时清单）。
@@ -253,7 +194,7 @@ func renderHTTPRoutesHTML(rc *wikiRenderCtx, entries []httpProcEntry, max int) s
 }
 
 // grpcMethodMissNote 方法无调用链的说明。
-func grpcMethodMissNote(p grpcMethodProc) string {
+func grpcMethodMissNote(p action.GrpcMethodProc) string {
 	if p.Name == "" {
 		return "方法名缺失"
 	}

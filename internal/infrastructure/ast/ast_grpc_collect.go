@@ -240,3 +240,24 @@ func collectDirectRegisters(pkgs []*packages.Package, modules []string) map[stri
 	}
 	return out
 }
+
+// ifaceMethodNames 类型为接口时返回其方法名列表（types 级——外部包
+// 无 Syntax 也可查；R93：grpc 服务方法源——Register 第二参接口）。
+func ifaceMethodNames(t types.Type) []string {
+	if p, ok := t.(*types.Pointer); ok {
+		t = p.Elem()
+	}
+	named, ok := t.(*types.Named)
+	if !ok {
+		return nil
+	}
+	iface, ok := named.Underlying().(*types.Interface)
+	if !ok || iface.NumMethods() == 0 {
+		return nil
+	}
+	var out []string
+	for i := 0; i < iface.NumMethods(); i++ {
+		out = append(out, iface.Method(i).Name())
+	}
+	return out
+}

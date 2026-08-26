@@ -24,7 +24,7 @@ func entitySeqFixture() (*domain.EntityGraph, []domain.WikiSeqStep) {
 			{From: "symbol:go:example.com/action:Actions", To: "symbol:go:example.com/sqlite:Repo", Count: 5},
 		},
 		ByName: map[string][]string{
-			"cmdWiki":      {"symbol:go:example.com/cli:cli"},
+			"cmdWiki":            {"symbol:go:example.com/cli:cli"},
 			"(Actions).WikiData": {"symbol:go:example.com/action:Actions"},
 			"(Actions).Packages": {"symbol:go:example.com/action:Actions"},
 			"(Repo).GetAllCalls": {"symbol:go:example.com/sqlite:Repo"},
@@ -33,9 +33,9 @@ func entitySeqFixture() (*domain.EntityGraph, []domain.WikiSeqStep) {
 	}
 	steps := []domain.WikiSeqStep{
 		{Caller: "cmdWiki", Callee: "(Actions).WikiData"},
-		{Caller: "cmdWiki", Callee: "(Actions).Packages"},            // 连续 cli→Actions（合并 ×2）
+		{Caller: "cmdWiki", Callee: "(Actions).Packages"}, // 连续 cli→Actions（合并 ×2）
 		{Caller: "(Actions).WikiData", Callee: "(Repo).GetAllCalls"},
-		{Caller: "(Actions).Packages", Callee: "(Repo).GetTables"},  // 连续 Actions→Repo（合并 ×2）
+		{Caller: "(Actions).Packages", Callee: "(Repo).GetTables"},   // 连续 Actions→Repo（合并 ×2）
 		{Caller: "(Actions).WikiData", Callee: "(Actions).Packages"}, // 实体内调用——折叠
 	}
 	return g, steps

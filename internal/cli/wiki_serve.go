@@ -40,7 +40,7 @@ type wikiSnapshot struct {
 	commitSHA    string
 	degradeStats string // R6：构建降级统计
 	eg           *domain.EntityGraph // R9：实体协作图（概览/模块页渲染）
-	keyFlows     map[string][]wikiKeyFlow // R17：模块关键数据流（核心符号字段读写）
+	keyFlows     map[string][]action.WikiKeyFlow // R17：模块关键数据流（核心符号字段读写）
 	schemas      map[string]map[string]schemaCol // R19：表 schema 事实源（列类型/默认值）
 	ormStructs    map[string][]ormStruct // R20：表关联结构体（TableName 反查）
 	goTypes       map[string]map[string]string // R21：结构体 Go 类型 fallback
@@ -217,7 +217,7 @@ func (ws *wikiServe) load(buildID, commitSHA, degradeStats string, yamlMod int64
 		eg = nil
 	}
 	// R17：模块关键数据流（load 时预计算一次，snapshot 缓存）
-	keyFlows := map[string][]wikiKeyFlow{}
+	keyFlows := map[string][]action.WikiKeyFlow{}
 	for _, wm := range data {
 		if f := wikiModuleKeyFlows(ws.acts, wm); len(f) > 0 {
 			keyFlows[wm.Name] = f

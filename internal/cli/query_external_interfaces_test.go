@@ -13,12 +13,12 @@ import (
 )
 
 // seedExternalInterfacesRepo 外部接口 fixture：
-// - 本项目 grpc 服务（methods/param_types）——内部调用应排除
-// - 外部 grpc 服务（只有 service_name）——内部调用应排除（无 param
-//   匹配的会命中 req_type 条件排除）
-// - 外部 grpc 调用（req_type 不在本项目参数集合）→ 应识别
-// - 本项目 http 路由（有 handler）——调用应排除
-// - 外部 http（无 handler 的路由节点）→ 应识别
+//   - 本项目 grpc 服务（methods/param_types）——内部调用应排除
+//   - 外部 grpc 服务（只有 service_name）——内部调用应排除（无 param
+//     匹配的会命中 req_type 条件排除）
+//   - 外部 grpc 调用（req_type 不在本项目参数集合）→ 应识别
+//   - 本项目 http 路由（有 handler）——调用应排除
+//   - 外部 http（无 handler 的路由节点）→ 应识别
 func seedExternalInterfacesRepo(t *testing.T) string {
 	t.Helper()
 	dir := seedRepo(t)
@@ -39,7 +39,7 @@ func seedExternalInterfacesRepo(t *testing.T) string {
 			}},
 		// 外部 grpc 服务（外部调用创建——只有 service_name）
 		{ID: "symbol:go:example.com/ext/pay:svc.PayService", Kind: domain.KindGrpcService,
-			Name: "svc.PayService",
+			Name:       "svc.PayService",
 			Properties: map[string]any{"service_name": "PayService"}},
 		// 外部 http 路由（外部 URL 创建——无 handler）
 		{ID: "symbol:http:api.ext-pay.com:route./charge", Kind: domain.KindHTTPRoute,

@@ -12,9 +12,10 @@ import (
 )
 
 // seedExtChainRepo fixture：
-//   daemon:(d).Run → 调 grpc 客户端 OrderServiceClient
-//   OrderService 服务端 (orderServiceImpl).SubmitOrder → 调 http.Get（sms）
-//   http_call 边：SubmitOrder → symbol:http:sms.example.com:route./send
+//
+//	daemon:(d).Run → 调 grpc 客户端 OrderServiceClient
+//	OrderService 服务端 (orderServiceImpl).SubmitOrder → 调 http.Get（sms）
+//	http_call 边：SubmitOrder → symbol:http:sms.example.com:route./send
 func seedExtChainRepo(t *testing.T) string {
 	t.Helper()
 	dir := seedRepo(t)
@@ -131,4 +132,3 @@ func TestExtChainCache(t *testing.T) {
 		t.Errorf("索引变化后应失效重算（grpc = %+v）", out3.Grpc)
 	}
 }
-

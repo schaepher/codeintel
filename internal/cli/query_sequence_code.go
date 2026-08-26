@@ -52,7 +52,7 @@ func walkStmt(acts *action.Actions, abs string, fset *token.FileSet, src []byte,
 			sigID := tid
 			if !strings.Contains(tid, ":(") {
 				if sel, isSel := fun.(*ast.SelectorExpr); isSel {
-					sigID = grpcMethodEntryID(tid, sel.Sel.Name)
+					sigID = action.GrpcMethodEntryID(tid, sel.Sel.Name)
 				}
 			}
 			node.Type = implTypeShort(tid)
@@ -69,7 +69,7 @@ func walkStmt(acts *action.Actions, abs string, fset *token.FileSet, src []byte,
 				}
 				if !strings.Contains(tid, ":(") {
 					if sel, isSel := fun.(*ast.SelectorExpr); isSel {
-						if child := codeSeqForSymbol(acts, abs, grpcMethodEntryID(tid, sel.Sel.Name), depth-1); child != nil {
+						if child := codeSeqForSymbol(acts, abs, action.GrpcMethodEntryID(tid, sel.Sel.Name), depth-1); child != nil {
 							node.Nodes = child.Nodes
 							return node
 						}

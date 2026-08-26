@@ -80,7 +80,7 @@ func TestQueryChainKeyFlows(t *testing.T) {
 	}
 	defer db.Close()
 	acts := action.New(sqlite.NewRepo(db))
-	chain := queryChain(acts, "symbol:go:example.com/m:main")
+	chain := acts.QueryChain("symbol:go:example.com/m:main")
 	if chain == nil {
 		t.Fatal("queryChain 返回 nil")
 	}

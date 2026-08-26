@@ -42,11 +42,11 @@ func withStopPkgs(t *testing.T, stops []string) {
 func TestSeqStopPkgHit(t *testing.T) {
 	withStopPkgs(t, []string{"example.com/m/repo", "infra"})
 	cases := map[string]bool{
-		"symbol:go:example.com/m/repo:(R).Get":     true,  // 完整路径
-		"symbol:go:example.com/m/repo:helper":      true,  // 完整路径
-		"symbol:go:example.com/m/pkg/infra:(X).Y":  true,  // 短名
-		"symbol:go:example.com/m/svc:(S).Run":      false, // 未命中
-		"symbol:go:example.com/m/order:(O).Pay":    false,
+		"symbol:go:example.com/m/repo:(R).Get":    true,  // 完整路径
+		"symbol:go:example.com/m/repo:helper":     true,  // 完整路径
+		"symbol:go:example.com/m/pkg/infra:(X).Y": true,  // 短名
+		"symbol:go:example.com/m/svc:(S).Run":     false, // 未命中
+		"symbol:go:example.com/m/order:(O).Pay":   false,
 	}
 	for id, want := range cases {
 		if got := seqStopPkgHit(id); got != want {
@@ -160,9 +160,9 @@ func TestRenderCodeSeqOrder(t *testing.T) {
 func TestImplTypeShort(t *testing.T) {
 	cases := map[string]string{
 		"symbol:go:example.com/m/domain/order:(orderManagerImpl).SubmitOrder": "order.orderManagerImpl", // 方法形态
-		"symbol:go:example.com/m/repo:OrderRepoImpl":                          "repo.OrderRepoImpl",       // 类型形态
-		"symbol:go:example.com/m/svc:helper":                                  "svc.helper",               // 函数形态（无类型语义——短名）
-		"symbol:go:example.com/m:(Svc).Run":                                   "m.Svc",                    // 根包方法
+		"symbol:go:example.com/m/repo:OrderRepoImpl":                          "repo.OrderRepoImpl",     // 类型形态
+		"symbol:go:example.com/m/svc:helper":                                  "svc.helper",             // 函数形态（无类型语义——短名）
+		"symbol:go:example.com/m:(Svc).Run":                                   "m.Svc",                  // 根包方法
 	}
 	for id, want := range cases {
 		if got := implTypeShort(id); got != want {

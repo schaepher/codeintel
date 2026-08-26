@@ -29,7 +29,7 @@ type procChainOut struct {
 	Steps     []domain.WikiSeqStep `json:"steps,omitempty"`  // 调用步骤（caller → callee）
 	Pkgs      []string             `json:"pkgs,omitempty"`   // 涉及包
 	Miss      string               `json:"miss,omitempty"`   // 无链原因
-	KeyFlows  []wikiKeyFlow        `json:"key_flows,omitempty"` // R78：链上符号字段读写（value-trace 串联）
+	KeyFlows  []action.WikiKeyFlow `json:"key_flows,omitempty"` // R78：链上符号字段读写（value-trace 串联）
 }
 
 // processesOut 系统流程输出契约（cmd --json / MCP 共用）。
@@ -38,7 +38,7 @@ type processesOut struct {
 }
 
 // procChainToOut procChain → 输出结构。
-func procChainToOut(c *procChain) *procChainOut {
+func procChainToOut(c *action.ProcChain) *procChainOut {
 	if c == nil {
 		return nil
 	}
@@ -58,12 +58,12 @@ func processesData(acts *action.Actions, repo *sqlite.Repo, data []*domain.WikiM
 		}
 		p := procEntryOut{Kind: "main", Title: e.Name, Detail: detail}
 		if len(e.CalleeIDs) > 0 {
-			p.Chain = procChainToOut(queryChain(acts, e.CalleeIDs[0]))
+			p.Chain = procChainToOut(acts.QueryChain(e.CalleeIDs[0]))
 		}
 		out.Entries = append(out.Entries, p)
 	}
 	// 2. HTTP 路由入口（同 handler 去重）
-	for _, h := range httpProcEntries(acts, repo) {
+	for _, h := range httpProcEntries(acts) {
 		detail := "[" + h.Resolver + "] " + h.Register
 		p := procEntryOut{Kind: "http", Title: joinAnd(h.Paths), Detail: detail, Chain: procChainToOut(h.Chain)}
 		out.Entries = append(out.Entries, p)
@@ -75,7 +75,7 @@ func processesData(acts *action.Actions, repo *sqlite.Repo, data []*domain.WikiM
 		if s.Impl != "" {
 			detail += "（实现 " + s.Impl + "）"
 		}
-		methods := grpcProcMethods(acts, s)
+		methods := acts.GrpcProcMethods(s)
 		if max > 0 && len(methods) > max {
 			methods = methods[:max]
 		}

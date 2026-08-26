@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"github.com/schaepher/codeintel/internal/action"
 	"strings"
 
 	"github.com/schaepher/codeintel/internal/domain"
@@ -49,7 +50,7 @@ func moduleDesc(wm *domain.WikiModule, metaDesc string) string {
 // renderModulePage 模块页六区块 + 关键数据流 + 架构图 + 流程时序
 // （R9：内部调用链渲染为实体协作子图；R17：关键数据流 = 核心符号
 // 字段读写——value-trace 入口）。
-func renderModulePage(wm *domain.WikiModule, eg *domain.EntityGraph, keyFlows []wikiKeyFlow, desc string, tableAlias map[string]string, hidden map[string]bool, cfg wikiConfig, rc *wikiRenderCtx) string {
+func renderModulePage(wm *domain.WikiModule, eg *domain.EntityGraph, keyFlows []action.WikiKeyFlow, desc string, tableAlias map[string]string, hidden map[string]bool, cfg wikiConfig, rc *wikiRenderCtx) string {
 	var b strings.Builder
 	b.WriteString("# " + wm.Name + "\n\n")
 	if desc != "" {

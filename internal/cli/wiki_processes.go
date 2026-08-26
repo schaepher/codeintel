@@ -8,74 +8,11 @@ package cli
 
 import (
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 
-	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
 )
-
-// procChain 一条流程的调用链（入口 + 边 + 涉及包）。
-type procChain struct {
-	Entry    string // 入口符号名
-	Steps    []domain.WikiSeqStep
-	Pkgs     []string
-	Miss     string         // R50：无调用链的原因（区分索引问题 vs 仅调用外部库）
-	KeyFlows []wikiKeyFlow  // R78：链上符号关键数据流（字段读写——value-trace 串联）
-}
-
-// queryChain 查询入口符号的深度 2 调用链 + 涉及包（短名展示）。
-// R13：steps 按源码调用行号排序（sortChainByCallLine）——顺序与
-// 实际代码一一对应（此前 SQL 遍历序与源码序不一致）。
-// R50：无链原因区分——符号不存在（索引问题）vs 符号存在但无项目内
-// 出边（仅调用外部库——go2o 实测 ParseFlags 只调 flag 标准库）。
-func queryChain(acts *action.Actions, entryName string) *procChain {
-	// action 层：ResolveSymbol 名称解析 + Callees 调用链
-	entry, err := acts.ResolveSymbol(entryName)
-	if err != nil {
-		return &procChain{Miss: "索引中无此符号——可能未重建索引"}
-	}
-	facts, err := acts.Callees(entry.ID, 2)
-	if err != nil {
-		return &procChain{Entry: shortSymbolName(entry), Miss: "查询调用链失败"}
-	}
-	// R75/R76：接口具体化——CalleesConcrete（action 层通用——wiki 与
-	// query sequence 共用）：接口调用经 implements 落到实现，时序图
-	// 反映实际执行逻辑而非接口列表
-	facts, err = acts.CalleesConcrete(entry.ID, 2)
-	if err != nil {
-		return &procChain{Entry: shortSymbolName(entry), Miss: "查询调用链失败"}
-	}
-	chain := &procChain{Entry: shortSymbolName(entry)}
-	chain.Steps = sortChainByCallLine(string(entry.ID), facts)
-	// R78：流程页深度——链上符号（入口 + 被调者）关键数据流（字段
-	// 读写，value-trace 串联入口；失败跳过——链可能含外部库符号）
-	var flowIDs []string
-	flowIDs = append(flowIDs, string(entry.ID))
-	for _, f := range facts {
-		flowIDs = append(flowIDs, string(f.TargetID))
-	}
-	if flows := wikiKeyFlows(acts, "", flowIDs); len(flows) > 0 {
-		chain.KeyFlows = flows
-	}
-	pkgs := map[string]bool{}
-	pkgs[symbolPkg(string(entry.ID))] = true
-	for _, f := range facts {
-		pkgs[symbolPkg(string(f.SourceID))] = true
-		pkgs[symbolPkg(string(f.TargetID))] = true
-	}
-	for p := range pkgs {
-		if p != "" {
-			chain.Pkgs = append(chain.Pkgs, p)
-		}
-	}
-	sort.Strings(chain.Pkgs)
-	if len(chain.Steps) == 0 {
-		chain.Miss = "该函数未调用项目内其他函数（可能仅调用外部库）"
-	}
-	return chain
-}
 
 // shortSymbolName 符号短名（(T).m / 函数名）。
 func shortSymbolName(e *domain.CodeEntity) string {
@@ -138,7 +75,7 @@ func renderProcessesMD(rc *wikiRenderCtx) string {
 			if i < len(e.CalleeIDs) {
 				target = e.CalleeIDs[i]
 			}
-			chain := queryChain(acts, target)
+			chain := acts.QueryChain(target)
 			if chain == nil || len(chain.Steps) == 0 {
 				b.WriteString("（索引中无调用链——可能未重建索引）\n\n")
 				continue
@@ -160,9 +97,9 @@ func renderProcessesMD(rc *wikiRenderCtx) string {
 		}
 	}
 	// R37：HTTP 路由入口（handler 调用链，同 handler 去重）——数据源
-	// http_route 节点（构建期识别）；rc.repo nil（纯函数级测试）跳过
-	if rc.repo != nil {
-		if h := renderHTTPRoutesMD(rc, httpProcEntries(rc.acts, rc.repo), procMaxOf(rc.MaxEntries)); h != "" {
+	// http_route 节点（构建期识别）；rc.acts nil（纯函数级测试）跳过
+	if rc.acts != nil {
+		if h := renderHTTPRoutesMD(rc, httpProcEntries(rc.acts), procMaxOf(rc.MaxEntries)); h != "" {
 			b.WriteString(h)
 		}
 		// gRPC 服务入口索引（每服务独立子页——子页文件由渲染器写出）
@@ -208,7 +145,7 @@ func renderProcessesHTML(rc *wikiRenderCtx) string {
 			if i < len(e.CalleeIDs) {
 				target = e.CalleeIDs[i]
 			}
-			chain := queryChain(acts, target)
+			chain := acts.QueryChain(target)
 			if chain == nil || len(chain.Steps) == 0 {
 				b.WriteString("<p class=\"muted\">（索引中无调用链）</p>")
 				continue
@@ -230,9 +167,9 @@ func renderProcessesHTML(rc *wikiRenderCtx) string {
 		}
 	}
 	// R37：HTTP 路由入口 + gRPC 服务入口索引（每服务独立子页）；
-	// rc.repo nil（纯函数级测试）跳过
-	if rc.repo != nil {
-		if h := renderHTTPRoutesHTML(rc, httpProcEntries(rc.acts, rc.repo), procMaxOf(rc.MaxEntries)); h != "" {
+	// rc.acts nil（纯函数级测试）跳过
+	if rc.acts != nil {
+		if h := renderHTTPRoutesHTML(rc, httpProcEntries(rc.acts), procMaxOf(rc.MaxEntries)); h != "" {
 			b.WriteString(h)
 		}
 		if svcs := grpcServiceList(rc); len(svcs) > 0 {

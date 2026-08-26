@@ -32,13 +32,13 @@ func seedRoutesProcRepo(t *testing.T) string {
 			Name: "GET /ping", Properties: map[string]any{
 				"method": "GET", "path": "/ping", "handler": "pingHandler",
 				"handler_id": "symbol:go:example.com/m/api:pingHandler",
-				"resolver": "gin", "register": "api/routes.go:20",
+				"resolver":   "gin", "register": "api/routes.go:20",
 			}},
 		{ID: "symbol:go:example.com/m/api:route.2", Kind: domain.KindHTTPRoute,
 			Name: "GET /v1/ping", Properties: map[string]any{
 				"method": "GET", "path": "/v1/ping", "handler": "pingHandler",
 				"handler_id": "symbol:go:example.com/m/api:pingHandler",
-				"resolver": "gin", "register": "api/routes.go:21",
+				"resolver":   "gin", "register": "api/routes.go:21",
 			}},
 		{ID: "symbol:go:example.com/m/api:route.3", Kind: domain.KindHTTPRoute,
 			Name: " /", Properties: map[string]any{
@@ -106,7 +106,7 @@ func TestProcHTTPEntries(t *testing.T) {
 	}
 	defer db.Close()
 	acts := action.New(sqlite.NewRepo(db))
-	entries := httpProcEntries(acts, sqlite.NewRepo(db))
+	entries := httpProcEntries(acts)
 	if len(entries) != 2 {
 		t.Fatalf("入口数 = %d; want 2（pingHandler 去重 + home）:\n%+v", len(entries), entries)
 	}
@@ -126,40 +126,6 @@ func TestProcHTTPEntries(t *testing.T) {
 		}
 	}
 }
-
-// TestProcGrpcMethods：grpcProcMethods——ImplID + 方法名构造 canonical ID
-// 展开方法调用链。
-func TestProcGrpcMethods(t *testing.T) {
-	dir := seedRoutesProcRepo(t)
-	db, err := sqlite.Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	acts := action.New(sqlite.NewRepo(db))
-	svc := grpcRouteService{Name: "QueryService", Impl: "queryServiceImpl",
-		ImplID: "symbol:go:example.com/m/impl:queryServiceImpl",
-		Methods: []grpcRouteMethod{
-			{Name: "Query", Handler: "_QueryService_Query_Handler"},
-			{Name: "PagingShops"},
-		}}
-	ms := grpcProcMethods(acts, svc)
-	if len(ms) != 2 {
-		t.Fatalf("方法数 = %d; want 2", len(ms))
-	}
-	if ms[0].Name != "Query" {
-		t.Fatalf("methods[0].Name = %q; want Query", ms[0].Name)
-	}
-	if ms[0].Chain == nil || len(ms[0].Chain.Steps) == 0 {
-		t.Error("Query 应有调用链（ImplID.Method 解析成功）")
-	}
-	if ms[1].Chain == nil || ms[1].Chain.Miss == "" {
-		t.Errorf("PagingShops 未定义方法节点——应返回带 Miss 说明的 chain（非 nil 非崩溃）: %+v", ms[1].Chain)
-	}
-}
-
-// R55 新测试（小写方法名/handler 提取/无调用边文案）已拆到
-// wiki_processes_r55_test.go（行数治理）。
 
 // TestRenderProcessesRoutes：流程页含 main 节 + HTTP 路由节 + gRPC 服务
 // 索引（main 节保留——R37 用户定案）。
@@ -200,9 +166,9 @@ func TestGrpcServicePageMD(t *testing.T) {
 	}
 	defer db.Close()
 	acts := action.New(sqlite.NewRepo(db))
-	svc := grpcRouteService{Name: "QueryService", Impl: "queryServiceImpl",
+	svc := action.GrpcRouteService{Name: "QueryService", Impl: "queryServiceImpl",
 		ImplID: "symbol:go:example.com/m/impl:queryServiceImpl",
-		Methods: []grpcRouteMethod{
+		Methods: []action.GrpcRouteMethod{
 			{Name: "Query", Handler: "_QueryService_Query_Handler"},
 		}}
 	page := renderGrpcServiceMD(&wikiRenderCtx{acts: acts, repo: sqlite.NewRepo(db), Diagram: "mermaid"}, svc, 15)
@@ -261,7 +227,7 @@ func TestProcFoldMaxEntries(t *testing.T) {
 	}
 	defer db.Close()
 	acts := action.New(sqlite.NewRepo(db))
-	entries := httpProcEntries(acts, sqlite.NewRepo(db))
+	entries := httpProcEntries(acts)
 	m := renderHTTPRoutesMD(&wikiRenderCtx{acts: acts, repo: sqlite.NewRepo(db), Diagram: "mermaid"}, entries, 1)
 	if !strings.Contains(m, "其余 1 个入口仅列清单") {
 		t.Errorf("超上限应标注折叠提示:\n%s", m)

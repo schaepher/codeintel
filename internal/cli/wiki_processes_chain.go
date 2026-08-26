@@ -6,11 +6,13 @@ package cli
 
 import (
 	"strings"
+
+	"github.com/schaepher/codeintel/internal/action"
 )
 
 // renderProcChainMD 入口调用链图 + 涉及包（md）。chain 空 → 说明文字
 // （chain.Miss 优先——R50 区分索引问题 vs 仅调用外部库；miss 兜底）。
-func renderProcChainMD(rc *wikiRenderCtx, chain *procChain, miss string) string {
+func renderProcChainMD(rc *wikiRenderCtx, chain *action.ProcChain, miss string) string {
 	var b strings.Builder
 	if chain == nil || len(chain.Steps) == 0 {
 		if chain != nil && chain.Miss != "" {
@@ -55,7 +57,7 @@ func renderProcChainMD(rc *wikiRenderCtx, chain *procChain, miss string) string 
 }
 
 // renderProcChainHTML 入口调用链图 + 涉及包（html）。
-func renderProcChainHTML(rc *wikiRenderCtx, chain *procChain, miss string) string {
+func renderProcChainHTML(rc *wikiRenderCtx, chain *action.ProcChain, miss string) string {
 	var b strings.Builder
 	if chain == nil || len(chain.Steps) == 0 {
 		if chain != nil && chain.Miss != "" {
@@ -103,7 +105,7 @@ func renderProcChainHTML(rc *wikiRenderCtx, chain *procChain, miss string) strin
 // sequence --code 同款——源码 AST 时序，depth=rc.SeqDepth）；符号
 // 解析失败/源码缺失 fallback 索引调用链。entryID：方法入口 canonical
 // ID（(Impl).Method）。
-func renderProcSeqMD(rc *wikiRenderCtx, entryID string, fallback *procChain, miss string) string {
+func renderProcSeqMD(rc *wikiRenderCtx, entryID string, fallback *action.ProcChain, miss string) string {
 	if entryID != "" && rc.RepoAbs != "" {
 		if root := codeSequence(rc.acts, rc.RepoAbs, entryID, rc.SeqDepth); root != nil {
 			var b strings.Builder
@@ -116,7 +118,7 @@ func renderProcSeqMD(rc *wikiRenderCtx, entryID string, fallback *procChain, mis
 }
 
 // renderProcSeqHTML 代码级时序（html 版，同 renderProcSeqMD）。
-func renderProcSeqHTML(rc *wikiRenderCtx, entryID string, fallback *procChain, miss string) string {
+func renderProcSeqHTML(rc *wikiRenderCtx, entryID string, fallback *action.ProcChain, miss string) string {
 	if entryID != "" && rc.RepoAbs != "" {
 		if root := codeSequence(rc.acts, rc.RepoAbs, entryID, rc.SeqDepth); root != nil {
 			var b strings.Builder

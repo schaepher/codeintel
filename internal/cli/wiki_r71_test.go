@@ -45,7 +45,7 @@ func TestDomainFactsGrpcMethodsTrim(t *testing.T) {
 	}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	f := collectDomainFacts(action.New(r), dir, wikiConfig{}, r)
+	f := collectDomainFacts(action.New(r), dir, wikiConfig{})
 	if len(f.Svcs) != 1 {
 		t.Fatalf("服务数 = %d; want 1", len(f.Svcs))
 	}

@@ -20,7 +20,7 @@ type moduleOut struct {
 	Desc        string        `json:"desc,omitempty"`
 	Entries     []string      `json:"entries,omitempty"`
 	CoreSymbols []string      `json:"core_symbols,omitempty"` // "Name (Kind, callers 调用者)" 展示
-	KeyFlows    []wikiKeyFlow `json:"key_flows,omitempty"`    // 核心符号字段读写
+	KeyFlows    []action.WikiKeyFlow `json:"key_flows,omitempty"`    // 核心符号字段读写
 	OutCalls    []string      `json:"out_calls,omitempty"`
 	InCalls     []string      `json:"in_calls,omitempty"`
 	Tables      []string      `json:"tables,omitempty"`

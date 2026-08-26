@@ -29,7 +29,7 @@ func cmdQuerySequence(acts *action.Actions, target string, depth int, mermaid bo
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
-	steps := sortChainByCallLine(string(n.ID), facts)
+	steps := action.SortChainByCallLine(string(n.ID), facts)
 	if jsonOut {
 		encodeJSON(map[string]any{
 			"symbol": shortSymbolName(n),

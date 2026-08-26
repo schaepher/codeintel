@@ -25,12 +25,12 @@ func TestCleanWikiOutDir(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("wiki.yaml", "# 用户配置")           // 必须保留
-	write("notes.md", "# 用户笔记")            // 非产物，保留
-	write("index.md", "old")                  // 产物，删
-	write("tables.md", "old")                 // 产物，删
-	write("codeintel.md", "old")              // 模块页（本次渲染），删
-	write("bench-sqlite.md", "old")           // 旧模块页（不在本次 data——来源不确定，保守保留）
+	write("wiki.yaml", "# 用户配置")    // 必须保留
+	write("notes.md", "# 用户笔记")     // 非产物，保留
+	write("index.md", "old")        // 产物，删
+	write("tables.md", "old")       // 产物，删
+	write("codeintel.md", "old")    // 模块页（本次渲染），删
+	write("bench-sqlite.md", "old") // 旧模块页（不在本次 data——来源不确定，保守保留）
 	data := []*domain.WikiModule{{Name: "example.com/m", ShortName: "codeintel"}}
 	if err := cleanWikiOutDir(dir, data); err != nil {
 		t.Fatal(err)
@@ -74,7 +74,6 @@ func TestTableColBrief(t *testing.T) {
 		t.Errorf("截断内容 = %q; want 前 10 列 + …", got)
 	}
 }
-
 
 // TestWikiAIFillSplitBatches：缺口 > aiBatchMax（20）切片多批——
 // 每批 ≤20 条混合（模块/表/列组），同会话 resume。
@@ -126,7 +125,6 @@ func TestWikiAIFillSplitBatches(t *testing.T) {
 	}
 }
 
-
 // TestWikiAIFillWithQA：--with-qa——相关历史 Q&A 进批量 prompt
 // （按缺口表名/模块短名匹配 qa_history）。
 func TestWikiAIFillWithQA(t *testing.T) {
@@ -163,7 +161,6 @@ func TestWikiAIFillWithQA(t *testing.T) {
 		t.Errorf("--with-qa prompt 不应含无关问答:\n%s", gotPrompt)
 	}
 }
-
 
 // TestSplitGapBatchesCols：列组按列名数切片（每批 ≤ maxCols）——
 // 大列数表不因组数少而撑爆 prompt。

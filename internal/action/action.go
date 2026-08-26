@@ -56,6 +56,13 @@ type Reader interface {
 	GetIsolatedChains() ([][]*domain.UnusedFunc, error)
 	GetPath(from, to domain.CanonicalID, maxDepth int, viaCalls bool) ([]*domain.TraceRow, error)
 	GetGrpcCalls() ([]*domain.GrpcCallRow, error)
+	// R92：grpc/http 路由清单（query grpc-routes/http-routes）
+	GetGrpcServices() ([]*domain.CodeEntity, error)                    // kind=grpc_service（含 properties）
+	GetRegisterNode(svcName string) (*domain.CodeEntity, error)        // registers_service 属性
+	GetFirstCallTo(targetID domain.CanonicalID) (*domain.Fact, error)  // 首条 calls 入边（含行号）
+	GetGrpcImplNode(svcID domain.CanonicalID) (*domain.CodeEntity, error)
+	GetImplementsTarget(ifaceID domain.CanonicalID) (domain.CanonicalID, error) // implements 边（排除 Unimplemented 桩）
+	GetHTTPRouteNodes() ([]*domain.CodeEntity, error)                  // kind=http_route（含 properties）
 	Counts() (nodes int, edges int, err error)
 	GetLatest() (*domain.BuildMeta, error)
 	RepoPath() string

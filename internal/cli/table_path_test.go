@@ -190,5 +190,3 @@ func TestTablePathPriority(t *testing.T) {
 		t.Errorf("同跳数多路径应优先 fk 链（当前输出）:\n%s", out)
 	}
 }
-
-

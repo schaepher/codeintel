@@ -24,10 +24,10 @@ func erRels() []*domain.TableRelation {
 // TestSplitTableDomain：表名前缀（_ 前首段）；无 _ 归 other。
 func TestSplitTableDomain(t *testing.T) {
 	cases := map[string]string{
-		"mm_member":   "mm",
-		"order_tab":   "order",
-		"orders":      "other",
-		"item_info":   "item",
+		"mm_member":    "mm",
+		"order_tab":    "order",
+		"orders":       "other",
+		"item_info":    "item",
 		"mch_merchant": "mch",
 	}
 	for in, want := range cases {
