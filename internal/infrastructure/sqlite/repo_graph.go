@@ -228,7 +228,7 @@ func (r *Repo) InterfaceMethodImpl(methodID string) (string, bool) {
 	i := strings.Index(methodID, ":(")
 	if i < 0 {
 		// 形态 2：接口类型节点 → 实现类型节点
-		implIDs := r.interfaceImpls(methodID)
+		implIDs := r.orderImplsByGrpc(r.interfaceImpls(methodID))
 		if len(implIDs) == 0 {
 			return "", false
 		}
@@ -242,7 +242,7 @@ func (r *Repo) InterfaceMethodImpl(methodID string) (string, bool) {
 	}
 	ifaceID := pkg + ":" + rest[:j]
 	methodName := rest[j+2:]
-	implIDs := r.interfaceImpls(ifaceID)
+	implIDs := r.orderImplsByGrpc(r.interfaceImpls(ifaceID))
 	for _, implID := range implIDs {
 		// 3. 实现类型同名方法：symbol:go:<pkg>:(Type).Method
 		mi := strings.LastIndex(implID, ":")
@@ -262,6 +262,10 @@ func (r *Repo) InterfaceMethodImpl(methodID string) (string, bool) {
 	}
 	return "", false
 }
+
+// orderImplsByGrpc grpc 服务实现排后（R97：接口方法具体化优先业务
+// 实现——grpc 实现内部调接口时避免具体化回自身造成时序图自环；
+// grpc 实现 = grpc_impl 边 source，内存集合判定）。
 
 // interfaceImpls 接口的 implements 实现类型列表（校验接口 kind；排除
 // Unimplemented 桩）。

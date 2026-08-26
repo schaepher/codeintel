@@ -23,6 +23,10 @@ type CodeSequenceRequest struct {
 	RepoAbs      string   // 仓库绝对路径（源码读取）
 	Depth        int      // 嵌套层级（1 = 只本函数；>1 递归展开被调函数内部）
 	StopPackages []string // 停止包列表（cli 从 config.yaml 读取——命中不深入）
+	// 内部：递归展开路径防环（R97——grpc 实现内部调接口、接口具体化
+	// 回到同一 grpc 实现时自环；路径语义：进入标记、退出清除，不同
+	// 分支互不影响）
+	visited map[string]bool
 }
 
 // CodeSeqNode 代码级时序节点（树——分支/循环/嵌套调用）。
@@ -51,6 +55,9 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	if err != nil {
 		return nil, err
 	}
+	if req.visited == nil {
+		req.visited = map[string]bool{}
+	}
 	root := codeSeqForSymbol(a, req, string(n.ID), req.Depth)
 	if root == nil && strings.Contains(string(n.ID), ":(") {
 		if impl, ok := a.InterfaceMethodImpl(string(n.ID)); ok {
@@ -63,6 +70,13 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 // codeSeqForSymbol 按符号 ID 解析函数体（递归入口——嵌套展开用
 // canonical ID 直接解析；depth = 当前剩余嵌套层级）。
 func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth int) *CodeSeqNode {
+	// R97：路径防环——展开链上已出现的符号再次展开 → 不再深入
+	// （grpc 实现内部调接口、接口具体化回到同一 grpc 实现的自环）
+	if req.visited[symID] {
+		return nil
+	}
+	req.visited[symID] = true
+	defer delete(req.visited, symID)
 	n, err := a.repo.GetSymbol(domain.CanonicalID(symID))
 	if err != nil || n.FilePath == "" {
 		return nil
