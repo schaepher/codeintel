@@ -87,17 +87,20 @@ func TestMermaidGraphSubgraph(t *testing.T) {
 	}
 }
 
-// TestMermaidSequenceToPlantuml：sequence 转换——删头，participant/消息行保留。
+// TestMermaidSequenceToPlantuml：sequence 转换——删头；participant 转
+// plantuml 形态（`participant "名字" as 别名`——R81 实测 plantuml 不认
+// mermaid 的 `别名 as 名字` 顺序，只显示别名）；消息行保留。
 func TestMermaidSequenceToPlantuml(t *testing.T) {
 	m := `sequenceDiagram
   participant P0 as "cmdBatch"
+  participant P1 as orderManagerImpl
   P0->>P1: call
 `
 	out := mermaidSequenceToPlantuml(m)
 	if strings.Contains(out, "sequenceDiagram") {
 		t.Errorf("sequence 转换应删头:\n%s", out)
 	}
-	for _, want := range []string{`participant P0 as "cmdBatch"`, "P0->>P1: call", "@startuml", "@enduml"} {
+	for _, want := range []string{`participant "cmdBatch" as P0`, `participant "orderManagerImpl" as P1`, "P0->>P1: call", "@startuml", "@enduml"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("sequence 转换缺 %q:\n%s", want, out)
 		}

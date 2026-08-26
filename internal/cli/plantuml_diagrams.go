@@ -69,11 +69,26 @@ func hasRelationSymbol(s string) bool {
 		strings.Contains(s, "|o") || strings.Contains(s, "o|")
 }
 
-// mermaidSequenceToPlantuml sequenceDiagram → plantuml（删头；participant
-// 与消息行语法两引擎相同）。
+// mermaidSequenceToPlantuml sequenceDiagram → plantuml（删头；
+// participant 转换——mermaid `participant P0 as 名字` vs plantuml
+// `participant "名字" as P0`（R81 代码级时序实测：不转换 plantuml
+// 只显示 P0 别名，真实名丢失）；消息行语法两引擎相同）。
 func mermaidSequenceToPlantuml(m string) string {
 	body := strings.TrimPrefix(m, "sequenceDiagram\n")
-	return "@startuml\n" + body + "@enduml\n"
+	var b strings.Builder
+	b.WriteString("@startuml\n")
+	partRe := regexp.MustCompile(`^participant (\S+) as (.+)$`)
+	for _, l := range strings.Split(body, "\n") {
+		if pm := partRe.FindStringSubmatch(strings.TrimSpace(l)); pm != nil {
+			// label 可能已带引号（mermaid `as "名字"`）——去引号统一重包
+			label := strings.Trim(pm[2], `"`)
+			fmt.Fprintf(&b, "participant \"%s\" as %s\n", label, pm[1])
+			continue
+		}
+		b.WriteString(l + "\n")
+	}
+	b.WriteString("@enduml\n")
+	return b.String()
 }
 
 // mermaidGraphToPlantuml graph LR → plantuml：节点两种格式统一转换

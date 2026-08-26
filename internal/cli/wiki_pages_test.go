@@ -232,7 +232,7 @@ tables:
 		t.Errorf("相关表应链接 tables.md#orders:\n%s", ms)
 	}
 
-	if !strings.Contains(ms, "### 内部调用链：(Svc).Run") || !strings.Contains(ms, `participant P0 as "main"`) || !strings.Contains(ms, "P0->>P1: call") {
+	if !strings.Contains(ms, "### 内部调用链：(Svc).Run") || !strings.Contains(ms, `participant "main" as P0`) || !strings.Contains(ms, "P0->>P1: call") {
 		t.Errorf("时序应按一级调用分支单独画:\n%s", ms)
 	}
 }
