@@ -1409,6 +1409,44 @@ domain 1 包 1 自环边。
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
 
+### R84（2026-08-26）——grpc 入口接口不停止解析 + 术语表英文格式 + 按包增量索引
+
+用户：1) grpc 服务入口的接口是动态入口（无直接 caller），不能当
+interface 节点停止解析；2) 术语表英文术语输出「英文术语，缩写(如果
+有)，中文，描述」；3) 更新文档与 skill；4) 多 workspace 如何避免
+每次全量重新分析——按变更文件所在包增量、复用其他包索引。
+
+**grpc 入口接口不停止解析**（实测 go2o 形态：OrderServiceServer
+kind=interface + implements 边 → orderServiceImpl + dispatch_to 边
+方法分派；接口方法在 .pb.go 无方法体）：
+- codeSequence 入口：接口方法（无方法体解析 nil）→ InterfaceMethodImpl
+  具体化到实现方法再解析——`(OrderServiceServer).SubmitOrder` 从报错
+  → 全链展开（SubmitOrder → manager → cartRepo 逐级）
+- chainSymbols BFS：接口方法/类型经 implements 边具体化（接口类型→
+  首个实现；接口方法→首个有该方法者；排除 Unimplemented 桩）——
+  内存预加载 implements 边 + 节点集合，避免逐符号查询卡死；链上
+  grpc 客户端/服务接口不再截断
+
+**术语表英文格式**：wikiGlossaryItem 加 english/abbr 字段；渲染
+「英文（缩写）中文：描述」（md/html 双通道，无英文回退原样）；
+AI prompt 输出 english/abbr + setGlossary/cfgSetGlossary 写回。
+
+**按包增量索引**（go2o 实测 9.9s → 3.4s）：
+- loadPackages 支持包 pattern：增量只 Load 变更文件所在包（依赖包走
+  go/packages fast 模式 export data——AST 跨包调用 types 驱动不受
+  影响），无变更 module 完全跳过；全量（init/reindex）路径不变
+- changedPackagePatterns：go.mod/go.work 变更 → 全量降级；包目录已删
+  → 跳过；多 module 子模块前缀优先匹配
+- SSA 只构建变更包主体；全程序扫描（dispatch 注册/别名/动态 SQL）
+  随分析范围收缩——keep 写库过滤互补
+- **已知语义损失**：注册点包（MakeInterface 所在包，DB 无法定位）未
+  Load 时 dispatch_to 边增量丢失（go2o 实测每次改 impl 包丢 ~15 条
+  /0.6%）——reindex 或 analyzer marker 变化全量恢复
+- **回归验证**：R83 vs R84 全量 reindex 完全一致（120496 节点/1790
+  dispatch 边）——之前的 147406 是 R79 全量+多轮增量累积陈旧值
+- 事故：git stash push 不含 untracked 新文件（asttool split 产物）
+  → pop 冲突；教训：stash 前先挪走 untracked
+
 ### R83（2026-08-26）——plantuml 一律转图片 + switch 分派 + SubmitOrder 时序修复
 
 用户：1) 凡是用 plantuml 的都要先转成图片再放进去；2) 单独调试
@@ -2144,6 +2182,11 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
   （内聚捆绑补充——pkg_calls/热度已覆盖主信号，此条收益边际）
 
 **已完成标注**（随轮次更新）：
+- ~~grpc 服务入口接口不停止解析~~ → R84（codeSequence 接口方法入口
+  具体化 + chainSymbols 链上接口具体化——(OrderServiceServer)
+  .SubmitOrder 全链展开；术语表英文格式 → R84 english/abbr 字段）
+- ~~多 workspace 每次全量重新分析~~ → R84 按包增量索引（变更文件
+  所在包 Load + 复用其他包索引；go2o 实测 9.9s → 3.4s）
 - ~~6 项高优先级待办（2026-08-24 用户提出）~~ → R29/R31/R32/R35/R36/
   R37 全完成（grpc/http 路由、图双引擎、cli 命令树、redis/kafka、
   grpc 枚举、流程页入口化）
