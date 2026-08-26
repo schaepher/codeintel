@@ -132,6 +132,13 @@ func registerServiceName(pkg *packages.Package, fn *ast.FuncDecl, sig *types.Sig
 		if name := svcFromType(sig.Params().At(1).Type()); name != "" {
 			return name
 		}
+		// R91：参数 2 是接口（手写注册自命名接口——无 Server 后缀）→
+		// 接口名即服务名（注册佐证匹配）
+		if named, ok := sig.Params().At(1).Type().(*types.Named); ok {
+			if _, isIface := named.Underlying().(*types.Interface); isIface {
+				return named.Obj().Name()
+			}
+		}
 	}
 	var desc string
 	ast.Inspect(fn.Body, func(n ast.Node) bool {
@@ -192,4 +199,44 @@ func ifaceHasMethod(t types.Type, method string) bool {
 		}
 	}
 	return false
+}
+
+// collectDirectRegisters 手写直接注册（grpc.RegisterService(&Xxx_ServiceDesc,
+// impl)——无 RegisterXxxServer 包装函数）的服务名集合（R91 注册佐证：
+// desc 名去 _ServiceDesc 后缀）。
+func collectDirectRegisters(pkgs []*packages.Package, modules []string) map[string]bool {
+	out := map[string]bool{}
+	for _, pkg := range pkgs {
+		if !isInModule(pkg.PkgPath, modules) {
+			continue
+		}
+		for _, f := range pkg.Syntax {
+			ast.Inspect(f, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok || len(call.Args) == 0 {
+					return true
+				}
+				sel, ok := call.Fun.(*ast.SelectorExpr)
+				if !ok || sel.Sel.Name != "RegisterService" {
+					return true
+				}
+				// 调用方是 grpc.ServiceRegistrar（直接注册——真 grpc 包
+				// 或本地模拟形态）
+				if !inGrpcPackage(pkg.TypesInfo.TypeOf(sel.X)) &&
+					!ifaceHasMethod(pkg.TypesInfo.TypeOf(sel.X), "RegisterService") {
+					return true
+				}
+				switch a := call.Args[0].(type) {
+				case *ast.UnaryExpr:
+					if id, ok := a.X.(*ast.Ident); ok {
+						out[strings.TrimSuffix(id.Name, "_ServiceDesc")] = true
+					}
+				case *ast.Ident:
+					out[strings.TrimSuffix(a.Name, "_ServiceDesc")] = true
+				}
+				return true
+			})
+		}
+	}
+	return out
 }

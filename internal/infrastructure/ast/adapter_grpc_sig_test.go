@@ -67,11 +67,11 @@ func main() {
 	}
 }
 
-// TestGrpcServiceInterfaceByMethod：R30-2/R48——接口方法签名识别——
-// 手写服务接口（命名非 Server 结尾、无注册点/注册函数）经方法模式
-// （末返回 error + 首参 context.Context + **业务类型定义在 .pb.go**）
-// 识别 → grpc_service 节点 + methods 属性。R48（用户要求）：仅 ctx+err
-// 不算 grpc——业务类型必须是 pb 类型。
+// TestGrpcServiceInterfaceByMethod：R30-2/R48/R91——接口方法签名识别
+// + 注册佐证——手写服务接口（命名非 Server 结尾、经自命名 Register
+// 包装注册）经方法模式（末返回 error + 首参 context.Context + 业务
+// 类型定义在 .pb.go）识别 → grpc_service 节点 + methods 属性。
+// R48（用户要求）：仅 ctx+err 不算 grpc——业务类型必须是 pb 类型。
 func TestGrpcServiceInterfaceByMethod(t *testing.T) {
 	nodes, _ := indexFixture(t, map[string]string{
 		"go.mod": "module example.com/mtest\n\ngo 1.21\n",
@@ -87,10 +87,18 @@ type GetResponse struct{}
 
 import "context"
 
-// 手写服务接口：命名非 Server 结尾、无注册函数——方法模式识别
+// 手写服务接口：命名非 Server 结尾——方法模式识别
 type HandService interface {
 	Do(ctx context.Context, req *DoRequest) (*DoResponse, error)
 	Get(ctx context.Context, req *GetRequest) (*GetResponse, error)
+}
+
+// 手写注册（R91 注册佐证——真实手写服务必有注册：grpc.RegisterService
+// 或自命名 Register 包装）
+type Registrar interface{ RegisterService(desc any, impl any) }
+
+func RegisterHandService(s Registrar, impl HandService) {
+	s.RegisterService(nil, impl)
 }
 
 // 非 grpc（R48 排除）：ctx+err 形态但业务类型非 pb（string/int）——

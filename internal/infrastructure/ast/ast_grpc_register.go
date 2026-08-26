@@ -50,6 +50,13 @@ func (a *Adapter) markGrpcServiceInterfaces(repo *domain.Repository, pkg *packag
 				if svcName == "" {
 					continue
 				}
+				// R91：注册佐证——无对应 Register（RegisterXxxServer 包装
+				// 函数或 grpc.RegisterService 直接注册）的接口签名识别
+				// 跳过：自定义客户端（方法签名与 grpc 一致但用于调用
+				// 外部服务——无注册）误识别为系统服务防护
+				if !a.registeredServices[svcName] {
+					continue
+				}
 				svcID := domain.CanonicalID("symbol:go:" + pkg.PkgPath + ":svc." + svcName)
 				if err := emit(domain.Item{Node: &domain.CodeEntity{
 					ID:	svcID, Kind: domain.KindGrpcService,

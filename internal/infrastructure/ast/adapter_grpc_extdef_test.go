@@ -123,8 +123,8 @@ func run() {
 // 外部接口（kind=interface），查询端经 implements 边追业务实现。
 func TestGrpcExternalRegisterIfaceArg(t *testing.T) {
 	_, facts := indexFixture(t, map[string]string{
-		"go.mod": "module example.com/mtest\n\ngo 1.21\n\nrequire example.com/proto v0.0.0\n\nreplace example.com/proto => ../proto\n",
-		"../proto/go.mod":    "module example.com/proto\n\ngo 1.21\n",
+		"go.mod":          "module example.com/mtest\n\ngo 1.21\n\nrequire example.com/proto v0.0.0\n\nreplace example.com/proto => ../proto\n",
+		"../proto/go.mod": "module example.com/proto\n\ngo 1.21\n",
 		"../proto/greet.pb.go": `package proto
 
 type Registrar interface{ RegisterService(desc any, impl any) }
@@ -166,5 +166,81 @@ func register(s proto.Registrar) {
 	}
 	if !found {
 		t.Error("接口变量调用点未产生 grpc_impl 边（外部接口 → svc）")
+	}
+}
+
+// TestGrpcCustomClientNotService：自定义客户端（方法签名与 grpc 一致
+// 但无 Register——业务系统调用外部服务的客户端桩）不产生 svc 节点。
+func TestGrpcCustomClientNotService(t *testing.T) {
+	_, facts := indexFixture(t, map[string]string{
+		"go.mod": "module example.com/mtest\n\ngo 1.21\n",
+		// 业务类型在 .pb.go（外部 proto 包类型形态——命中 R48
+		// pbDefinedType 信号）
+		"req.pb.go": `package mtest
+
+type SmsReq struct{ Phone string }
+type SmsResp struct{ ID string }
+`,
+		"client.go": `package mtest
+
+import "context"
+
+// 自定义客户端：签名与 grpc 服务一致（2 参 2 返回 + .pb.go 业务
+// 类型）——但无 Register 佐证 → 不应识别为系统服务
+type SmsSender interface {
+	Send(ctx context.Context, req SmsReq) (SmsResp, error)
+}
+
+func use(s SmsSender) {
+	r, _ := s.Send(nil, SmsReq{Phone: "123"})
+	_ = r
+}
+`,
+	})
+	for _, f := range facts {
+		if f.Kind == domain.FactGrpcImpl || f.Kind == domain.FactGrpcCall {
+			t.Errorf("自定义客户端不应产生 grpc 边: %+v", f)
+		}
+	}
+}
+
+// TestGrpcHandwrittenRegister佐证：手写直接注册
+// （reg.RegisterService(&SmsService_ServiceDesc, impl)——无
+// RegisterXxxServer 包装函数）→ 接口签名识别有注册佐证 → svc 节点。
+func TestGrpcHandwrittenRegisterProof(t *testing.T) {
+	nodes, _ := indexFixture(t, map[string]string{
+		"go.mod": "module example.com/mtest\n\ngo 1.21\n",
+		"req.pb.go": `package mtest
+
+type SmsReq struct{ Phone string }
+type SmsResp struct{ ID string }
+`,
+		"svc.go": `package mtest
+
+import "context"
+
+type Registrar interface{ RegisterService(desc any, impl any) }
+
+type SmsServiceServer interface {
+	Send(ctx context.Context, req SmsReq) (SmsResp, error)
+}
+
+type smsImpl struct{}
+
+func (s *smsImpl) Send(ctx context.Context, req SmsReq) (SmsResp, error) { return SmsResp{}, nil }
+
+func register(reg Registrar) {
+	reg.RegisterService(&SmsService_ServiceDesc, &smsImpl{})
+}
+`,
+	})
+	found := false
+	for _, n := range nodes {
+		if n.Kind == domain.KindGrpcService && string(n.ID) == "symbol:go:example.com/mtest:svc.SmsService" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("手写直接注册的服务接口应有注册佐证（desc 名）→ svc 节点")
 	}
 }

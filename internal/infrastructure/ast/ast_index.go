@@ -28,6 +28,14 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	serviceFlags := map[domain.CanonicalID]map[string]bool{}
 
 	registerServers := collectRegisterServers(pkgs, repo.Modules)
+	// R91：注册佐证集合（服务名——接口签名识别的真服务判定）
+	a.registeredServices = map[string]bool{}
+	for _, svc := range registerServers {
+		a.registeredServices[svc] = true
+	}
+	for svc := range collectDirectRegisters(pkgs, repo.Modules) {
+		a.registeredServices[svc] = true
+	}
 	// R86：外部注册场景（Register 调用点在其他仓库单独编译）——从
 	// Register 函数定义（.pb.go 签名）发射 grpc_service 节点 +
 	// grpc_impl 边（types.Implements 找实现——不依赖调用点）

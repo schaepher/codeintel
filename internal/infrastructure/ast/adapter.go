@@ -29,6 +29,10 @@ type Adapter struct {
 	// R49：.pb.go 里 XxxServer 接口的方法名集（Index 预扫——接口完整
 	// 包含检测的跨包目标）
 	pbServers map[string][]string
+	// R91：注册佐证——服务名集合（RegisterXxxServer 包装函数值 +
+	// grpc.RegisterService 直接注册 desc 名）——接口签名识别据此区分
+	// 真服务与自定义客户端（签名同 grpc 但无注册）
+	registeredServices map[string]bool
 }
 
 // SetChangedFiles 限定增量分析的文件集合（orchestrator 增量构建注入，
