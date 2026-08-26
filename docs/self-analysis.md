@@ -1409,6 +1409,38 @@ domain 1 包 1 自环边。
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
 
+### R82（2026-08-26）——codex --json / 包结构折叠 / 子域三层图 / 层识别加强 / 架构图方向
+
+用户 5 项需求：
+
+**#1 codex --json**：codex exec 加 --json（默认输出多条信息——思考/
+工具调用等）；JSONL 逐行解析取**最后一条 agent_message**（output_text
+拼接；无则回退原文）。extractCodexLastMessage 拆 agent_codex.go。
+
+**#2 包结构折叠**：index 包结构每个包 details（md）/ fold-btn（html）
+折叠默认折叠（包多时页面长）。
+
+**#3 子域三层图**：有 subdomains 配置时域内**统一三层**（不只看超限）：
+① 域间图（原有）② 域内子域间图（domainMermaid）③ 子域内部图
+（entityMermaid）——单域分支同步（域名为配置域名）。文案区分
+"yaml subdomains 语义划分" vs "超限自动细分"。
+
+**#4 层识别加强**：grpc_service/http_route 节点所在包 → 接入层
+（archSvcPkgs 查索引节点，不依赖包短名约定——go2o 实测 proto/app
+归接入层）；存储层加 repo/mss/orm/store（go2o 的 impl/repo 数据
+访问层实测）。
+
+**#5 架构图方向**：yaml architecture 手写 LR/TD → 渲染时强制 graph TB
+（archForceTB——第一张架构图严格从上到下）；archMermaidCurated 改
+graph TB（与自动三层图方向一致）。
+
+**go2o 实测**：architecture 输出 graph TB + 接入层含 proto/app；
+wiki 重生成 8 个域全部渲染子域分组（三层图）。
+
+测试：extractCodexLastMessage（JSONL 最后一条）/ archForceTB /
+curated TB / 包折叠 details / 子域三层（单域+多域）/ codex 实参
+--json（fake bin）——8 例全绿。
+
 ### R81（2026-08-26）——sequence 代码级时序图（调用名 + 分支循环）
 
 用户：1) sequence 结果的消息线上写调用（不是 impl 实现类型）；2)
