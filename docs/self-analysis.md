@@ -2185,7 +2185,51 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
 - 排障捷径：wiki 命令把 zap 日志写到目标仓库 .codeintel/codeintel.log
   ——ResolveSymbol 输入/成败一目了然（grep input 定位渲染路径）
 
-## 待办与已知不足（按优先级，2026-08-25 统一整理，R70 更新——建议优先级）
+## 待办与已知不足（按优先级，2026-08-27 统一整理，R97 更新——含 R84-R97 新暴露项）
+
+**P0——高优先级（机制未闭环/影响正确性）**：
+- 1. **真实业务系统端到端验证**（R90-R97 全部 grpc 识别形态在用户
+  真实系统跑通——外部 Register 定义/DI 注入/自定义客户端/字段数据流；
+  含 query grpc-routes/wiki 生成确认；用户系统多次暴露测试未覆盖形态，
+  是最高价值的验证闭环）
+- 2. **dispatch_to 边增量丢失根治**（R84 已知）：注册点包（MakeInterface
+  所在包）未 Load → 改 impl 包后 dispatch 边每次丢 ~15 条/0.6%——
+  根治方向：注册点包并入增量分析范围（DB 无法定位——可从 dispatch
+  边 source 接口的 implements 反推）或增量后从 implements 边重建
+- 3. **数据流具体化扩展**（R97-2 后续）：字段赋值仅支持字面量
+  （&impl{}）——构造器赋值（s.manager = newManager()）/跨包赋值/
+  变量链赋值；条件分支赋值（if 分支不同实现）——用户 DI 系统可能踩
+- 4. **--with-qa 实战验证**（交接遗留）：qa_history 已积累——
+  `wiki --ai --with-qa` 端到端确认
+- 5. **时序图参与者类型准确性**（交接 M P0-5）：s.manager 显示实现
+  类型（orderManagerImpl）vs 字段声明类型（接口）——R97 数据流后
+  语义更清晰，可展示"声明接口 + 数据流实现"双行
+
+**P1——中优先级（补全/验证）**：
+- 6. **cli → action 迁移收尾**（R89 起分批）：剩余命令（domains 事实
+  包/packages/architecture/er/processes/module/unused/relations/
+  module-calls/export 等 ~100 文件）按 R89 模式批量迁移
+- 7. **go2o 表别名 AI 补缺**（R93 后仍缺 148 表）：`wiki --ai` 重跑
+  （wiki.yaml 缺 tables 段——AI 从事实补全）
+- 8. **scip 适配器按包增量**（R84 遗留）：go2o update 40s 中 scip
+  仍全量扫描——按变更包限定可再提速
+- 9. **ext-chain 跨仓库**（交接 M P1-7）：服务端实现在其他仓库的递归
+  （当前只查本仓库 grpc-routes——多仓库注册表扩展）
+- 10. **表字段类型剩余 10 列 / 新人实测演练 / F2 非 DDD 效果**（交接
+  遗留）
+- 11. **wiki 流程页 HTTP 路由入口代码级时序**（交接 M P1-8：grpc 已
+  用，http 入口同款）
+
+**P2——低优先级/候选**：
+- 12. **analyzer 版本粒度**（R92 后）：任何 ast 修改触发全量——按
+  适配器/功能细分哈希可减少不必要重建（复杂度高，收益边际）
+- 13. **ER 500 边细分复用 / 实体对级 Top-N**（交接遗留）
+- 14. **系统平台域人工拆分**（100+ 包兜底）
+- 15. **测试基建：asttool split fixture 保护**（R95 教训：split 丢
+  fixture import——拆后自动检查/回滚）
+- 16. **性能 profile**（go2o 全量 24s 分布——SSA/SCIP/AST 各占比；
+  pkg_cache 已生效，剩余热点定位）
+
 
 **P0——高优先级（机制未闭环/影响交付质量）**：
 - 1. **渲染基准告知设计（3 号待办）**（R70 起前置就绪——实体定义已
