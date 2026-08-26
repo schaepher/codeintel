@@ -1,27 +1,26 @@
-package cli
+package action
 
-// R94：cmdKafkaTopics 转发断言（核心查询断言迁 action 包测试
-// ——action_external_kafka_test.go）。R46 query kafka-topics 输出
-// ——分类中文分组 + topic 列表。
+// R94 测试（迁自 cli/query_kafka_topics_test.go）：Actions.KafkaTopics
+// ——topic 三分类——内部产内消（有 producer 有 consumer）/内部产外消
+// （只有 producer）/外部产内消（只有 consumer）。
 
 import (
 	"strings"
 	"testing"
 
-	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
 
 // seedKafkaTopicsRepo kafka topic fixture：三类各一个 + 调用函数。
-func seedKafkaTopicsRepo(t *testing.T) string {
+func seedKafkaTopicsRepo(t *testing.T) *Actions {
 	t.Helper()
-	dir := seedRepo(t)
+	dir := t.TempDir()
 	db, err := sqlite.Open(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	t.Cleanup(func() { db.Close() })
 	r := sqlite.NewRepo(db)
 	nodes := []*domain.CodeEntity{
 		{ID: "symbol:go:example.com/m/evt:topic.1", Kind: domain.KindKafkaTopic, Name: "order.created"},
@@ -51,25 +50,35 @@ func seedKafkaTopicsRepo(t *testing.T) string {
 	if _, err := r.SaveBatchStats(nil, facts, nil); err != nil {
 		t.Fatalf("save facts: %v", err)
 	}
-	return dir
+	return New(r)
 }
 
-// TestCmdKafkaTopics：CLI 输出——分类中文分组 + topic 列表。
-func TestCmdKafkaTopics(t *testing.T) {
-	dir := seedKafkaTopicsRepo(t)
-	db, err := sqlite.Open(dir)
+// TestKafkaTopics：三分类正确——内部产内消 / 内部产外消 / 外部产内消。
+func TestKafkaTopics(t *testing.T) {
+	acts := seedKafkaTopicsRepo(t)
+	res, err := acts.KafkaTopics()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("KafkaTopics: %v", err)
 	}
-	defer db.Close()
-	out := captureStdout(func() {
-		if code := cmdKafkaTopics(action.New(sqlite.NewRepo(db)), queryFlags{}); code != 0 {
-			t.Errorf("cmdKafkaTopics = %d; want 0", code)
-		}
-	})
-	for _, want := range []string{"[内部生产，内部消费]", "order.created", "[内部生产，外部消费]", "order.expired", "[外部生产，内部消费]", "payment.result"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("输出应含 %q:\n%s", want, out)
+	got := map[string]KafkaTopicCategory{}
+	for _, f := range res.Topics {
+		got[f.Topic] = f.Category
+	}
+	if got["order.created"] != KafkaCatInternal {
+		t.Errorf("order.created = %q; want internal（内部产内消）", got["order.created"])
+	}
+	if got["order.expired"] != KafkaCatProducedInternally {
+		t.Errorf("order.expired = %q; want produced-internally（内部产外消）", got["order.expired"])
+	}
+	if got["payment.result"] != KafkaCatConsumedInternally {
+		t.Errorf("payment.result = %q; want consumed-internally（外部产内消）", got["payment.result"])
+	}
+	// 调用点带位置
+	for _, f := range res.Topics {
+		if f.Topic == "order.created" {
+			if len(f.Producers) != 1 || f.Producers[0].Func != "createOrder" || !strings.Contains(f.Producers[0].Loc, "app/order.go") {
+				t.Errorf("order.created producers = %+v; want createOrder(app/order.go)", f.Producers)
+			}
 		}
 	}
 }

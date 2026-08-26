@@ -81,15 +81,15 @@ func cmdQuery(args []string) int {
 	}
 	// R36：外部依赖（redis/kafka）
 	if sub == "external-deps" {
-		return cmdExternalDeps(abs, f)
+		return cmdExternalDeps(acts, f)
 	}
 	// R45：外部系统接口调用识别
 	if sub == "external-interfaces" {
-		return cmdExternalInterfaces(abs, f)
+		return cmdExternalInterfaces(acts, f)
 	}
 	// R46：kafka topic 生产/消费归属
 	if sub == "kafka-topics" {
-		return cmdKafkaTopics(abs, f)
+		return cmdKafkaTopics(acts, f)
 	}
 	// R49：完整包含 grpc server 接口的组合接口
 	if sub == "grpc-composites" {

@@ -2,18 +2,19 @@ package cli
 
 // R47 kafka topic 分类 wiki 节（用户要求独立一节）：按生产/消费归属
 // 三分类分组展示（内部生产内部消费 / 内部生产外部消费 / 外部生产
-// 内部消费），每 topic 带生产/消费调用点。
+// 内部消费），每 topic 带生产/消费调用点。R94：数据改经
+// Actions.KafkaTopics 同源调用（查询逻辑迁 action）。
 
 import (
 	"fmt"
 	"strings"
 
-	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
+	"github.com/schaepher/codeintel/internal/action"
 )
 
 // renderKafkaTopicsMD kafka topic 节（md——R47；无 topic 返回空）。
-func renderKafkaTopicsMD(repo *sqlite.Repo) string {
-	res, err := kafkaTopics(repo)
+func renderKafkaTopicsMD(acts *action.Actions) string {
+	res, err := acts.KafkaTopics()
 	if err != nil || len(res.Topics) == 0 {
 		return ""
 	}
@@ -22,8 +23,8 @@ func renderKafkaTopicsMD(repo *sqlite.Repo) string {
 	b.WriteString("> 数据源：kafka_topic 节点 + kafka_produce/kafka_consume 边——按生产/消费归属分类（外部系统消息集成点）。\n\n")
 	cur := ""
 	for _, t := range res.Topics {
-		if t.Category.cn() != cur {
-			cur = t.Category.cn()
+		if cn := kafkaCategoryCN(t.Category); cn != cur {
+			cur = cn
 			b.WriteString("### " + cur + "\n\n")
 		}
 		b.WriteString("- `" + t.Topic + "`")
@@ -40,8 +41,8 @@ func renderKafkaTopicsMD(repo *sqlite.Repo) string {
 }
 
 // renderKafkaTopicsHTML kafka topic 节（html——R47）。
-func renderKafkaTopicsHTML(repo *sqlite.Repo) string {
-	res, err := kafkaTopics(repo)
+func renderKafkaTopicsHTML(acts *action.Actions) string {
+	res, err := acts.KafkaTopics()
 	if err != nil || len(res.Topics) == 0 {
 		return ""
 	}
@@ -49,8 +50,8 @@ func renderKafkaTopicsHTML(repo *sqlite.Repo) string {
 	b.WriteString(`<section id="kafka"><h2>Kafka Topic</h2><p class="muted">数据源：kafka_topic 节点 + kafka_produce/kafka_consume 边——按生产/消费归属分类（外部系统消息集成点）。</p>`)
 	cur := ""
 	for _, t := range res.Topics {
-		if t.Category.cn() != cur {
-			cur = t.Category.cn()
+		if cn := kafkaCategoryCN(t.Category); cn != cur {
+			cur = cn
 			b.WriteString(fmt.Sprintf(`<h3>%s</h3><ul>`, htmlEsc(cur)))
 		}
 		b.WriteString("<li><code>" + htmlEsc(t.Topic) + "</code>")

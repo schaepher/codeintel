@@ -1,14 +1,13 @@
-package cli
+package action
 
-// R94：cmdExternalInterfaces 转发断言（核心查询断言迁 action 包测试
-// ——action_external_interfaces_test.go）。R45 query external-interfaces
-// 输出——外部接口文本输出（内部服务不出现）。
+// R94 测试（迁自 cli/query_external_interfaces_test.go）：
+// Actions.ExternalInterfaces ——外部接口识别——grpc 目标服务无本项目
+// 定义特征（注册/方法）+ 请求类型不在服务参数集合；http 目标路由无
+// handler。内部调用排除。
 
 import (
-	"strings"
 	"testing"
 
-	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
@@ -20,14 +19,14 @@ import (
 //   - 外部 grpc 调用（req_type 不在本项目参数集合）→ 应识别
 //   - 本项目 http 路由（有 handler）——调用应排除
 //   - 外部 http（无 handler 的路由节点）→ 应识别
-func seedExternalInterfacesRepo(t *testing.T) string {
+func seedExternalInterfacesRepo(t *testing.T) *Actions {
 	t.Helper()
-	dir := seedRepo(t)
+	dir := t.TempDir()
 	db, err := sqlite.Open(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	t.Cleanup(func() { db.Close() })
 	r := sqlite.NewRepo(db)
 	nodes := []*domain.CodeEntity{
 		// 本项目 grpc 服务（接口签名识别：methods + param_types）
@@ -71,28 +70,46 @@ func seedExternalInterfacesRepo(t *testing.T) string {
 	if _, err := r.SaveBatchStats(nil, facts, nil); err != nil {
 		t.Fatalf("save facts: %v", err)
 	}
-	return dir
+	return New(r)
 }
 
-// TestCmdExternalInterfaces：CLI 命令——文本输出含外部接口。
-func TestCmdExternalInterfaces(t *testing.T) {
-	dir := seedExternalInterfacesRepo(t)
-	db, err := sqlite.Open(dir)
+// TestExternalInterfaces：外部接口识别——外部 grpc（PayService.Charge）
+// 与外部 http（api.ext-pay.com/charge）识别；内部 grpc（QueryService.
+// Get）排除。
+func TestExternalInterfaces(t *testing.T) {
+	acts := seedExternalInterfacesRepo(t)
+	res, err := acts.ExternalInterfaces()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ExternalInterfaces: %v", err)
 	}
-	defer db.Close()
-	out := captureStdout(func() {
-		if code := cmdExternalInterfaces(action.New(sqlite.NewRepo(db)), queryFlags{}); code != 0 {
-			t.Errorf("cmdExternalInterfaces = %d; want 0", code)
-		}
-	})
-	for _, want := range []string{"[grpc] PayService", "Charge", "[http] api.ext-pay.com", "POST /charge"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("输出应含 %q:\n%s", want, out)
-		}
+	got := map[string]bool{}
+	for _, ei := range res.Interfaces {
+		got[ei.Kind+"|"+ei.Service+"|"+ei.Method] = true
 	}
-	if strings.Contains(out, "QueryService") {
-		t.Errorf("内部服务不应出现:\n%s", out)
+	if !got["grpc|PayService|Charge"] {
+		t.Errorf("应识别外部 grpc PayService.Charge:\n%+v", res.Interfaces)
+	}
+	if !got["http|api.ext-pay.com|POST /charge"] {
+		t.Errorf("应识别外部 http api.ext-pay.com/charge:\n%+v", res.Interfaces)
+	}
+	if got["grpc|QueryService|Get"] {
+		t.Error("内部 grpc 调用（本项目服务）不应识别为外部")
+	}
+	// 外部 grpc 带请求类型
+	for _, ei := range res.Interfaces {
+		if ei.Kind == "grpc" && ei.Service == "PayService" {
+			if ei.ReqType != "example.com/ext/pay.ChargeRequest" {
+				t.Errorf("req_type = %q; want 外部请求类型", ei.ReqType)
+			}
+			if len(ei.Callers) == 0 || ei.Callers[0].Func != "doPay" {
+				t.Errorf("callers 应含 doPay: %+v", ei.Callers)
+			}
+			if ei.Callers[0].Loc != "app/pay.go:11" {
+				t.Errorf("callers[0].Loc = %q; want app/pay.go:11（调用行）", ei.Callers[0].Loc)
+			}
+			if ei.Callers[0].Pkg != "example.com/m/app" {
+				t.Errorf("callers[0].Pkg = %q; want example.com/m/app（架构图领域聚合）", ei.Callers[0].Pkg)
+			}
+		}
 	}
 }

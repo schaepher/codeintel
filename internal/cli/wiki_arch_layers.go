@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
@@ -49,9 +50,9 @@ const archPadLabel = "　　　　　　　　　　　　　　"
 // subgraph 接入层/领域层/存储层，各层节点 + 跨层/层内调用边。
 // domains 非空时领域层 = 领域聚合节点（含包数）；否则领域层 = 包节点。
 // R47：外部接口调用按服务聚合（grpc 服务名 / http host）为领域层右侧
-// 节点（外部系统集成点），边 = 调用方领域 → 外部服务。repo nil（纯
-// 函数测试）跳过外部节点。
-func archLayeredMermaid(data []*domain.WikiModule, doms []wikiDomainCfg, repo *sqlite.Repo) string {
+// 节点（外部系统集成点），边 = 调用方领域 → 外部服务。acts nil（纯
+// 函数测试）跳过外部节点；repo 仍用于接入层服务包识别（archSvcPkgs）。
+func archLayeredMermaid(data []*domain.WikiModule, doms []wikiDomainCfg, repo *sqlite.Repo, acts *action.Actions) string {
 	type key struct{ from, to string }
 	counts := map[key]int{}
 	// 包短名 → 层名 / 领域名（短名匹配——PkgCalls 的 From/To 是短名）
@@ -139,7 +140,7 @@ func archLayeredMermaid(data []*domain.WikiModule, doms []wikiDomainCfg, repo *s
 		// → 降级包级模式（等同无 domains——域内包间调用可见；go2o
 		// 多域不受影响）
 		if len(doms) > 0 {
-			return archLayeredMermaid(data, nil, repo)
+			return archLayeredMermaid(data, nil, repo, acts)
 		}
 		return ""
 	}
@@ -158,8 +159,8 @@ func archLayeredMermaid(data []*domain.WikiModule, doms []wikiDomainCfg, repo *s
 	extNodeID := map[string]string{} // 服务名 → 外部节点 id
 	var extNodes []string
 	extEdges := map[string]int{} // 领域|外部节点 → 计数
-	if repo != nil && len(doms) > 0 {
-		if ext, err := externalInterfaces(repo); err == nil {
+	if acts != nil && len(doms) > 0 {
+		if ext, err := acts.ExternalInterfaces(); err == nil {
 			for _, ei := range ext.Interfaces {
 				id := "EXT_" + mermaidID(ei.Service)
 				if _, ok := extNodeID[ei.Service]; !ok {

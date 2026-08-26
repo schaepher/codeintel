@@ -41,28 +41,32 @@ type Reader interface {
 	GetTableColumns(table string) ([]*domain.TableColumn, error)
 	GetAllTableColumns() ([]*domain.TableColumn, error) // ER 图：全库外部列（无 writers/readers 明细）
 	GetTableRelations(table, memoryMode string) ([]*domain.TableRelation, error)
-	GetAllTableRelations(memoryMode string) ([]*domain.TableRelation, error) // Q160 全库聚合
-	GetTables() ([]string, error) // Q241 表名枚举（table-path 表名解析）
-	SymbolsAt(file string, line int) ([]*domain.CodeEntity, error) // #229 file:line 定位符号
-	RecentChanges(limit int) ([]*domain.RecentChange, error) // #237 最近变更
+	GetAllTableRelations(memoryMode string) ([]*domain.TableRelation, error)   // Q160 全库聚合
+	GetTables() ([]string, error)                                              // Q241 表名枚举（table-path 表名解析）
+	SymbolsAt(file string, line int) ([]*domain.CodeEntity, error)             // #229 file:line 定位符号
+	RecentChanges(limit int) ([]*domain.RecentChange, error)                   // #237 最近变更
 	TopCallersInModule(prefix string, limit int) ([]*domain.WikiSymbol, error) // #238 wiki 核心符号
-	GetAllCalls() ([]*domain.Fact, error) // Q251-A wiki 包间调用图聚合
-	TablesWrittenByModule(prefix string) ([]string, error) // #238 wiki 相关表
-	TopLevelEntries() ([]*domain.CodeEntity, error) // #238 wiki 入口（main+服务，不含框架回调）
-	GetEntityRaw() (*domain.EntityRaw, error) // R9 实体协作图原始数据（类型/函数/has_method/calls）
-	GetTableSchemas() (map[string]string, error) // R19 表 schema 事实源（列类型/默认值）
-	GetFunctions() ([]*domain.CodeEntity, error) // R89 helpers：游离函数清单（kind=function 非方法）
+	GetAllCalls() ([]*domain.Fact, error)                                      // Q251-A wiki 包间调用图聚合
+	TablesWrittenByModule(prefix string) ([]string, error)                     // #238 wiki 相关表
+	TopLevelEntries() ([]*domain.CodeEntity, error)                            // #238 wiki 入口（main+服务，不含框架回调）
+	GetEntityRaw() (*domain.EntityRaw, error)                                  // R9 实体协作图原始数据（类型/函数/has_method/calls）
+	GetTableSchemas() (map[string]string, error)                               // R19 表 schema 事实源（列类型/默认值）
+	GetFunctions() ([]*domain.CodeEntity, error)                               // R89 helpers：游离函数清单（kind=function 非方法）
 	GetUncalledFunctions() ([]*domain.UnusedFunc, error)
 	GetIsolatedChains() ([][]*domain.UnusedFunc, error)
 	GetPath(from, to domain.CanonicalID, maxDepth int, viaCalls bool) ([]*domain.TraceRow, error)
 	GetGrpcCalls() ([]*domain.GrpcCallRow, error)
 	// R92：grpc/http 路由清单（query grpc-routes/http-routes）
-	GetGrpcServices() ([]*domain.CodeEntity, error)                    // kind=grpc_service（含 properties）
-	GetRegisterNode(svcName string) (*domain.CodeEntity, error)        // registers_service 属性
-	GetFirstCallTo(targetID domain.CanonicalID) (*domain.Fact, error)  // 首条 calls 入边（含行号）
+	GetGrpcServices() ([]*domain.CodeEntity, error)                   // kind=grpc_service（含 properties）
+	GetRegisterNode(svcName string) (*domain.CodeEntity, error)       // registers_service 属性
+	GetFirstCallTo(targetID domain.CanonicalID) (*domain.Fact, error) // 首条 calls 入边（含行号）
 	GetGrpcImplNode(svcID domain.CanonicalID) (*domain.CodeEntity, error)
 	GetImplementsTarget(ifaceID domain.CanonicalID) (domain.CanonicalID, error) // implements 边（排除 Unimplemented 桩）
-	GetHTTPRouteNodes() ([]*domain.CodeEntity, error)                  // kind=http_route（含 properties）
+	GetHTTPRouteNodes() ([]*domain.CodeEntity, error)                           // kind=http_route（含 properties）
+	// R94：外部依赖（redis/kafka）与外部接口调用（query external-*）
+	GetRedisKeyNodes() ([]*domain.CodeEntity, error)         // kind=redis_key（properties.write/cmd）
+	GetKafkaTopicNodes() ([]*domain.CodeEntity, error)       // kind=kafka_topic
+	GetFactsByKinds(kinds ...string) ([]*domain.Fact, error) // 指定 kind 的调用边（metadata 全量）
 	Counts() (nodes int, edges int, err error)
 	GetLatest() (*domain.BuildMeta, error)
 	RepoPath() string

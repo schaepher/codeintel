@@ -15,10 +15,10 @@ import (
 
 // architectureOut 架构图输出契约（cmd --json / MCP 共用）。
 type architectureOut struct {
-	Modules int      `json:"modules"`          // 参与聚合的模块数
-	Domains []string `json:"domains,omitempty"` // 配置的业务域（领域层聚合）
-	Mermaid string   `json:"mermaid"`          // mermaid 文本（--format mermaid/plantuml 可再转）
-	Plantuml string  `json:"plantuml,omitempty"` // plantuml 转换（--format plantuml 时）
+	Modules  int      `json:"modules"`            // 参与聚合的模块数
+	Domains  []string `json:"domains,omitempty"`  // 配置的业务域（领域层聚合）
+	Mermaid  string   `json:"mermaid"`            // mermaid 文本（--format mermaid/plantuml 可再转）
+	Plantuml string   `json:"plantuml,omitempty"` // plantuml 转换（--format plantuml 时）
 }
 
 // architectureData 计算架构图（wiki 概览同款：archLayeredMermaid——
@@ -30,7 +30,7 @@ func architectureData(acts *action.Actions, repo *sqlite.Repo, data []*domain.Wi
 	}
 	arch := cfg.Architecture
 	if arch == "" {
-		arch = archMermaidFallback(data, cfg.Domains, repo)
+		arch = archMermaidFallback(data, cfg.Domains, repo, acts)
 	}
 	out.Mermaid = arch
 	if toPuml {

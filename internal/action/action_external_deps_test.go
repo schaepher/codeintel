@@ -1,27 +1,27 @@
-package cli
+package action
 
-// R94：cmdExternalDeps 转发断言（核心查询断言迁 action 包测试
-// ——action_external_deps_test.go）。R36 query external-deps 输出
-// ——redis 读/写键 + kafka producer/consumer。
+// R94 测试（迁自 cli/query_external_deps_test.go）：Actions.ExternalDeps
+// ——redis_key/kafka_topic 节点 + 调用边 → 聚合 JSON（读/写、
+// producer/consumer）。
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
-	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
 
 // seedExternalDepsRepo 构造 redis_key/kafka_topic 节点 + 调用边。
-func seedExternalDepsRepo(t *testing.T) string {
+func seedExternalDepsRepo(t *testing.T) *Actions {
 	t.Helper()
-	dir := seedRepo(t)
+	dir := t.TempDir()
 	db, err := sqlite.Open(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	t.Cleanup(func() { db.Close() })
 	r := sqlite.NewRepo(db)
 	nodes := []*domain.CodeEntity{
 		{ID: "symbol:redis:order:list", Kind: domain.KindRedisKey, Name: "order:list",
@@ -51,25 +51,43 @@ func seedExternalDepsRepo(t *testing.T) string {
 	if _, err := r.SaveBatchStats(nil, facts, nil); err != nil {
 		t.Fatalf("save facts: %v", err)
 	}
-	return dir
+	return New(r)
 }
 
-// TestCmdExternalDeps：CLI 输出——redis 读/写键 + kafka topic。
-func TestCmdExternalDeps(t *testing.T) {
-	dir := seedExternalDepsRepo(t)
-	db, err := sqlite.Open(dir)
+// TestExternalDeps：JSON 契约——redis（key/write/callers/cmds）+
+// kafka（topic/producers/consumers）。
+func TestExternalDeps(t *testing.T) {
+	acts := seedExternalDepsRepo(t)
+	res, err := acts.ExternalDeps()
+	if err != nil {
+		t.Fatalf("ExternalDeps: %v", err)
+	}
+	if len(res.Redis) != 2 {
+		t.Fatalf("redis 键数 = %d; want 2:\n%+v", len(res.Redis), res.Redis)
+	}
+	if res.Redis[0].Key != "order:list" || res.Redis[0].Write {
+		t.Errorf("order:list 应为读: %+v", res.Redis[0])
+	}
+	if len(res.Redis[1].Callers) != 1 || res.Redis[1].Callers[0] != "writeCache" {
+		t.Errorf("user:profile 调用方 = %+v", res.Redis[1].Callers)
+	}
+	if len(res.Kafka) != 1 || res.Kafka[0].Topic != "order.created" {
+		t.Fatalf("kafka topic = %+v", res.Kafka)
+	}
+	if len(res.Kafka[0].Producers) != 1 || res.Kafka[0].Producers[0] != "sendOrder" {
+		t.Errorf("producers = %+v", res.Kafka[0].Producers)
+	}
+	if len(res.Kafka[0].Consumers) != 1 || res.Kafka[0].Consumers[0] != "consumeOrder" {
+		t.Errorf("consumers = %+v", res.Kafka[0].Consumers)
+	}
+	// JSON 契约
+	b, err := json.Marshal(res)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
-	out := captureStdout(func() {
-		if code := cmdExternalDeps(action.New(sqlite.NewRepo(db)), queryFlags{}); code != 0 {
-			t.Errorf("cmdExternalDeps = %d; want 0", code)
-		}
-	})
-	for _, want := range []string{"redis 键（2）", "order:list", "[读]", "user:profile", "[写]", "kafka topic（1）", "order.created", "生产者: sendOrder", "消费者: consumeOrder"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("输出应含 %q:\n%s", want, out)
+	for _, want := range []string{`"redis"`, `"kafka"`, `"key"`, `"topic"`, `"producers"`, `"consumers"`, `"write"`} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("JSON 缺 %q:\n%s", want, b)
 		}
 	}
 }

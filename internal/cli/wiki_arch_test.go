@@ -24,7 +24,7 @@ func TestArchMermaidFallback(t *testing.T) {
 			{From: "cli", To: "action", Count: 3},
 		}},
 	}
-	got := archMermaidFallback(data, nil, nil)
+	got := archMermaidFallback(data, nil, nil, nil)
 	for _, want := range []string{
 		"graph TB",
 		"subgraph 接入层[接入层：入口]",
@@ -39,7 +39,7 @@ func TestArchMermaidFallback(t *testing.T) {
 			t.Errorf("fallback 应含 %q:\n%s", want, got)
 		}
 	}
-	if archMermaidFallback(nil, nil, nil) != "" {
+	if archMermaidFallback(nil, nil, nil, nil) != "" {
 		t.Errorf("空数据 fallback 应为空")
 	}
 }
@@ -60,7 +60,7 @@ func TestArchMermaidFallbackFullPathPackages(t *testing.T) {
 		{Name: "会员域", Packages: []string{"github.com/ixre/go2o/internal/impl/domain/member"}},
 		{Name: "商品域", Packages: []string{"github.com/ixre/go2o/internal/impl/domain/item"}},
 	}
-	got := archMermaidFallback(data, doms, nil)
+	got := archMermaidFallback(data, doms, nil, nil)
 	for _, want := range []string{
 		"subgraph 领域层[领域层]",
 		`D交易域["交易域（1 包）"]`,
@@ -171,7 +171,7 @@ func TestArchMermaidFallbackExternal(t *testing.T) {
 		{Name: "接入域", Packages: []string{"github.com/ixre/go2o/internal/app"}},
 		{Name: "交易域", Packages: []string{"github.com/ixre/go2o/internal/impl/domain/order"}},
 	}
-	got := archMermaidFallback(data, doms, sqlite.NewRepo(db))
+	got := archMermaidFallback(data, doms, sqlite.NewRepo(db), action.New(sqlite.NewRepo(db)))
 	for _, want := range []string{
 		`EXT_PayService["PayService"]`,           // 外部 grpc 服务节点
 		`EXT_api_ext_pay_com["api.ext-pay.com"]`, // 外部 http host 节点
@@ -182,9 +182,9 @@ func TestArchMermaidFallbackExternal(t *testing.T) {
 			t.Errorf("外部节点应含 %q:\n%s", want, got)
 		}
 	}
-	// repo nil（纯函数测试）→ 无外部节点
-	if got2 := archMermaidFallback(data, doms, nil); strings.Contains(got2, "EXT_") {
-		t.Errorf("repo nil 不应有外部节点:\n%s", got2)
+	// acts nil（纯函数测试）→ 无外部节点
+	if got2 := archMermaidFallback(data, doms, nil, nil); strings.Contains(got2, "EXT_") {
+		t.Errorf("acts nil 不应有外部节点:\n%s", got2)
 	}
 }
 

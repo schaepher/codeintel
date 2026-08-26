@@ -2,17 +2,18 @@ package cli
 
 // R45 外部接口调用 wiki 节（从 query_external_interfaces.go 拆出——
 // 行数治理）：md/html 双通道展示外部系统接口调用（接口未在本项目
-// 定义 + 请求对象不在本项目服务参数）。
+// 定义 + 请求对象不在本项目服务参数）。R94：数据改经
+// Actions.ExternalInterfaces 同源调用（查询逻辑迁 action）。
 
 import (
 	"fmt"
 	"strings"
 
-	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
+	"github.com/schaepher/codeintel/internal/action"
 )
 
 // joinCallers 调用点摘要（前 3 个）。
-func joinCallers(cs []extCaller) string {
+func joinCallers(cs []action.ExtCaller) string {
 	var parts []string
 	for i, c := range cs {
 		if i >= 3 {
@@ -26,8 +27,8 @@ func joinCallers(cs []extCaller) string {
 
 // renderExternalInterfacesMD 外部接口调用节（md——R45 wiki 消费；
 // 无外部接口返回空）。
-func renderExternalInterfacesMD(repo *sqlite.Repo) string {
-	res, err := externalInterfaces(repo)
+func renderExternalInterfacesMD(acts *action.Actions) string {
+	res, err := acts.ExternalInterfaces()
 	if err != nil || len(res.Interfaces) == 0 {
 		return ""
 	}
@@ -52,8 +53,8 @@ func renderExternalInterfacesMD(repo *sqlite.Repo) string {
 }
 
 // renderExternalInterfacesHTML 外部接口调用节（html——R45）。
-func renderExternalInterfacesHTML(repo *sqlite.Repo) string {
-	res, err := externalInterfaces(repo)
+func renderExternalInterfacesHTML(acts *action.Actions) string {
+	res, err := acts.ExternalInterfaces()
 	if err != nil || len(res.Interfaces) == 0 {
 		return ""
 	}
