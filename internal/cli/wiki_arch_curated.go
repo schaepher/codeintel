@@ -79,7 +79,7 @@ func archMermaidCurated(data []*domain.WikiModule) string {
 		return keys[i].to < keys[j].to
 	})
 	var b strings.Builder
-	b.WriteString("graph LR\n")
+	b.WriteString("graph TB\n") // R82：从上到下（与第一张架构图方向一致）
 	for _, g := range curatedGroups {
 		// 组内节点（有边的）——subgraph 内列出
 		var nodes []string

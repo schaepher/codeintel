@@ -21,20 +21,24 @@ var archAccessPkgs = map[string]bool{
 }
 
 // archStoragePkgs 存储层包短名（存储/数据源/DAO）。
+// R82：加 repo/mss/orm/store——repository 模式/消息存储/ORM 访问层
+// 是常见存储形态（go2o 实测 internal/impl/repo 是数据访问层）。
 var archStoragePkgs = map[string]bool{
 	"sqlite": true, "git": true, "db": true, "dao": true, "storage": true,
 	"redis": true, "kafka": true, "cache": true, "clickhouse": true,
+	"repo": true, "mss": true, "orm": true, "store": true,
 }
 
-// archLayerName 包短名 → 层名（接入/存储；其余领域层）。
-func archLayerName(short string) string {
-	if archAccessPkgs[short] {
-		return "接入层"
+// archForceTB 架构图方向强制从上到下（R82：第一张架构图严格 graph TB
+// ——yaml architecture 手写可能是 LR/TD，统一替换首行）。
+func archForceTB(mermaid string) string {
+	if i := strings.Index(mermaid, "graph LR"); i >= 0 {
+		return strings.Replace(mermaid, "graph LR", "graph TB", 1)
 	}
-	if archStoragePkgs[short] {
-		return "存储层"
+	if i := strings.Index(mermaid, "graph TD"); i >= 0 {
+		return strings.Replace(mermaid, "graph TD", "graph TB", 1)
 	}
-	return "领域层"
+	return mermaid
 }
 
 // archPadLabel 占位节点 label（固定宽度撑 subgraph 等宽——R44 用户
@@ -61,6 +65,8 @@ func archLayeredMermaid(data []*domain.WikiModule, doms []wikiDomainCfg, repo *s
 			pkgDomain[short] = d.Name
 		}
 	}
+	// R82：grpc/http 服务所在包 → 接入层（服务入口——不依赖短名约定）
+	svcPkgs := archSvcPkgs(repo)
 	// 节点归类：短名 → 展示节点 id（接入/存储包原样；领域包 → 领域节点）
 	nodeID := map[string]string{}
 	var accessNodes, storageNodes []string
@@ -73,7 +79,7 @@ func archLayeredMermaid(data []*domain.WikiModule, doms []wikiDomainCfg, repo *s
 				if nodeID[p] != "" {
 					continue
 				}
-				switch archLayerName(p) {
+				switch archLayerOf(p, svcPkgs) {
 				case "接入层":
 					if !accessSeen[p] {
 						accessSeen[p] = true
@@ -110,7 +116,7 @@ func archLayeredMermaid(data []*domain.WikiModule, doms []wikiDomainCfg, repo *s
 					if seen[p] || nodeID[p] == "" {
 						continue
 					}
-					if archLayerName(p) == "领域层" {
+					if archLayerOf(p, svcPkgs) == "领域层" {
 						seen[p] = true
 						domainNodes = append(domainNodes, p)
 					}

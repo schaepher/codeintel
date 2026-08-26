@@ -108,15 +108,19 @@ func renderPackagesHTML(pkgs []*domain.CodeEntity, repo *sqlite.Repo) string {
 	}
 	var b strings.Builder
 	b.WriteString(`<section id="packages"><h2>包结构</h2><p class="muted">数据源：包节点 doc_comment（代码事实；无说明时展示包内结构体/方法/函数签名）。</p>`)
-	for _, p := range pkgs {
+	for i, p := range pkgs {
 		name := p.Name
 		if i := strings.LastIndex(name, "/"); i >= 0 {
 			name = name[i+1:]
 		}
-		b.WriteString("<h3><code>" + htmlEsc(name) + "</code></h3>")
+		id := fmt.Sprintf("pkg-%d", i)
+		// R82：每个包 fold-btn 折叠（默认折叠）
+		b.WriteString(fmt.Sprintf(`<h4 class="fold-btn" data-target="%s" data-label="1">▸ <code>%s</code></h4><div class="sec-body" id="%s" style="display:none">`,
+			id, htmlEsc(name), id))
 		doc := packageDoc(p)
 		if doc != "" {
 			b.WriteString("<p>" + htmlEsc(doc) + "</p>")
+			b.WriteString("</div>")
 			continue
 		}
 		if facts := pkgCodeFactsFor(repo, symbolPkg(string(p.ID))); facts != nil {
@@ -140,28 +144,31 @@ func renderPackagesHTML(pkgs []*domain.CodeEntity, repo *sqlite.Repo) string {
 				b.WriteString("</tbody></table>")
 			}
 		}
+		b.WriteString("</div>")
 	}
 	b.WriteString("</section>")
 	return b.String()
 }
 
 // renderPackagesMD 包结构（R1：KindPackage 节点 doc_comment；R34：去
-// Copyright；无包级说明 → fallback 代码事实）。
+// Copyright；无包级说明 → fallback 代码事实）。R82：每个包 details
+// 折叠（默认折叠——包多时页面长）。
 func renderPackagesMD(pkgs []*domain.CodeEntity, repo *sqlite.Repo) string {
 	if len(pkgs) == 0 {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("## 包结构\n\n> 数据源：包节点 doc_comment（代码事实；无说明时展示包内结构体/方法/函数签名）。\n\n")
+	b.WriteString("## 包结构\n\n> 数据源：包节点 doc_comment（代码事实；无说明时展示包内结构体/方法/函数签名）。每个包可展开。\n\n")
 	for _, p := range pkgs {
 		name := p.Name
 		if i := strings.LastIndex(name, "/"); i >= 0 {
 			name = name[i+1:]
 		}
-		b.WriteString("### `" + name + "`\n\n")
+		b.WriteString("<details><summary><code>" + name + "</code></summary>\n\n")
 		doc := packageDoc(p)
 		if doc != "" {
 			b.WriteString(doc + "\n\n")
+			b.WriteString("</details>\n\n")
 			continue
 		}
 		if facts := pkgCodeFactsFor(repo, symbolPkg(string(p.ID))); facts != nil {
@@ -187,6 +194,7 @@ func renderPackagesMD(pkgs []*domain.CodeEntity, repo *sqlite.Repo) string {
 				b.WriteString("\n")
 			}
 		}
+		b.WriteString("</details>\n\n")
 	}
 	return b.String()
 }

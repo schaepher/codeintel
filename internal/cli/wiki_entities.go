@@ -116,10 +116,12 @@ func renderEntitiesSectionMD(g *domain.EntityGraph, rc *wikiRenderCtx) string {
 				htmlEsc(d.Name), len(d.Nodes)))
 			// R39：单实体无内部协作时显示文字说明（空图无意义）；
 			// R62：多实体节点全画（弱协作/孤立实体不丢）；
-			// R63：强边 >500 = 域太大——按包子域细分
+			// R63：强边 >500 = 域太大——按包子域细分；
+			// R82：有 subdomains 配置 → 统一三层（域内 = 子域间图 +
+			// 每子域内部图——不只看超限）
 			if len(d.Nodes) < 2 {
 				b.WriteString("（无内部协作）\n\n")
-			} else if strongEdgeCount(d.Edges) > mermaidEdgeLimit {
+			} else if domainHasSubdomains(rc, d.Name) || strongEdgeCount(d.Edges) > mermaidEdgeLimit {
 				b.WriteString(renderEntitySubDomainsMD(rc, d))
 			} else if sub := entityMermaid(&domain.EntityGraph{Nodes: d.Nodes, Edges: d.Edges}); sub != "" {
 				b.WriteString(rc.diagramMD(sub))
@@ -130,9 +132,14 @@ func renderEntitiesSectionMD(g *domain.EntityGraph, rc *wikiRenderCtx) string {
 		}
 	} else {
 		// R39：无强协作边时 entityMermaid 为空——不渲染空块；
-		// R63：单领域全图超限同样按包子域细分（域太大可再细分）
-		if strongEdgeCount(g.Edges) > mermaidEdgeLimit {
-			b.WriteString(renderEntitySubDomainsMD(rc, &entityDomain{Name: "全部", Nodes: g.Nodes, Edges: g.Edges}))
+		// R63：单领域全图超限同样按包子域细分（域太大可再细分）；
+		// R82：单域有 subdomains 配置 → 三层（子域间图 + 子域内图）
+		domName := "全部"
+		if len(rc.cfg.Domains) == 1 {
+			domName = rc.cfg.Domains[0].Name
+		}
+		if domainHasSubdomains(rc, domName) || strongEdgeCount(g.Edges) > mermaidEdgeLimit {
+			b.WriteString(renderEntitySubDomainsMD(rc, &entityDomain{Name: domName, Nodes: g.Nodes, Edges: g.Edges}))
 		} else if sub := entityMermaid(g); sub != "" {
 			b.WriteString(rc.diagramMD(sub))
 		} else {
@@ -162,13 +169,29 @@ func renderEntitiesSectionMD(g *domain.EntityGraph, rc *wikiRenderCtx) string {
 	return b.String()
 }
 
-// renderEntitySubDomainsMD 领域过大（>500 边）→ 按包子域细分（md）：
-// 子域间关系图 + 每子域内部图（details 折叠）。
+// domainHasSubdomains 域是否有 subdomains 配置（R82：有配置 → 域内
+// 统一三层图——子域间图 + 子域内图，不只看超限）。
+func domainHasSubdomains(rc *wikiRenderCtx, name string) bool {
+	for _, d := range rc.cfg.Domains {
+		if d.Name == name && len(d.Subdomains) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// renderEntitySubDomainsMD 域内子域分组（md）：子域间关系图 + 每子域
+// 内部图（details 折叠）。R63 超限自动细分（>500 边）；R80/R82 有
+// subdomains 配置时始终三层（yaml 语义子域优先，未覆盖自动降级）。
 func renderEntitySubDomainsMD(rc *wikiRenderCtx, d *entityDomain) string {
 	var b strings.Builder
 	subs := splitEntitySubDomains(rc, d)
-	b.WriteString(fmt.Sprintf("**子域分组**（领域内图 %d 条边超限（上限 %d）——域过大，按包细分）：\n\n",
-		strongEdgeCount(d.Edges), mermaidEdgeLimit))
+	if domainHasSubdomains(rc, d.Name) {
+		b.WriteString("**子域分组**（yaml subdomains 语义划分）：\n\n")
+	} else {
+		b.WriteString(fmt.Sprintf("**子域分组**（领域内图 %d 条边超限（上限 %d）——域过大，按包细分）：\n\n",
+			strongEdgeCount(d.Edges), mermaidEdgeLimit))
+	}
 	b.WriteString(rc.diagramMD(domainMermaid(subs, d.Edges)))
 	for _, sd := range subs {
 		b.WriteString(fmt.Sprintf("<details><summary>子域 <code>%s</code>（%d 实体）</summary>\n\n",
@@ -188,8 +211,12 @@ func renderEntitySubDomainsMD(rc *wikiRenderCtx, d *entityDomain) string {
 func renderEntitySubDomainsHTML(rc *wikiRenderCtx, d *entityDomain, baseID string) string {
 	var sb strings.Builder
 	subs := splitEntitySubDomains(rc, d)
-	sb.WriteString(fmt.Sprintf("<p class=\"muted\">子域分组（领域内图 %d 条边超限——域过大，按包细分）：</p>",
-		strongEdgeCount(d.Edges)))
+	if domainHasSubdomains(rc, d.Name) {
+		sb.WriteString(`<p class="muted">子域分组（yaml subdomains 语义划分）：</p>`)
+	} else {
+		sb.WriteString(fmt.Sprintf("<p class=\"muted\">子域分组（领域内图 %d 条边超限——域过大，按包细分）：</p>",
+			strongEdgeCount(d.Edges)))
+	}
 	sb.WriteString(rc.diagramHTML(domainMermaid(subs, d.Edges)))
 	for _, sd := range subs {
 		sid := baseID + "-" + htmlEsc(sd.Name)
@@ -221,7 +248,8 @@ func renderEntitiesSectionHTML(g *domain.EntityGraph, rc *wikiRenderCtx) string 
 			// R63：强边 >500 = 域太大——按包子域细分
 			inner := "（无内部协作）"
 			if len(d.Nodes) >= 2 {
-				if strongEdgeCount(d.Edges) > mermaidEdgeLimit {
+				// R82：有 subdomains 配置 → 三层（子域间图 + 子域内图）
+				if domainHasSubdomains(rc, d.Name) || strongEdgeCount(d.Edges) > mermaidEdgeLimit {
 					inner = renderEntitySubDomainsHTML(rc, d, id)
 				} else if sub := entityMermaid(&domain.EntityGraph{Nodes: d.Nodes, Edges: d.Edges}); sub != "" {
 					inner = rc.diagramHTML(sub)
@@ -232,9 +260,13 @@ func renderEntitiesSectionHTML(g *domain.EntityGraph, rc *wikiRenderCtx) string 
 		}
 	} else {
 		// R39：无强协作边时 entityMermaid 为空——不渲染空块；
-		// R63：单领域全图超限同样按包子域细分
-		if strongEdgeCount(g.Edges) > mermaidEdgeLimit {
-			b.WriteString(renderEntitySubDomainsHTML(rc, &entityDomain{Name: "全部", Nodes: g.Nodes, Edges: g.Edges}, "entity-sub"))
+		// R63：单领域全图超限同样按包子域细分；R82：有 subdomains → 三层
+		domName := "全部"
+		if len(rc.cfg.Domains) == 1 {
+			domName = rc.cfg.Domains[0].Name
+		}
+		if domainHasSubdomains(rc, domName) || strongEdgeCount(g.Edges) > mermaidEdgeLimit {
+			b.WriteString(renderEntitySubDomainsHTML(rc, &entityDomain{Name: domName, Nodes: g.Nodes, Edges: g.Edges}, "entity-sub"))
 		} else if sub := entityMermaid(g); sub != "" {
 			b.WriteString(rc.diagramHTML(sub))
 		} else {

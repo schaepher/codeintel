@@ -136,23 +136,25 @@ echo "plain-text-response"
 	}
 }
 
-// TestRunAgentExecCodex：codex exec <prompt> 形态。
+// TestRunAgentExecCodex：codex exec --json <prompt> 形态（R82：--json
+// 输出 JSONL——只取最后一条 agent_message）。
 func TestRunAgentExecCodex(t *testing.T) {
-	// 记录调用参数：codex 应收到 "exec" + prompt
+	// 记录调用参数：codex 应收到 "exec" + "--json" + prompt
 	marker := filepath.Join(t.TempDir(), "argv")
 	fakeAgentBin(t, "codex", `#!/bin/sh
 s=""
 for a in "$@"; do s="$s $a"; done
 printf '%s' "${s# }" > `+marker+`
-echo "codex-ok"
+printf '%s\n' '{"type":"thinking","payload":{"content":[]}}'
+printf '%s\n' '{"type":"agent_message","payload":{"content":[{"type":"output_text","text":"最终答复"}]}}'
 `)
 	out, err := runAgentExec("codex", "hi", 5*time.Second, "")
-	if err != nil || out != "codex-ok" {
-		t.Fatalf("runAgentExec(codex) = %q, %v", out, err)
+	if err != nil || out != "最终答复" {
+		t.Fatalf("runAgentExec(codex) = %q, %v; want 最终答复（最后一条 agent_message）", out, err)
 	}
 	b, _ := os.ReadFile(marker)
-	if string(b) != "exec hi" {
-		t.Errorf("codex 实参 = %q; want \"exec hi\"", b)
+	if string(b) != "exec --json hi" {
+		t.Errorf("codex 实参 = %q; want \"exec --json hi\"", b)
 	}
 }
 

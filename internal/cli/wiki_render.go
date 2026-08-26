@@ -70,7 +70,9 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	idx.WriteString("**快速开始**：① 看[架构图](#整体架构图)了解系统组成 → ② 看[实体协作](#实体协作对象设计视角)了解对象怎么协作 → ③ 看[命令清单](commands.md)上手 → ④ 深入[模块](index.md#模块)与[表](tables.md)。\n\n")
 	curated := archMermaidCurated(data)
 	if cfg.Architecture != "" {
-		idx.WriteString("## 整体架构图\n\n> 来源：wiki.yaml architecture\n\n" + rc.diagramMD(cfg.Architecture))
+		// R82：第一张架构图严格从上到下——yaml architecture 若写 LR
+		// 强制转 TB（用户要求方向统一）
+		idx.WriteString("## 整体架构图\n\n> 来源：wiki.yaml architecture\n\n" + rc.diagramMD(archForceTB(cfg.Architecture)))
 	} else if arch := archMermaidFallback(data, rc.cfg.Domains, rc.repo); arch != "" {
 		idx.WriteString("## 整体架构图\n\n> 自动生成：接入层→领域→存储层三层架构（yaml architecture 可覆盖）\n\n" + rc.diagramMD(arch))
 	}
