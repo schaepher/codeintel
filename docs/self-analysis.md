@@ -1409,6 +1409,34 @@ domain 1 包 1 自环边。
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
 
+### R83（2026-08-26）——plantuml 一律转图片 + switch 分派 + SubmitOrder 时序修复
+
+用户：1) 凡是用 plantuml 的都要先转成图片再放进去；2) 单独调试
+SubmitOrder 时序图（之前特别简单无法对应代码）——执行命令、发图、
+自查一一对应。
+
+**plantuml 转图片**：diagramMD plantuml 分支渲染 PNG base64 <img>
+（md 也看图，不再只给文本块；渲染失败降级文本块；超限提示）。
+**修复 mermaidGraphToPlantuml**（R83 实测发现架构图一直渲染失败——
+降级成文本块用户没看到图）：
+- subgraph → package 分组（plantuml 组件图不认 subgraph——整图
+  "Assumed diagram type: sequence/component" 失败）
+- end → }（组件图闭合用 }，end 是语法错误）
+- 实验确认：node "label" as id / package "名" { / } 是可行组合
+
+**SubmitOrder 调试**（用户：时序简单无法对应代码）：
+- 根因 1：manager.SubmitOrder 主体是 **switch**（data.Type 分派）——
+  walkStmt 未处理 SwitchStmt，三个分支（retail/wholesale/trade）的
+  真实业务调用全丢，只剩 errors.New
+- 根因 2：writeSeqText 默认文本未递归嵌套（--depth >1 子调用不显示）
+- 修复：switch/type switch 支持（每 case 子分支）+ 文本嵌套递归
+- **自查结果（depth 3 与源码一一对应）**：SubmitOrder → NewPostedData
+  ✓ / s.manager.SubmitOrder ✓ → switch data.Type 三 case 全展开：
+  retail（GetMyCart/PrepareNormalOrder/SetShipmentAddress/ApplyTraderCode/
+  Submit/BalanceDeduct/WalletDeduct 全部对应）、wholesale（含 loop
+  range list/submitSellerWholesaleOrder/GetOrderById/Destroy）、trade
+  （CreateOrder/Submit/TradeNo）；errors.New ✓；err.Error ✓——无遗漏
+
 ### R82（2026-08-26）——codex --json / 包结构折叠 / 子域三层图 / 层识别加强 / 架构图方向
 
 用户 5 项需求：
