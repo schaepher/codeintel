@@ -228,12 +228,19 @@ func setStringSeq(n *yaml.Node, vals []string) {
 	}
 }
 
-// setGlossary glossary 序列项（term 匹配或追加）→ definition 赋值。
-func (e *yamlEditor) setGlossary(term, def string) {
+// setGlossary glossary 序列项（term 匹配或追加）→ english/abbr/
+// definition 赋值（R84：英文术语 + 缩写字段）。
+func (e *yamlEditor) setGlossary(term, english, abbr, def string) {
 	seq := e.ensureSeq("glossary")
 	it := findItem(seq, term)
 	if it == nil {
 		it = appendItem(seq, "term", term)
+	}
+	if english != "" {
+		setScalar(ensureKey(it, "english"), english)
+	}
+	if abbr != "" {
+		setScalar(ensureKey(it, "abbr"), abbr)
 	}
 	setScalar(ensureKey(it, "definition"), def)
 }

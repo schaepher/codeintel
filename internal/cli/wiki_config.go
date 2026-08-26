@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -43,7 +44,7 @@ type wikiConfig struct {
 	Project struct {
 		Description string `yaml:"description"`
 	} `yaml:"project"`
-	Modules []wikiModuleCfg `yaml:"modules"`
+	Modules       []wikiModuleCfg   `yaml:"modules"`
 	Tables        []wikiTableConfig `yaml:"tables"`
 	HiddenSymbols []string          `yaml:"hidden_symbols"`
 	// 架构图（mermaid 代码块；为空时自动从模块间调用生成）
@@ -109,9 +110,24 @@ func (c wikiAIFillCfg) value(key string) string {
 }
 
 // wikiGlossaryItem 术语条目（命名类型——wiki --ai 补缺时追加/更新）。
+// R84：术语表条目格式——英文术语，缩写(如果有)，中文，描述。
 type wikiGlossaryItem struct {
-	Term       string `yaml:"term"`
+	Term       string `yaml:"term"`    // 中文术语
+	English    string `yaml:"english"` // 英文术语（R84；无英文术语时为空）
+	Abbr       string `yaml:"abbr"`    // 缩写（可选，R84）
 	Definition string `yaml:"definition"`
+}
+
+// glossaryLabel 术语表条目标签（R84：英文术语（缩写）中文——英文与
+// 缩写缺失时回退原样 term）。
+func glossaryLabel(g wikiGlossaryItem) string {
+	if g.English == "" {
+		return g.Term
+	}
+	if g.Abbr != "" {
+		return fmt.Sprintf("%s（%s）%s", g.English, g.Abbr, g.Term)
+	}
+	return fmt.Sprintf("%s %s", g.English, g.Term)
 }
 
 // wikiTableConfig 表结构契约（#243 表详情：字段定义/索引/建表语句——

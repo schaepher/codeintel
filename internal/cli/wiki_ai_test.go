@@ -36,7 +36,6 @@ func aiFixtureData() ([]*domain.WikiModule, wikiConfig, []*domain.TableColumn) {
 	return data, cfg, cols
 }
 
-
 // TestWikiAICollectGaps：缺口收集——有内容的跳过、缺的进列表。
 func TestWikiAICollectGaps(t *testing.T) {
 	data, cfg, cols := aiFixtureData()
@@ -126,8 +125,10 @@ tables:
       - name: order_no
         comment: 订单号
 glossary:
-  - term: ORM
-    definition: 对象关系映射——结构体与数据库表列的映射约定
+  - term: 对象关系映射
+    english: Object-Relational Mapping
+    abbr: ORM
+    definition: 结构体与数据库表列的映射约定
 `
 
 // TestWikiAIFillEndToEnd：注入 runner——批量一次请求补全部缺口。
@@ -158,15 +159,15 @@ func TestWikiAIFillEndToEnd(t *testing.T) {
 			t.Errorf("批量 prompt 缺 %q:\n%s", want, gotPrompt)
 		}
 	}
-	// glossary 合并进 cfg
+	// glossary 合并进 cfg（R84：english/abbr 同步写入）
 	found := false
 	for _, g := range cfg.Glossary {
-		if g.Term == "ORM" {
+		if g.Term == "对象关系映射" && g.English == "Object-Relational Mapping" && g.Abbr == "ORM" {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("cfg.Glossary 应含 ORM 术语: %+v", cfg.Glossary)
+		t.Errorf("cfg.Glossary 应含 ORM 术语（含 english/abbr）: %+v", cfg.Glossary)
 	}
 	// cfg 同步更新（渲染用）——按名查找，不依赖追加顺序
 	var agentDesc string
@@ -211,8 +212,6 @@ func TestWikiAIFillEndToEnd(t *testing.T) {
 		t.Errorf("文件应含 AI 初稿标注:\n%s", b)
 	}
 }
-
-
 
 // aiSingleGapFixture 仅一个模块缺口（重试/失败测试用最小 fixture）。
 func aiSingleGapFixture() ([]*domain.WikiModule, wikiConfig, []*domain.TableColumn) {
@@ -288,4 +287,3 @@ func TestWikiAIFillEmptyYAML(t *testing.T) {
 		t.Errorf("落盘内容缺失:\n%s", s)
 	}
 }
-

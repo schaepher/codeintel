@@ -187,3 +187,21 @@ func TestWikiAutoDesc(t *testing.T) {
 		t.Errorf("空模块自动推断应为空")
 	}
 }
+
+// TestGlossaryLabel：R84 术语表条目标签格式——英文术语（缩写）中文；
+// 无英文时回退原样 term。
+func TestGlossaryLabel(t *testing.T) {
+	cases := []struct {
+		g    wikiGlossaryItem
+		want string
+	}{
+		{wikiGlossaryItem{Term: "对象关系映射", English: "Object-Relational Mapping", Abbr: "ORM"}, "Object-Relational Mapping（ORM）对象关系映射"},
+		{wikiGlossaryItem{Term: "静态单赋值", English: "Static Single Assignment"}, "Static Single Assignment 静态单赋值"},
+		{wikiGlossaryItem{Term: "旧术语"}, "旧术语"},
+	}
+	for _, c := range cases {
+		if got := glossaryLabel(c.g); got != c.want {
+			t.Errorf("glossaryLabel(%+v) = %q; want %q", c.g, got, c.want)
+		}
+	}
+}

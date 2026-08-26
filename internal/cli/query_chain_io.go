@@ -17,52 +17,25 @@ import (
 
 // chainCallOut 调用链里的一个 grpc/http 出站调用。
 type chainCallOut struct {
-	Service string `json:"service"`           // grpc 服务名 / http host
-	Method  string `json:"method,omitempty"`  // grpc 方法名（调用点未记录时为空）
-	Path    string `json:"path,omitempty"`    // http path
-	CalledBy string `json:"called_by"`        // 调用点符号短名
-	Line    int    `json:"line,omitempty"`    // 调用行号
+	Service		string	`json:"service"`		// grpc 服务名 / http host
+	Method		string	`json:"method,omitempty"`	// grpc 方法名（调用点未记录时为空）
+	Path		string	`json:"path,omitempty"`		// http path
+	CalledBy	string	`json:"called_by"`		// 调用点符号短名
+	Line		int	`json:"line,omitempty"`		// 调用行号
 }
 
 // chainIOOut 输出契约。
 type chainIOOut struct {
-	Symbol string         `json:"symbol"`
-	Grpc   []chainCallOut `json:"grpc,omitempty"`
-	HTTP   []chainCallOut `json:"http,omitempty"`
+	Symbol	string		`json:"symbol"`
+	Grpc	[]chainCallOut	`json:"grpc,omitempty"`
+	HTTP	[]chainCallOut	`json:"http,omitempty"`
 }
 
 // chainSymbols 递归收集调用链符号（BFS——一次加载全部 calls/grpc_call
-// 边做内存遍历，去重，上限 300 防爆炸）。
-func chainSymbols(acts *action.Actions, repo *sqlite.Repo, root string) map[string]bool {
-	adj := map[string][]string{}
-	rows, err := repo.Query(`SELECT source_id, target_id FROM edges WHERE kind IN ('calls', 'grpc_call')`)
-	if err != nil {
-		return map[string]bool{root: true}
-	}
-	for rows.Next() {
-		var src, tgt string
-		if rows.Scan(&src, &tgt) == nil {
-			adj[src] = append(adj[src], tgt)
-		}
-	}
-	rows.Close()
-	seen := map[string]bool{}
-	queue := []string{root}
-	for len(queue) > 0 && len(seen) < 300 {
-		id := queue[0]
-		queue = queue[1:]
-		if seen[id] {
-			continue
-		}
-		seen[id] = true
-		for _, t := range adj[id] {
-			if !seen[t] {
-				queue = append(queue, t)
-			}
-		}
-	}
-	return seen
-}
+// 边做内存遍历，去重，上限 300 防爆炸）。R84：接口不停止解析——链上
+// 遇到接口方法/类型（grpc 服务入口接口是动态入口，无直接 caller）经
+// implements 边具体化到实现（接口类型 → 首个实现；接口方法 → 首个有
+// 该方法者——与 InterfaceMethodImpl 语义一致，控制膨胀）。
 
 // grpcSvcNames 全部 grpc 服务名集合（内存——grpc 客户端判定）。
 func grpcSvcNames(repo *sqlite.Repo) map[string]bool {

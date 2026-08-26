@@ -171,8 +171,8 @@ func wikiAIFill(yamlPath string, cfg *wikiConfig, data []*domain.WikiModule, col
 		}
 		if aiEnabled("fill.glossary", *cfg) {
 			for _, g := range out.Glossary {
-				e.setGlossary(g.Term, g.Definition)
-				cfgSetGlossary(cfg, g.Term, g.Definition)
+				e.setGlossary(g.Term, g.English, g.Abbr, g.Definition)
+				cfgSetGlossary(cfg, g.Term, g.English, g.Abbr, g.Definition)
 				ok++
 			}
 		}
@@ -278,6 +278,3 @@ func aiCallOnce[T any](agent, prompt string, timeout time.Duration, dir string, 
 	}
 	return parse(resp2)
 }
-
-
-

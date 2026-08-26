@@ -20,9 +20,9 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	defer logger.Debug("exit renderWiki")
 	eg, egErr := acts.Entities() // R9：实体协作图（概览/模块页渲染）
 	_ = egErr
-	schemas := wikiSchemas(acts) // R19 表 schema 事实源（列类型/默认值）
+	schemas := wikiSchemas(acts)          // R19 表 schema 事实源（列类型/默认值）
 	ormStructs := scanORMStructs(repoAbs) // R20 表关联结构体
-	goTypes := ormColTypes(ormStructs) // R21 结构体 Go 类型 fallback
+	goTypes := ormColTypes(ormStructs)    // R21 结构体 Go 类型 fallback
 
 	if err := cleanWikiOutDir(outDir, data); err != nil {
 		return err
@@ -104,7 +104,7 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	if len(cfg.Glossary) > 0 {
 		idx.WriteString("\n## 术语表\n\n")
 		for _, g := range cfg.Glossary {
-			idx.WriteString(fmt.Sprintf("- **%s**：%s\n", g.Term, g.Definition))
+			idx.WriteString(fmt.Sprintf("- **%s**：%s\n", glossaryLabel(g), g.Definition))
 		}
 	}
 	idx.WriteString("\n## 模块\n\n")

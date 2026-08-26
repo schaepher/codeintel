@@ -36,9 +36,9 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 
 	eg, egErr := acts.Entities() // R9：实体协作图（模块页/概览渲染）
 	_ = egErr
-	schemas := wikiSchemas(acts) // R19 表 schema 事实源（列类型/默认值）
+	schemas := wikiSchemas(acts)          // R19 表 schema 事实源（列类型/默认值）
 	ormStructs := scanORMStructs(repoAbs) // R20 表关联结构体
-	goTypes := ormColTypes(ormStructs) // R21 结构体 Go 类型 fallback
+	goTypes := ormColTypes(ormStructs)    // R21 结构体 Go 类型 fallback
 
 	title := filepath.Base(repoAbs) + " 业务 wiki"
 	var nav strings.Builder  // 左侧目录
@@ -126,7 +126,7 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	if len(cfg.Glossary) > 0 {
 		main.WriteString(`<section id="glossary"><h2>术语表</h2>`)
 		for _, g := range cfg.Glossary {
-			main.WriteString(fmt.Sprintf("<p><strong>%s</strong>：%s</p>", htmlEsc(g.Term), htmlEsc(g.Definition)))
+			main.WriteString(fmt.Sprintf("<p><strong>%s</strong>：%s</p>", htmlEsc(glossaryLabel(g)), htmlEsc(g.Definition)))
 		}
 		main.WriteString("</section>\n")
 		nav.WriteString(`<li><a href="#glossary">术语表</a></li>`)

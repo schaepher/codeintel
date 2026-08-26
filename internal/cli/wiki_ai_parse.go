@@ -25,9 +25,6 @@ func stripYAMLFence(s string) string {
 	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
-
-
-
 // wikiBatchOut AI 批量返回结构（一次请求处理全部缺口）。
 type wikiBatchOut struct {
 	Modules []struct {
@@ -44,6 +41,8 @@ type wikiBatchOut struct {
 	} `yaml:"tables"`
 	Glossary []struct {
 		Term       string `yaml:"term"`
+		English    string `yaml:"english"`
+		Abbr       string `yaml:"abbr"`
 		Definition string `yaml:"definition"`
 	} `yaml:"glossary"`
 }
@@ -134,7 +133,7 @@ func wikiAIBatchPrompt(mods []aiModuleGap, tbls []aiTableGap, colGaps []aiColGap
 		b.WriteString("\n")
 	}
 	if withGlossary {
-		b.WriteString("四、术语表：从以上模块/表/列事实中识别 3-8 个专业术语（缩写/内部黑话，如 ssa/ast/ER/MCP），给出中文定义。\n")
+		b.WriteString("四、术语表：从以上模块/表/列事实中识别 3-8 个专业术语（缩写/内部黑话，如 ssa/ast/ER/MCP），给出中文定义，并尽量给出英文术语（与缩写，若有）。\n")
 	}
 	b.WriteString(`只输出 YAML（结构严格如下，缺哪个部分就省略哪个）：
 modules:
@@ -147,7 +146,9 @@ tables:
       - name: <列名>
         comment: <说明>
 glossary:
-  - term: <术语>
+  - term: <中文术语>
+    english: <英文术语>
+    abbr: <缩写（没有则省略）>
     definition: <定义>`)
 	return b.String()
 }
@@ -182,15 +183,17 @@ func parseWikiBatch(s string) (wikiBatchOut, error) {
 	return out, nil
 }
 
-// cfgSetGlossary 同步更新 cfg.Glossary（渲染用）。
-func cfgSetGlossary(cfg *wikiConfig, term, def string) {
+// cfgSetGlossary 同步更新 cfg.Glossary（渲染用）。R84：english/abbr。
+func cfgSetGlossary(cfg *wikiConfig, term, english, abbr, def string) {
 	for i := range cfg.Glossary {
 		if cfg.Glossary[i].Term == term {
+			cfg.Glossary[i].English = english
+			cfg.Glossary[i].Abbr = abbr
 			cfg.Glossary[i].Definition = def
 			return
 		}
 	}
-	cfg.Glossary = append(cfg.Glossary, wikiGlossaryItem{Term: term, Definition: def})
+	cfg.Glossary = append(cfg.Glossary, wikiGlossaryItem{Term: term, English: english, Abbr: abbr, Definition: def})
 }
 
 // cfgSetModuleDesc 同步更新 cfg.Modules（渲染用）。
