@@ -1409,6 +1409,34 @@ domain 1 包 1 自环边。
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
 
+### R81（2026-08-26）——sequence 代码级时序图（调用名 + 分支循环）
+
+用户：1) sequence 结果的消息线上写调用（不是 impl 实现类型）；2)
+支持查询特定方法/函数，把整个函数代码级转换成时序图（基本分支循环）。
+
+**`query sequence --code <符号> [--format mermaid] [--json]`**：
+- 读目标函数源码（索引 FilePath + LineStart 定位）→ go/parser AST →
+  遍历函数体：调用语句（ExprStmt/赋值/return/defer/go）→ call 节点
+  （消息线 = 源码调用形态：`s.getShoppingCart`、`ic.Put`、
+  `o.SetShipmentAddress`、链式 `s.memberRepo.GetMember(r.BuyerId).GetAccount`）；
+  if/else → branch（else if 链递归）；for/range → loop
+- mermaid 渲染：sequenceDiagram + alt/else/loop 块（参与者 = 入口 +
+  调用目标去重排序）；默认文本缩进树（行号 + 分支标注）；--json
+  输出节点树
+- 与索引链（CalleesConcrete）互补：索引链"调用了谁"、代码级
+  "函数内部怎么调用"（顺序/分支/循环）——接口调用具体化到实现
+  类型后消息线是类型名的问题，代码级天然解决（写源码调用名）
+
+**go2o 实测**（(orderServiceImpl).PrepareOrder）：消息线全部源码调用
+形态；深层嵌套分支如实（alt ic == nil / alt r.Item != nil / alt
+balance >= int(ov.FinalAmount) / else——支付逻辑真实反映）；loop
+range arr。噪音可接受：类型转换（int64(x)）也记为调用、空分支
+（无调用语句的 alt）如实显示。
+
+测试：TestCodeSequenceNodes（AST 节点树断言）/ TestCodeSequenceMermaid
+（alt/loop/消息线）/ TestCodeSequenceCmd（命令端到端）/
+TestCodeSequenceMissing（符号缺失非零退出）——4 例全绿。
+
 ### R80（2026-08-26）——domains 划分子域（subdomains——AI 输出 + 渲染消费）
 
 用户：划分领域时，domains 底下具体 domain 加 subdomains——让 AI 给

@@ -92,12 +92,11 @@ func cmdQuery(args []string) int {
 	if sub == "external-deps" {
 		return cmdExternalDeps(abs, f)
 	}
-	// R45：外部系统接口调用识别（grpc/http 调用但接口未在本项目定义 +
-	// 请求对象不在本项目服务参数中）
+	// R45：外部系统接口调用识别（接口未在本项目定义 / 请求对象不在本项目服务参数）
 	if sub == "external-interfaces" {
 		return cmdExternalInterfaces(abs, f)
 	}
-	// R46：kafka topic 生产/消费归属分类（内部产内消/内产外消/外产内消）
+	// R46：kafka topic 生产/消费归属分类
 	if sub == "kafka-topics" {
 		return cmdKafkaTopics(abs, f)
 	}
@@ -107,13 +106,10 @@ func cmdQuery(args []string) int {
 	}
 
 	opts := outputOpts{json: f.json, compact: f.compact, repoPath: f.repoPath}
-	// R77：wiki 特性转命令——包结构/架构图/ER 图/系统流程/模块详情
-	// （拆分到 query_wiki_common.go——行数治理）
 	if code, done := dispatchWikiSub(sub, acts, db, abs, f, opts); done {
 		return code
 	}
-	// --since 标注（§17.2）：symbol/fields/callers/callees/impact 输出
-	// 对函数/方法节点标注 [new]/[mod]
+	// --since 标注（§17.2）：symbol/fields/callers/callees/impact 输出对函数/方法节点标注 [new]/[mod]
 	var since *domain.SinceInfo
 	if f.since != "" {
 		since = runGitDiffSince(abs, f.since)
@@ -156,7 +152,10 @@ func cmdQuery(args []string) int {
 	case "table-path":
 		return queryTablePath(acts, f.positional, f.json, f.full)
 	case "sequence":
-		// R76：时序图（接口具体化——wiki 流程页同款数据源）
+		// R76：时序图（接口具体化）；R81：--code 代码级时序（AST 解析函数体）
+		if f.code {
+			return cmdQuerySequenceCode(acts, abs, target, f.format == "mermaid", f.json)
+		}
 		return cmdQuerySequence(acts, target, f.depth, f.format == "mermaid", f.json)
 	case "callers", "callees", "impact":
 		d := f.depth
@@ -278,6 +277,8 @@ func parseQueryFlags(args []string) queryFlags {
 			i++
 		case strings.HasPrefix(a, "--max-entries="):
 			f.maxEntries, _ = strconv.Atoi(strings.TrimPrefix(a, "--max-entries="))
+		case a == "--code":
+			f.code = true
 		case a == "--json":
 			f.json = true
 		case a == "--full":
