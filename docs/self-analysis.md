@@ -1409,6 +1409,94 @@ domain 1 包 1 自环边。
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
 
+### R97（2026-08-27）——时序图自环修复 + 接口调用数据流具体化
+
+用户：grpc 方法实现内部调接口（s.manager.SubmitOrder——IOrderManager），
+接口 implements 列表含 grpc 实现（orderServiceImpl 也实现了业务接口）
+→ 具体化回 grpc 实现自身 → 自环，depth 越大重复越多；要求优先找
+接口的变量数据流来源（字段赋值），找不到再类型匹配 fallback。
+
+**双修复**：
+- 防环：codeSeqForSymbol 递归展开路径 visited（进入标记/退出清除——
+  路径语义，不同分支互不影响）；自环（递归函数）同样防住
+- 具体化优先非 grpc 实现：InterfaceMethodImpl 的 implIDs 排序——
+  grpc_impl 边 source 排后（orderImplsByGrpc）
+- **数据流具体化**（R97-2）：receiver 字段赋值来源（摘要 direct_write
+  写入函数 → 源码 AST 赋值表达式 &orderManagerImpl{}）→ 直接落到
+  具体实现——比接口类型匹配更精确；fallback 类型匹配
+- 完整形态链：字面量 → 变量 → 构造器 return → 字段数据流 → DI 类型
+  匹配 → 接口节点回退（六层注入形态）
+- 测试：TestCodeSequenceCycleGuard/TestInterfaceMethodImplPrefersBizImpl/
+  TestReceiverFieldDataflow；go2o 实测 SubmitOrder 业务链正常
+- 教训：asttool split 丢 fixture 原始字符串 import 块（拆后必查）
+
+### R96（2026-08-27）——sequence/grpc-callers/http-callers/ext-chain 迁 action（迁移批次 3）
+
+R89 分层迁移第三批：codeSeqForSymbol/walkStmts（AST 解析）、
+chainSymbols/chainGrpcHTTPCached/extChain（BFS + 缓存）等迁 action
+（CodeSequence/ChainGrpcHTTP/ExtChain 方法）；渲染（mermaid/文本树）
+留 cli；Reader 扩展 GetImplementsEdges/AllNodeIDs/ExtChainCache 等；
+cli 净删 1289 行；自建 fixture 测试随迁。
+
+### R95（2026-08-27）——注册第二参实现追踪（构造器 return + DI 类型匹配）
+
+场景链：RegisterXxxServer(s, X) 的 X 注入形态逐级覆盖——构造器调用
+（newService() 返回接口、函数体 return 具体实现 → concreteReturnType
+追踪）→ DI 容器 di.Get()/变量注入（无直接调用关系 → types.Implements
+全模块类型匹配，排除 Unimplemented）→ 无实现回退接口节点。serviceImplNode
+→ serviceImplNodes（多实现循环）；Adapter 加 modules 字段。
+
+### R94（2026-08-27）——external-deps/kafka-topics/external-interfaces 迁 action（迁移批次 2）
+
+R89 分层迁移第二批：externalDeps/kafkaTopics/externalInterfaces +
+查询辅助迁 action（ExternalDeps/KafkaTopics/ExternalInterfaces 方法）；
+Reader 扩展 GetRedisKeyNodes/GetKafkaTopicNodes/GetFactsByKinds；cli
+薄壳转发 + wiki 渲染改调 action。
+
+### R93（2026-08-26）——wiki 包结构完整名 / 工具函数包列 / 枚举所在包 + 外部服务方法修复
+
+- wiki 包结构显示完整包路径（同末尾名区分）；工具函数加所在包列；
+  枚举展开后表上方显示所在包
+- **外部注册服务 wiki 只显示 2 个的根因**：relPath 对外部文件（..）
+  返回空 → regFile 空 → ServiceDesc 解析失败 → 方法空 → R39 过滤。
+  修复：emitGrpcServiceEntry 从 Register 第二参接口方法名提取
+  methods 属性（ifaceMethodNames——types 级无需读外部文件）
+
+### R92（2026-08-26）——analyzer 版本纳入 ast 适配器源码
+
+修改 ast 后 update 自动降级全量（替代手动 reindex——增量写库无法
+让新逻辑对未变更包生效；Q182 marker 此前只覆盖 ssa 包）。ast 包
+SourceHash（embed 编译时快照）合并 analyzerVersionHash。
+
+### R91（2026-08-26）——自定义 grpc 客户端（签名同服务但无注册）不再误识别
+
+注册佐证：接口签名识别要求服务名有注册佐证（RegisterXxxServer 包装
+函数值 / grpc.RegisterService 直接注册 desc 名 / 自命名接口名提取）；
+无注册的 grpc 签名接口（自定义客户端）不产生 svc 节点。
+
+### R90（2026-08-26）——外部仓库 Register 定义 + 本仓库调用点识别
+
+collectRegisterServers 依赖包 types 级扫描（Imports 递归——外部包
+fast 模式无 Syntax）；判定：首参 grpc.ServiceRegistrar/接口含
+RegisterService/函数名 Register<X>Server；服务名从第二参接口类型取。
+测试假阳性修复：本地 replace 未编译时 go/packages 给 Syntax——强制
+清空依赖包 Syntax 模拟真实 fast 模式。
+
+### R89（2026-08-26）——cli 薄壳架构落地（action 承载命令逻辑）
+
+用户要求：cli 只接收命令行参数 → 构造 action request → 转发 action；
+AGENTS.md 落档分层设计（渲染留 cli）。样板迁移 helpers/enums：
+Actions.Helpers(HelpersRequest)/action.Enums；sqlite GetFunctions 窄
+接口；测试随迁（核心断言 action + cli 转发断言）；asttool split +
+改包名跨包迁移模式。
+
+### R88（2026-08-26）——query helpers 命令 + help 补全 + 外部 Register 识别
+
+- query helpers [--min-packages N]：工具函数 = 游离函数 + 被 ≥N 个包
+  调用（配置 helpers.min_packages 默认 3）；wiki 枚举区块同源读取
+- usageText 补全全部 33 个 query 子命令 + 顶层 reindex/rule/domains
+- collectRegisterDefs 去 isInModule（跨仓库 Register 定义识别）
+
 ### R84（2026-08-26）——grpc 入口接口不停止解析 + 术语表英文格式 + 按包增量索引
 
 用户：1) grpc 服务入口的接口是动态入口（无直接 caller），不能当

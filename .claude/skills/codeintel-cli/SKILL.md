@@ -77,7 +77,10 @@ codeintel domains [--repo <path>] [--yaml wiki.yaml] [--agent claude|codex] [--e
                                            # domains 区块（# AI 初稿）；超时 360s（R38）；
                                            # 重跑整体替换旧 domains（clearDomains）
 codeintel query grpc-routes [--json]       # R29：服务端 gRPC 路由清单（服务名/实现类型
-                                           # impl_id/注册点/方法全集含 handler——ServiceDesc 解析）
+                                           # impl_id/注册点/方法全集含 handler——ServiceDesc 解析；
+                                           # R90/R91/R95：外部仓库 Register 定义（调用点在本仓库）、
+                                           # 自定义客户端（无注册佐证不误识别）、注册第二参实现追踪
+                                           # （字面量/变量/构造器 return/DI 类型匹配）
 codeintel query http-routes [--json]       # R31：HTTP 路由清单（method/path/handler/handler_id/
                                            # resolver native|gin/注册点）
 codeintel query packages [--json]          # R77：包结构清单（包路径/职责 doc_comment/符号数）
@@ -90,7 +93,8 @@ codeintel query sequence <符号> [--code] [--depth N]
                                            # AST 时序（调用/分支/循环/switch 嵌套展开，--depth 默认 3，
                                            # seq.stop_packages 停止包配置）；R84：接口方法入口
                                            # （grpc 服务入口接口——动态入口无方法体）自动具体化到
-                                           # 实现方法再解析
+                                           # 实现方法再解析；R97：接口调用优先 receiver 字段数据流
+                                           # 具体化（s.manager 赋值来源），自环防环（路径 visited）
 codeintel query grpc-callers <符号> [--json]
                                            # R83：调用链最终调用的 grpc 服务（BFS + 接口具体化；
                                            # 结果缓存 ext_chain_cache，索引 commit 变化失效）
