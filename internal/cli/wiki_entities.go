@@ -166,7 +166,7 @@ func renderEntitiesSectionMD(g *domain.EntityGraph, rc *wikiRenderCtx) string {
 // 子域间关系图 + 每子域内部图（details 折叠）。
 func renderEntitySubDomainsMD(rc *wikiRenderCtx, d *entityDomain) string {
 	var b strings.Builder
-	subs := splitEntitySubDomains(d)
+	subs := splitEntitySubDomains(rc, d)
 	b.WriteString(fmt.Sprintf("**子域分组**（领域内图 %d 条边超限（上限 %d）——域过大，按包细分）：\n\n",
 		strongEdgeCount(d.Edges), mermaidEdgeLimit))
 	b.WriteString(rc.diagramMD(domainMermaid(subs, d.Edges)))
@@ -187,7 +187,7 @@ func renderEntitySubDomainsMD(rc *wikiRenderCtx, d *entityDomain) string {
 // 折叠——领域内子域默认折叠）。
 func renderEntitySubDomainsHTML(rc *wikiRenderCtx, d *entityDomain, baseID string) string {
 	var sb strings.Builder
-	subs := splitEntitySubDomains(d)
+	subs := splitEntitySubDomains(rc, d)
 	sb.WriteString(fmt.Sprintf("<p class=\"muted\">子域分组（领域内图 %d 条边超限——域过大，按包细分）：</p>",
 		strongEdgeCount(d.Edges)))
 	sb.WriteString(rc.diagramHTML(domainMermaid(subs, d.Edges)))

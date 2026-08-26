@@ -93,6 +93,47 @@ func TestSplitEntityDomainsSkewedConfig(t *testing.T) {
 	}
 }
 
+// TestSplitEntitySubDomainsYaml：R80——yaml subdomains.packages 优先
+// 于包短名自动分组（order/wallet 显式归「交易核心」子域；member/
+// infra 未覆盖走包短名兜底）。
+func TestSplitEntitySubDomainsYaml(t *testing.T) {
+	g := go2oStyleGraph()
+	d := &entityDomain{Name: "交易域", Nodes: g.Nodes, ByID: map[string]bool{}}
+	for _, n := range g.Nodes {
+		d.ByID[n.ID] = true
+	}
+	rc := &wikiRenderCtx{cfg: wikiConfig{Domains: []wikiDomainCfg{
+		{Name: "交易域", Subdomains: []wikiSubdomainCfg{
+			{Name: "交易核心", Packages: []string{"github.com/ixre/go2o/pkg/domain/order", "github.com/ixre/go2o/pkg/domain/wallet"}},
+		}},
+	}}}
+	subs := splitEntitySubDomains(rc, d)
+	names := []string{}
+	for _, s := range subs {
+		names = append(names, s.Name)
+	}
+	if len(names) != 3 || names[0] != "infra" || names[1] != "member" || names[2] != "交易核心" {
+		t.Errorf("yaml 优先子域分组 = %v; want [infra member 交易核心]", names)
+	}
+	for _, s := range subs {
+		if s.Name == "交易核心" && len(s.Nodes) != 3 {
+			t.Errorf("交易核心子域实体 = %d; want 3（order×2 + wallet）", len(s.Nodes))
+		}
+	}
+}
+
+// TestSplitEntitySubDomainsNoCfg：无 subdomains 配置 → 包短名兜底
+// （R63 行为不变）。
+func TestSplitEntitySubDomainsNoCfg(t *testing.T) {
+	g := go2oStyleGraph()
+	d := &entityDomain{Name: "全部", Nodes: g.Nodes, ByID: map[string]bool{}}
+	rc := &wikiRenderCtx{cfg: wikiConfig{}}
+	subs := splitEntitySubDomains(rc, d)
+	if len(subs) != 4 {
+		t.Errorf("无配置子域分组 = %d; want 4（order/wallet/member/infra）", len(subs))
+	}
+}
+
 // TestDomainMermaid：领域间图含节点与聚合边（order→wallet count 3）。
 func TestDomainMermaid(t *testing.T) {
 	g := go2oStyleGraph()

@@ -79,6 +79,10 @@ func parseDomains(resp string, f *domainFacts) ([]wikiDomainCfg, []string) {
 			warns = append(warns, fmt.Sprintf("域 %s：无有效归属（剔除）", d.Name))
 			continue
 		}
+		// R80：subdomains 校验（拆到 domains_sub.go——行数治理）
+		var sw []string
+		d.Subdomains, sw = sanitizeSubdomains(d, havePkg, haveTbl)
+		warns = append(warns, sw...)
 		d.Packages, d.Tables, d.Services = pkgs, tbls, svcs
 		doms = append(doms, d)
 	}

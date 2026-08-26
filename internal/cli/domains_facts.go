@@ -273,7 +273,8 @@ func domainPrompt(factsPath, extraPrompt string) string {
 	b.WriteString("\n8. **包级调用矩阵**（pkg_calls：from = 调用方包完整路径，to = [{pkg, count}] 被调目标数组——同 from 聚合、同包调用已不计）：子域划分参考包间调用密度——**调用密集的包组归同一子域（内聚），包间调用稀疏处是子域边界**；实体归属先归包（entities.pkg）再随包归子域\n")
 	b.WriteString("\n9. **包规模与角色**：packages[].ents = 包内实体数（大头包——实体多的包建议拆子域或与其他包分域）；entities[].service = 行为载体（无字段/组合注入——service 按职责归域）vs 数据载体（字段被写——随所属 service 归域，不独立成域）\n")
 	b.WriteString("\n10. **规模基准（渲染上限）**：每个域的内部协作图调用边超过 500 条、实体超过约 30 个时渲染失败或降级。划分时**每域实体数建议 ≤15**（按 packages[].ents 预估）——实体多的包拆到多个域或拆子域；宁可多几个域，不要单域过大\n")
-	b.WriteString("\n11. **输出方式（R73）**：把归纳结果**直接输出到响应文本**（JSON 格式：{\"domains\": [{\"name\", \"description\", \"packages\": [], \"tables\": [], \"services\": []}]}）——**不要任何说明文字、不要 markdown 围栏**；如环境支持写文件（Write 工具）可同时写入 `.codeintel/domains-ai.json`（可选，响应仍是主交付物）\n")
+	b.WriteString("\n11. **输出方式（R73）**：把归纳结果**直接输出到响应文本**（JSON 格式：{\"domains\": [{\"name\", \"description\", \"packages\": [], \"tables\": [], \"services\": [], \"subdomains\": [{\"name\", \"description\", \"packages\": [], \"tables\": []}]}]}）——**不要任何说明文字、不要 markdown 围栏**；如环境支持写文件（Write 工具）可同时写入 `.codeintel/domains-ai.json`（可选，响应仍是主交付物）\n")
+	b.WriteString("\n12. **每个域必须划分子域（subdomains）**：域内按语义拆分 2~5 个子域（域本身不大也至少 1 个——默认整个域为一个子域）。子域 = 域内职责内聚的包+表分组（参考 pkg_calls 调用密度——密集包组同子域、稀疏处是子域边界）；每个子域给出 name（中文，如「订单核心」）、description（一句话）、packages（归属包完整路径）、tables（归属表名）——**域内全部包和表都要归入某个子域**；实体多的域（>15 实体或 packages[].ents 大头包）必须拆分多个子域\n")
 	if extraPrompt != "" {
 		b.WriteString("\n用户额外约束（**必须优先遵守**，冲突时以用户约束为准）：\n" + extraPrompt + "\n")
 	}

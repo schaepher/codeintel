@@ -1409,6 +1409,39 @@ domain 1 包 1 自环边。
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
 
+### R80（2026-08-26）——domains 划分子域（subdomains——AI 输出 + 渲染消费）
+
+用户：划分领域时，domains 底下具体 domain 加 subdomains——让 AI 给
+领域划分子域。
+
+**yaml 契约**：wikiDomainCfg.Subdomains []wikiSubdomainCfg（name/
+description/packages/tables——嵌套结构，AI 归纳）。
+
+**prompt 第 12 条**：每个域必须划分子域（2~5 个语义内聚子域——
+pkg_calls 调用密度定边界；域内全部包表归入子域）；第 11 条输出
+JSON 示例带 subdomains。
+
+**写回修复**（关键 bug）：setDomain 不写 subdomains（yamlEditor 手写
+node——只处理 name/description/packages/tables/services）→ AI 输出了
+也会被丢。补 setDomain 的 subdomains 嵌套写回 + parseDomains 校验
+（子域包/表须在事实包——sanitizeSubdomains 拆 domains_sub.go）。
+**教训**：AI 输出的新字段必须全链路检查（prompt → 解析 → 校验 →
+写回）——第一次实测 AI 其实没输出（响应被丢弃不可回溯），修写回后
+重跑才拿到。
+
+**渲染消费**：实体子域分组（R63 自动包细分）与 ER 子域分组（R78
+表二级前缀）优先用 yaml subdomains 归属——AI 语义子域优先、未覆盖
+走自动降级（splitEntitySubDomains 传 rc；erSubOf 表索引）。
+
+**go2o 实测**（2 次 AI：首次超时重试成功）：
+- 8 域全部带 subdomains（grep 计数 8）
+- 质量：商品域「商品核心/类目与模型」、商家域「商户主体/门店」、
+  会员域「会员档案」——语义清晰、包表归属内聚
+- wiki 重生成无回归
+
+**AI 超时观察**：同样 prompt 第一次 10m 超时（无残留进程）第二次
+成功——AI 调用不稳定，重试是有效策略（R72 诊断方法延续）。
+
 ### R79（2026-08-26）——渲染基准实测（go2o domains 16 域 → 8 域）+ R78 待办 5 项
 
 用户选待办 1+4+11+12+13+15（渲染基准实测 / 动态 URL / MCP 工具验证

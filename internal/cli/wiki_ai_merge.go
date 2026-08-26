@@ -174,6 +174,39 @@ func (e *yamlEditor) setDomain(d wikiDomainCfg) {
 	if len(d.Services) > 0 {
 		setStringSeq(ensureKey(it, "services"), d.Services)
 	}
+	if len(d.Subdomains) > 0 {
+		// R80：AI 划分子域（嵌套结构——name/description/packages/tables）
+		subSeq := ensureKey(it, "subdomains")
+		subSeq.Kind = yaml.SequenceNode
+		subSeq.Tag = "!!seq"
+		subSeq.Content = nil
+		for _, sd := range d.Subdomains {
+			item := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+			item.Content = append(item.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "name"},
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: sd.Name})
+			if sd.Description != "" {
+				item.Content = append(item.Content,
+					&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "description"},
+					&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: sd.Description})
+			}
+			if len(sd.Packages) > 0 {
+				pkgSeq := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+				for _, p := range sd.Packages {
+					pkgSeq.Content = append(pkgSeq.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: p})
+				}
+				item.Content = append(item.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "packages"}, pkgSeq)
+			}
+			if len(sd.Tables) > 0 {
+				tblSeq := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+				for _, t := range sd.Tables {
+					tblSeq.Content = append(tblSeq.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: t})
+				}
+				item.Content = append(item.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "tables"}, tblSeq)
+			}
+			subSeq.Content = append(subSeq.Content, item)
+		}
+	}
 }
 
 // clearDomains 清空 domains 序列（R38：domains 分析是整体重归纳——

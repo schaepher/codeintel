@@ -23,14 +23,25 @@ func erSubName(table string) string {
 	return splitTableDomain(table)
 }
 
-// splitERSubDomains 领域内关系按表二级前缀分组：两端子域相同 → 组内
-// 边；不同 → 跨子域边（子域间图数据源）。组按子域名排序（确定性）。
-func splitERSubDomains(rels []*domain.TableRelation) ([]*erDomainGroup, []*domain.TableRelation) {
+// erSubOf 表 → 子域归属：yaml subdomains[].tables 精确匹配优先
+// （R80——AI 语义子域），未覆盖走二级前缀降级（erSubName）。
+func erSubOf(table string, subTables map[string]string) string {
+	if v, ok := subTables[table]; ok {
+		return v
+	}
+	return erSubName(table)
+}
+
+// splitERSubDomains 领域内关系按表子域分组（R78 二级前缀自动 + R80
+// yaml subdomains 优先）：两端子域相同 → 组内边；不同 → 跨子域边
+// （子域间图数据源）。组按子域名排序（确定性）。subTables 为表 →
+// 子域名索引（yaml 配置；nil = 纯自动降级）。
+func splitERSubDomains(rels []*domain.TableRelation, subTables map[string]string) ([]*erDomainGroup, []*domain.TableRelation) {
 	groups := map[string]*erDomainGroup{}
 	var order []string
 	var cross []*domain.TableRelation
 	for _, r := range rels {
-		sf, st := erSubName(r.FromTable), erSubName(r.ToTable)
+		sf, st := erSubOf(r.FromTable, subTables), erSubOf(r.ToTable, subTables)
 		if sf == st {
 			g := groups[sf]
 			if g == nil {
@@ -54,13 +65,14 @@ func splitERSubDomains(rels []*domain.TableRelation) ([]*erDomainGroup, []*domai
 }
 
 // erSubCrossMermaid 子域间关系图（领域级聚合——节点 = 子域，边 =
-// 子域间关系计数；erCrossMermaid 同款形态，domainOf 换成二级前缀）。
-func erSubCrossMermaid(cross []*domain.TableRelation) string {
+// 子域间关系计数；erCrossMermaid 同款形态，domainOf 换成 erSubOf——
+// yaml subdomains 优先，未覆盖二级前缀）。
+func erSubCrossMermaid(cross []*domain.TableRelation, subTables map[string]string) string {
 	type key struct{ from, to string }
 	counts := map[key]int{}
 	seen := map[string]bool{}
 	for _, r := range cross {
-		df, dt := erSubName(r.FromTable), erSubName(r.ToTable)
+		df, dt := erSubOf(r.FromTable, subTables), erSubOf(r.ToTable, subTables)
 		counts[key{df, dt}]++
 		seen[df] = true
 		seen[dt] = true
@@ -94,13 +106,31 @@ func erSubCrossMermaid(cross []*domain.TableRelation) string {
 	return b.String()
 }
 
-// renderERSubDomainsMD 领域内图超限 → 二级前缀子域细分（md）。
+// erSubTablesFor yaml subdomains 表归属索引（表名 → 子域名）——
+// 域名匹配 rc.cfg.Domains[].Name；无配置返回空（纯自动降级）。
+func erSubTablesFor(rc *wikiRenderCtx, domainName string) map[string]string {
+	out := map[string]string{}
+	for _, d := range rc.cfg.Domains {
+		if d.Name != domainName {
+			continue
+		}
+		for _, sd := range d.Subdomains {
+			for _, t := range sd.Tables {
+				out[t] = sd.Name
+			}
+		}
+	}
+	return out
+}
+
+// renderERSubDomainsMD 领域内图超限 → 子域细分（md；yaml subdomains
+// 优先，未覆盖走表二级前缀降级）。
 func renderERSubDomainsMD(d *erDomainGroup, rc *wikiRenderCtx) string {
-	subs, cross := splitERSubDomains(d.rels)
+	subs, cross := splitERSubDomains(d.rels, erSubTablesFor(rc, d.name))
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("**子域分组**（领域 %s 内图 %d 条边超限（上限 %d）——域过大，按表二级前缀细分）：\n\n",
 		d.name, len(d.rels), mermaidEdgeLimit))
-	if m := erSubCrossMermaid(cross); m != "" {
+	if m := erSubCrossMermaid(cross, erSubTablesFor(rc, d.name)); m != "" {
 		b.WriteString("子域间关系：\n\n")
 		b.WriteString(rc.diagramMD(m))
 	}
@@ -119,11 +149,11 @@ func renderERSubDomainsMD(d *erDomainGroup, rc *wikiRenderCtx) string {
 
 // renderERSubDomainsHTML 领域内图超限 → 子域细分（html 折叠版）。
 func renderERSubDomainsHTML(d *erDomainGroup, rc *wikiRenderCtx, baseID string) string {
-	subs, cross := splitERSubDomains(d.rels)
+	subs, cross := splitERSubDomains(d.rels, erSubTablesFor(rc, d.name))
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf(`<p class="muted">子域分组（领域 %s 内图 %d 条边超限——域过大，按表二级前缀细分）：</p>`,
 		htmlEsc(d.name), len(d.rels)))
-	if m := erSubCrossMermaid(cross); m != "" {
+	if m := erSubCrossMermaid(cross, erSubTablesFor(rc, d.name)); m != "" {
 		b.WriteString("<p class=\"muted\">子域间关系：</p>" + rc.diagramHTML(m))
 	}
 	for i, sd := range subs {

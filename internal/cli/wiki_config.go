@@ -24,6 +24,18 @@ type wikiDomainCfg struct {
 	// R38：归属服务名（grpc 服务名 / http "METHOD path"）——流程页
 	// 服务子页按领域分目录的依据；AI 归纳 + 人工确认
 	Services []string `yaml:"services"`
+	// R80：AI 划分子域（域内语义子域——渲染分组（实体/ER 域内图）优先
+	// 使用 subdomains 归属，未覆盖的包/表走自动细分降级）
+	Subdomains []wikiSubdomainCfg `yaml:"subdomains"`
+}
+
+// wikiSubdomainCfg 域内子域（R80：AI 归纳——域过大时语义拆分；
+// name/description + 归属包与表）。
+type wikiSubdomainCfg struct {
+	Name        string   `yaml:"name"`
+	Description string   `yaml:"description"`
+	Packages    []string `yaml:"packages"` // 子域归属包（实体子域分组依据）
+	Tables      []string `yaml:"tables"`   // 子域归属表（ER 子域分组依据）
 }
 
 // wikiConfig wiki.yaml 契约（AI 产出 → 人工最后确认微调）。

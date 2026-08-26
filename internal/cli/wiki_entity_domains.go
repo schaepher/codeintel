@@ -107,20 +107,60 @@ func domainOf(pkg, modRoot string, lvl int) string {
 	return rel
 }
 
-// splitEntitySubDomains 领域内按包子域分组（R63：领域内图 >500 边 =
-// 域太大——自动细分，不再直接"图过大"提示；组名 = 包短名）。复用
-// buildDomains（领域内边两端同子域）。
-func splitEntitySubDomains(d *entityDomain) []*entityDomain {
+// splitEntitySubDomains 领域内子域分组（R63 自动细分 + R80 yaml
+// 优先）：domains[].subdomains[].packages 显式归属时按语义子域分组
+// （实体的包匹配子域包列表——短名/完整路径，同 splitEntityDomains）；
+// 无 subdomains 配置或未覆盖的实体走包短名分组兜底。复用 buildDomains
+// （领域内边两端同子域）。
+func splitEntitySubDomains(rc *wikiRenderCtx, d *entityDomain) []*entityDomain {
+	// R80：yaml subdomains 包归属索引（包路径 → 子域名）
+	subOfPkg := map[string]string{}
+	hasSubs := false
+	for _, dom := range rc.cfg.Domains {
+		if dom.Name != d.Name {
+			continue
+		}
+		for _, sd := range dom.Subdomains {
+			for _, p := range sd.Packages {
+				short := p
+				if i := strings.LastIndex(p, "/"); i >= 0 {
+					short = p[i+1:]
+				}
+				if short != "" {
+					subOfPkg[short] = sd.Name
+					hasSubs = true
+				}
+			}
+		}
+	}
 	groups := map[string][]*domain.EntityNode{}
 	for _, n := range d.Nodes {
-		short := n.Pkg
-		if i := strings.LastIndex(short, "/"); i >= 0 {
-			short = short[i+1:]
+		sub := ""
+		if hasSubs {
+			// 完整路径匹配优先，短名兜底
+			if v, ok := subOfPkg[n.Pkg]; ok {
+				sub = v
+			} else {
+				short := n.Pkg
+				if i := strings.LastIndex(short, "/"); i >= 0 {
+					short = short[i+1:]
+				}
+				if v, ok := subOfPkg[short]; ok {
+					sub = v
+				}
+			}
 		}
-		if short == "" {
-			short = "(未知包)"
+		if sub == "" {
+			short := n.Pkg
+			if i := strings.LastIndex(short, "/"); i >= 0 {
+				short = short[i+1:]
+			}
+			if short == "" {
+				short = "(未知包)"
+			}
+			sub = short
 		}
-		groups[short] = append(groups[short], n)
+		groups[sub] = append(groups[sub], n)
 	}
 	return buildDomains(&domain.EntityGraph{Nodes: d.Nodes, Edges: d.Edges}, groups)
 }
