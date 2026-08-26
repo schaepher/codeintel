@@ -4,6 +4,7 @@ package cli
 // option 容忍）——grpc 枚举支持（待办 6）。测试先行。
 
 import (
+	"github.com/schaepher/codeintel/internal/action"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,11 +39,11 @@ message Order {
 	if err := os.WriteFile(filepath.Join(dir, "global.proto"), []byte(proto), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out := extractProtoEnums(dir)
+	out := action.Enums(dir, false)
 	if len(out) != 5 {
 		t.Fatalf("枚举数 = %d; want 5（EOrderStatus 3 + Order.ESource 2）:\n%+v", len(out), out)
 	}
-	byName := map[string]enumEntry{}
+	byName := map[string]action.EnumEntry{}
 	for _, e := range out {
 		byName[e.Type+"."+e.Name] = e
 	}
@@ -111,7 +112,7 @@ const (
 )
 `), 0o644)
 
-	out := extractEnums(dir, true)
+	out := action.Enums(dir, true)
 	var goN, protoN, pbN int
 	for _, e := range out {
 		switch e.Source {

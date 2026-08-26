@@ -51,6 +51,7 @@ type Reader interface {
 	TopLevelEntries() ([]*domain.CodeEntity, error) // #238 wiki 入口（main+服务，不含框架回调）
 	GetEntityRaw() (*domain.EntityRaw, error) // R9 实体协作图原始数据（类型/函数/has_method/calls）
 	GetTableSchemas() (map[string]string, error) // R19 表 schema 事实源（列类型/默认值）
+	GetFunctions() ([]*domain.CodeEntity, error) // R89 helpers：游离函数清单（kind=function 非方法）
 	GetUncalledFunctions() ([]*domain.UnusedFunc, error)
 	GetIsolatedChains() ([][]*domain.UnusedFunc, error)
 	GetPath(from, to domain.CanonicalID, maxDepth int, viaCalls bool) ([]*domain.TraceRow, error)

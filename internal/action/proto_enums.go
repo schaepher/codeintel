@@ -1,4 +1,4 @@
-package cli
+package action
 
 // R29 grpc 枚举支持（待办 6）：.proto 源文件 enum 块提取——proto 是
 // 权威值来源（枚举名 + 值名 + 值号 + 文件:行）。轻量文本解析（不调
@@ -12,10 +12,10 @@ import (
 )
 
 // extractProtoEnums 提取仓库内 .proto 源文件枚举（Source="proto"）。
-// 返回 []enumEntry：Type=枚举名（嵌套带前缀）、Group=枚举名、
+// 返回 []EnumEntry：Type=枚举名（嵌套带前缀）、Group=枚举名、
 // Name=值名、Value=值号（字符串）、Comment=注释、Pkg=proto package。
-func extractProtoEnums(repoAbs string) []enumEntry {
-	var out []enumEntry
+func extractProtoEnums(repoAbs string) []EnumEntry {
+	var out []EnumEntry
 	_ = filepath.WalkDir(repoAbs, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(d.Name(), ".proto") {
 			return nil
@@ -31,13 +31,13 @@ func extractProtoEnums(repoAbs string) []enumEntry {
 
 // scanProtoEnums 单文件 enum 扫描：词法状态机——注释/字符串跳过、
 // 括号栈跟踪 message 嵌套、enum 块内识别值行。
-func scanProtoEnums(path, repoAbs string) []enumEntry {
+func scanProtoEnums(path, repoAbs string) []EnumEntry {
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return nil
 	}
 	s := string(src)
-	var out []enumEntry
+	var out []EnumEntry
 	var stack []string // message/service 嵌套名（枚举名前缀）
 	inEnum := false
 	enumName := ""
@@ -132,7 +132,7 @@ func scanProtoEnums(path, repoAbs string) []enumEntry {
 						if tc := lineTailComment(s, num); tc != "" {
 							comment = tc
 						}
-						out = append(out, enumEntry{
+						out = append(out, EnumEntry{
 							Pkg: pkg, Type: enumName, Group: enumName,
 							Name: word, Value: s[numStart:num], Comment: comment,
 							File: filepath.ToSlash(strings.TrimPrefix(path, repoAbs+string(filepath.Separator))),

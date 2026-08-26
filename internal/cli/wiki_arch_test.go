@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/schaepher/codeintel/internal/action"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -29,8 +30,8 @@ func TestArchMermaidFallback(t *testing.T) {
 		"subgraph 接入层[接入层：入口]",
 		"subgraph 领域层[领域层]",
 		"subgraph 存储层[存储层]",
-		"cli -->|8| action", // 接入 → 领域 聚合
-		"cli -->|1| server", // 接入层内
+		"cli -->|8| action",    // 接入 → 领域 聚合
+		"cli -->|1| server",    // 接入层内
 		"action -->|3| sqlite", // 领域 → 存储
 		"padA", "padB", "padC", // 三层占位节点（等宽）
 	} {
@@ -117,7 +118,7 @@ const (
 	StatusFail  = "fail"
 )
 `)
-	entries := extractEnums(dir, true)
+	entries := action.Enums(dir, true)
 	found := map[string]bool{}
 	for _, e := range entries {
 		found[e.Name] = true
@@ -141,7 +142,7 @@ const (
 		t.Errorf("无类型常量默认应过滤: %v", found)
 	}
 	// --include-untyped 放开
-	all := extractEnums(dir, false)
+	all := action.Enums(dir, false)
 	foundAll := map[string]bool{}
 	for _, e := range all {
 		foundAll[e.Name] = true
@@ -172,9 +173,9 @@ func TestArchMermaidFallbackExternal(t *testing.T) {
 	}
 	got := archMermaidFallback(data, doms, sqlite.NewRepo(db))
 	for _, want := range []string{
-		`EXT_PayService["PayService"]`,                    // 外部 grpc 服务节点
-		`EXT_api_ext_pay_com["api.ext-pay.com"]`,          // 外部 http host 节点
-		"接入域 -->|1| EXT_PayService",                     // 调用方领域 → 外部服务
+		`EXT_PayService["PayService"]`,           // 外部 grpc 服务节点
+		`EXT_api_ext_pay_com["api.ext-pay.com"]`, // 外部 http host 节点
+		"接入域 -->|1| EXT_PayService",              // 调用方领域 → 外部服务
 		"接入域 -->|1| EXT_api_ext_pay_com",
 	} {
 		if !strings.Contains(got, want) {

@@ -29,6 +29,31 @@ AI 补缺、R26 ask 问答、R27 对话界面与 Q&A 收集、R28 go2o 缺口清
 **图数据模型总表（节点/边/属性/置信度/表结构）见 [`docs/data-model.md`](docs/data-model.md)**——
 理解本项目优先读它，再读 field_trace.md 各功能 §。
 
+## 分层架构（R89）：cli 薄壳 / action 业务逻辑 / 渲染留 cli
+
+**设计原则**：`internal/cli` 里命令的**具体逻辑**（查询/分析/聚合/流程
+编排）应放 `internal/action`；cli 只做三件事——① 解析命令行参数 ②
+构造 action.Request 转发给 action ③ 输出格式化（含渲染）。
+
+```
+internal/cli        internal/action            internal/infrastructure
+┌──────────────┐    ┌──────────────────┐      ┌──────────────────┐
+│ 参数解析      │ →  │ 命令业务逻辑       │  →   │ sqlite/ast/ssa/  │
+│ request 构造  │    │ （返回结构化结果）  │      │ git 等实现        │
+│ 输出/渲染     │ ←  │                  │      └──────────────────┘
+└──────────────┘    └──────────────────┘
+```
+
+- **action 层**：每个命令一个 `(a *Actions) Xxx(req XxxRequest) (T, error)`
+  方法——类型化参数（Request struct）+ 结构化返回值；不依赖
+  flag/os.Stdout/渲染；可被 CLI/serve/MCP 复用
+- **cli 层**：`cmdXxx` 只做参数解析 → 调 action → 格式化输出
+  （文本/JSON/mermaid）；**渲染（wiki HTML/MD 拼装、mermaid 文本
+  生成）留在 cli**——展示层，action 不产 HTML
+- **迁移节奏**：分批迁移（先纯查询类命令），每轮迁移后跑全量测试；
+  已完成迁移清单在 `docs/self-analysis.md` 轮次记录
+- 数据模型/查询实现（infrastructure/sqlite 等）不动——只搬"命令逻辑"
+
 ## 强制流程（Q235-2，借鉴 GitNexus impact-before-edit）
 
 1. **改符号前影响分析**：修改任何被其他符号引用的符号（函数/方法/

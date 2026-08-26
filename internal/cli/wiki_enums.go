@@ -8,140 +8,30 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"path/filepath"
-	"sort"
-	"strconv"
 	"strings"
 
+	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
 
 // enumEntry 一个枚举常量。
-type enumEntry struct {
-	Pkg     string `json:"pkg"`     // 包路径（短名）/ proto package
-	Type    string `json:"type"`    // 枚举类型（空 = 无类型 const 组）
-	Group   string `json:"group"`   // 所在 const 块（首常量名）/ 枚举名
-	Name    string `json:"name"`    // 常量名/值名
-	Value   string `json:"value"`   // 字符串值/值号
-	Comment string `json:"comment"` // 行内注释
-	File    string `json:"file"`    // 定义文件
-	Line    int    `json:"line"`    // 定义行
-	Source  string `json:"source"`  // 来源：go | proto（R29 grpc 枚举）
-}
 
 // extractEnums 提取仓库内字符串枚举常量（类型化或 const 块内字符串
 // 字面量）——排除 _test.go 与外部目录（R29：全仓扫，不再限 internal/；
 // 跳过 _pb.go 生成代码——枚举由 .proto 源提供）。onlyTyped=true 时
 // 只返回有显式类型的枚举（无类型字符串常量多为展示标签——默认过滤；
 // --include-untyped 放开）。R29：并入 .proto 源枚举（Source=proto）。
-func extractEnums(repoAbs string, onlyTyped bool) []enumEntry {
-	var out []enumEntry
-	root := repoAbs
-	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return nil
-		}
-		name := d.Name()
-		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || strings.HasSuffix(name, ".pb.go") {
-			return nil
-		}
-		fset := token.NewFileSet()
-		f, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
-		if err != nil {
-			return nil
-		}
-		pkg := f.Name.Name
-		for _, decl := range f.Decls {
-			gd, ok := decl.(*ast.GenDecl)
-			if !ok || gd.Tok != token.CONST {
-				continue
-			}
-			var groupName string // const 块首常量名（分组）
-			for _, spec := range gd.Specs {
-				vs, ok := spec.(*ast.ValueSpec)
-				if !ok || len(vs.Names) == 0 || len(vs.Values) == 0 {
-					continue
-				}
-				// 值须为字符串字面量（枚举特征）
-				lit, ok := vs.Values[0].(*ast.BasicLit)
-				if !ok || lit.Kind != token.STRING {
-					continue
-				}
-				val, err := strconvUnquote(lit.Value)
-				if err != nil {
-					continue
-				}
-				// R5：长文本常量（usageText/wikiGuide 等文档模板）非枚举
-				if len(val) > 64 {
-					continue
-				}
-				typ := ""
-				if vs.Type != nil {
-					typ = exprName(vs.Type)
-				}
-				// R6：只返回有类型枚举（默认）；无类型常量（展示标签等）
-				// 仅在 includeUntyped 时返回
-				if onlyTyped && typ == "" {
-					continue
-				}
-				if groupName == "" {
-					groupName = vs.Names[0].Name
-				}
-				comment := ""
-				if vs.Comment != nil {
-					comment = strings.TrimSpace(strings.TrimPrefix(vs.Comment.Text(), "//"))
-				}
-				out = append(out, enumEntry{
-					Pkg: pkg, Type: typ, Group: groupName,
-					Name: vs.Names[0].Name, Value: val, Comment: comment,
-					File: filepath.ToSlash(path), Line: fset.Position(vs.Pos()).Line,
-					Source: "go",
-				})
-			}
-		}
-		return nil
-	})
-	// R29：并入 .proto 源枚举（grpc 枚举权威值——proto 定义）
-	out = append(out, extractProtoEnums(repoAbs)...)
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Pkg != out[j].Pkg {
-			return out[i].Pkg < out[j].Pkg
-		}
-		if out[i].Group != out[j].Group {
-			return out[i].Group < out[j].Group
-		}
-		return out[i].Name < out[j].Name
-	})
-	return out
-}
 
 // exprName AST 表达式短名（*ast.Ident / SelectorExpr 末段）。
-func exprName(e ast.Expr) string {
-	switch t := e.(type) {
-	case *ast.Ident:
-		return t.Name
-	case *ast.SelectorExpr:
-		return t.Sel.Name
-	}
-	return ""
-}
 
 // strconvUnquote 去掉字符串字面量引号（含反引号）。
-func strconvUnquote(s string) (string, error) {
-	if len(s) >= 2 && s[0] == '`' && s[len(s)-1] == '`' {
-		return s[1 : len(s)-1], nil
-	}
-	return strconv.Unquote(s)
-}
 
 // cmdEnums 实现 `codeintel query enums [--repo <path>] [--json]`——
 // 源码枚举权威清单（不依赖索引；AI Agent 直接获取避免重定义）。
 func cmdEnums(repoAbs string, f queryFlags) int {
-	entries := extractEnums(repoAbs, !f.includeUntyped)
+	entries := action.Enums(repoAbs, !f.includeUntyped)
 	if f.json {
 		b, err := json.MarshalIndent(entries, "", "  ")
 		if err != nil {
@@ -172,7 +62,7 @@ func cmdEnums(repoAbs string, f queryFlags) int {
 // R88：工具函数 = 游离函数且被 ≥3 个包调用（helpers.min_packages
 // 可调）——与 `query helpers` 同源（queryHelpers）。
 func renderEnumsMD(repoAbs string, repo *sqlite.Repo) string {
-	entries := extractEnums(repoAbs, true)
+	entries := action.Enums(repoAbs, true)
 	var b strings.Builder
 	b.WriteString("# 枚举与工具函数\n\n> 数据源：源码 go/ast 提取（代码事实，默认只显示有类型枚举）\n")
 	b.WriteString("> ——AI/Agent 直接引用这些权威值，勿重新定义（值不一致会导致\n")
@@ -199,7 +89,7 @@ func renderEnumsMD(repoAbs string, repo *sqlite.Repo) string {
 
 // renderEnumsHTML 枚举页 html 内容。
 func renderEnumsHTML(repoAbs string, repo *sqlite.Repo) string {
-	entries := extractEnums(repoAbs, true)
+	entries := action.Enums(repoAbs, true)
 	var b strings.Builder
 	b.WriteString(`<section id="enums"><h2>枚举与工具函数</h2><p class="muted">数据源：源码 go/ast 提取（有类型枚举）——权威值，勿重新定义。</p>`)
 	if sec := renderHelpersHTML(repo); sec != "" {
@@ -235,15 +125,15 @@ func renderEnumsHTML(repoAbs string, repo *sqlite.Repo) string {
 	return b.String()
 }
 
-// renderHelpersMD 工具函数 Markdown 小节（R88：游离函数 + 跨包使用
-// 数 ≥ minPkgs——query helpers 同源）。
+// renderHelpersMD 工具函数 Markdown 小节（R88/R89：游离函数 + 跨包
+// 使用数 ≥ minPkgs——action.Helpers 同源）。
 func renderHelpersMD(repo *sqlite.Repo) string {
 	if repo == nil {
 		return ""
 	}
 	minPkgs := helperMinPackages()
-	helpers := queryHelpers(repo, minPkgs)
-	if len(helpers) == 0 {
+	helpers, err := action.New(repo).Helpers(action.HelpersRequest{MinPackages: minPkgs})
+	if err != nil || len(helpers) == 0 {
 		return ""
 	}
 	var b strings.Builder
@@ -257,14 +147,14 @@ func renderHelpersMD(repo *sqlite.Repo) string {
 	return b.String()
 }
 
-// renderHelpersHTML 工具函数 html 小节（同源 queryHelpers）。
+// renderHelpersHTML 工具函数 html 小节（同源 action.Helpers）。
 func renderHelpersHTML(repo *sqlite.Repo) string {
 	if repo == nil {
 		return ""
 	}
 	minPkgs := helperMinPackages()
-	helpers := queryHelpers(repo, minPkgs)
-	if len(helpers) == 0 {
+	helpers, err := action.New(repo).Helpers(action.HelpersRequest{MinPackages: minPkgs})
+	if err != nil || len(helpers) == 0 {
 		return ""
 	}
 	var b strings.Builder

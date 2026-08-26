@@ -8,6 +8,7 @@ import (
 	"go/token"
 	"os"
 
+	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
 
@@ -94,7 +95,7 @@ func astExprString(e ast.Expr) string {
 	switch t := e.(type) {
 	case *ast.BasicLit:
 		if t.Kind == token.STRING {
-			s, err := strconvUnquote(t.Value)
+			s, err := action.StrconvUnquote(t.Value)
 			if err == nil {
 				return s
 			}

@@ -212,3 +212,26 @@ func (r *Repo) GetAllCalls() ([]*domain.Fact, error) {
 	}
 	return out, rows.Err()
 }
+
+// GetFunctions 游离函数清单（R89：query helpers——kind=function 非
+// 方法；排除 _test.go 与仓库外文件）。
+func (r *Repo) GetFunctions() ([]*domain.CodeEntity, error) {
+	logger := zap.L()
+	logger.Debug("enter (Repo).GetFunctions")
+	defer logger.Debug("exit (Repo).GetFunctions")
+	rows, err := r.Query(`SELECT id, name FROM nodes
+		WHERE kind = 'function' AND file_path NOT LIKE '%_test.go' AND file_path NOT LIKE '../%'`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*domain.CodeEntity
+	for rows.Next() {
+		n := &domain.CodeEntity{Kind: domain.KindFunction}
+		if err := rows.Scan(&n.ID, &n.Name); err != nil {
+			return nil, err
+		}
+		out = append(out, n)
+	}
+	return out, rows.Err()
+}
