@@ -27,6 +27,11 @@ ai:
   # 项目问答（codeintel ask 命令 + serve 对话界面）
   ask: auto
 
+# 工具函数识别（query helpers / wiki 枚举区块，R88）：
+# 工具函数 = 游离函数（包级函数非方法）且被 >=N 个包调用
+helpers:
+  min_packages: 3
+
 # 时序图（query sequence --code）嵌套展开停止包列表（R83）：
 # 命中这些包的被调函数不再继续深入展开内部——如基础设施/第三方
 # 封装/样板包（内部调用无业务信息，图更聚焦；节点仍显示在图上）
