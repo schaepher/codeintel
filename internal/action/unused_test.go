@@ -191,3 +191,39 @@ func TestMarkSince(t *testing.T) {
 		}
 	}
 }
+
+// TestUnusedQueryNoSince：批次 C——UnusedQuery 无 --since 等价全量
+// 报告（git diff 编排在 action；--since 需要真实 git 仓库）。
+func TestUnusedQueryNoSince(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	a := New(sqlite.NewRepo(db))
+	rep, err := a.UnusedQuery(UnusedRequest{RepoAbs: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep == nil || rep.Since != nil {
+		t.Fatalf("无 --since 应返回全量报告（Since=nil）: %+v", rep)
+	}
+}
+
+// TestUnusedQuerySinceBadRef：--since 指向不存在的 ref → git diff 失败
+// → 报错（cli 转错误输出）。注意：不能依赖"非 git 仓库"前提——
+// verify.sh R67 把 TMPDIR 指向仓库 .tmp，t.TempDir() 落在 git 仓库
+// 内，git -C 会向上找到 .git（HEAD 存在则 diff 成功）。
+func TestUnusedQuerySinceBadRef(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	a := New(sqlite.NewRepo(db))
+	if _, err := a.UnusedQuery(UnusedRequest{RepoAbs: dir, Since: "ref-does-not-exist-xyz"}); err == nil {
+		t.Fatal("不存在的 ref --since 应报错（git diff 失败）")
+	}
+}

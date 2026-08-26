@@ -1,11 +1,10 @@
 package cli
 
-// R34 `codeintel domains`——AI 业务域分析（用户要求：AI 介入前提供
-// 足够信息避免误判）。流程：结构化事实包（静态分析全算好——包清单/
-// 表清单/实体/服务/调用聚合）→ AI 归纳业务域（名称/描述/归属包与表）
-// → 校验（归属须存在于事实包，防 AI 编造）→ 写回 wiki.yaml domains
-// 区块（# AI 初稿 → 人工确认契约）。wiki 内部调用——已生成过（yaml
-// 有 domains）就不再生成。静态分析（ER/实体分组）统一消费此数据源。
+// R34 `codeintel domains`——AI 业务域分析（批次 C：编排迁 action——
+// 事实包收集/AI prompt/wiki.yaml 写入在 Actions.AnalyzeDomains）：
+// cli 只做参数解析、ai 开关检查与输出。流程：结构化事实包 → AI 归纳
+// 业务域 → 校验（防 AI 编造）→ 写回 wiki.yaml domains 区块（# AI 初稿
+// → 人工确认契约）。
 
 import (
 	"encoding/json"
@@ -13,145 +12,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 	"gopkg.in/yaml.v3"
 )
-
-// parseDomains 解析 AI 返回的 domains YAML + 校验（归属须在事实包中，
-// 防 AI 编造——校验失败剔除并警告）。
-func parseDomains(resp string, f *domainFacts) ([]wikiDomainCfg, []string) {
-	var out struct {
-		Domains []wikiDomainCfg `yaml:"domains"`
-	}
-	if err := yaml.Unmarshal([]byte(resp), &out); err != nil {
-		// 宽松重试（可能带 ```yaml 围栏）
-		s := stripYAMLFence(resp)
-		if err2 := yaml.Unmarshal([]byte(s), &out); err2 != nil {
-			return nil, []string{fmt.Sprintf("domains 解析失败: %v", err2)}
-		}
-	}
-	havePkg := map[string]bool{}
-	haveTbl := map[string]bool{}
-	haveSvc := map[string]bool{}
-	for _, p := range f.Pkgs {
-		havePkg[p.Path] = true // 完整路径校验（AI 输出完整路径）
-	}
-	for _, t := range f.Tables {
-		haveTbl[t.Name] = true
-	}
-	for _, s := range f.Svcs {
-		haveSvc[s.Name] = true
-	}
-	var doms []wikiDomainCfg
-	var warns []string
-	for _, d := range out.Domains {
-		if d.Name == "" {
-			warns = append(warns, "跳过无名称的域")
-			continue
-		}
-		var pkgs, tbls, svcs []string
-		for _, p := range d.Packages {
-			if havePkg[p] {
-				pkgs = append(pkgs, p)
-			} else {
-				warns = append(warns, fmt.Sprintf("域 %s：包 %s 不在事实包中（剔除）", d.Name, p))
-			}
-		}
-		for _, t := range d.Tables {
-			if haveTbl[t] {
-				tbls = append(tbls, t)
-			} else {
-				warns = append(warns, fmt.Sprintf("域 %s：表 %s 不在事实包中（剔除）", d.Name, t))
-			}
-		}
-		// R38：services 校验（服务名须在事实包 services 名单）
-		for _, s := range d.Services {
-			if haveSvc[s] {
-				svcs = append(svcs, s)
-			} else {
-				warns = append(warns, fmt.Sprintf("域 %s：服务 %s 不在事实包中（剔除）", d.Name, s))
-			}
-		}
-		if len(pkgs) == 0 && len(tbls) == 0 {
-			warns = append(warns, fmt.Sprintf("域 %s：无有效归属（剔除）", d.Name))
-			continue
-		}
-		// R80：subdomains 校验（拆到 domains_sub.go——行数治理）
-		var sw []string
-		d.Subdomains, sw = sanitizeSubdomains(d, havePkg, haveTbl)
-		warns = append(warns, sw...)
-		d.Packages, d.Tables, d.Services = pkgs, tbls, svcs
-		doms = append(doms, d)
-	}
-	return doms, warns
-}
-
-// analyzeDomains 核心流程：事实包导出文件 → AI 读文件归纳 → 解析校验
-// → 写回 wiki.yaml。返回写回是否发生（无 domains 不写）。wiki 集成
-// 复用（已生成跳过）。factsPath 为空时写仓库 .codeintel/ 下。
-// extraPrompt：用户约束（R56 wiki --prompt）——传入 domainPrompt。
-func analyzeDomains(repoAbs string, cfg *wikiConfig, acts *action.Actions, db *sqlite.Repo, agent string, yamlPath string, factsPath string, extraPrompt string) ([]wikiDomainCfg, []string) {
-	f := collectDomainFacts(acts, repoAbs, *cfg)
-	if factsPath == "" {
-		factsPath = filepath.Join(repoAbs, ".codeintel", "domain-facts.json")
-	}
-	if err := os.MkdirAll(filepath.Dir(factsPath), 0o755); err == nil {
-		if b, err := domainFactsJSON(f); err == nil {
-			if err := os.WriteFile(factsPath, b, 0o644); err != nil {
-				return nil, []string{fmt.Sprintf("事实包写文件失败: %v", err)}
-			}
-		}
-	}
-	// R38：任务加重（读事实包 JSON + 归纳 packages/tables/services）——
-	// 超时 240s → 360s（go2o 30 服务实测 4m 仍超）
-	// R72：AI 把结果写入 .codeintel/domains-ai.json（文件是权威来源——
-	// 响应文本解析失败/超时不影响）；超时后检查文件（AI 可能已写完
-	// ——不盲目完整重试）
-	outPath := filepath.Join(repoAbs, ".codeintel", "domains-ai.json")
-	_ = os.Remove(outPath) // 清理旧结果（防读陈旧文件）
-	resp, err := agentRunner(agent, domainPrompt(factsPath, extraPrompt), 600*time.Second, repoAbs)
-	doms, warns := parseDomains(resp, f)
-	if len(doms) == 0 {
-		// 响应无有效结果（含超时）——读 AI 写的 JSON 文件（超时但已
-		// 写完 = AI 实际完成；文件是权威交付物）
-		if b, rerr := os.ReadFile(outPath); rerr == nil && len(b) > 0 {
-			if doms2, w2 := parseDomains(string(b), f); len(doms2) > 0 {
-				doms, warns = doms2, w2
-			}
-		}
-	}
-	if err != nil {
-		if len(doms) > 0 {
-			warns = append(warns, fmt.Sprintf("AI 响应异常（%v）——已用输出文件结果", err))
-		} else {
-			return nil, []string{fmt.Sprintf("AI 业务域分析失败: %v（若 AI 进程仍残留可手动 kill；输出文件 %s 无结果）", err, outPath)}
-		}
-	}
-	if len(doms) == 0 {
-		warns = append(warns, "无有效业务域（保留现有规则划分）")
-		return nil, warns
-	}
-	// 写回 wiki.yaml（AI 初稿；未指定时用仓库根 wiki.yaml）
-	if yamlPath == "" {
-		yamlPath = filepath.Join(repoAbs, "wiki.yaml")
-	}
-	if e, err := loadYAMLEditor(yamlPath); err == nil {
-		// R38：整体重归纳——先清旧 domains（setDomain 按名追加，
-		// 域名变更会新旧并存）
-		e.clearDomains()
-		for _, d := range doms {
-			e.setDomain(d)
-		}
-		if err := e.save(yamlPath); err != nil {
-			warns = append(warns, fmt.Sprintf("写回 %s: %v", yamlPath, err))
-		}
-	}
-	cfg.Domains = doms
-	return doms, warns
-}
 
 // cmdDomainsArgs 解析 `codeintel domains [--repo <path>] [--agent <a>]
 // [--yaml <file>] [--json]` 参数。
@@ -238,20 +103,29 @@ func cmdDomains(repoAbs string, f queryFlags, agent, yamlPath, factsPath, export
 	if b, err := os.ReadFile(yamlPath); err == nil {
 		_ = yaml.Unmarshal(b, &cfg)
 	}
+	aliases := map[string]string{}
+	for _, t := range cfg.Tables {
+		aliases[t.Name] = t.Alias
+	}
+	req := action.DomainsRequest{
+		RepoAbs:      repoAbs,
+		Agent:        agent,
+		YAMLPath:     yamlPath,
+		FactsPath:    factsPath,
+		ExportOnly:   exportOnly,
+		ExtraPrompt:  extraPrompt,
+		TableAliases: aliases,
+		AgentRunner:  agentRunner,
+	}
 	// --export-facts：只导出事实包（不调 AI）
 	if exportOnly != "" {
-		f := collectDomainFacts(acts, repoAbs, cfg)
-		b, err := domainFactsJSON(f)
+		res, err := acts.AnalyzeDomains(req)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
 		}
-		if err := os.WriteFile(exportOnly, b, 0o644); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			return 1
-		}
 		fmt.Printf("事实包已导出到 %s（%d 包、%d 表——可人工检查或喂给任意 agent）\n",
-			exportOnly, len(f.Pkgs), len(f.Tables))
+			exportOnly, len(res.Facts.Pkgs), len(res.Facts.Tables))
 		return 0
 	}
 	// R56：ai.domains=off（wiki.yaml/全局）→ 整步跳过（不调 AI）
@@ -259,22 +133,26 @@ func cmdDomains(repoAbs string, f queryFlags, agent, yamlPath, factsPath, export
 		fmt.Fprintln(os.Stderr, "ai.domains=off——跳过业务域分析（wiki.yaml 或 ~/.codeintel/config.yaml 配置）")
 		return 0
 	}
-	doms, warns := analyzeDomains(repoAbs, &cfg, acts, sqlite.NewRepo(db), agent, yamlPath, factsPath, extraPrompt)
-	for _, w := range warns {
+	res, err := acts.AnalyzeDomains(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	for _, w := range res.Warns {
 		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
 	}
 	if f.json {
-		b, _ := json.MarshalIndent(doms, "", "  ")
+		b, _ := json.MarshalIndent(res.Doms, "", "  ")
 		fmt.Println(string(b))
 		return 0
 	}
-	if len(doms) == 0 {
+	if len(res.Doms) == 0 {
 		return 1
 	}
-	for _, d := range doms {
+	for _, d := range res.Doms {
 		fmt.Printf("[%s] %s\n", d.Name, d.Description)
 		fmt.Printf("  包: %s\n  表: %s\n", strings.Join(d.Packages, ", "), strings.Join(d.Tables, ", "))
 	}
-	fmt.Printf("\n共 %d 个业务域（已写回 %s，标注 # AI 初稿）\n", len(doms), yamlPath)
+	fmt.Printf("\n共 %d 个业务域（已写回 %s，标注 # AI 初稿）\n", len(res.Doms), yamlPath)
 	return 0
 }

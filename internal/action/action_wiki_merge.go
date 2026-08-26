@@ -1,8 +1,9 @@
-package cli
+package action
 
-// wiki --ai 合并器：基于 yaml.Node 编辑 wiki.yaml——保留原文件注释与
-// 未知字段（整树 marshal 会丢注释）；AI 填入的值标注 # AI 初稿
-// （git diff 可回滚）。文件不存在时从空文档开始。
+// wiki.yaml 节点树编辑器（批次 C 迁移，原 cli/wiki_ai_merge.go）：
+// 基于 yaml.Node 编辑 wiki.yaml——保留原文件注释与未知字段（整树
+// marshal 会丢注释）；AI 填入的值标注 # AI 初稿（git diff 可回滚）。
+// 文件不存在时从空文档开始。domains 写回与 wiki --ai 补缺共用。
 
 import (
 	"bytes"
@@ -13,32 +14,32 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// aiDraftComment AI 初稿来源标注。
-const aiDraftComment = "# AI 初稿"
+// AIDraftComment AI 初稿来源标注。
+const AIDraftComment = "# AI 初稿"
 
-// yamlEditor wiki.yaml 节点树编辑器。
-type yamlEditor struct {
+// YAMLEditor wiki.yaml 节点树编辑器。
+type YAMLEditor struct {
 	root *yaml.Node // DocumentNode
 }
 
-// loadYAMLEditor 读入节点树（保留注释）；文件不存在/为空 → 空文档。
-func loadYAMLEditor(path string) (*yamlEditor, error) {
+// LoadYAMLEditor 读入节点树（保留注释）；文件不存在/为空 → 空文档。
+func LoadYAMLEditor(path string) (*YAMLEditor, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return &yamlEditor{root: &yaml.Node{Kind: yaml.DocumentNode}}, nil
+		return &YAMLEditor{root: &yaml.Node{Kind: yaml.DocumentNode}}, nil
 	}
 	if len(strings.TrimSpace(string(b))) == 0 {
-		return &yamlEditor{root: &yaml.Node{Kind: yaml.DocumentNode}}, nil
+		return &YAMLEditor{root: &yaml.Node{Kind: yaml.DocumentNode}}, nil
 	}
 	var root yaml.Node
 	if err := yaml.Unmarshal(b, &root); err != nil {
 		return nil, fmt.Errorf("解析 %s: %v", path, err)
 	}
-	return &yamlEditor{root: &root}, nil
+	return &YAMLEditor{root: &root}, nil
 }
 
 // mapping 根 mapping 节点（无则创建）。
-func (e *yamlEditor) mapping() *yaml.Node {
+func (e *YAMLEditor) mapping() *yaml.Node {
 	if len(e.root.Content) == 0 {
 		e.root.Content = []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}
 	}
@@ -61,14 +62,14 @@ func ensureKey(m *yaml.Node, key string) *yaml.Node {
 	if v := keyValue(m, key); v != nil {
 		return v
 	}
-	k := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key, HeadComment: aiDraftComment}
+	k := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key, HeadComment: AIDraftComment}
 	v := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: ""}
 	m.Content = append(m.Content, k, v)
 	return v
 }
 
 // ensureSeq 返回根 mapping 下 key 的序列节点（不存在则追加）。
-func (e *yamlEditor) ensureSeq(key string) *yaml.Node {
+func (e *YAMLEditor) ensureSeq(key string) *yaml.Node {
 	m := e.mapping()
 	if v := keyValue(m, key); v != nil && v.Kind == yaml.SequenceNode {
 		return v
@@ -93,7 +94,7 @@ func findItem(seq *yaml.Node, name string) *yaml.Node {
 
 // appendItem 序列追加 mapping 项（name + 其余键值对），带 AI 初稿注释。
 func appendItem(seq *yaml.Node, pairs ...string) *yaml.Node {
-	it := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", HeadComment: aiDraftComment}
+	it := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", HeadComment: AIDraftComment}
 	for i := 0; i+1 < len(pairs); i += 2 {
 		it.Content = append(it.Content,
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: pairs[i]},
@@ -110,8 +111,8 @@ func setScalar(n *yaml.Node, val string) {
 	n.Value = val
 }
 
-// setModuleDesc modules 序列项（name 匹配或追加）→ description 赋值。
-func (e *yamlEditor) setModuleDesc(name, desc string) {
+// SetModuleDesc modules 序列项（name 匹配或追加）→ description 赋值。
+func (e *YAMLEditor) SetModuleDesc(name, desc string) {
 	seq := e.ensureSeq("modules")
 	it := findItem(seq, name)
 	if it == nil {
@@ -120,8 +121,8 @@ func (e *yamlEditor) setModuleDesc(name, desc string) {
 	setScalar(ensureKey(it, "description"), desc)
 }
 
-// setTableAlias tables 序列项（name 匹配或追加）→ alias 赋值。
-func (e *yamlEditor) setTableAlias(name, alias string) {
+// SetTableAlias tables 序列项（name 匹配或追加）→ alias 赋值。
+func (e *YAMLEditor) SetTableAlias(name, alias string) {
 	seq := e.ensureSeq("tables")
 	it := findItem(seq, name)
 	if it == nil {
@@ -130,9 +131,9 @@ func (e *yamlEditor) setTableAlias(name, alias string) {
 	setScalar(ensureKey(it, "alias"), alias)
 }
 
-// setColumnComments tables[name].columns 序列项 → comment 赋值
+// SetColumnComments tables[name].columns 序列项 → comment 赋值
 // （列不存在则追加）。
-func (e *yamlEditor) setColumnComments(tbl string, comments map[string]string) {
+func (e *YAMLEditor) SetColumnComments(tbl string, comments map[string]string) {
 	seq := e.ensureSeq("tables")
 	it := findItem(seq, tbl)
 	if it == nil {
@@ -153,10 +154,10 @@ func (e *yamlEditor) setColumnComments(tbl string, comments map[string]string) {
 	}
 }
 
-// setDomain domains 序列项（name 匹配或追加）→ description/packages/
+// SetDomain domains 序列项（name 匹配或追加）→ description/packages/
 // tables/services 赋值（R34 业务域——AI 初稿标注由 ensureKey/appendItem
 // 负责；R38 services——服务归属领域）。
-func (e *yamlEditor) setDomain(d wikiDomainCfg) {
+func (e *YAMLEditor) SetDomain(d WikiDomainCfg) {
 	seq := e.ensureSeq("domains")
 	it := findItem(seq, d.Name)
 	if it == nil {
@@ -209,9 +210,9 @@ func (e *yamlEditor) setDomain(d wikiDomainCfg) {
 	}
 }
 
-// clearDomains 清空 domains 序列（R38：domains 分析是整体重归纳——
+// ClearDomains 清空 domains 序列（R38：domains 分析是整体重归纳——
 // 旧域名变更后残留会与新域并存（go2o 实测 16 域 = 旧 8 + 新 8））。
-func (e *yamlEditor) clearDomains() {
+func (e *YAMLEditor) ClearDomains() {
 	m := e.mapping()
 	if n := keyValue(m, "domains"); n != nil && n.Kind == yaml.SequenceNode {
 		n.Content = nil
@@ -228,9 +229,9 @@ func setStringSeq(n *yaml.Node, vals []string) {
 	}
 }
 
-// setGlossary glossary 序列项（term 匹配或追加）→ english/abbr/
+// SetGlossary glossary 序列项（term 匹配或追加）→ english/abbr/
 // definition 赋值（R84：英文术语 + 缩写字段）。
-func (e *yamlEditor) setGlossary(term, english, abbr, def string) {
+func (e *YAMLEditor) SetGlossary(term, english, abbr, def string) {
 	seq := e.ensureSeq("glossary")
 	it := findItem(seq, term)
 	if it == nil {
@@ -245,11 +246,11 @@ func (e *yamlEditor) setGlossary(term, english, abbr, def string) {
 	setScalar(ensureKey(it, "definition"), def)
 }
 
-// save 写回文件（缩进 2）。空文档（文件不存在/空文件加载）先初始化
+// Save 写回文件（缩进 2）。空文档（文件不存在/空文件加载）先初始化
 // 根 mapping——yaml.v3 无法编码 Content 为空的 DocumentNode
 // （报 "expected SCALAR, SEQUENCE-START, MAPPING-START, or ALIAS,
 // but got document end"，曾致 --ai 首跑静默丢文件）。
-func (e *yamlEditor) save(path string) error {
+func (e *YAMLEditor) Save(path string) error {
 	if len(e.root.Content) == 0 {
 		e.mapping()
 	}

@@ -233,20 +233,6 @@ func TestAskAskOff(t *testing.T) {
 	}
 }
 
-// TestDomainPromptExtra：domainPrompt 带 extraPrompt 时含用户约束段。
-func TestDomainPromptExtra(t *testing.T) {
-	p := domainPrompt("facts.json", "")
-	if strings.Contains(p, "用户额外约束") {
-		t.Error("无 extraPrompt 时不应含约束段")
-	}
-	p2 := domainPrompt("facts.json", "商品域：交易域")
-	for _, want := range []string{"facts.json", "用户额外约束", "商品域：交易域"} {
-		if !strings.Contains(p2, want) {
-			t.Errorf("prompt 应含 %q", want)
-		}
-	}
-}
-
 // injectAgentConfigPath 替换 agentConfigPath（全局配置读取注入）。
 func injectAgentConfigPath(t *testing.T, path string) func() {
 	t.Helper()

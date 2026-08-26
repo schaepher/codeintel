@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
@@ -133,7 +134,7 @@ func wikiAIFill(yamlPath string, cfg *wikiConfig, data []*domain.WikiModule, col
 	if len(mods)+len(tbls)+len(colGaps) == 0 {
 		return 0, 0, 0
 	}
-	e, err := loadYAMLEditor(yamlPath)
+	e, err := action.LoadYAMLEditor(yamlPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 0, 0, 0
@@ -142,7 +143,7 @@ func wikiAIFill(yamlPath string, cfg *wikiConfig, data []*domain.WikiModule, col
 	apply := func(out wikiBatchOut) {
 		if aiEnabled("fill.modules", *cfg) {
 			for _, m := range out.Modules {
-				e.setModuleDesc(m.Name, m.Description)
+				e.SetModuleDesc(m.Name, m.Description)
 				cfgSetModuleDesc(cfg, m.Name, m.Description)
 				ok++
 			}
@@ -150,7 +151,7 @@ func wikiAIFill(yamlPath string, cfg *wikiConfig, data []*domain.WikiModule, col
 		if aiEnabled("fill.tables", *cfg) {
 			for _, t := range out.Tables {
 				if t.Alias != "" {
-					e.setTableAlias(t.Name, t.Alias)
+					e.SetTableAlias(t.Name, t.Alias)
 					cfgSetTableAlias(cfg, t.Name, t.Alias)
 					ok++
 				}
@@ -163,7 +164,7 @@ func wikiAIFill(yamlPath string, cfg *wikiConfig, data []*domain.WikiModule, col
 					for _, c := range t.Columns {
 						comments[c.Name] = c.Comment
 					}
-					e.setColumnComments(t.Name, comments)
+					e.SetColumnComments(t.Name, comments)
 					cfgSetColumnComments(cfg, t.Name, comments)
 					ok++
 				}
@@ -171,7 +172,7 @@ func wikiAIFill(yamlPath string, cfg *wikiConfig, data []*domain.WikiModule, col
 		}
 		if aiEnabled("fill.glossary", *cfg) {
 			for _, g := range out.Glossary {
-				e.setGlossary(g.Term, g.English, g.Abbr, g.Definition)
+				e.SetGlossary(g.Term, g.English, g.Abbr, g.Definition)
 				cfgSetGlossary(cfg, g.Term, g.English, g.Abbr, g.Definition)
 				ok++
 			}
@@ -200,7 +201,7 @@ func wikiAIFill(yamlPath string, cfg *wikiConfig, data []*domain.WikiModule, col
 		apply(out)
 	}
 	if ok > 0 {
-		if err := e.save(yamlPath); err != nil {
+		if err := e.Save(yamlPath); err != nil {
 			fmt.Fprintf(os.Stderr, "error: 写回 %s: %v\n", yamlPath, err)
 		}
 	}

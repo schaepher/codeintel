@@ -1,14 +1,15 @@
 package cli
 
+// `query unused`（批次 C：git diff + 未调用分析编排迁 action——
+// Actions.UnusedQuery；cli 只做参数解析与输出）。
+
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"sort"
 	"strings"
 
 	"github.com/schaepher/codeintel/internal/action"
-	"github.com/schaepher/codeintel/internal/domain"
 )
 
 // queryUnused 未调用函数与孤立链分析（field_trace.md §16）：
@@ -16,16 +17,7 @@ import (
 //   - --since <ref>：git diff 区间内新增/修改函数（流程衔接检查）
 //   - --fail-on <unused|isolated>：存在未调用函数/孤立链时退出码 1
 func queryUnused(acts *action.Actions, repoAbs string, f queryFlags) int {
-	var since *domain.SinceInfo
-	if f.since != "" {
-		out, err := exec.Command("git", "-C", repoAbs, "diff", "--unified=0", f.since).Output()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: git diff %s: %v\n", f.since, err)
-			return 1
-		}
-		since = diffToSinceInfo(f.since, parseGitDiff(string(out)))
-	}
-	rep, err := acts.Unused(since)
+	rep, err := acts.UnusedQuery(action.UnusedRequest{RepoAbs: repoAbs, Since: f.since})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
@@ -150,5 +142,3 @@ func renderUnusedTable(rep *action.UnusedReport) {
 		fmt.Printf("  %s%s%s\n", strings.Join(names, " → "), loc, mark)
 	}
 }
-
-var _ = os.Stdout

@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"os"
-	"os/exec"
 
 	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
@@ -77,14 +76,13 @@ func pathJSON(rows []*domain.TraceRow, from, to string) map[string]any {
 	}
 }
 
-// runGitDiffSince 执行 git diff --unified=0 <ref> 并解析为 SinceInfo。
+// runGitDiffSince 执行 git diff --unified=0 <ref> 并解析为 SinceInfo
+// （批次 C：执行与解析迁 action.RunGitDiffSince——cli 只做警告输出）。
 func runGitDiffSince(repoAbs, ref string) *domain.SinceInfo {
-	out, err := exec.Command("git", "-C", repoAbs, "diff", "--unified=0", ref).Output()
+	since, err := action.RunGitDiffSince(repoAbs, ref)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: git diff %s: %v（--since 标注跳过）\n", ref, err)
 		return nil
 	}
-	return diffToSinceInfo(ref, parseGitDiff(string(out)))
+	return since
 }
-
-var _ = os.Stdout

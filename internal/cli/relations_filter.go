@@ -1,43 +1,12 @@
 package cli
 
-import (
-	"strings"
+// 批次 C：relations 输出过滤（--type/--max-hops/--max-results）迁
+// action（Actions.RelationsQuery 内 filterRelations）；本文件只留
+// flag → RelationHops 组装（参数解析）。
 
+import (
 	"github.com/schaepher/codeintel/internal/domain"
 )
-
-// relationsFilter P0④ 输出过滤：--type/--max-hops/--max-results。
-// 默认类型：query + write（read 低置信间接扩散，--type read 显式展开）。
-func relationsFilter(f *queryFlags) func([]*domain.TableRelation) []*domain.TableRelation {
-	types := map[string]bool{}
-	for _, t := range f.relTypes {
-		if t = strings.TrimSpace(t); t != "" {
-			types[t] = true
-		}
-	}
-	if len(types) == 0 {
-
-		types[string(domain.RelationFK)] = true
-		types[string(domain.RelationQuery)] = true
-		types[string(domain.RelationWrite)] = true
-	}
-	return func(rels []*domain.TableRelation) []*domain.TableRelation {
-		out := make([]*domain.TableRelation, 0, len(rels))
-		for _, r := range rels {
-			if !types[string(r.Type)] {
-				continue
-			}
-			if f.maxHops > 0 && r.Hops > f.maxHops {
-				continue
-			}
-			out = append(out, r)
-		}
-		if f.maxResults > 0 && len(out) > f.maxResults {
-			out = out[:f.maxResults]
-		}
-		return out
-	}
-}
 
 // relationHopsFromFlags 组装三类跳数上限（Q197）：默认 4；
 // 显式传 0 = 不限制；--include-long-query 等价 --query-max-hops 0。

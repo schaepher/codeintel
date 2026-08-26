@@ -1,5 +1,12 @@
 package cli
 
+// R77 `query relations`（批次 C：查询/过滤逻辑迁 action——
+// Actions.RelationsQuery/RelationsAllQuery——跳数/类型/上限过滤在
+// action；cli 只做参数组装与输出渲染）。表间关联分析：本表列的值沿
+// 数据流链流入其他表列（A.x 读出 → B.y 过滤/写入，代码层推断，无
+// 外键依赖）。--mermaid 输出列级 mermaid 图；--type/--max-hops/
+// --max-results 过滤输出；--memory full|sql 选择实现路径。
+
 import (
 	"encoding/json"
 	"fmt"
@@ -10,19 +17,16 @@ import (
 	"github.com/schaepher/codeintel/internal/domain"
 )
 
-// queryRelations 实现 `codeintel query relations <表名> [--mermaid]`：
-// 表间关联分析——本表列的值沿数据流链流入其他表列（A.x 读出 → B.y
-// 过滤/写入，代码层推断，无外键依赖）。--mermaid 输出列级 mermaid 图；
-// --type/--max-hops/--max-results 过滤输出；--memory full|sql 选择实现
-// 路径（默认 auto 按规模）。
+// queryRelations 实现 `codeintel query relations <表名> [--mermaid]`。
 func queryRelations(acts *action.Actions, table, format string, opts outputOpts, f *queryFlags) int {
-	acts.SetRelationHops(relationHopsFromFlags(f))
-	rels, err := acts.Relations(table, f.memory)
+	rels, err := acts.RelationsQuery(action.RelationsQueryRequest{
+		Table: table, MemoryMode: f.memory, Hops: relationHopsFromFlags(f),
+		Types: f.relTypes, MaxHops: f.maxHops, MaxResults: f.maxResults,
+	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
-	rels = relationsFilter(f)(rels)
 	if format == "mermaid" {
 		return printRelationsMermaid(table, rels)
 	}
@@ -74,13 +78,14 @@ func queryRelations(acts *action.Actions, table, format string, opts outputOpts,
 // 一次遍历全部表返回所有表对关联（合并去重），AGENT 单次调用拿全库。
 // --json 输出数组（与单表同构）；文本模式按表分组展示。
 func queryRelationsAll(acts *action.Actions, format string, opts outputOpts, f *queryFlags) int {
-	acts.SetRelationHops(relationHopsFromFlags(f))
-	rels, err := acts.RelationsAll(f.memory)
+	rels, err := acts.RelationsAllQuery(action.RelationsQueryRequest{
+		MemoryMode: f.memory, Hops: relationHopsFromFlags(f),
+		Types: f.relTypes, MaxHops: f.maxHops, MaxResults: f.maxResults,
+	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
-	rels = relationsFilter(f)(rels)
 	if format == "mermaid" {
 		return printRelationsAllMermaid(rels)
 	}

@@ -72,7 +72,7 @@ func serviceDomain(rc *wikiRenderCtx, svc action.GrpcRouteService) string {
 	// 实现包（服务方法所在包——归属信号被 AI 归入兜底域，投票排除）
 	implPkg := ""
 	if svc.ImplID != "" {
-		implPkg = symbolPkg(svc.ImplID)
+		implPkg = action.SymbolPkg(svc.ImplID)
 	}
 	votes := map[string]int{}
 	var order []string
@@ -108,8 +108,8 @@ func serviceDomain(rc *wikiRenderCtx, svc action.GrpcRouteService) string {
 
 // grpcDomainGroup 领域分组（R38 目录化：服务子页按领域分目录）。
 type grpcDomainGroup struct {
-	Name		string
-	Services	[]action.GrpcRouteService
+	Name     string
+	Services []action.GrpcRouteService
 }
 
 // grpcServicesByDomain 服务按领域分组（确定性：领域名排序；「其他」最后）。

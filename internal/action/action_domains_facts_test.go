@@ -1,7 +1,7 @@
-package cli
+package action
 
-// R34 domains 测试：AI 返回解析 + 校验（编造归属剔除）、事实包导出。
-// 测试先行。
+// R34 domains 事实包收集测试（批次 C 随迁自 cli/domains_test.go）：
+// 收集/导出/JSON 契约 + 实体出度入度/包归属/包级调用矩阵/grpc 方法名。
 
 import (
 	"encoding/json"
@@ -10,70 +10,37 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
 
-// TestParseDomainsValidate：AI 返回含编造包/表 → 剔除 + 警告；有效
-// 归属保留。
-func TestParseDomainsValidate(t *testing.T) {
-	f := &domainFacts{
-		Pkgs:   []pkgFacts{{Path: "item", Doc: "商品"}, {Path: "order", Doc: "订单"}, {Path: "member", Doc: "会员"}},
-		Tables: []tableFacts{{Name: "item_info", Cols: 5}, {Name: "order_tab", Cols: 8}},
-	}
-	resp := `domains:
-  - name: 商品域
-    description: 商品管理
-    packages: [item, ghost_pkg]
-    tables: [item_info, ghost_table]
-  - name: 订单域
-    packages: [order]
-    tables: [order_tab]
-  - name: 空域
-    packages: [nope]
-`
-	doms, warns := parseDomains(resp, f)
-	if len(doms) != 2 {
-		t.Fatalf("域数 = %d; want 2（空域剔除）:\n%+v", len(doms), doms)
-	}
-	if doms[0].Name != "商品域" || len(doms[0].Packages) != 1 || doms[0].Packages[0] != "item" {
-		t.Errorf("商品域 = %+v; want packages=[item]（ghost_pkg 剔除）", doms[0])
-	}
-	if len(doms[0].Tables) != 1 || doms[0].Tables[0] != "item_info" {
-		t.Errorf("商品域 tables = %+v; want [item_info]（ghost_table 剔除）", doms[0].Tables)
-	}
-	if len(warns) < 3 {
-		t.Errorf("警告数 = %d; want ≥3（ghost_pkg/ghost_table/空域）:\n%v", len(warns), warns)
-	}
-}
-
-// TestParseDomainsFence：```yaml 围栏剥离。
-func TestParseDomainsFence(t *testing.T) {
-	f := &domainFacts{Pkgs: []pkgFacts{{Path: "item"}}, Tables: []tableFacts{{Name: "item_info"}}}
-	resp := "```yaml\ndomains:\n  - name: 商品域\n    packages: [item]\n    tables: [item_info]\n```"
-	doms, _ := parseDomains(resp, f)
-	if len(doms) != 1 || doms[0].Name != "商品域" {
-		t.Errorf("围栏解析失败: %+v", doms)
-	}
-}
-
-// TestExportDomainFacts：事实包导出文件——JSON 格式（用户要求），
-// 结构字段齐全。
-func TestExportDomainFacts(t *testing.T) {
-	dir := seedRepo(t)
+// openRepoTest 建独立 fixture 仓库（collectDomainFacts 测试用——
+// seedRepo 自带数据会干扰实体/包断言）。
+func openRepoTest(t *testing.T) (*Actions, string) {
+	t.Helper()
+	dir := t.TempDir()
 	db, err := sqlite.Open(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
-	acts := action.New(sqlite.NewRepo(db))
+	t.Cleanup(func() { db.Close() })
+	return New(sqlite.NewRepo(db)), dir
+}
+
+// TestExportDomainFacts：事实包导出文件——JSON 格式（用户要求），
+// 结构字段齐全（AnalyzeDomains --export-facts 路径）。
+func TestExportDomainFacts(t *testing.T) {
+	a, dir := seedRepo(t)
 	path := filepath.Join(t.TempDir(), "facts.json")
-	if err := exportDomainFacts(dir, acts, wikiConfig{}, path); err != nil {
+	res, err := a.AnalyzeDomains(DomainsRequest{RepoAbs: dir, ExportOnly: path})
+	if err != nil {
 		t.Fatal(err)
 	}
+	if res.Facts == nil {
+		t.Fatal("导出应返回 Facts")
+	}
 	b, _ := os.ReadFile(path)
-	var f domainFacts
+	var f DomainFacts
 	if err := json.Unmarshal(b, &f); err != nil {
 		t.Fatalf("导出应为合法 JSON: %v", err)
 	}
@@ -88,17 +55,17 @@ func TestExportDomainFacts(t *testing.T) {
 // TestDomainFactsJSONCompact：R61——AI 读取的事实包不 format（compact
 // JSON——避免文件过大消耗 token）；--export-facts 人工检查用缩进版。
 func TestDomainFactsJSONCompact(t *testing.T) {
-	f := &domainFacts{Pkgs: []pkgFacts{{Path: "example.com/m", Doc: "主包"}},
-		Tables: []tableFacts{{Name: "orders"}},
+	f := &DomainFacts{Pkgs: []PkgFacts{{Path: "example.com/m", Doc: "主包"}},
+		Tables: []TableFacts{{Name: "orders"}},
 	}
-	b, err := domainFactsJSON(f)
+	b, err := DomainFactsJSON(f)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(b), "\n  ") {
 		t.Errorf("AI 读取的事实包不应缩进（compact）:\n%s", b)
 	}
-	bi, err := domainFactsJSONIndent(f)
+	bi, err := DomainFactsJSONIndent(f)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +80,7 @@ func TestDomainFactsJSONCompact(t *testing.T) {
 // TestDomainFactsEntityOutIn：R64——实体带出度/入度（调用边数——
 // AI 划分领域时参考调用热度：高内聚实体同域、领域间调用少）。
 func TestDomainFactsEntityOutIn(t *testing.T) {
-	dir := seedRepo(t)
+	a, dir := openRepoTest(t)
 	db, err := sqlite.Open(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -122,7 +89,6 @@ func TestDomainFactsEntityOutIn(t *testing.T) {
 	r := sqlite.NewRepo(db)
 	// 实体图：A→B（2 个方法 target——不同 calls 边不合并，Count=2）、
 	// A→C（1）、C→B（1）。实体 = 有方法（has_method 边）的类型。
-	acts := action.New(r)
 	if _, err := r.SaveBatchStats([]*domain.CodeEntity{
 		{ID: "symbol:go:example.com/m:a", Kind: domain.KindStruct, Name: "a", FilePath: "a.go"},
 		{ID: "symbol:go:example.com/m:(a).m1", Kind: domain.KindMethod, Name: "(a).m1", FilePath: "a.go"},
@@ -145,34 +111,34 @@ func TestDomainFactsEntityOutIn(t *testing.T) {
 	}, nil); err != nil {
 		t.Fatal(err)
 	}
-	f := collectDomainFacts(acts, dir, wikiConfig{})
-	byName := map[string]entityFacts{}
+	f := a.collectDomainFacts(DomainFactsRequest{RepoAbs: dir})
+	byName := map[string]EntityFacts{}
 	for _, e := range f.Ents {
 		byName[e.Name] = e
 	}
-	a, okA := byName["a"]
-	b, okB := byName["b"]
-	c, okC := byName["c"]
+	aEnt, okA := byName["a"]
+	bEnt, okB := byName["b"]
+	cEnt, okC := byName["c"]
 	if !okA || !okB || !okC {
 		t.Fatalf("实体缺失 a/b/c: %+v", byName)
 	}
 	// R66：out/in = 调用次数聚合（Count 累加）——A→B×2 + A→C×1 = 3；
 	// B 被调 A→B×2 + C→B×1 = 3（2 方法实体保留——门槛滤 1 方法 0 出边）；
 	// C 调出 1（C→B）、被调 1（A→C）
-	if a.Out != 3 || a.In != 0 {
-		t.Errorf("A out/in = %d/%d; want 3/0（Count 累加）", a.Out, a.In)
+	if aEnt.Out != 3 || aEnt.In != 0 {
+		t.Errorf("A out/in = %d/%d; want 3/0（Count 累加）", aEnt.Out, aEnt.In)
 	}
-	if b.Out != 0 || b.In != 3 {
-		t.Errorf("B out/in = %d/%d; want 0/3", b.Out, b.In)
+	if bEnt.Out != 0 || bEnt.In != 3 {
+		t.Errorf("B out/in = %d/%d; want 0/3", bEnt.Out, bEnt.In)
 	}
-	if c.Out != 1 || c.In != 1 {
-		t.Errorf("C out/in = %d/%d; want 1/1", c.Out, c.In)
+	if cEnt.Out != 1 || cEnt.In != 1 {
+		t.Errorf("C out/in = %d/%d; want 1/1", cEnt.Out, cEnt.In)
 	}
 }
 
 // TestDomainFactsEntityPkg：R65——实体带包路径（AI 归属实体→包→子域）。
 func TestDomainFactsEntityPkg(t *testing.T) {
-	dir := seedRepo(t)
+	a, dir := openRepoTest(t)
 	db, err := sqlite.Open(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -187,7 +153,7 @@ func TestDomainFactsEntityPkg(t *testing.T) {
 	}, nil); err != nil {
 		t.Fatal(err)
 	}
-	f := collectDomainFacts(action.New(r), dir, wikiConfig{})
+	f := a.collectDomainFacts(DomainFactsRequest{RepoAbs: dir})
 	for _, e := range f.Ents {
 		if e.Name == "svc" && e.Pkg != "example.com/m/order" {
 			t.Errorf("实体 Pkg = %q; want example.com/m/order（完整路径——与 packages 对应）", e.Pkg)
@@ -201,7 +167,7 @@ func TestDomainFactsEntityPkg(t *testing.T) {
 // TestDomainFactsPkgCalls：R65——包级调用矩阵（跨包聚合；同包调用与
 // 子域划分无关不计）。
 func TestDomainFactsPkgCalls(t *testing.T) {
-	dir := seedRepo(t)
+	a, dir := openRepoTest(t)
 	db, err := sqlite.Open(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -236,12 +202,12 @@ func TestDomainFactsPkgCalls(t *testing.T) {
 	}, nil); err != nil {
 		t.Fatal(err)
 	}
-	f := collectDomainFacts(action.New(r), dir, wikiConfig{})
+	f := a.collectDomainFacts(DomainFactsRequest{RepoAbs: dir})
 	if len(f.PkgCalls) != 2 {
 		t.Fatalf("pkg_calls = %+v; want 2 条跨包边", f.PkgCalls)
 	}
 	// R74：聚合数组形态——同 from 的 to 在 to 数组里
-	byFrom := map[string]pkgCallFacts{}
+	byFrom := map[string]PkgCallFacts{}
 	for _, pc := range f.PkgCalls {
 		byFrom[pc.From] = pc
 	}
@@ -258,7 +224,7 @@ func TestDomainFactsPkgCalls(t *testing.T) {
 // TestDomainFactsGrpcMethods：R54——grpc 服务带方法名列表（一个服务
 // 可能含多域方法、分开部署——方法级归属信息）。
 func TestDomainFactsGrpcMethods(t *testing.T) {
-	dir := seedRepo(t)
+	a, dir := openRepoTest(t)
 	db, err := sqlite.Open(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -272,8 +238,7 @@ func TestDomainFactsGrpcMethods(t *testing.T) {
 	}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	acts := action.New(sqlite.NewRepo(db))
-	f := collectDomainFacts(acts, dir, wikiConfig{})
+	f := a.collectDomainFacts(DomainFactsRequest{RepoAbs: dir})
 	found := false
 	for _, s := range f.Svcs {
 		if s.Type == "grpc" && s.Name == "QueryService" {

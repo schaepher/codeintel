@@ -95,3 +95,13 @@ func seqShort(id string) string {
 	}
 	return id
 }
+
+// SymbolPkg canonical ID → 包路径（symbol:go:<pkg>:<name>）。批次 C：
+// 自 cli/wiki_processes.go 迁入（domains 事实包与 wiki 渲染共用）。
+func SymbolPkg(id string) string {
+	rest := strings.TrimPrefix(id, "symbol:go:")
+	if i := strings.LastIndex(rest, ":"); i >= 0 {
+		return rest[:i]
+	}
+	return rest
+}

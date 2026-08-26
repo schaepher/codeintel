@@ -28,15 +28,6 @@ func shortSymbolNameID(id string) string {
 	return id[i+1:]
 }
 
-// symbolPkg canonical ID → 包路径（symbol:go:<pkg>:<name>）。
-func symbolPkg(id string) string {
-	rest := strings.TrimPrefix(id, "symbol:go:")
-	if i := strings.LastIndex(rest, ":"); i >= 0 {
-		return rest[:i]
-	}
-	return rest
-}
-
 // renderProcessesMD 流程页 Markdown：目标仓库 main 入口 + 一级调用
 // 函数逐条展开深度 2 调用链（实体协作子图 + 涉及包）。R9：函数级
 // 时序图替换为实体协作子图（Q7）——调用链映射到实体（类型/包门面）；

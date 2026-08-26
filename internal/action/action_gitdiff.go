@@ -1,26 +1,41 @@
-package cli
+package action
+
+// 批次 C 迁移：--since 的 git diff 执行与解析（原 cli/gitdiff.go +
+// cli/path.go 的 runGitDiffSince）——git 进程调用与 diff 解析编排迁
+// action（unused/fields/callers 等 --since 标注共用）。
 
 import (
+	"os/exec"
 	"strings"
 
 	"github.com/schaepher/codeintel/internal/domain"
 )
 
-// gitDiffInfo --since 的 diff 解析结果（field_trace.md §16.5）。
-type gitDiffInfo struct {
+// GitDiffInfo --since 的 diff 解析结果（field_trace.md §16.5）。
+type GitDiffInfo struct {
 	NewFiles   map[string]bool
 	AddedLines map[string]map[int]bool
 }
 
-// parseGitDiff 解析 `git diff --unified=0 <ref>` 输出：
+// RunGitDiffSince 执行 git diff --unified=0 <ref> 并解析为 SinceInfo。
+// 失败返回 error（cli 决定警告跳过或报错退出）。
+func RunGitDiffSince(repoAbs, ref string) (*domain.SinceInfo, error) {
+	out, err := exec.Command("git", "-C", repoAbs, "diff", "--unified=0", ref).Output()
+	if err != nil {
+		return nil, err
+	}
+	return DiffToSinceInfo(ref, ParseGitDiff(string(out))), nil
+}
+
+// ParseGitDiff 解析 `git diff --unified=0 <ref>` 输出：
 //   - new file mode → 新增文件（文件内全部函数 [new]）
 //   - deleted file → 跳过
 //   - rename（similarity index）→ 按修改处理（新路径）
 //   - @@ -a,b +c,d @@ → + 侧新增行号（c..c+d-1，跳过上下文行）
 //
 // 返回：新增文件集合 + 每文件新增行号集合。
-func parseGitDiff(out string) *gitDiffInfo {
-	info := &gitDiffInfo{
+func ParseGitDiff(out string) *GitDiffInfo {
+	info := &GitDiffInfo{
 		NewFiles:   map[string]bool{},
 		AddedLines: map[string]map[int]bool{},
 	}
@@ -162,12 +177,11 @@ type parseErr struct{}
 
 func (*parseErr) Error() string { return "parse diff" }
 
-// diffToSinceInfo 转 domain.SinceInfo（含新增文件标记）。
-func diffToSinceInfo(ref string, info *gitDiffInfo) *domain.SinceInfo {
-	since := &domain.SinceInfo{
+// DiffToSinceInfo 转 domain.SinceInfo（含新增文件标记）。
+func DiffToSinceInfo(ref string, info *GitDiffInfo) *domain.SinceInfo {
+	return &domain.SinceInfo{
 		Ref:        ref,
 		NewFiles:   info.NewFiles,
 		AddedLines: info.AddedLines,
 	}
-	return since
 }

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/schaepher/codeintel/internal/domain"
-	"gopkg.in/yaml.v3"
 )
 
 // aiFixtureData 构造缺口数据：1 个模块无描述、1 张表无别名、1 个列无说明。
@@ -53,59 +52,6 @@ func TestWikiAICollectGaps(t *testing.T) {
 	}
 	if len(colGaps) != 2 || len(byTbl["order_tab"]) != 2 || len(byTbl["user_tab"]) != 1 {
 		t.Errorf("列缺口 = %+v; want order_tab[id,order_no] user_tab[id]", colGaps)
-	}
-}
-
-// TestWikiAIStripFence：AI 输出 yaml 围栏剥离（```yaml / ``` 变体）。
-func TestWikiAIStripFence(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"```yaml\ndescription: x\n```", "description: x"},
-		{"```\ndescription: y\n```", "description: y"},
-		{"description: z", "description: z"},
-		{"```yaml\ndescription: a\n", "description: a"}, // 缺尾围栏也容忍
-	}
-	for _, c := range cases {
-		if got := stripYAMLFence(c.in); got != c.want {
-			t.Errorf("stripYAMLFence(%q) = %q; want %q", c.in, got, c.want)
-		}
-	}
-}
-
-// TestYAMLEditorMerge：合并保留原注释 + AI 初稿标注 + 追加缺失键。
-func TestYAMLEditorMerge(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "wiki.yaml")
-	orig := "# 人工注释\nproject:\n  description: 项目\n\ntables:\n  - name: order_tab\n    alias: 订单表\n"
-	if err := os.WriteFile(path, []byte(orig), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	e, err := loadYAMLEditor(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	e.setModuleDesc("example.com/app/internal/agent", "LLM 代理层")
-	e.setTableAlias("user_tab", "用户表")
-	e.setColumnComments("order_tab", map[string]string{"order_no": "订单号"})
-	if err := e.save(path); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := os.ReadFile(path)
-	s := string(b)
-	for _, want := range []string{"# 人工注释", "# AI 初稿", "description: LLM 代理层", "alias: 用户表", "comment: 订单号"} {
-		if !strings.Contains(s, want) {
-			t.Errorf("合并结果缺 %q:\n%s", want, s)
-		}
-	}
-	// 重新解析验证结构合法
-	var cfg wikiConfig
-	if err := yaml.Unmarshal(b, &cfg); err != nil {
-		t.Fatalf("合并后 yaml 解析失败: %v\n%s", err, s)
-	}
-	if len(cfg.Modules) != 1 || cfg.Modules[0].Description != "LLM 代理层" {
-		t.Errorf("modules = %+v", cfg.Modules)
-	}
-	if len(cfg.Tables) != 2 {
-		t.Errorf("tables = %+v", cfg.Tables)
 	}
 }
 

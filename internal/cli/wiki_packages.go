@@ -44,7 +44,7 @@ func renderPackagesHTML(pkgs []*domain.CodeEntity, repo *sqlite.Repo) string {
 			b.WriteString("</div>")
 			continue
 		}
-		if facts := pkgCodeFactsFor(repo, symbolPkg(string(p.ID))); facts != nil {
+		if facts := pkgCodeFactsFor(repo, action.SymbolPkg(string(p.ID))); facts != nil {
 			b.WriteString(`<p class="muted">（无包级说明——代码事实）</p>`)
 			if len(facts.Structs) > 0 {
 				b.WriteString("<p><strong>结构体</strong>：" + htmlEsc(strings.Join(facts.Structs, "、")) + "</p>")
@@ -90,7 +90,7 @@ func renderPackagesMD(pkgs []*domain.CodeEntity, repo *sqlite.Repo) string {
 			b.WriteString("</details>\n\n")
 			continue
 		}
-		if facts := pkgCodeFactsFor(repo, symbolPkg(string(p.ID))); facts != nil {
+		if facts := pkgCodeFactsFor(repo, action.SymbolPkg(string(p.ID))); facts != nil {
 			b.WriteString("（无包级说明——代码事实）\n\n")
 			if len(facts.Structs) > 0 {
 				b.WriteString("**结构体**：" + strings.Join(facts.Structs, "、") + "\n\n")

@@ -1,29 +1,17 @@
 package cli
 
 // wiki --ai 的 AI 返回解析与 cfg 同步（从 wiki_ai.go 拆出——行数治理）。
+// 围栏剥离（StripYAMLFence）批次 C 迁 action（domains 解析共用）。
 
 import (
 	"fmt"
 	"strings"
 
+	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 	"gopkg.in/yaml.v3"
 )
-
-// stripYAMLFence 剥离 AI 输出的 ```yaml 围栏（缺尾围栏也容忍）。
-func stripYAMLFence(s string) string {
-	s = strings.TrimSpace(s)
-	if !strings.HasPrefix(s, "```") {
-		return s
-	}
-	lines := strings.Split(s, "\n")
-	lines = lines[1:]
-	if n := len(lines); n > 0 && strings.HasPrefix(strings.TrimSpace(lines[n-1]), "```") {
-		lines = lines[:n-1]
-	}
-	return strings.TrimSpace(strings.Join(lines, "\n"))
-}
 
 // wikiBatchOut AI 批量返回结构（一次请求处理全部缺口）。
 type wikiBatchOut struct {
@@ -172,7 +160,7 @@ func colGapRels(rels []*domain.TableRelation, table string) string {
 // parseWikiBatch 解析 AI 批量返回 → wikiBatchOut（围栏剥离 + 空结果
 // 校验——空结果视为不可解析，触发重试）。
 func parseWikiBatch(s string) (wikiBatchOut, error) {
-	s = stripYAMLFence(s)
+	s = action.StripYAMLFence(s)
 	var out wikiBatchOut
 	if err := yaml.Unmarshal([]byte(s), &out); err != nil {
 		return out, fmt.Errorf("AI 批量返回不可解析: %v", err)

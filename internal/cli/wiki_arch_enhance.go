@@ -3,6 +3,7 @@ package cli
 import (
 	"strings"
 
+	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
 
@@ -25,7 +26,7 @@ func archSvcPkgs(repo *sqlite.Repo) map[string]bool {
 		if err := rows.Scan(&id); err != nil {
 			continue
 		}
-		p := symbolPkg(id)
+		p := action.SymbolPkg(id)
 		if i := strings.LastIndex(p, "/"); i >= 0 {
 			p = p[i+1:]
 		}

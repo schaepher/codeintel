@@ -1,4 +1,4 @@
-package cli
+package action
 
 import (
 	"reflect"
@@ -45,7 +45,7 @@ index 5555555..0000000
 -func Gone() {}
 -func Gone2() {}
 `
-	info := parseGitDiff(out)
+	info := ParseGitDiff(out)
 	// 新增文件：new.go（文件内全部函数 [new]）
 	if !info.NewFiles["new.go"] {
 		t.Errorf("new.go 应标记为新增文件: %v", info.NewFiles)
@@ -84,7 +84,7 @@ index 1111111..2222222 100644
  func A() {}
 +_ = 1
 `
-	info := parseGitDiff(out)
+	info := ParseGitDiff(out)
 	if _, ok := info.AddedLines["m.go"]; !ok {
 		t.Fatalf("noprefix diff 应解析出 m.go: %v", info.AddedLines)
 	}
@@ -106,7 +106,7 @@ func TestParseGitDiffMultiHunk(t *testing.T) {
 +	_ = 3
 +	_ = 4
  `
-	info := parseGitDiff(out)
+	info := ParseGitDiff(out)
 	// hunk1 +1,2：行1 上下文 + 行2 新增；hunk2 +31,4：31,32 上下文 + 32?,33 新增
 	// 实际：hunk2 内 行31(_ = 2 上下文) 32(+_ = 3) 33(+_ = 4) → 新增 32,33
 	want := map[int]bool{2: true, 32: true, 33: true}
@@ -117,7 +117,7 @@ func TestParseGitDiffMultiHunk(t *testing.T) {
 
 // TestParseGitDiffEmpty：无 diff 输出。
 func TestParseGitDiffEmpty(t *testing.T) {
-	info := parseGitDiff("")
+	info := ParseGitDiff("")
 	if len(info.NewFiles) != 0 || len(info.AddedLines) != 0 {
 		t.Errorf("空 diff = %+v", info)
 	}
