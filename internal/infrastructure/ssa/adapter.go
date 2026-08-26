@@ -11,6 +11,7 @@ import (
 	"go/types"
 
 	"github.com/schaepher/codeintel/internal/domain"
+	"go.uber.org/zap"
 )
 
 var _ domain.IndexerPort = (*Adapter)(nil)
@@ -32,6 +33,19 @@ type Adapter struct {
 	// workers 按包并发数（Q169/Q170）：默认 1=串行；命令行 --workers N
 	// 指定（orchestrator SetWorkers 注入）
 	workers int
+	// dispatchPkgs P0-2：dispatch 相关模块内包（注册点包 ∪ 动态调用
+	// 包）——本轮 Index 运行收集，构建后供 orchestrator 持久化到
+	// build_metadata（增量补 Load 用）
+	dispatchPkgs []string
+}
+
+// DispatchPkgs 返回本轮 Index 收集的 dispatch 相关模块内包路径
+// （P0-2：增量构建补 Load 用）。
+func (a *Adapter) DispatchPkgs() []string {
+	logger := zap.L()
+	logger.Debug("enter (Adapter).DispatchPkgs")
+	defer logger.Debug("exit (Adapter).DispatchPkgs")
+	return a.dispatchPkgs
 }
 
 // assignTarget 赋值表达式区间 → 目标变量名。

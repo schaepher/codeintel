@@ -74,7 +74,8 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	// 兜底导致每个函数都全程序 AllFunctions 扫描（go2o 12875 函数 ×
 	// 全图遍历 ≈ 305s CPU，pprof 46% 热点）。初始化后各 extractor
 	// 共享只读 map。
-	a.dispatchRegs = collectDispatchRegistrations(prog, repo.Modules)
+	a.dispatchPkgs = nil
+	a.dispatchRegs, a.dispatchPkgs = collectDispatchRegistrations(prog, repo.Modules)
 	a.regHits = buildRegHits(a.dispatchRegs, prog)
 
 	idents := buildIdentIndex(pkgs, repo.Modules)

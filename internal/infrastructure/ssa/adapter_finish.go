@@ -38,8 +38,12 @@ func finishIndex(repo *domain.Repository, prog *ssa.Program, idents map[token.Po
 	if err := emitGlobalInit(repo, prog, emit); err != nil {
 		return err
 	}
-	if err := emitDispatches(repo, prog, typePkgs, emit); err != nil {
+	// P0-2：dispatch 相关包（注册点 ∪ 动态调用，emitDispatches 内合并
+	// 去重）——增量补 Load 持久化
+	dispatchPkgs, err := emitDispatches(repo, prog, typePkgs, emit)
+	if err != nil {
 		return err
 	}
+	a.dispatchPkgs = dispatchPkgs
 	return nil
 }

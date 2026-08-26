@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"sync"
 
@@ -88,11 +89,17 @@ func (r *Repo) Save(meta *domain.BuildMeta) error {
 	logger := zap.L()
 	logger.Debug("enter (Repo).Save")
 	defer logger.Debug("exit (Repo).Save")
+	dispatchJSON := "[]"
+	if len(meta.DispatchPkgs) > 0 {
+		if b, err := json.Marshal(meta.DispatchPkgs); err == nil {
+			dispatchJSON = string(b)
+		}
+	}
 	_, err := r.Exec(`INSERT OR REPLACE INTO build_metadata
-		(build_id, commit_sha, tool_name, status, duration_ms, error_message, nodes_count, edges_count, degrade_stats)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		(build_id, commit_sha, tool_name, status, duration_ms, error_message, nodes_count, edges_count, degrade_stats, dispatch_pkgs)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		meta.BuildID, meta.CommitSHA, meta.ToolName, meta.Status, meta.DurationMs, meta.ErrorMsg,
-		meta.Nodes, meta.Edges, meta.DegradeStats)
+		meta.Nodes, meta.Edges, meta.DegradeStats, dispatchJSON)
 	return err
 }
 
@@ -103,11 +110,18 @@ func (r *Repo) GetLatest() (*domain.BuildMeta, error) {
 	defer logger.Debug("exit (Repo).GetLatest")
 	m := &domain.BuildMeta{}
 	// timestamp 为秒级：同一秒内多次构建须按写入顺序取最新（rowid 递增）
+	var dpJSON string
 	err := r.QueryRow(`SELECT build_id, commit_sha, tool_name, status, duration_ms, error_message,
-		COALESCE(nodes_count, 0), COALESCE(edges_count, 0), COALESCE(degrade_stats, '')
+		COALESCE(nodes_count, 0), COALESCE(edges_count, 0), COALESCE(degrade_stats, ''),
+		COALESCE(dispatch_pkgs, '[]')
 		FROM build_metadata ORDER BY timestamp DESC, rowid DESC LIMIT 1`).
 		Scan(&m.BuildID, &m.CommitSHA, &m.ToolName, &m.Status, &m.DurationMs, &m.ErrorMsg,
-			&m.Nodes, &m.Edges, &m.DegradeStats)
+			&m.Nodes, &m.Edges, &m.DegradeStats, &dpJSON)
+	if err == nil && len(dpJSON) > 2 {
+		if jerr := json.Unmarshal([]byte(dpJSON), &m.DispatchPkgs); jerr != nil {
+			m.DispatchPkgs = nil
+		}
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, domain.ErrNotFound
 	}

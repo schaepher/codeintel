@@ -61,11 +61,22 @@ type dispatchCandidate struct {
 
 // collectDispatchRegistrations 收集模块内 MakeInterface 注册点：
 // 具体值 → 接口值的转换指令（SSA 中注册/注入点的标准形态）。
-func collectDispatchRegistrations(prog *ssa.Program, modules []string) dispatchReg {
+// P0-2：同时返回注册点所在模块内包路径（增量构建补 Load 用——注册
+// 点包未 Load 时 dispatch_to 边整体丢失）。
+func collectDispatchRegistrations(prog *ssa.Program, modules []string) (dispatchReg, []string) {
 	logger := zap.L()
 	logger.Debug("enter collectDispatchRegistrations")
 	defer logger.Debug("exit collectDispatchRegistrations")
 	regs := dispatchReg{}
+	seenPkg := map[string]bool{}
+	var pkgs []string
+	notePkg := func(pkgPath string) {
+		if !isInModule(pkgPath, modules) || seenPkg[pkgPath] {
+			return
+		}
+		seenPkg[pkgPath] = true
+		pkgs = append(pkgs, pkgPath)
+	}
 	for fn := range ssautil.AllFunctions(prog) {
 		if !isModuleFunction(fn, modules) {
 			continue
@@ -79,6 +90,9 @@ func collectDispatchRegistrations(prog *ssa.Program, modules []string) dispatchR
 				iface := interfaceNamedOf(mi.Type())
 				if iface == nil {
 					continue
+				}
+				if fn.Pkg != nil {
+					notePkg(fn.Pkg.Pkg.Path())
 				}
 				if regs[iface] == nil {
 					regs[iface] = map[string]int{}
@@ -96,7 +110,7 @@ func collectDispatchRegistrations(prog *ssa.Program, modules []string) dispatchR
 			}
 		}
 	}
-	return regs
+	return regs, pkgs
 }
 
 // interfaceNamedOf 取具名接口类型（*types.Named，Underlying 是 Interface）。

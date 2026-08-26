@@ -14,11 +14,14 @@ import (
 //  2. 遍历模块内函数的所有动态接口方法调用（cc.Method != nil）
 //  3. 候选 = 注册点命中（register 0.9）∪ 枚举实现者（enum 0.7）
 //  4. 接口类型节点 → 候选实现方法（模块内）→ dispatch_to 边
-func emitDispatches(repo *domain.Repository, prog *ssa.Program, pkgs []*types.Package, emit domain.EmitFunc) error {
+//
+// P0-2：返回 dispatch 相关模块内包路径（注册点包 ∪ 动态调用包）——
+// 增量构建补 Load 用（这些包未 Load 时 dispatch_to 边整体丢失）。
+func emitDispatches(repo *domain.Repository, prog *ssa.Program, pkgs []*types.Package, emit domain.EmitFunc) ([]string, error) {
 	logger := zap.L()
 	logger.Debug("enter emitDispatches")
 	defer logger.Debug("exit emitDispatches")
-	regs := collectDispatchRegistrations(prog, repo.Modules)
+	regs, regPkgs := collectDispatchRegistrations(prog, repo.Modules)
 
 	// 接口方法调用集合：接口类型 → 方法名（map 去重；UNIQUE 边合并）
 	type callKey struct {
@@ -26,6 +29,10 @@ func emitDispatches(repo *domain.Repository, prog *ssa.Program, pkgs []*types.Pa
 		method string
 	}
 	calls := map[callKey]bool{}
+	callPkgSet := map[string]bool{}
+	for _, p := range regPkgs {
+		callPkgSet[p] = true
+	}
 	for fn := range ssautil.AllFunctions(prog) {
 		if !isModuleFunction(fn, repo.Modules) {
 			continue
@@ -46,12 +53,20 @@ func emitDispatches(repo *domain.Repository, prog *ssa.Program, pkgs []*types.Pa
 				}
 				if named := interfaceNamedOf(cc.Value.Type()); named != nil {
 					calls[callKey{iface: named, method: cc.Method.Name()}] = true
+					if fn.Pkg != nil && isInModule(fn.Pkg.Pkg.Path(), repo.Modules) {
+						callPkgSet[fn.Pkg.Pkg.Path()] = true
+					}
 				}
 			}
 		}
 	}
 	if len(calls) == 0 {
-		return nil
+		return nil, nil
+	}
+
+	dispatchPkgs := make([]string, 0, len(callPkgSet))
+	for p := range callPkgSet {
+		dispatchPkgs = append(dispatchPkgs, p)
 	}
 
 	for ck := range calls {
@@ -98,11 +113,11 @@ func emitDispatches(repo *domain.Repository, prog *ssa.Program, pkgs []*types.Pa
 				Confidence: c.confidence,
 				Metadata:   meta,
 			}}); err != nil {
-				return err
+				return dispatchPkgs, err
 			}
 		}
 	}
-	return nil
+	return dispatchPkgs, nil
 }
 
 // implMethodsFor 枚举模块内实现接口方法的具名类型方法（值与指针方法集

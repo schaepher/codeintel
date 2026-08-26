@@ -77,6 +77,11 @@ func (o *Orchestrator) IncrementalBuild(ctx context.Context, changedFiles []stri
 	patterns, full := o.changedPackagePatterns(changedFiles)
 	if full {
 		patterns = nil
+	} else {
+		// P0-2：补 Load dispatch 相关包（注册点包 ∪ 动态调用包——上次
+		// 构建持久化的 build_metadata）。改 impl 包时注册点包未 Load 会
+		// 导致 dispatch_to 边整体丢失（emitDispatches 收不到注册点）。
+		o.mergeDispatchPkgPatterns(patterns)
 	}
 	pkgs, err := o.loadPackages(ctx, patterns)
 	if err != nil {
@@ -124,6 +129,66 @@ func (o *Orchestrator) changedPackagePatterns(changedFiles []string) (pkgPattern
 		pats[modDir] = append(pats[modDir], p)
 	}
 	return pats, false
+}
+
+// mergeDispatchPkgPatterns P0-2：把 build_metadata 记录的 dispatch 相关
+// 包（模块内包路径）并入增量 pattern——注册点包/动态调用包即使本次
+// 无变更也必须 Load，否则 emitDispatches 收不到注册点，dispatch_to
+// 边整体丢失。包路径 → 所属 module 的相对目录 pattern（与
+// changedPackagePatterns 同构；包目录已删除则跳过）。
+func (o *Orchestrator) mergeDispatchPkgPatterns(patterns pkgPatterns) {
+	meta, err := o.RepoImpl.GetLatest()
+	if err != nil || len(meta.DispatchPkgs) == 0 {
+		return
+	}
+	// Modules 与 ModuleDirs 对齐（DiscoverModules：根 module 在前）
+	modDirs := map[string]string{} // module path → 目录（相对仓库根）
+	for i, m := range o.Repo.Modules {
+		if i < len(o.Repo.ModuleDirs) {
+			modDirs[m] = o.Repo.ModuleDirs[i]
+		}
+	}
+	for _, pkgPath := range meta.DispatchPkgs {
+		modDir, rel := "", ""
+		// 子 module 前缀优先（pkgPath 属于哪个 module）
+		for m, d := range modDirs {
+			if m == o.Repo.Module {
+				continue
+			}
+			if pkgPath == m || strings.HasPrefix(pkgPath, m+"/") {
+				modDir, rel = d, strings.TrimPrefix(pkgPath, m)
+				break
+			}
+		}
+		if modDir == "" {
+			// 根 module
+			modDir = modDirs[o.Repo.Module]
+			if pkgPath == o.Repo.Module {
+				continue // 根包：目录即 module 根——增量 pattern 无意义
+			}
+			rel = strings.TrimPrefix(pkgPath, o.Repo.Module)
+		}
+		rel = strings.TrimPrefix(filepath.ToSlash(rel), "/")
+		if rel == "" {
+			continue
+		}
+		p := "./" + rel
+		// 包目录已不存在（包删除）→ 跳过（与 changedPackagePatterns 一致）
+		abs := filepath.Join(o.Repo.Path, filepath.FromSlash(filepath.Join(modDir, rel)))
+		if _, err := os.Stat(abs); err != nil {
+			continue
+		}
+		seen := false
+		for _, e := range patterns[modDir] {
+			if e == p {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			patterns[modDir] = append(patterns[modDir], p)
+		}
+	}
 }
 
 // moduleRelDir 变更文件（相对仓库根）→ 所属 module 目录（相对仓库根）

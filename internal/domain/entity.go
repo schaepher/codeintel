@@ -171,6 +171,10 @@ type BuildMeta struct {
 	// "sql_heuristic":K}）——构建期降级可观测（AST 死代码类问题
 	// 提前暴露，不再静默）
 	DegradeStats string `json:"degrade_stats,omitempty"`
+	// P0-2：dispatch 相关包（模块内含 MakeInterface 注册点或动态接口
+	// 方法调用的包）——增量构建补 Load 用：改 impl 包时注册点包未
+	// Load 会导致 dispatch_to 边丢失，持久化后增量补 Load 恢复扫描
+	DispatchPkgs []string `json:"dispatch_pkgs,omitempty"`
 }
 
 // Repository 描述被索引的代码仓库。

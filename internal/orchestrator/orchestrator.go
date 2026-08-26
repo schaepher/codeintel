@@ -31,6 +31,9 @@ type AdapterResult struct {
 	Name     string
 	Duration time.Duration
 	Err      error
+	// P0-2：适配器收集的 dispatch 相关模块内包（ssa 适配器产出）——
+	// finishBuild 汇总写入 build_metadata，增量构建补 Load 用
+	DispatchPkgs []string
 }
 
 // BuildResult 全量构建报告。
