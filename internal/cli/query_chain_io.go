@@ -6,6 +6,7 @@ package cli
 // 调用边。
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -98,6 +99,51 @@ func grpcClientName(symID string, svcs map[string]bool) string {
 	return ""
 }
 
+// extCacheEnsure 建缓存表（幂等）。
+func extCacheEnsure(repo *sqlite.Repo) {
+	_, _ = repo.Exec(`CREATE TABLE IF NOT EXISTS ext_chain_cache (
+		symbol TEXT PRIMARY KEY,
+		build TEXT NOT NULL,
+		result TEXT NOT NULL
+	)`)
+}
+
+// currentBuildSHA 当前索引 commit（缓存失效键——索引变化自动失效）。
+func currentBuildSHA(repo *sqlite.Repo) string {
+	row := repo.QueryRow(`SELECT COALESCE(commit_sha, '') FROM build_metadata ORDER BY build_id DESC LIMIT 1`)
+	var sha string
+	if row.Scan(&sha) != nil {
+		return ""
+	}
+	return sha
+}
+
+// chainGrpcHTTPCached 缓存优先的 chainGrpcHTTP（R83：外部系统调用链
+// 递归查询的核心——结果缓存数据库，后续优先查；索引 commit 变化
+// 自动失效）。
+func chainGrpcHTTPCached(acts *action.Actions, repo *sqlite.Repo, symbol string) chainIOOut {
+	extCacheEnsure(repo)
+	sha := currentBuildSHA(repo)
+	if sha != "" {
+		row := repo.QueryRow(`SELECT result FROM ext_chain_cache WHERE symbol = ? AND build = ?`, symbol, sha)
+		var result string
+		if row.Scan(&result) == nil && result != "" {
+			var cached chainIOOut
+			if err := json.Unmarshal([]byte(result), &cached); err == nil {
+				return cached
+			}
+		}
+	}
+	out := chainGrpcHTTP(acts, repo, symbol)
+	if sha != "" {
+		if b, err := json.Marshal(out); err == nil {
+			_, _ = repo.Exec(`INSERT OR REPLACE INTO ext_chain_cache (symbol, build, result) VALUES (?, ?, ?)`,
+				symbol, sha, string(b))
+		}
+	}
+	return out
+}
+
 // chainGrpcHTTP 收集调用链的 grpc/http 出站调用（一次全量扫描——
 // 链符号 BFS + 出站边过滤，避免逐符号查询）。
 func chainGrpcHTTP(acts *action.Actions, repo *sqlite.Repo, symbol string) chainIOOut {
@@ -162,7 +208,7 @@ func chainGrpcHTTP(acts *action.Actions, repo *sqlite.Repo, symbol string) chain
 
 // cmdChainGrpcHTTP 实现 `query grpc-callers|http-callers <符号>`。
 func cmdChainGrpcHTTP(acts *action.Actions, repo *sqlite.Repo, symbol string, which string, jsonOut bool) int {
-	out := chainGrpcHTTP(acts, repo, symbol)
+	out := chainGrpcHTTPCached(acts, repo, symbol)
 	if jsonOut {
 		encodeJSON(out)
 		return 0

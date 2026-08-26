@@ -12,17 +12,17 @@ import (
 	"github.com/schaepher/codeintel/internal/logging"
 )
 
-// outputOpts 查询输出选项（--json / --compact / repoPath）。
+// outputOpts 查询输出选项。
 type outputOpts struct {
 	json     bool // 结构化 JSON 输出（stdout 仅 JSON，日志已切文件）
 	compact  bool // 树形/表格输出压缩为紧凑形式
 	repoPath string // 目标仓库根（Q235-10：value-trace 源码片段读取）
 }
 
-// cmdQuery 实现 `codeintel query ...`。
+// cmdQuery 实现 codeintel query。
 func cmdQuery(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "error: query 需要一个子命令（symbol/fields/trace/value-trace/summary/path/unused/callers/callees/impact/sequence/enums/entities/grpc-routes/http-routes/cli-routes/external-*/kafka-topics/grpc-composites/grpc-callers/http-callers/packages/architecture/er/processes/module）")
+		fmt.Fprintln(os.Stderr, "error: query 需要一个子命令（symbol/fields/trace/value-trace/summary/path/unused/callers/callees/impact/sequence/enums/entities/grpc-routes/http-routes/cli-routes/external-*/kafka-topics/grpc-callers/http-callers/ext-chain/packages/architecture/er/processes/module）")
 		return 2
 	}
 	sub := args[0]
@@ -31,7 +31,7 @@ func cmdQuery(args []string) int {
 	f := parseQueryFlags(rest)
 	target := ""
 
-	if sub != "unused" && sub != "module-calls" && sub != "enums" && sub != "entities" && sub != "grpc-routes" && sub != "http-routes" && sub != "cli-routes" && sub != "external-deps" && sub != "external-interfaces" && sub != "kafka-topics" && sub != "grpc-composites" && sub != "grpc-callers" && sub != "http-callers" && sub != "packages" && sub != "architecture" && sub != "er" && sub != "processes" && !(sub == "relations" && f.all) {
+	if sub != "unused" && sub != "module-calls" && sub != "enums" && sub != "entities" && sub != "grpc-routes" && sub != "http-routes" && sub != "cli-routes" && sub != "external-deps" && sub != "external-interfaces" && sub != "kafka-topics" && sub != "grpc-composites" && sub != "grpc-callers" && sub != "http-callers" && sub != "ext-chain" && sub != "packages" && sub != "architecture" && sub != "er" && sub != "processes" && !(sub == "relations" && f.all) {
 		if len(f.positional) < 1 {
 			fmt.Fprintf(os.Stderr, "error: 缺少符号参数\n")
 			return 2
@@ -63,7 +63,7 @@ func cmdQuery(args []string) int {
 		fmt.Fprintf(os.Stderr, "warning: %s\n", tip)
 	}
 
-	// R5：枚举权威清单（源码提取，不依赖索引）
+	// R5：枚举权威清单（源码提取）
 	if sub == "enums" {
 		return cmdEnums(abs, f)
 	}
@@ -71,19 +71,17 @@ func cmdQuery(args []string) int {
 	if sub == "entities" {
 		return cmdEntities(acts, outputOpts{json: f.json, compact: f.compact, repoPath: f.repoPath}, f.format)
 	}
-	// R29：服务端 gRPC 路由清单
+	// R29：gRPC 路由清单
 	if sub == "grpc-routes" {
 		return cmdGrpcRoutes(abs, f)
 	}
-	// R31：HTTP 路由清单
 	if sub == "http-routes" {
 		return cmdHTTPRoutes(abs, f)
 	}
-	// R35：urfave/cli 命令树
 	if sub == "cli-routes" {
 		return cmdCLIRoutes(abs, f)
 	}
-	// R36：外部依赖（redis 键 / kafka topic）
+	// R36：外部依赖（redis/kafka）
 	if sub == "external-deps" {
 		return cmdExternalDeps(abs, f)
 	}
@@ -99,11 +97,14 @@ func cmdQuery(args []string) int {
 	if sub == "grpc-composites" {
 		return cmdGrpcComposites(abs, f)
 	}
-	// R83：调用链最终调用的 grpc/http
-	if sub == "grpc-callers" || sub == "http-callers" {
+	// R83：grpc/http 调用链 + 外部系统调用链（递归）
+	if sub == "grpc-callers" || sub == "http-callers" || sub == "ext-chain" {
 		if len(f.positional) < 1 {
 			fmt.Fprintln(os.Stderr, "error: 缺少符号参数")
 			return 2
+		}
+		if sub == "ext-chain" {
+			return cmdExtChain(acts, sqlite.NewRepo(db), abs, f.positional[0], f.json)
 		}
 		return cmdChainGrpcHTTP(acts, sqlite.NewRepo(db), f.positional[0], sub, f.json)
 	}
@@ -112,7 +113,7 @@ func cmdQuery(args []string) int {
 	if code, done := dispatchWikiSub(sub, acts, db, abs, f, opts); done {
 		return code
 	}
-	// --since：symbol/fields/callers/callees/impact 标注 [new]/[mod]
+	// --since：symbol/fields 等标注 [new]/[mod]
 	var since *domain.SinceInfo
 	if f.since != "" {
 		since = runGitDiffSince(abs, f.since)
@@ -155,7 +156,7 @@ func cmdQuery(args []string) int {
 	case "table-path":
 		return queryTablePath(acts, f.positional, f.json, f.full)
 	case "sequence":
-		// R76：时序图（接口具体化）；R81：--code 代码级时序（AST 解析函数体，--depth 嵌套层级）
+		// R76：时序图；R81：--code 代码级时序（--depth 嵌套层级）
 		if f.code {
 			return cmdQuerySequenceCode(acts, abs, target, f.depth, f.format == "mermaid", f.json)
 		}
@@ -180,8 +181,7 @@ func cmdQuery(args []string) int {
 // parseQueryFlags 手动解析 query 参数（flags 与位置参数任意顺序）。
 func parseQueryFlags(args []string) queryFlags {
 	f := queryFlags{repoPath: "."}
-	// Q197 跳数上限：-1 = 未传（用默认 4）；显式 0 = 该类型不限制
-	f.queryMaxHops, f.writeMaxHops, f.readMaxHops = -1, -1, -1
+	f.queryMaxHops, f.writeMaxHops, f.readMaxHops = -1, -1, -1 // Q197：-1 未传（默认 4），0 不限制
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
