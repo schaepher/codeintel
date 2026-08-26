@@ -2,14 +2,12 @@ package orchestrator
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 	"github.com/schaepher/codeintel/internal/infrastructure/ssa"
 	"github.com/schaepher/codeintel/internal/logging"
@@ -34,7 +32,7 @@ func (o *Orchestrator) FullBuild(ctx context.Context) (*BuildResult, error) {
 			zap.String("stage", name), zap.Duration("elapsed", time.Since(orchestraStart)))
 		orchestraStart = time.Now()
 	}
-	pkgs, err := o.loadPackages(ctx)
+	pkgs, err := o.loadPackages(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -55,94 +53,37 @@ func (o *Orchestrator) FullBuild(ctx context.Context) (*BuildResult, error) {
 	return result, err
 }
 
-// IncrementalBuild 增量构建（TD.md 5.2 增量语义，MVP：全量分析 + 增量写入）：
-//  1. 删除变更文件旧数据（节点级联删边与摘要）
-//  2. 适配器全量运行，写库时只保留与变更文件相关的产出
-//     （节点 file_path ∈ 变更文件；边/摘要的端点属于变更文件）
-//  3. build_metadata 记录 tool_name=incremental
-//
-// 语义正确性：全量分析保证跨包间接写闭包等结果完整（分析成本与 init 相同），
-// 增量只裁剪写入范围——未变更数据原样保留，不产生全量 DELETE 的碎片。
-func (o *Orchestrator) IncrementalBuild(ctx context.Context, changedFiles []string) (*BuildResult, error) {
-	logger := logging.FromContext(ctx)
-	logger.Debug("enter (Orchestrator).IncrementalBuild")
-	defer logger.Debug("exit (Orchestrator).IncrementalBuild")
-	start := time.Now()
-
-	// Q182：分析器版本变化（codeintel 新特性/逻辑变更）时，增量写库范围
-	// （仅变更文件）无法让新特性在未变更包上生效——自动降级为全量重建。
-	// 场景区分：包源码变化（pkg_hash）→ 增量局部；新特性（analyzer
-	// marker）→ 全量全局。
-	if ssa.LoadAnalyzerMarker(o.Repo.Path) != ssa.AnalyzerVersionHash() {
-		logger.Info("分析器版本变化，增量更新降级为全量重建（新特性须全量生效）")
-		return o.FullBuild(ctx)
-	}
-
-	changed := map[string]bool{}
-	for _, f := range changedFiles {
-		changed[f] = true
-	}
-	if err := deleteFiles(o.RepoImpl, changedFiles); err != nil {
-		return nil, fmt.Errorf("delete changed files: %w", err)
-	}
-
-	endpointFile := map[string]string{}
-	endpointInChanged := func(id string) bool {
-		if fp, ok := endpointFile[id]; ok {
-			return changed[fp]
-		}
-		var fp sql.NullString
-		if err := o.RepoImpl.QueryRow("SELECT file_path FROM nodes WHERE id = ?", id).Scan(&fp); err != nil || !fp.Valid {
-			return true
-		}
-		endpointFile[id] = fp.String
-		return changed[fp.String]
-	}
-	keep := func(item domain.Item) bool {
-		switch {
-		case item.Node != nil:
-			return changed[item.Node.FilePath]
-		case item.Fact != nil:
-			return endpointInChanged(string(item.Fact.SourceID)) || endpointInChanged(string(item.Fact.TargetID))
-		case item.Summary != nil:
-			return endpointInChanged(string(item.Summary.FunctionID))
-		}
-		return false
-	}
-	pkgs, err := o.loadPackages(ctx)
-	if err != nil {
-		return nil, err
-	}
-	results, skipped, err := o.runAdapters(ctx, pkgs, keep, changedFiles)
-	if err != nil {
-		return nil, err
-	}
-	return o.finishBuild(start, results, skipped, "incremental")
-}
-
 // loadPackages 统一加载仓库 go/packages（内存优化：AST/SSA 适配器共享
 // 一次类型检查，避免各自 Load 翻倍）。返回共享结果供适配器复用。
-// loadPackages 统一加载仓库 go/packages（内存优化：AST/SSA 适配器共享
-// 一次类型检查，避免各自 Load 翻倍）。返回共享结果供适配器复用。
+// R84：patterns 非 nil 时按包增量——只 Load 变更包（pattern 相对各
+// module 目录；该 module 无变更则跳过 Load，数据复用库中已有索引）；
+// patterns 为 nil 时全量 "./..."。依赖包走 go/packages fast 模式
+// （NeedTypes 从 export data 加载——AST 跨包调用用 types 信息构造
+// target，不依赖被调包 AST 主体）。
 // P2-3 多 go.mod：每个 module 单独 Load（go/packages 不能跨 module），
 // 按 PkgPath 去重合并（同一包路径只属于一个 module，Go 语义保证）。
-func (o *Orchestrator) loadPackages(ctx context.Context) ([]*packages.Package, error) {
-	dirs := []string{o.Repo.Path}
-	for i, d := range o.Repo.ModuleDirs {
-		if i == 0 {
-			continue
-		}
-		dirs = append(dirs, filepath.Join(o.Repo.Path, d))
-	}
+func (o *Orchestrator) loadPackages(ctx context.Context, patterns pkgPatterns) ([]*packages.Package, error) {
 	seen := map[string]bool{}
 	var out []*packages.Package
-	for _, dir := range dirs {
+	for i, d := range o.Repo.ModuleDirs {
+		dir := o.Repo.Path
+		if i > 0 {
+			dir = filepath.Join(o.Repo.Path, d)
+		}
+		pat := []string{"./..."}
+		if patterns != nil {
+			if ps, ok := patterns[d]; ok && len(ps) > 0 {
+				pat = ps
+			} else {
+				continue // 该 module 无变更包——跳过 Load（数据已在库中）
+			}
+		}
 		cfg := &packages.Config{
 			Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedSyntax |
 				packages.NeedTypes | packages.NeedTypesInfo | packages.NeedImports | packages.NeedDeps,
 			Dir: dir,
 		}
-		pkgs, err := packages.Load(cfg, "./...")
+		pkgs, err := packages.Load(cfg, pat...)
 		if err != nil {
 			return nil, fmt.Errorf("go/packages load (%s): %w", dir, err)
 		}
