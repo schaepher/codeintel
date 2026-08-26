@@ -104,7 +104,7 @@ func wikiServeHandler(repoAbs string, acts *action.Actions, repo *sqlite.Repo) h
 		case path == "api":
 			serveWikiHTML(w, ws.pageHTML(snap, "/wiki/api", renderAPIHTML(ws.repoAbs)))
 		case path == "enums":
-			serveWikiHTML(w, ws.pageHTML(snap, "/wiki/enums", renderEnumsHTML(ws.repoAbs)))
+			serveWikiHTML(w, ws.pageHTML(snap, "/wiki/enums", renderEnumsHTML(ws.repoAbs, ws.repo)))
 		default:
 			http.NotFound(w, r)
 		}

@@ -168,8 +168,10 @@ func cmdEnums(repoAbs string, f queryFlags) int {
 	return 0
 }
 
-// renderEnumsMD 枚举页 Markdown（含索引实际值分布对照）。
-func renderEnumsMD(repoAbs string) string {
+// renderEnumsMD 枚举页 Markdown（含索引实际值分布对照 + 工具函数）。
+// R88：工具函数 = 游离函数且被 ≥3 个包调用（helpers.min_packages
+// 可调）——与 `query helpers` 同源（queryHelpers）。
+func renderEnumsMD(repoAbs string, repo *sqlite.Repo) string {
 	entries := extractEnums(repoAbs, true)
 	var b strings.Builder
 	b.WriteString("# 枚举与工具函数\n\n> 数据源：源码 go/ast 提取（代码事实，默认只显示有类型枚举）\n")
@@ -196,10 +198,13 @@ func renderEnumsMD(repoAbs string) string {
 }
 
 // renderEnumsHTML 枚举页 html 内容。
-func renderEnumsHTML(repoAbs string) string {
+func renderEnumsHTML(repoAbs string, repo *sqlite.Repo) string {
 	entries := extractEnums(repoAbs, true)
 	var b strings.Builder
 	b.WriteString(`<section id="enums"><h2>枚举与工具函数</h2><p class="muted">数据源：源码 go/ast 提取（有类型枚举）——权威值，勿重新定义。</p>`)
+	if sec := renderHelpersHTML(repo); sec != "" {
+		b.WriteString(sec)
+	}
 	// R87：每组枚举默认折叠（组名按钮——点击展开该组表格，减少长页
 	// 面滚动；枚举区只显示组名列表）
 	group := ""
@@ -230,45 +235,43 @@ func renderEnumsHTML(repoAbs string) string {
 	return b.String()
 }
 
-// queryHelpers 工具函数清单（R5）：名字前缀匹配工具模式 + 调用次数
-// ——helper 函数复用（避免 AI 重复造轮子）。数据源：索引。
-func queryHelpers(r *sqlite.Repo) []helperEntry {
-	prefixes := []string{"is", "has", "to", "parse", "short", "esc", "contains",
-		"fmt", "scan", "read", "extract", "resolve", "find", "next", "split",
-		"valid", "strip", "merge", "collect", "build", "compact"}
-	out := []helperEntry{}
-	rows, err := r.Query(`SELECT name, id FROM nodes WHERE kind='function' AND file_path NOT LIKE '%_test.go' AND file_path NOT LIKE '../%'`)
-	if err != nil {
-		return nil
+// renderHelpersMD 工具函数 Markdown 小节（R88：游离函数 + 跨包使用
+// 数 ≥ minPkgs——query helpers 同源）。
+func renderHelpersMD(repo *sqlite.Repo) string {
+	if repo == nil {
+		return ""
 	}
-	defer rows.Close()
-	seen := map[string]bool{}
-	for rows.Next() {
-		var name string
-		var id string
-		if err := rows.Scan(&name, &id); err != nil {
-			continue
-		}
-		low := strings.ToLower(name)
-		matched := false
-		for _, p := range prefixes {
-			if strings.HasPrefix(low, p) && len(name) > len(p) {
-				matched = true
-				break
-			}
-		}
-		if !matched || seen[name] {
-			continue
-		}
-		seen[name] = true
-		out = append(out, helperEntry{Name: name, ID: id})
+	minPkgs := helperMinPackages()
+	helpers := queryHelpers(repo, minPkgs)
+	if len(helpers) == 0 {
+		return ""
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out
+	var b strings.Builder
+	b.WriteString("## 工具函数\n\n> 游离函数且被 ≥")
+	b.WriteString(fmt.Sprint(minPkgs))
+	b.WriteString(" 个包调用（`query helpers` 同源；config.yaml helpers.min_packages 可调）\n\n")
+	b.WriteString("| 函数 | 包数 | 调用方 |\n|---|---|---|\n")
+	for _, h := range helpers {
+		fmt.Fprintf(&b, "| %s | %d | %d |\n", h.Name, h.Pkgs, h.Callers)
+	}
+	return b.String()
 }
 
-// helperEntry 工具函数条目。
-type helperEntry struct {
-	Name string `json:"name"`
-	ID   string `json:"id"`
+// renderHelpersHTML 工具函数 html 小节（同源 queryHelpers）。
+func renderHelpersHTML(repo *sqlite.Repo) string {
+	if repo == nil {
+		return ""
+	}
+	minPkgs := helperMinPackages()
+	helpers := queryHelpers(repo, minPkgs)
+	if len(helpers) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf(`<h3 class="fold-btn" data-target="helpers" data-label="1">▸ 工具函数（游离函数，被 ≥%d 个包调用）</h3><div class="sec-body" id="helpers" style="display:none"><p class="muted">`+`query helpers`+` 同源；config.yaml helpers.min_packages 可调</p><table><tr><th>函数</th><th>包数</th><th>调用方</th></tr>`, minPkgs))
+	for _, h := range helpers {
+		fmt.Fprintf(&b, "<tr><td><code>%s</code></td><td>%d</td><td>%d</td></tr>", htmlEsc(h.Name), h.Pkgs, h.Callers)
+	}
+	b.WriteString("</table></div>")
+	return b.String()
 }

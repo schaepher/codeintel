@@ -91,7 +91,7 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	// R40（用户要求）：gRPC 服务流程内容内嵌进 index.html 单文件——
 	// 不再写独立子页（所有东西都在一个文件里）；md 模式仍多文件
 	// R5：枚举与工具函数区块（AI 权威值）
-	main.WriteString(renderEnumsHTML(repoAbs))
+	main.WriteString(renderEnumsHTML(repoAbs, rc.repo))
 	nav.WriteString(`<li><a href="#enums">枚举与工具函数</a></li>`)
 	if len(pkgs) > 0 {
 		main.WriteString(renderPackagesHTML(pkgs, rc.repo))

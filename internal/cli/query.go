@@ -42,6 +42,7 @@ type queryFlags struct {
 	yamlPath         string   // R77：architecture/er/processes 的 wiki.yaml 路径（--yaml；缺省仓库根 wiki.yaml）
 	maxEntries       int      // R77：processes 每节/每页入口展开上限（0 = 默认 15，同 wiki --max-entries）
 	code             bool     // R81：sequence --code——代码级时序（AST 解析函数体：调用名 + 分支/循环）
+	minPkgs          int      // R88：helpers --min-packages——跨包使用数阈值（0 = 配置默认 3）
 }
 
 // dispatchJSON 候选派发标注（Q157 P1：value-trace --json 输出）。

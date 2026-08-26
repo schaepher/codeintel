@@ -178,7 +178,7 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 		}
 	}
 	// R5：枚举与工具函数（源码事实——AI 权威值来源）
-	return os.WriteFile(filepath.Join(outDir, "enums.md"), []byte(renderEnumsMD(repoAbs)), 0o644)
+	return os.WriteFile(filepath.Join(outDir, "enums.md"), []byte(renderEnumsMD(repoAbs, rc.repo)), 0o644)
 }
 
 // wikiArtifacts wiki 渲染产物文件名（全局页 + 模块页）——清理时只删

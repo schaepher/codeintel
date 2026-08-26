@@ -16,9 +16,9 @@ import (
 func collectRegisterDefs(pkgs []*packages.Package, modules []string) []grpcRegisterDef {
 	var out []grpcRegisterDef
 	for _, pkg := range pkgs {
-		if !isInModule(pkg.PkgPath, modules) {
-			continue
-		}
+		// R88：不去 isInModule——Register 定义可能在外部仓库（跨仓库
+		// 场景：多仓库 workspace 加载的外部包）；无 Syntax 的依赖包
+		// （fast 模式）自然跳过
 		for _, f := range pkg.Syntax {
 			for _, decl := range f.Decls {
 				fn, ok := decl.(*ast.FuncDecl)
