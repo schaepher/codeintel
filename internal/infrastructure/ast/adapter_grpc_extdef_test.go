@@ -5,6 +5,8 @@ package ast
 // （fast 模式无 Syntax，仅 types）→ 调用点须识别为 grpc 注册。
 
 import (
+	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/schaepher/codeintel/internal/domain"
@@ -14,9 +16,9 @@ import (
 // （replace 到模块外目录）——调用点在本仓库。collectRegisterServers
 // 的依赖包 types 级扫描识别 → svc 节点 + grpc_impl 边。
 func TestGrpcExternalRegisterDefinition(t *testing.T) {
-	_, facts := indexFixture(t, map[string]string{
-		"go.mod": "module example.com/mtest\n\ngo 1.21\n\nrequire example.com/proto v0.0.0\n\nreplace example.com/proto => ../proto\n",
-		// 外部仓库：独立 module（grpc 工具生成——依赖包，fast 模式无 Syntax）
+	dir := t.TempDir()
+	files := map[string]string{
+		"go.mod":          "module example.com/mtest\n\ngo 1.21\n\nrequire example.com/proto v0.0.0\n\nreplace example.com/proto => ../proto\n",
 		"../proto/go.mod": "module example.com/proto\n\ngo 1.21\n",
 		"../proto/greet.pb.go": `package proto
 
@@ -28,7 +30,6 @@ func RegisterGreeterServer(s Registrar, impl GreeterServer) {
 	s.RegisterService(nil, impl)
 }
 `,
-		// 本仓库：调用外部 Register 注册（调用点）
 		"main.go": `package mtest
 
 import (
@@ -43,9 +44,34 @@ func register(s proto.Registrar) {
 	proto.RegisterGreeterServer(s, &greeterImpl{})
 }
 `,
+	}
+	for path, content := range files {
+		writeFile(t, filepath.Join(dir, path), content)
+	}
+	pkgs, err := astLoadTestPackages(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 决定性验证：清空依赖包 Syntax——模拟真实 fast 模式（已发布
+	// 依赖从 export data 加载无 Syntax；本地 replace 未编译时
+	// go/packages 会给 Syntax——原 fixture 假阳性走 R86 定义路径）。
+	// R90 types 扫描须独立工作。
+	for _, p := range pkgs {
+		for _, imp := range p.Imports {
+			imp.Syntax = nil
+		}
+	}
+	adapter := &Adapter{}
+	repo := &domain.Repository{Path: dir, Module: "example.com/mtest", Modules: []string{"example.com/mtest"}}
+	var facts []*domain.Fact
+	_ = adapter.Index(context.Background(), repo, pkgs, func(item domain.Item) error {
+		if item.Fact != nil {
+			facts = append(facts, item.Fact)
+		}
+		return nil
 	})
 
-	// svc 节点	// svc 节点
+	// svc 节点	// svc 节点	// svc 节点
 	foundSvc := false
 	// grpc_impl 边：调用点参数 &greeterImpl{} → svc.Greeter
 	foundImpl := false
