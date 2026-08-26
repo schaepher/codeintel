@@ -80,8 +80,10 @@ func mermaidSequenceToPlantuml(m string) string {
 	partRe := regexp.MustCompile(`^participant (\S+) as (.+)$`)
 	for _, l := range strings.Split(body, "\n") {
 		if pm := partRe.FindStringSubmatch(strings.TrimSpace(l)); pm != nil {
-			// label 可能已带引号（mermaid `as "名字"`）——去引号统一重包
-			label := strings.Trim(pm[2], `"`)
+			// label 可能已带引号（mermaid `as "名字"`）——去引号统一重包；
+			// <br/>（mermaid 参与者两行）→ 字面 \n（plantuml 换行——真实
+			// 换行符会破坏引号内字符串，实测语法错误）
+			label := strings.ReplaceAll(strings.Trim(pm[2], `"`), "<br/>", `\n`)
 			fmt.Fprintf(&b, "participant \"%s\" as %s\n", label, pm[1])
 			continue
 		}

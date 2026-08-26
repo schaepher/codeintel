@@ -57,3 +57,39 @@ func seqStopPkgHit(symID string) bool {
 	}
 	return false
 }
+
+// implTypeShort 从被调符号 canonical ID 提取短类型名（R83：参与者第
+// 二行——包最后路径段.类型名）：
+//   symbol:go:example.com/m/domain/order:(orderManagerImpl).SubmitOrder
+//     → order.orderManagerImpl（方法形态取 (T) 的 T）
+//   symbol:go:example.com/m/repo:orderRepo → repo.orderRepo（类型形态）
+//   函数形态（无类型）→ 空。
+func implTypeShort(symID string) string {
+	rest := strings.TrimPrefix(symID, "symbol:go:")
+	// 方法形态：(Type).Method——类型在括号里
+	if i := strings.Index(rest, ":("); i >= 0 {
+		pkg := rest[:i]
+		t := rest[i+2:]
+		if j := strings.Index(t, ")."); j >= 0 {
+			t = t[:j]
+		}
+		return pkgShort(pkg) + "." + t
+	}
+	// 类型/函数形态：pkg:name
+	if i := strings.LastIndex(rest, ":"); i >= 0 {
+		pkg := rest[:i]
+		name := rest[i+1:]
+		if name != "" {
+			return pkgShort(pkg) + "." + name
+		}
+	}
+	return ""
+}
+
+// pkgShort 包路径最后一段（example.com/m/domain/order → order）。
+func pkgShort(pkg string) string {
+	if i := strings.LastIndex(pkg, "/"); i >= 0 {
+		return pkg[i+1:]
+	}
+	return pkg
+}

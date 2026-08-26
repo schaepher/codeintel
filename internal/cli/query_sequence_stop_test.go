@@ -153,6 +153,21 @@ func TestRenderCodeSeqOrder(t *testing.T) {
 	}
 }
 
+// TestImplTypeShort：短类型名提取（包末段.类型名——参与者第二行）。
+func TestImplTypeShort(t *testing.T) {
+	cases := map[string]string{
+		"symbol:go:example.com/m/domain/order:(orderManagerImpl).SubmitOrder": "order.orderManagerImpl", // 方法形态
+		"symbol:go:example.com/m/repo:OrderRepoImpl":                          "repo.OrderRepoImpl",       // 类型形态
+		"symbol:go:example.com/m/svc:helper":                                  "svc.helper",               // 函数形态（无类型语义——短名）
+		"symbol:go:example.com/m:(Svc).Run":                                   "m.Svc",                    // 根包方法
+	}
+	for id, want := range cases {
+		if got := implTypeShort(id); got != want {
+			t.Errorf("implTypeShort(%s) = %q; want %q", id, got, want)
+		}
+	}
+}
+
 // TestCallActor：调用参与者提取（对象而非方法）。
 func TestCallActor(t *testing.T) {
 	dir := seedRepo(t)

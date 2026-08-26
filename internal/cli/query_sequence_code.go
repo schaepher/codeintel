@@ -25,6 +25,7 @@ type codeSeqNode struct {
 	Kind	string		// call | branch | loop
 	Label	string		// call: 调用名（obj.Method/fn）；branch: 条件；loop: 循环条件
 	Actor	string		// R83：call 参与者（调用对象——s.manager/t.repo/ic；函数为函数名）
+	Type	string		// R83：参与者短类型名（包最后路径段.类型名——索引实现类型）
 	Line	int		// 源码行号
 	Nodes	[]*codeSeqNode	// 子节点（branch: then 分支；loop: 循环体；call: 嵌套展开的被调函数调用）
 	Else	[]*codeSeqNode	// branch: else 分支（可选）
@@ -73,14 +74,13 @@ func codeSeqForSymbol(acts *action.Actions, abs, symID string, depth int) *codeS
 	if fn == nil {
 		return nil
 	}
-	// 行号 → 被调符号 ID（索引调用边 line_num 对齐——嵌套展开定位）
+	// 行号 → 被调符号 ID（索引调用边 line_num 对齐——嵌套展开定位 +
+	// 参与者类型提取；R83：无条件构建——depth 1 也要类型）
 	lineTargets := map[int]string{}
-	if depth > 1 {
-		if facts, err := acts.CalleesConcrete(domain.CanonicalID(symID), 1); err == nil {
-			for _, f := range facts {
-				if ln, ok := f.Metadata["line_num"].(float64); ok {
-					lineTargets[int(ln)] = string(f.TargetID)
-				}
+	if facts, err := acts.CalleesConcrete(domain.CanonicalID(symID), 1); err == nil {
+		for _, f := range facts {
+			if ln, ok := f.Metadata["line_num"].(float64); ok {
+				lineTargets[int(ln)] = string(f.TargetID)
 			}
 		}
 	}
@@ -102,6 +102,10 @@ func walkStmts(acts *action.Actions, abs string, fset *token.FileSet, src []byte
 func walkStmt(acts *action.Actions, abs string, fset *token.FileSet, src []byte, stmt ast.Stmt, lineTargets map[int]string, depth int) []*codeSeqNode {
 	callNode := func(fun ast.Expr, line int) *codeSeqNode {
 		node := &codeSeqNode{Kind: "call", Label: callLabel(fset, src, fun), Actor: callActor(fset, src, fun), Line: line}
+		// R83：参与者短类型名（索引被调符号的实现类型——包末段.类型名）
+		if tid, ok := lineTargets[line]; ok {
+			node.Type = implTypeShort(tid)
+		}
 		// R81：嵌套展开——行号对齐被调符号，递归解析其函数体（depth-1）。
 		// 接口调用具体化到实现**类型**节点（无方法名——调用点未记录）
 		// 时，用 AST 调用方法名构造 (Impl).Method 再解析（R75 形态）；

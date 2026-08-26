@@ -22,12 +22,31 @@ func renderCodeSeqMermaid(root *codeSeqNode) string {
 	// 出现靠左、被调者靠右，箭头尽量从左到右（此前字母排序导致
 	// 指向 GetMyCart 的线从右到左——用户实测）
 	alias := map[string]string{}
+	// R83：参与者 label 两行——对象名 + 短类型名（<br/>；类型取首个
+	// 出现的调用节点）
+	typeOf := map[string]string{}
+	collectTypes(root.Nodes, typeOf)
 	for i, p := range parts {
 		alias[p] = fmt.Sprintf("P%d", i)
-		b.WriteString(fmt.Sprintf("  participant %s as %s\n", alias[p], p))
+		label := p
+		if t := typeOf[p]; t != "" {
+			label = p + "<br/>" + t
+		}
+		b.WriteString(fmt.Sprintf("  participant %s as %s\n", alias[p], label))
 	}
 	writeSeqNode(&b, alias, root.Label, root.Nodes)
 	return b.String()
+}
+
+// collectTypes 收集参与者 → 短类型名（首个出现的调用节点为准）。
+func collectTypes(nodes []*codeSeqNode, out map[string]string) {
+	for _, n := range nodes {
+		if n.Kind == "call" && n.Type != "" && out[n.Actor] == "" {
+			out[n.Actor] = n.Type
+		}
+		collectTypes(n.Nodes, out)
+		collectTypes(n.Else, out)
+	}
 }
 // collectParts 收集参与者（R83：调用对象 Actor 去重——s.manager/
 // t.repo/ic；消息线 label 保持完整调用名）。
