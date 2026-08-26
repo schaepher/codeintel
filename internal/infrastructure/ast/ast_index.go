@@ -28,6 +28,10 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	serviceFlags := map[domain.CanonicalID]map[string]bool{}
 
 	registerServers := collectRegisterServers(pkgs, repo.Modules)
+	// R86：外部注册场景（Register 调用点在其他仓库单独编译）——从
+	// Register 函数定义（.pb.go 签名）发射 grpc_service 节点 +
+	// grpc_impl 边（types.Implements 找实现——不依赖调用点）
+	emitGrpcServicesFromRegisters(repo, pkgs, emit)
 
 	newClients := collectNewClients(pkgs, repo.Modules)
 

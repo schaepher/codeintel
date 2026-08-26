@@ -52,14 +52,14 @@ func (a *Adapter) markGrpcServiceInterfaces(repo *domain.Repository, pkg *packag
 				}
 				svcID := domain.CanonicalID("symbol:go:" + pkg.PkgPath + ":svc." + svcName)
 				if err := emit(domain.Item{Node: &domain.CodeEntity{
-					ID: svcID, Kind: domain.KindGrpcService,
-					Name: "svc." + svcName,
+					ID:	svcID, Kind: domain.KindGrpcService,
+					Name:	"svc." + svcName,
 					Properties: map[string]any{
-						"service_name": svcName,
-						"methods":      strings.Join(methods, ","),
+						"service_name":	svcName,
+						"methods":	strings.Join(methods, ","),
 						// R45：方法首参类型完整路径（外部接口判定——
 						// 客户端实参类型 ∉ 本项目服务参数集合）
-						"param_types": strings.Join(paramTypes, ","),
+						"param_types":	strings.Join(paramTypes, ","),
 					},
 				}}); err != nil {
 					return err
@@ -158,120 +158,44 @@ func inGrpcPackage(t types.Type) bool {
 // *grpc.Server；② 函数体调用 RegisterService 方法（protoc 生成与
 // 手写通用，最强信号）。返回 map[string]string：pkgPath:funcName →
 // 服务名（参数 2 类型名或 RegisterService 第一实参 desc 名提取）。
-func collectRegisterServers(pkgs []*packages.Package, modules []string) map[string]string {
-	out := map[string]string{}
-	for _, pkg := range pkgs {
-		if !isInModule(pkg.PkgPath, modules) {
-			continue
-		}
-		for _, f := range pkg.Syntax {
-			for _, decl := range f.Decls {
-				fn, ok := decl.(*ast.FuncDecl)
-				if !ok || fn.Recv != nil || fn.Body == nil {
-					continue
-				}
-				obj := pkg.TypesInfo.Defs[fn.Name]
-				if obj == nil {
-					continue
-				}
-				sig, ok := obj.Type().(*types.Signature)
-				if !ok || sig.Params().Len() < 2 {
-					continue
-				}
-
-				if !isGrpcRegistrar(sig.Params().At(0).Type()) && !callsRegisterService(fn) {
-					continue
-				}
-				if svc := registerServiceName(pkg, fn, sig); svc != "" {
-					out[pkg.PkgPath+":"+fn.Name.Name] = svc
-				}
-			}
-		}
-	}
-	return out
-}
 
 // isGrpcRegistrar 参数类型是 grpc.ServiceRegistrar 接口或 *grpc.Server。
-func isGrpcRegistrar(t types.Type) bool {
-	switch tt := t.(type) {
-	case *types.Pointer:
-		if n, ok := tt.Elem().(*types.Named); ok {
-			return n.Obj().Pkg() != nil && n.Obj().Pkg().Path() == "google.golang.org/grpc" &&
-				n.Obj().Name() == "Server"
-		}
-	case *types.Named:
-		return tt.Obj().Pkg() != nil && tt.Obj().Pkg().Path() == "google.golang.org/grpc" &&
-			tt.Obj().Name() == "ServiceRegistrar"
-	}
-	return false
-}
 
 // callsRegisterService 函数体调用 RegisterService 方法（选择器
 // x.RegisterService——注册动作的强信号）。
-func callsRegisterService(fn *ast.FuncDecl) bool {
-	found := false
-	ast.Inspect(fn.Body, func(n ast.Node) bool {
-		if found {
-			return false
-		}
-		if sel, ok := n.(*ast.SelectorExpr); ok && sel.Sel.Name == "RegisterService" {
-			found = true
-			return false
-		}
-		return true
-	})
-	return found
-}
 
 // registerServiceName 从注册函数提取服务名：
 // ① 参数 2 类型名去 Server 后缀（QueryServiceServer → QueryService）；
 // ② 否则函数体内 RegisterService 第一实参 desc 名（&QueryService_
 // ServiceDesc → QueryService；手写常用形态）。
-func registerServiceName(pkg *packages.Package, fn *ast.FuncDecl, sig *types.Signature) string {
-	_ = pkg
-	if sig.Params().Len() >= 2 {
-		if name := svcFromType(sig.Params().At(1).Type()); name != "" {
-			return name
-		}
-	}
-	var desc string
-	ast.Inspect(fn.Body, func(n ast.Node) bool {
-		if desc != "" {
-			return false
-		}
-		call, ok := n.(*ast.CallExpr)
-		if !ok || len(call.Args) == 0 {
-			return true
-		}
-		if sel, ok := call.Fun.(*ast.SelectorExpr); !ok || sel.Sel.Name != "RegisterService" {
-			return true
-		}
-		switch a := call.Args[0].(type) {
-		case *ast.UnaryExpr:
-			if id, ok := a.X.(*ast.Ident); ok {
-				desc = id.Name
-			}
-		case *ast.Ident:
-			desc = a.Name
-		}
-		return false
-	})
-	return strings.TrimSuffix(desc, "_ServiceDesc")
-}
 
 // svcFromType 类型名去 Server 后缀（QueryServiceServer → QueryService；
 // XxxServer → Xxx；非 Server 结尾返回空——impl struct 形态回退 desc）。
-func svcFromType(t types.Type) string {
-	if p, ok := t.(*types.Pointer); ok {
-		t = p.Elem()
-	}
-	n, ok := t.(*types.Named)
-	if !ok {
-		return ""
-	}
-	name := n.Obj().Name()
-	if strings.HasSuffix(name, "Server") && len(name) > len("Server") {
-		return strings.TrimSuffix(name, "Server")
-	}
-	return ""
+
+// ---- R86 外部注册场景：从 Register 函数定义发射（不依赖调用点） ----
+
+// grpcRegisterDef Register 函数定义（.pb.go 签名识别）提取的服务注册
+// 信息：服务名 + srv 参数接口类型。调用点在外部仓库（单独编译）时
+// 调用点路径（emitGrpcServiceEntry）不触发——定义路径兜底。
+type grpcRegisterDef struct {
+	svcName	string
+	iface	*types.Named	// srv 参数接口类型（XxxServer）
+	fnPkg	string		// Register 函数所在包路径
+	fnName	string
+	line	int
+	file	string
 }
+
+// collectRegisterDefs 扫描模块内 Register 函数定义（与
+// collectRegisterServers 同签名识别——isGrpcRegistrar/RegisterService
+// 调用），额外提取 srv 接口类型。函数定义在 proto 生成代码
+// （.pb.go）——外部仓库注册时定义仍在。
+
+// interfaceImplsInModule 全模块扫描实现接口的具体类型（types.Implements
+// 指针/值方法集任一；排除接口自身与 Unimplemented 桩——注册实现才是
+// 契约要的）。
+
+// emitGrpcServicesFromRegisters 从 Register 函数定义发射 grpc_service
+// 节点 + registers_service 属性 + grpc_impl 边（实现类型 = 接口的
+// types.Implements 实现——不依赖注册调用点；调用点路径发射的同名
+// 节点/边 UPSERT 幂等合并）。
