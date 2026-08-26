@@ -88,10 +88,13 @@ func mermaidSequenceToPlantuml(m string) string {
 			fmt.Fprintf(&b, "participant \"%s\" as %s\n", label, pm[1])
 			continue
 		}
+		// 消息/分支行的 <br/>（参数第二行等）→ \n（R83：箭头内容多行
+		// 用 \n 而非 <br/>——plantuml 消息文本也支持 \n 换行）
+		t = strings.ReplaceAll(t, "<br/>", `\n`)
 		// return 线原样保留（X-->>Y: return 类型——plantuml 也支持 -->>
 		// 虚线返回箭头；return 关键字在嵌套调用场景配对失败（"Nowhere
 		// to return to" 实测 79 处）——显式端点无此问题）
-		b.WriteString(l + "\n")
+		b.WriteString(t + "\n")
 	}
 	b.WriteString("@enduml\n")
 	return b.String()
@@ -103,6 +106,13 @@ func mermaidSequenceToPlantuml(m string) string {
 func mermaidGraphToPlantuml(m string) string {
 	var b strings.Builder
 	b.WriteString("@startuml\n")
+	// R83：方向控制——mermaid graph TB → plantuml top to bottom（实测
+	// 默认布局三个 package 水平排列，用户要求垂直三层）
+	if strings.Contains(m, "graph TB") {
+		b.WriteString("top to bottom direction\n")
+	} else if strings.Contains(m, "graph LR") {
+		b.WriteString("left to right direction\n")
+	}
 	defined := map[string]bool{}
 	addNode := func(id, label string) {
 		if defined[id] {
