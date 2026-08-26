@@ -2,13 +2,11 @@ package cli
 
 import (
 	"context"
-	"database/sql"
 	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -34,6 +32,9 @@ func cmdUpdate(ctx context.Context, args []string) int {
 	// Q237：--repo 缺省当前工作目录
 	repoPath := fs.String("repo", ".", "仓库根目录（须已运行 codeintel init 且为 git 仓库；默认当前目录）")
 	workers := fs.Int("workers", defaultBuildWorkers(), "SSA 分析按包并发数（Q221：默认 min(NumCPU, 8)）")
+	// R85：--base 分层——base 目录（完整索引，只读共享）。变更基准 =
+	// base HEAD（diff base..当前），只分析变更包；base 数据物化到本地
+	baseDir := fs.String("base", "", "base 分支目录（其 .codeintel 为完整索引；变更检测基准 = base HEAD）")
 	fs.Parse(args)
 	*repoPath = ResolveRepoRef(*repoPath) // Q238：注册表短名/后缀/module
 
@@ -51,17 +52,45 @@ func cmdUpdate(ctx context.Context, args []string) int {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
+	// R85：--base 目录解析（相对当前工作目录）
+	baseAbs := ""
+	if *baseDir != "" {
+		b, err := filepath.Abs(*baseDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: resolve base dir: %v\n", err)
+			return 1
+		}
+		if fi, err := os.Stat(b); err != nil || !fi.IsDir() {
+			fmt.Fprintf(os.Stderr, "error: --base %s is not a directory\n", b)
+			return 1
+		}
+		baseAbs = b
+	}
 
-	// 变更检测：git diff（已跟踪修改/删除/新增）+ 未跟踪文件
-	changed, err := detectChangedGoFiles(abs)
-	if err != nil {
+	// 变更检测：--base 时基准 = base HEAD（diff base..当前 + 工作区）；
+	// 否则默认（本地索引 commit 或 HEAD）
+	var changed []string
+	if baseAbs != "" {
+		baseCommit, err := repoCommitSHA(baseAbs)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: 读 base 目录 commit: %v\n", err)
+			return 1
+		}
+		changed, err = detectChangedGoFilesSince(abs, baseCommit)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+	} else if changed, err = detectChangedGoFiles(abs); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
-	if len(changed) == 0 {
+	if len(changed) == 0 && baseAbs == "" {
 		fmt.Println("无变更的 .go 文件（索引已是最新）")
 		return 0
 	}
+	// R85：--base 模式即使无变更也继续（物化 base 索引——本地空库/新
+	// workspace 首次建立分层）
 	// module 级文件变更：影响模块范围，提示全量重建
 	for _, f := range changed {
 		if f == "go.mod" || f == "go.work" {
@@ -91,6 +120,28 @@ func cmdUpdate(ctx context.Context, args []string) int {
 		return 1
 	}
 	defer db.Close()
+
+	// R85：--base 分层——base 索引物化到本地（幂等：同一 base commit
+	// 跳过），之后增量只分析 diff(base..HEAD) 的变更包
+	if baseAbs != "" {
+		if err := db.SetBase(baseAbs); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: 记录 base 配置失败: %v\n", err)
+		}
+		materialized, err := sqlite.NewRepo(db).MaterializeBase(baseAbs)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: 物化 base 索引: %v\n", err)
+			return 1
+		}
+		if materialized {
+			fmt.Printf("物化 base 索引: %s\n", baseAbs)
+			// 物化 = 完整索引（等价全量）——写 analyzer marker，避免
+			// IncrementalBuild 因缺失 marker 降级全量（新 workspace
+			// 首次 --base 白物化 + 全量重跑）
+			if merr := ssa.SaveAnalyzerMarker(abs); merr != nil {
+				fmt.Fprintf(os.Stderr, "warning: 写 analyzer marker 失败: %v\n", merr)
+			}
+		}
+	}
 
 	orch := orchestrator.New(repo, db)
 	orch.SetWorkers(*workers)
@@ -135,6 +186,12 @@ func cmdUpdate(ctx context.Context, args []string) int {
 	return 0
 }
 
+// repoCommitSHA 返回目录的 git HEAD commit（--base 变更基准）。
+
+// detectChangedGoFilesSince 检测相对指定 commit 的变更 Go 源文件
+// （R85 --base 场景：diff base..HEAD + 工作区 + 未跟踪；返回 .go 与
+// go.mod/go.work，module 级变更由调用方处理）。
+
 // detectChangedGoFiles 检测仓库中变更的 Go 源文件（相对路径）：
 //   - 索引 commit 落后于 HEAD（build_metadata 最新 commit_sha ≠ HEAD）：
 //     git diff --name-only <buildSHA> HEAD——提交内变更（工作区干净时
@@ -143,63 +200,9 @@ func cmdUpdate(ctx context.Context, args []string) int {
 //   - git ls-files --others --exclude-standard：未跟踪文件（含新文件）
 //
 // 返回 .go 文件与 go.mod/go.work（module 级变更由调用方处理）。
-func detectChangedGoFiles(repoPath string) ([]string, error) {
-	logger := zap.L()
-	logger.Debug("enter detectChangedGoFiles")
-	defer logger.Debug("exit detectChangedGoFiles")
-	// 非 git 仓库：无法增量，提示 init
-	if _, err := os.Stat(filepath.Join(repoPath, ".git")); err != nil {
-		return nil, fmt.Errorf("%s 不是 git 仓库（增量更新需要 git；首次构建请用 init）", repoPath)
-	}
-	seen := map[string]bool{}
-	var out []string
-	add := func(list string) {
-		for _, f := range strings.Split(strings.TrimSpace(list), "\n") {
-			f = strings.TrimSpace(f)
-			if f == "" || seen[f] {
-				continue
-			}
-			if strings.HasSuffix(f, ".go") || f == "go.mod" || f == "go.work" {
-				seen[f] = true
-				out = append(out, f)
-			}
-		}
-	}
-	if b, err := exec.Command("git", "-C", repoPath, "rev-parse", "HEAD").Output(); err == nil {
-		if head := strings.TrimSpace(string(b)); head != "" {
-			if sha := indexCommitSHA(repoPath); sha != "" && sha != head {
-				if b, err := exec.Command("git", "-C", repoPath, "diff", "--name-only", sha, head).Output(); err == nil {
-					add(string(b))
-				}
-			}
-		}
-	}
-	if b, err := exec.Command("git", "-C", repoPath, "diff", "--name-only", "HEAD").Output(); err == nil {
-		add(string(b))
-	}
-	if b, err := exec.Command("git", "-C", repoPath, "ls-files", "--others", "--exclude-standard").Output(); err == nil {
-		add(string(b))
-	}
-	sort.Strings(out)
-	return out, nil
-}
 
 // indexCommitSHA 返回索引最新构建的 commit_sha（build_metadata 最新记录）。
 // 索引不存在 / 无构建记录 / 读取失败 → 空串（回退工作区检测）。
-func indexCommitSHA(repoPath string) string {
-	path := filepath.Join(repoPath, ".codeintel", "codeintel.db")
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)")
-	if err != nil {
-		return ""
-	}
-	defer db.Close()
-	var sha string
-	if err := db.QueryRow(`SELECT COALESCE(commit_sha,'') FROM build_metadata
-		ORDER BY timestamp DESC, rowid DESC LIMIT 1`).Scan(&sha); err != nil {
-		return ""
-	}
-	return sha
-}
 
 // staleInfo 索引过期检测（field_trace.md §20.3，Q243 增强）：
 //  1. build_metadata 最新 commit_sha 与 git HEAD SHA 不同 → 过期

@@ -169,3 +169,22 @@ func (db *DB) RepoPath() string {
 	defer logger.Debug("exit (DB).RepoPath")
 	return db.repoPath
 }
+
+// SetBase 记录分层 base 目录（R85：写入 .codeintel/base.txt——构建
+// 元数据，后续 update 复用同 base 检测物化/增量基准）。
+func (db *DB) SetBase(basePath string) error {
+	dir := filepath.Join(db.repoPath, ".codeintel")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "base.txt"), []byte(basePath), 0o644)
+}
+
+// BasePath 返回分层 base 目录（base.txt 配置；空 = 本地独立）。
+func (db *DB) BasePath() string {
+	b, err := os.ReadFile(filepath.Join(db.repoPath, ".codeintel", "base.txt"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
