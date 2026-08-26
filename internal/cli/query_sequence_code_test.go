@@ -1,7 +1,7 @@
 package cli
 
-// R81 测试：query sequence --code 代码级时序——AST 解析函数体
-// （调用名/分支/循环）+ mermaid alt/loop 渲染。
+// R81/R95 测试：query sequence --code——cli 转发（AST 解析核心断言在
+// action 包）+ mermaid 渲染（renderCodeSeqMermaid 留 cli）+ 端到端。
 
 import (
 	"os"
@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
@@ -52,64 +53,18 @@ func Cart() {}
 	return dir
 }
 
-// TestCodeSequenceNodes：AST 解析——调用/分支/循环节点齐全 + 顺序。
-func TestCodeSequenceNodes(t *testing.T) {
-	dir := seedCodeSeqRepo(t)
-	db, err := sqlite.Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	acts, err := newTestActions(t, dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	root := codeSequence(acts, dir, "Prepare", 1)
-	if root == nil {
-		t.Fatal("codeSequence 返回 nil")
-	}
-	if root.Label != "Prepare" {
-		t.Errorf("入口 = %q; want Prepare", root.Label)
-	}
-	// 语句：if → LoadItems 赋值 → for → Save
-	if len(root.Nodes) != 4 {
-		t.Fatalf("顶层步骤 = %d; want 4（if/赋值/for/调用）:\n%+v", len(root.Nodes), root.Nodes)
-	}
-	if root.Nodes[0].Kind != "branch" || !strings.Contains(root.Nodes[0].Label, "cart == nil") {
-		t.Errorf("步骤 1 应为 if 分支: %+v", root.Nodes[0])
-	}
-	if root.Nodes[1].Kind != "call" || root.Nodes[1].Label != "svc.LoadItems" {
-		t.Errorf("步骤 2 应为 svc.LoadItems 调用: %+v", root.Nodes[1])
-	}
-	if root.Nodes[2].Kind != "loop" || !strings.Contains(root.Nodes[2].Label, "range items") {
-		t.Errorf("步骤 3 应为 range 循环: %+v", root.Nodes[2])
-	}
-	if root.Nodes[3].Kind != "call" || root.Nodes[3].Label != "svc.Save" {
-		t.Errorf("步骤 4 应为 svc.Save 调用: %+v", root.Nodes[3])
-	}
-	// 分支内调用 + else
-	if len(root.Nodes[0].Nodes) != 1 || root.Nodes[0].Nodes[0].Label != "ErrEmpty" {
-		t.Errorf("if 分支内应有调用: %+v", root.Nodes[0])
-	}
-	// 循环体内调用
-	if len(root.Nodes[2].Nodes) != 1 || root.Nodes[2].Nodes[0].Label != "svc.Validate" {
-		t.Errorf("循环体内应有调用: %+v", root.Nodes[2])
-	}
-}
-
-// TestCodeSequenceMermaid：mermaid 渲染——消息线写调用名 + alt/loop 块。
+// TestCodeSequenceMermaid：mermaid 渲染（解析走 Actions.CodeSequence）——
+// 消息线写调用名 + alt/loop 块。
 func TestCodeSequenceMermaid(t *testing.T) {
 	dir := seedCodeSeqRepo(t)
-	db, err := sqlite.Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
 	acts, err := newTestActions(t, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := codeSequence(acts, dir, "Prepare", 1)
+	root, err := acts.CodeSequence(action.CodeSequenceRequest{Target: "Prepare", RepoAbs: dir, Depth: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
 	m := renderCodeSeqMermaid(root)
 	for _, want := range []string{
 		"sequenceDiagram",
@@ -141,9 +96,19 @@ func TestCodeSequenceCmd(t *testing.T) {
 	}
 }
 
-// TestCodeSequenceNested：R81——--depth 2 嵌套展开（被调函数内部调用
-// 递归解析——行号对齐索引调用边；From 切换为被调者）。
-func TestCodeSequenceNested(t *testing.T) {
+// TestCodeSequenceMissing：源码缺失 → 报错非零（提示 fallback）。
+func TestCodeSequenceMissing(t *testing.T) {
+	dir := seedRepo(t) // 无 Prepare 符号
+	code := cmdQuery([]string{"sequence", "--code", "nope", "--repo", dir})
+	if code == 0 {
+		t.Error("符号不存在应非零退出")
+	}
+}
+
+// seedNestedSeqRepo fixture：Prepare → svc.LoadItems → helper（嵌套
+// mermaid 渲染——From 切换为被调者）。
+func seedNestedSeqRepo(t *testing.T) string {
+	t.Helper()
 	dir := seedRepo(t)
 	src := `package m
 
@@ -188,39 +153,23 @@ func helper() {}
 	}, nil); err != nil {
 		t.Fatal(err)
 	}
+	return dir
+}
+
+// TestCodeSequenceNestedMermaid：R81——depth 2 嵌套渲染（From 切换为
+// 被调者；P1->>P2: helper）。
+func TestCodeSequenceNestedMermaid(t *testing.T) {
+	dir := seedNestedSeqRepo(t)
 	acts, err := newTestActions(t, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// depth 1：LoadItems 无嵌套
-	root1 := codeSequence(acts, dir, "Prepare", 1)
-	if len(root1.Nodes) != 1 || len(root1.Nodes[0].Nodes) != 0 {
-		t.Fatalf("depth 1 不应嵌套展开: %+v", root1.Nodes)
+	root, err := acts.CodeSequence(action.CodeSequenceRequest{Target: "Prepare", RepoAbs: dir, Depth: 2})
+	if err != nil {
+		t.Fatal(err)
 	}
-	// depth 2：LoadItems 展开 helper
-	root2 := codeSequence(acts, dir, "Prepare", 2)
-	if len(root2.Nodes) != 1 {
-		t.Fatalf("depth 2 顶层步骤 = %d; want 1", len(root2.Nodes))
-	}
-	nested := root2.Nodes[0]
-	if nested.Kind != "call" || nested.Label != "svc.LoadItems" || len(nested.Nodes) != 1 {
-		t.Fatalf("depth 2 应嵌套展开 LoadItems: %+v", nested)
-	}
-	if nested.Nodes[0].Label != "helper" {
-		t.Errorf("嵌套内调用 = %q; want helper", nested.Nodes[0].Label)
-	}
-	// mermaid：嵌套消息 From 切换为 LoadItems（出现顺序 P1->>P2: helper）
-	m := renderCodeSeqMermaid(root2)
+	m := renderCodeSeqMermaid(root)
 	if !strings.Contains(m, "P1->>P2: helper") {
 		t.Errorf("mermaid 应含嵌套消息（From=LoadItems）:\n%s", m)
-	}
-}
-
-// TestCodeSequenceMissing：源码缺失 → 报错非零（提示 fallback）。
-func TestCodeSequenceMissing(t *testing.T) {
-	dir := seedRepo(t) // 无 Prepare 符号
-	code := cmdQuery([]string{"sequence", "--code", "nope", "--repo", dir})
-	if code == 0 {
-		t.Error("符号不存在应非零退出")
 	}
 }

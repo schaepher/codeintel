@@ -1,19 +1,17 @@
 package cli
 
-// R83 测试：时序图停止包配置（seq.stop_packages——命中不深入）+
-// 参与者按出现顺序排列（箭头从左到右）。
+// R83/R95 测试：时序图停止包配置（seq.stop_packages——命中不深入）
+// 的 cli 端到端（配置读取 → CodeSequenceRequest.StopPackages 传递）；
+// 参与者按出现顺序排列（mermaid 渲染留 cli）。停止包判定/签名解析
+// 等纯逻辑断言在 action 包。
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/schaepher/codeintel/internal/domain"
-	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
+	"github.com/schaepher/codeintel/internal/action"
 )
 
 // withStopPkgs 覆盖 agentConfigPath 指向临时配置（写 stop_packages）。
@@ -38,101 +36,38 @@ func withStopPkgs(t *testing.T, stops []string) {
 	t.Cleanup(func() { agentConfigPath = old })
 }
 
-// TestSeqStopPkgHit：包匹配（完整路径/短名/后缀）。
-func TestSeqStopPkgHit(t *testing.T) {
-	withStopPkgs(t, []string{"example.com/m/repo", "infra"})
-	cases := map[string]bool{
-		"symbol:go:example.com/m/repo:(R).Get":    true,  // 完整路径
-		"symbol:go:example.com/m/repo:helper":     true,  // 完整路径
-		"symbol:go:example.com/m/pkg/infra:(X).Y": true,  // 短名
-		"symbol:go:example.com/m/svc:(S).Run":     false, // 未命中
-		"symbol:go:example.com/m/order:(O).Pay":   false,
-	}
-	for id, want := range cases {
-		if got := seqStopPkgHit(id); got != want {
-			t.Errorf("seqStopPkgHit(%s) = %v; want %v", id, got, want)
-		}
-	}
-}
-
-// TestSeqStopPkgNoConfig：无配置 → 不命中。
-func TestSeqStopPkgNoConfig(t *testing.T) {
-	withStopPkgs(t, nil)
-	if seqStopPkgHit("symbol:go:example.com/m/repo:(R).Get") {
-		t.Error("无配置不应命中")
-	}
-}
-
-// TestSeqStopPkgBlocksExpand：R83——停止包命中 → depth 2 不展开内部。
-func TestSeqStopPkgBlocksExpand(t *testing.T) {
-	dir := seedRepo(t)
-	src := `package m
-
-import "example.com/m/svc"
-
-func Prepare() {
-	svc.LoadItems()
-}
-`
-	svcSrc := `package svc
-
-func LoadItems() {
-	helper()
-}
-
-func helper() {}
-`
-	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(src), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(dir, "svc"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "svc", "svc.go"), []byte(svcSrc), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	db, err := sqlite.Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	r := sqlite.NewRepo(db)
-	if _, err := r.SaveBatchStats([]*domain.CodeEntity{
-		{ID: "symbol:go:example.com/m:Prepare", Kind: domain.KindFunction, Name: "Prepare", FilePath: "main.go", LineStart: 5},
-		{ID: "symbol:go:example.com/m/svc:LoadItems", Kind: domain.KindFunction, Name: "LoadItems", FilePath: "svc/svc.go", LineStart: 4},
-		{ID: "symbol:go:example.com/m/svc:helper", Kind: domain.KindFunction, Name: "helper", FilePath: "svc/svc.go", LineStart: 8},
-	}, []*domain.Fact{
-		{SourceID: "symbol:go:example.com/m:Prepare", TargetID: "symbol:go:example.com/m/svc:LoadItems",
-			Kind: domain.FactCalls, Confidence: 0.9, Metadata: map[string]any{"line_num": 6}},
-		{SourceID: "symbol:go:example.com/m/svc:LoadItems", TargetID: "symbol:go:example.com/m/svc:helper",
-			Kind: domain.FactCalls, Confidence: 0.9, Metadata: map[string]any{"line_num": 5}},
-	}, nil); err != nil {
-		t.Fatal(err)
-	}
-	acts, err := newTestActions(t, dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+// TestCmdSeqStopPkgBlocksExpand：cli 端到端——config.yaml 停止包 →
+// --code --depth 2 不展开内部（文本输出无嵌套行）。
+func TestCmdSeqStopPkgBlocksExpand(t *testing.T) {
+	dir := seedNestedSeqRepo(t)
 	// 无配置：depth 2 展开 helper
-	root := codeSequence(acts, dir, "Prepare", 2)
-	if len(root.Nodes) != 1 || len(root.Nodes[0].Nodes) != 1 {
-		t.Fatalf("无配置 depth 2 应展开: %+v", root.Nodes)
+	out1 := captureStdout(func() {
+		if code := cmdQuery([]string{"sequence", "--code", "Prepare", "--depth", "2", "--repo", dir}); code != 0 {
+			t.Fatalf("sequence --code exit = %d", code)
+		}
+	})
+	if !strings.Contains(out1, "helper") {
+		t.Errorf("无配置应展开嵌套（helper 缺失）:\n%s", out1)
 	}
-	// svc 在停止列表：depth 2 不展开（节点保留 Nodes 空）
+	// svc 在停止列表：depth 2 不展开
 	withStopPkgs(t, []string{"example.com/m/svc"})
-	root2 := codeSequence(acts, dir, "Prepare", 2)
-	if len(root2.Nodes) != 1 || len(root2.Nodes[0].Nodes) != 0 {
-		t.Fatalf("停止包应不展开内部: %+v", root2.Nodes)
+	out2 := captureStdout(func() {
+		if code := cmdQuery([]string{"sequence", "--code", "Prepare", "--depth", "2", "--repo", dir}); code != 0 {
+			t.Fatalf("sequence --code exit = %d", code)
+		}
+	})
+	if !strings.Contains(out2, "svc.LoadItems") {
+		t.Errorf("节点应保留（svc.LoadItems 缺失）:\n%s", out2)
 	}
-	if root2.Nodes[0].Label != "svc.LoadItems" {
-		t.Errorf("节点应保留（不深入）: %+v", root2.Nodes[0])
+	if strings.Contains(out2, "helper") {
+		t.Errorf("停止包应不展开内部（helper 不应出现）:\n%s", out2)
 	}
 }
 
 // TestRenderCodeSeqOrder：R83——参与者按出现顺序（调用方先声明靠左，
 // 箭头从左到右；不再字母排序）；参与者 = 调用对象（Actor）。
 func TestRenderCodeSeqOrder(t *testing.T) {
-	root := &codeSeqNode{Kind: "call", Label: "Prepare", Actor: "Prepare", Nodes: []*codeSeqNode{
+	root := &action.CodeSeqNode{Kind: "call", Label: "Prepare", Actor: "Prepare", Nodes: []*action.CodeSeqNode{
 		{Kind: "call", Label: "svc.Validate", Actor: "svc", Line: 1, Args: []string{"order.Data"}, Returns: []string{"bool", "error"}},
 		{Kind: "call", Label: "svc.Save", Actor: "svc", Line: 2},
 		{Kind: "call", Label: "repo.CreateOrder", Actor: "repo", Line: 3},
@@ -153,88 +88,5 @@ func TestRenderCodeSeqOrder(t *testing.T) {
 	}
 	if !strings.Contains(m, "->>P2: repo.CreateOrder") {
 		t.Errorf("参与者应为对象 repo:\n%s", m)
-	}
-}
-
-// TestImplTypeShort：短类型名提取（包末段.类型名——参与者第二行）。
-func TestImplTypeShort(t *testing.T) {
-	cases := map[string]string{
-		"symbol:go:example.com/m/domain/order:(orderManagerImpl).SubmitOrder": "order.orderManagerImpl", // 方法形态
-		"symbol:go:example.com/m/repo:OrderRepoImpl":                          "repo.OrderRepoImpl",     // 类型形态
-		"symbol:go:example.com/m/svc:helper":                                  "svc.helper",             // 函数形态（无类型语义——短名）
-		"symbol:go:example.com/m:(Svc).Run":                                   "m.Svc",                  // 根包方法
-	}
-	for id, want := range cases {
-		if got := implTypeShort(id); got != want {
-			t.Errorf("implTypeShort(%s) = %q; want %q", id, got, want)
-		}
-	}
-}
-
-// TestParseSigTypes：签名解析——参数/返回类型短名（R83：消息线参数 +
-// return 线）。
-func TestParseSigTypes(t *testing.T) {
-	sig := `func (*orderManagerImpl).SubmitOrder(data github.com/ixre/go2o/pkg/interface/domain/order.SubmitOrderData) (github.com/ixre/go2o/pkg/interface/domain/order.IOrder, *github.com/ixre/go2o/pkg/interface/domain/order.SubmitReturnData, error)`
-	args, rets, ok := parseSigTypes(sig)
-	if !ok {
-		t.Fatal("签名解析失败")
-	}
-	if len(args) != 1 || args[0] != "order.SubmitOrderData" {
-		t.Errorf("args = %v; want [order.SubmitOrderData]", args)
-	}
-	if len(rets) != 3 || rets[0] != "order.IOrder" || rets[1] != "*order.SubmitReturnData" || rets[2] != "error" {
-		t.Errorf("rets = %v; want [order.IOrder *order.SubmitReturnData error]", rets)
-	}
-	// 多参数 + 基础类型
-	sig2 := `func Load(a, b int, s string) (bool, error)`
-	args2, rets2, ok2 := parseSigTypes(sig2)
-	if !ok2 || len(args2) != 3 || args2[0] != "int" || args2[1] != "int" || args2[2] != "string" {
-		t.Errorf("args2 = %v ok=%v", args2, ok2)
-	}
-	if len(rets2) != 2 || rets2[0] != "bool" || rets2[1] != "error" {
-		t.Errorf("rets2 = %v", rets2)
-	}
-}
-
-// TestCallActor：调用参与者提取（对象而非方法）。
-func TestCallActor(t *testing.T) {
-	dir := seedRepo(t)
-	src := `package m
-
-func Run() {
-	s.manager.SubmitOrder()
-	t.repo.CreateOrder()
-	ic.Put()
-	parser.NewPostedData()
-	helper()
-}
-`
-	fpath := filepath.Join(dir, "main.go")
-	if err := os.WriteFile(fpath, []byte(src), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, fpath, src, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := map[string]string{}
-	ast.Inspect(f, func(n ast.Node) bool {
-		if call, ok := n.(*ast.CallExpr); ok {
-			want[callLabel(fset, []byte(src), call.Fun)] = callActor(fset, []byte(src), call.Fun)
-		}
-		return true
-	})
-	cases := map[string]string{
-		"s.manager.SubmitOrder": "s.manager",
-		"t.repo.CreateOrder":    "t.repo",
-		"ic.Put":                "ic",
-		"parser.NewPostedData":  "parser",
-		"helper":                "helper",
-	}
-	for label, actor := range cases {
-		if want[label] != actor {
-			t.Errorf("callActor(%s) = %q; want %q", label, want[label], actor)
-		}
 	}
 }

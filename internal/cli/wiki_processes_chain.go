@@ -104,10 +104,13 @@ func renderProcChainHTML(rc *wikiRenderCtx, chain *action.ProcChain, miss string
 // renderProcSeqMD 代码级时序渲染（R83：wiki grpc 方法图用 query
 // sequence --code 同款——源码 AST 时序，depth=rc.SeqDepth）；符号
 // 解析失败/源码缺失 fallback 索引调用链。entryID：方法入口 canonical
-// ID（(Impl).Method）。
+// ID（(Impl).Method）。R95：解析走 action（Actions.CodeSequence——
+// 停止包配置 rc.SeqStopPkgs 一并传入）。
 func renderProcSeqMD(rc *wikiRenderCtx, entryID string, fallback *action.ProcChain, miss string) string {
 	if entryID != "" && rc.RepoAbs != "" {
-		if root := codeSequence(rc.acts, rc.RepoAbs, entryID, rc.SeqDepth); root != nil {
+		root, err := rc.acts.CodeSequence(action.CodeSequenceRequest{
+			Target: entryID, RepoAbs: rc.RepoAbs, Depth: rc.SeqDepth, StopPackages: rc.SeqStopPkgs})
+		if err == nil && root != nil {
 			var b strings.Builder
 			b.WriteString("**代码级时序**（源码 AST——调用/分支/循环；`query sequence --code` 同款）：\n\n")
 			b.WriteString(rc.diagramMD(renderCodeSeqMermaid(root)))
@@ -120,7 +123,9 @@ func renderProcSeqMD(rc *wikiRenderCtx, entryID string, fallback *action.ProcCha
 // renderProcSeqHTML 代码级时序（html 版，同 renderProcSeqMD）。
 func renderProcSeqHTML(rc *wikiRenderCtx, entryID string, fallback *action.ProcChain, miss string) string {
 	if entryID != "" && rc.RepoAbs != "" {
-		if root := codeSequence(rc.acts, rc.RepoAbs, entryID, rc.SeqDepth); root != nil {
+		root, err := rc.acts.CodeSequence(action.CodeSequenceRequest{
+			Target: entryID, RepoAbs: rc.RepoAbs, Depth: rc.SeqDepth, StopPackages: rc.SeqStopPkgs})
+		if err == nil && root != nil {
 			var b strings.Builder
 			b.WriteString(`<p class="muted"><strong>代码级时序</strong>（源码 AST——调用/分支/循环；query sequence --code 同款）：</p>`)
 			b.WriteString(rc.diagramHTML(renderCodeSeqMermaid(root)))

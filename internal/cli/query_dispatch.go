@@ -99,16 +99,17 @@ func cmdQuery(args []string) int {
 	if sub == "helpers" {
 		return cmdQueryHelpers(sqlite.NewRepo(db), f.minPkgs, f.json)
 	}
-	// R83：grpc/http 调用链 + 外部系统调用链（递归）
+	// R83：grpc/http 调用链 + 外部系统调用链（递归）——R95 查询逻辑
+	// 迁 action（Actions.ChainGrpcHTTP/ExtChain）
 	if sub == "grpc-callers" || sub == "http-callers" || sub == "ext-chain" {
 		if len(f.positional) < 1 {
 			fmt.Fprintln(os.Stderr, "error: 缺少符号参数")
 			return 2
 		}
 		if sub == "ext-chain" {
-			return cmdExtChain(acts, sqlite.NewRepo(db), abs, f.positional[0], f.json)
+			return cmdExtChain(acts, abs, f.positional[0], f.json)
 		}
-		return cmdChainGrpcHTTP(acts, sqlite.NewRepo(db), f.positional[0], sub, f.json)
+		return cmdChainGrpcHTTP(acts, f.positional[0], sub, f.json)
 	}
 
 	opts := outputOpts{json: f.json, compact: f.compact, repoPath: f.repoPath}

@@ -216,7 +216,7 @@ func cmdWiki(args []string) int {
 	if seqDepth <= 0 {
 		seqDepth = loadSeqDepth()
 	}
-	rc := &wikiRenderCtx{acts: acts, data: data, cfg: cfg, cols: cols, rels: rels, pkgs: pkgs, freshNote: freshNote, degradeStats: degradeStats, Diagram: diagram, repo: sqlite.NewRepo(db), MaxEntries: maxEntries, RepoAbs: abs, SeqDepth: seqDepth}
+	rc := &wikiRenderCtx{acts: acts, data: data, cfg: cfg, cols: cols, rels: rels, pkgs: pkgs, freshNote: freshNote, degradeStats: degradeStats, Diagram: diagram, repo: sqlite.NewRepo(db), MaxEntries: maxEntries, RepoAbs: abs, SeqDepth: seqDepth, SeqStopPkgs: loadSeqStopPkgs()}
 	switch format {
 	case "html":
 		if err := renderWikiHTML(abs, outDir, rc); err != nil {
@@ -254,6 +254,7 @@ type wikiRenderCtx struct {
 	repo     *sqlite.Repo // R34：包结构 fallback 查询（无包说明时查包内符号）
 	MaxEntries int // R37：流程页每节/每页入口展开上限（0 = procMaxEntries）
 	SeqDepth int // R83：grpc 方法代码级时序嵌套层级（默认 3——loadSeqDepth）
+	SeqStopPkgs []string // R95：时序停止包（loadSeqStopPkgs——命中不深入）
 	RepoAbs  string // R37：目标仓库绝对路径（grpc ServiceDesc 解析需要——空则方法全集缺失）
 }
 

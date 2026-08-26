@@ -1,14 +1,19 @@
 package cli
 
+// R95：代码级时序渲染（mermaid/缩进文本）留 cli——节点类型与解析
+// 逻辑在 action（action.CodeSeqNode / Actions.CodeSequence）。
+
 import (
 	"fmt"
 	"strings"
+
+	"github.com/schaepher/codeintel/internal/action"
 )
 
 // renderCodeSeqMermaid 代码级步骤树 → mermaid sequenceDiagram
 // （参与者 = 调用目标 + 入口；消息线 = 调用名；branch → alt/else；
 // loop → loop 块）。
-func renderCodeSeqMermaid(root *codeSeqNode) string {
+func renderCodeSeqMermaid(root *action.CodeSeqNode) string {
 	if root == nil {
 		return ""
 	}
@@ -39,7 +44,7 @@ func renderCodeSeqMermaid(root *codeSeqNode) string {
 }
 
 // collectTypes 收集参与者 → 短类型名（首个出现的调用节点为准）。
-func collectTypes(nodes []*codeSeqNode, out map[string]string) {
+func collectTypes(nodes []*action.CodeSeqNode, out map[string]string) {
 	for _, n := range nodes {
 		if n.Kind == "call" && n.Type != "" && out[n.Actor] == "" {
 			out[n.Actor] = n.Type
@@ -48,10 +53,11 @@ func collectTypes(nodes []*codeSeqNode, out map[string]string) {
 		collectTypes(n.Else, out)
 	}
 }
+
 // collectParts 收集参与者（R83：调用对象 Actor 去重——s.manager/
 // t.repo/ic；消息线 label 保持完整调用名）。R83：跳过 Go 基础类型
 // 参与者（int64(x) 类型转换——非调用）；匿名函数/变量函数保留。
-func collectParts(nodes []*codeSeqNode, parts *[]string, seen map[string]bool) {
+func collectParts(nodes []*action.CodeSeqNode, parts *[]string, seen map[string]bool) {
 	for _, n := range nodes {
 		if n.Kind == "call" && n.Actor != "" && !seqBaseTypeActor(n.Actor) && !seen[n.Actor] {
 			seen[n.Actor] = true
@@ -65,15 +71,16 @@ func collectParts(nodes []*codeSeqNode, parts *[]string, seen map[string]bool) {
 // seqBaseTypeActor 参与者是否为 Go 基础类型（int64(x) 类型转换等——
 // 非真实调用，图上无意义）。
 func seqBaseTypeActor(actor string) bool {
-	if sigTypeKeyword(actor) {
+	if action.SigTypeKeyword(actor) {
 		return true
 	}
 	// 类型转换带括号/泛型形态（int64(x) 的 Actor 是纯类型名）
 	return strings.HasPrefix(actor, "[]") || strings.HasPrefix(actor, "map[") ||
 		strings.HasPrefix(actor, "func(") || strings.HasPrefix(actor, "chan ")
 }
+
 // writeSeqNode 递归渲染节点块（call 消息 / branch alt / loop）。
-func writeSeqNode(b *strings.Builder, alias map[string]string, from string, nodes []*codeSeqNode) {
+func writeSeqNode(b *strings.Builder, alias map[string]string, from string, nodes []*action.CodeSeqNode) {
 	for _, n := range nodes {
 		switch n.Kind {
 		case "call":
@@ -114,8 +121,9 @@ func writeSeqNode(b *strings.Builder, alias map[string]string, from string, node
 		}
 	}
 }
+
 // writeSeqText 缩进文本渲染（默认输出）。
-func writeSeqText(nodes []*codeSeqNode, depth int) {
+func writeSeqText(nodes []*action.CodeSeqNode, depth int) {
 	pad := strings.Repeat("  ", depth)
 	for _, n := range nodes {
 		switch n.Kind {

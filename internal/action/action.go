@@ -76,6 +76,13 @@ type Reader interface {
 	ListRelationRules() ([]domain.RelationRule, error)
 	RemoveRelationRule(id int64) error
 
+	// R95：grpc/http 调用链（query grpc-callers/http-callers/ext-chain）
+	GetImplementsEdges() ([]*domain.Fact, error) // 全部 implements 边（排除 Unimplemented 桩）
+	AllNodeIDs() ([]domain.CanonicalID, error)   // 全部节点 ID（接口具体化判定）
+	EnsureExtChainCache() error                  // 建 ext_chain_cache 表（幂等）
+	ExtChainCacheGet(symbol, build string) (string, bool)
+	ExtChainCacheSet(symbol, build, result string) error
+
 	// Q228：全量 relations 计算进度（precompute 命令 / serve 后台任务）
 	RelationProgress() (domain.RelationProgress, error)
 	StartRelationComputeIfNeeded() (bool, error)
