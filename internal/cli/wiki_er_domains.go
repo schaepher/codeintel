@@ -161,6 +161,9 @@ func renderERDomainsMD(rels []*domain.TableRelation, hideTable map[string]bool, 
 			d.name, len(d.tables), len(d.rels)))
 		if len(d.rels) == 0 {
 			b.WriteString("（领域内无直接键关联）\n\n")
+		} else if len(d.rels) > mermaidEdgeLimit {
+			// R78：域内图超限（>500）按表二级前缀子域细分（R63 思路复用）
+			b.WriteString(renderERSubDomainsMD(d, rc))
 		} else {
 			b.WriteString(rc.diagramMD(renderERMermaid(d.rels, nil)))
 		}
@@ -187,6 +190,9 @@ func renderERDomainsHTML(rels []*domain.TableRelation, hideTable map[string]bool
 			id, htmlEsc(d.name), len(d.tables), len(d.rels), id))
 		if len(d.rels) == 0 {
 			b.WriteString(`<p class="muted">（领域内无直接键关联）</p>`)
+		} else if len(d.rels) > mermaidEdgeLimit {
+			// R78：域内图超限按表二级前缀子域细分
+			b.WriteString(renderERSubDomainsHTML(d, rc, id))
 		} else {
 			b.WriteString(rc.diagramHTML(renderERMermaid(d.rels, nil)))
 		}

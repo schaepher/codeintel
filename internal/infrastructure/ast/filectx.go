@@ -188,6 +188,13 @@ func (ctx *fileCtx) trackBindings(n ast.Node) {
 					ctx.methodVars[id.Name] = mp
 				}
 			}
+			// R78：strUrl := fmt.Sprintf(...) → 静态前缀记录（go2o cl253
+			// 形态——http.Get(strUrl) 的 URL 变量追踪）
+			if call, isCall := assign.Rhs[0].(*ast.CallExpr); isCall && isFmtSprintf(ctx.pkg, call) {
+				if p := sprintfStaticPrefix(ctx.pkg, ctx.methodVars, call); p != "" {
+					ctx.methodVars[id.Name] = p
+				}
+			}
 		}
 	}
 	if decl, isDecl := n.(*ast.GenDecl); isDecl && decl.Tok == token.VAR {

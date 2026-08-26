@@ -33,6 +33,21 @@ func renderProcChainMD(rc *wikiRenderCtx, chain *procChain, miss string) string 
 		b.WriteString("**实体间调用时序**（连续同向调用合并计数）：\n\n")
 		b.WriteString(rc.diagramMD(seq))
 	}
+	if len(chain.KeyFlows) > 0 {
+		// R78：关键数据流（链上符号字段读写——value-trace 深挖入口）
+		b.WriteString("**关键数据流**（链上符号字段读写）：\n\n")
+		for _, fl := range chain.KeyFlows {
+			var parts []string
+			if len(fl.Reads) > 0 {
+				parts = append(parts, "读 "+strings.Join(fl.Reads, "、"))
+			}
+			if len(fl.Writes) > 0 {
+				parts = append(parts, "写 "+strings.Join(fl.Writes, "、"))
+			}
+			b.WriteString("- `" + fl.Symbol + "`：" + strings.Join(parts, "；") + "\n")
+		}
+		b.WriteString("（`query trace-backward/forward <字段>` 深挖产生与使用链）\n\n")
+	}
 	if len(chain.Pkgs) > 0 {
 		b.WriteString("涉及包：`" + strings.Join(chain.Pkgs, "`、`") + "`\n\n")
 	}
@@ -62,6 +77,21 @@ func renderProcChainHTML(rc *wikiRenderCtx, chain *procChain, miss string) strin
 	if seq := entitySequenceMermaid(eg, chain.Steps); seq != "" {
 		b.WriteString("<p class=\"muted\">实体间调用时序（连续同向调用合并计数）：</p>")
 		b.WriteString(rc.diagramHTML(seq))
+	}
+	if len(chain.KeyFlows) > 0 {
+		// R78：关键数据流（链上符号字段读写——value-trace 深挖入口）
+		b.WriteString("<p class=\"muted\"><strong>关键数据流</strong>（链上符号字段读写）：</p><ul>")
+		for _, fl := range chain.KeyFlows {
+			var parts []string
+			if len(fl.Reads) > 0 {
+				parts = append(parts, "读 "+strings.Join(fl.Reads, "、"))
+			}
+			if len(fl.Writes) > 0 {
+				parts = append(parts, "写 "+strings.Join(fl.Writes, "、"))
+			}
+			b.WriteString("<li><code>" + htmlEsc(fl.Symbol) + "</code>：" + htmlEsc(strings.Join(parts, "；")) + "</li>")
+		}
+		b.WriteString(`</ul><p class="muted">query trace-backward/forward 深挖产生与使用链。</p>`)
 	}
 	if len(chain.Pkgs) > 0 {
 		b.WriteString("<p class=\"muted\">涉及包：" + htmlEsc(strings.Join(chain.Pkgs, "、")) + "</p>")

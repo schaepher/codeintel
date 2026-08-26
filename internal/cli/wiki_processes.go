@@ -18,10 +18,11 @@ import (
 
 // procChain 一条流程的调用链（入口 + 边 + 涉及包）。
 type procChain struct {
-	Entry string // 入口符号名
-	Steps []domain.WikiSeqStep
-	Pkgs  []string
-	Miss  string // R50：无调用链的原因（区分索引问题 vs 仅调用外部库）
+	Entry    string // 入口符号名
+	Steps    []domain.WikiSeqStep
+	Pkgs     []string
+	Miss     string         // R50：无调用链的原因（区分索引问题 vs 仅调用外部库）
+	KeyFlows []wikiKeyFlow  // R78：链上符号关键数据流（字段读写——value-trace 串联）
 }
 
 // queryChain 查询入口符号的深度 2 调用链 + 涉及包（短名展示）。
@@ -48,6 +49,16 @@ func queryChain(acts *action.Actions, entryName string) *procChain {
 	}
 	chain := &procChain{Entry: shortSymbolName(entry)}
 	chain.Steps = sortChainByCallLine(string(entry.ID), facts)
+	// R78：流程页深度——链上符号（入口 + 被调者）关键数据流（字段
+	// 读写，value-trace 串联入口；失败跳过——链可能含外部库符号）
+	var flowIDs []string
+	flowIDs = append(flowIDs, string(entry.ID))
+	for _, f := range facts {
+		flowIDs = append(flowIDs, string(f.TargetID))
+	}
+	if flows := wikiKeyFlows(acts, "", flowIDs); len(flows) > 0 {
+		chain.KeyFlows = flows
+	}
 	pkgs := map[string]bool{}
 	pkgs[symbolPkg(string(entry.ID))] = true
 	for _, f := range facts {

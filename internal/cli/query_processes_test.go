@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
@@ -65,6 +66,63 @@ func TestQueryProcessesChain(t *testing.T) {
 	for _, want := range []string{"入口：(Svc).Run", "→"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("processes 链应含 %q:\n%s", want, out)
+		}
+	}
+}
+
+// TestQueryChainKeyFlows：R78——链上符号关键数据流（入口自身字段读写
+// 收集；无出边也收集入口）。
+func TestQueryChainKeyFlows(t *testing.T) {
+	dir := seedFieldTrace(t)
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	acts := action.New(sqlite.NewRepo(db))
+	chain := queryChain(acts, "symbol:go:example.com/m:main")
+	if chain == nil {
+		t.Fatal("queryChain 返回 nil")
+	}
+	if len(chain.KeyFlows) == 0 {
+		t.Fatalf("链上符号应有字段读写数据流（main 写/读 T.A）")
+	}
+	if !strings.Contains(chain.KeyFlows[0].Writes[0], "T.A") {
+		t.Errorf("KeyFlows 应含 T.A 写入: %v", chain.KeyFlows[0])
+	}
+}
+
+// TestQueryProcessesKeyFlows：processes 输出含关键数据流小节（value-trace 串联）。
+func TestQueryProcessesKeyFlows(t *testing.T) {
+	dir := seedFieldTrace(t)
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	r := sqlite.NewRepo(db)
+	// main 出边（链有真实步骤——(Svc).Run 节点须存在）；(Svc).Run 自身
+	// 字段读写（链上符号关键数据流——T.B 读）
+	if _, err := r.SaveBatchStats([]*domain.CodeEntity{
+		{ID: "symbol:go:example.com/m/svc:(Svc).Run", Kind: domain.KindMethod,
+			Name: "(Svc).Run", FilePath: "svc/svc.go", LineStart: 5},
+	}, []*domain.Fact{
+		{SourceID: "symbol:go:example.com/m:main", TargetID: "symbol:go:example.com/m/svc:(Svc).Run",
+			Kind: domain.FactCalls, Confidence: 0.9},
+	}, []*domain.FunctionFieldSummary{
+		{FunctionID: "symbol:go:example.com/m/svc:(Svc).Run", AccessKind: domain.SummaryDirectRead,
+			FieldPath: "example.com/m/svc.T.B", InstancePath: "t.B", LineStart: 7, CodeSnippet: "return t.B"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	out := captureStdout(func() {
+		if code := cmdQuery([]string{"processes", "--repo", dir}); code != 0 {
+			t.Fatalf("processes exit = %d", code)
+		}
+	})
+	for _, want := range []string{"关键数据流", "(Svc).Run", "T.B"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("processes 应含 %q（关键数据流）:\n%s", want, out)
 		}
 	}
 }

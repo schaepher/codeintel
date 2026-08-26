@@ -23,14 +23,12 @@ type wikiKeyFlow struct {
 // FunctionFields 分组——direct_read 归读、direct_write/indirect_write
 // 归写。过滤：只保留本模块类型限定字段（排除第三方 x/tools/ssa 等
 // 与 map 访问噪音）；[key] 变体归一后去重。无字段访问的符号跳过。
-func wikiKeyFlows(acts *action.Actions, modulePrefix string, symbolNames []string) ([]wikiKeyFlow, error) {
+// R78：单符号解析失败跳过（不整批丢弃——流程页链上可能含外部库符号）。
+func wikiKeyFlows(acts *action.Actions, modulePrefix string, symbolNames []string) []wikiKeyFlow {
 	var out []wikiKeyFlow
 	for _, name := range symbolNames {
 		n, rows, err := acts.FunctionFields(name)
-		if err != nil {
-			return nil, err
-		}
-		if len(rows) == 0 {
+		if err != nil || len(rows) == 0 {
 			continue
 		}
 		f := wikiKeyFlow{Symbol: n.Name}
@@ -58,7 +56,7 @@ func wikiKeyFlows(acts *action.Actions, modulePrefix string, symbolNames []strin
 			out = append(out, f)
 		}
 	}
-	return out, nil
+	return out
 }
 
 // wikiModuleKeyFlows 模块核心符号的关键数据流（R17）：CoreSymbols
@@ -74,11 +72,7 @@ func wikiModuleKeyFlows(acts *action.Actions, wm *domain.WikiModule) []wikiKeyFl
 	if len(ids) == 0 {
 		return nil
 	}
-	flows, err := wikiKeyFlows(acts, wm.Name, ids)
-	if err != nil {
-		return nil
-	}
-	return flows
+	return wikiKeyFlows(acts, wm.Name, ids)
 }
 
 // renderKeyFlowsSectionMD 关键数据流区块（md）。

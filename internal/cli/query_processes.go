@@ -8,6 +8,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
@@ -24,10 +25,11 @@ type procEntryOut struct {
 
 // procChainOut 调用链输出（复用 procChain 数据）。
 type procChainOut struct {
-	Entry string              `json:"entry"`           // 入口符号
-	Steps []domain.WikiSeqStep `json:"steps,omitempty"` // 调用步骤（caller → callee）
-	Pkgs  []string            `json:"pkgs,omitempty"`  // 涉及包
-	Miss  string              `json:"miss,omitempty"`  // 无链原因
+	Entry     string               `json:"entry"`            // 入口符号
+	Steps     []domain.WikiSeqStep `json:"steps,omitempty"`  // 调用步骤（caller → callee）
+	Pkgs      []string             `json:"pkgs,omitempty"`   // 涉及包
+	Miss      string               `json:"miss,omitempty"`   // 无链原因
+	KeyFlows  []wikiKeyFlow        `json:"key_flows,omitempty"` // R78：链上符号字段读写（value-trace 串联）
 }
 
 // processesOut 系统流程输出契约（cmd --json / MCP 共用）。
@@ -40,7 +42,7 @@ func procChainToOut(c *procChain) *procChainOut {
 	if c == nil {
 		return nil
 	}
-	return &procChainOut{Entry: c.Entry, Steps: c.Steps, Pkgs: c.Pkgs, Miss: c.Miss}
+	return &procChainOut{Entry: c.Entry, Steps: c.Steps, Pkgs: c.Pkgs, Miss: c.Miss, KeyFlows: c.KeyFlows}
 }
 
 // processesData 收集全部入口（wiki processes.md 同款数据源：main +
@@ -111,10 +113,38 @@ func cmdQueryProcesses(acts *action.Actions, repo *sqlite.Repo, abs string, data
 		}
 		if e.Chain.Miss != "" {
 			fmt.Printf("  %s\n", e.Chain.Miss)
+		}
+		if len(e.Chain.KeyFlows) > 0 {
+			fmt.Println("  关键数据流（链上符号字段读写）：")
+			for _, fl := range e.Chain.KeyFlows {
+				var parts []string
+				if len(fl.Reads) > 0 {
+					parts = append(parts, "读 "+joinAnd(fl.Reads))
+				}
+				if len(fl.Writes) > 0 {
+					parts = append(parts, "写 "+joinAnd(fl.Writes))
+				}
+				fmt.Printf("    - %s：%s\n", fl.Symbol, strings.Join(parts, "；"))
+			}
+		}
+		if e.Chain.Miss != "" {
 			continue
 		}
 		for i, st := range e.Chain.Steps {
 			fmt.Printf("    %d. %s → %s\n", i+1, st.Caller, st.Callee)
+		}
+		if len(e.Chain.KeyFlows) > 0 {
+			fmt.Println("  关键数据流（链上符号字段读写）：")
+			for _, fl := range e.Chain.KeyFlows {
+				var parts []string
+				if len(fl.Reads) > 0 {
+					parts = append(parts, "读 "+joinAnd(fl.Reads))
+				}
+				if len(fl.Writes) > 0 {
+					parts = append(parts, "写 "+joinAnd(fl.Writes))
+				}
+				fmt.Printf("    - %s：%s\n", fl.Symbol, strings.Join(parts, "；"))
+			}
 		}
 		if len(e.Chain.Pkgs) > 0 {
 			fmt.Println("  涉及包：" + joinAnd(e.Chain.Pkgs))

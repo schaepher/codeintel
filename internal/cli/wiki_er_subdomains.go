@@ -1,0 +1,139 @@
+package cli
+
+// R78 ER 域内图超限细分（待办 14——复用 R63 实体子域思路）：ER 领域
+// 分组后某域内关系仍超 mermaid 上限（500）时，按表二级前缀再细分
+// （item_order_x → item_order）——子域间图 + 每子域内部图（折叠）。
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/schaepher/codeintel/internal/domain"
+)
+
+// erSubName 表子域归属：≥3 段取二级前缀（item_order_detail →
+// item_order）；2 段/无 _ 回退一级前缀（member_a → member——与
+// splitTableDomain 同口径，两段表名的二级前缀就是一级）。
+func erSubName(table string) string {
+	parts := strings.SplitN(table, "_", 3)
+	if len(parts) == 3 {
+		return parts[0] + "_" + parts[1]
+	}
+	return splitTableDomain(table)
+}
+
+// splitERSubDomains 领域内关系按表二级前缀分组：两端子域相同 → 组内
+// 边；不同 → 跨子域边（子域间图数据源）。组按子域名排序（确定性）。
+func splitERSubDomains(rels []*domain.TableRelation) ([]*erDomainGroup, []*domain.TableRelation) {
+	groups := map[string]*erDomainGroup{}
+	var order []string
+	var cross []*domain.TableRelation
+	for _, r := range rels {
+		sf, st := erSubName(r.FromTable), erSubName(r.ToTable)
+		if sf == st {
+			g := groups[sf]
+			if g == nil {
+				g = &erDomainGroup{name: sf, tables: map[string]bool{}}
+				groups[sf] = g
+				order = append(order, sf)
+			}
+			g.rels = append(g.rels, r)
+			g.tables[r.FromTable] = true
+			g.tables[r.ToTable] = true
+		} else {
+			cross = append(cross, r)
+		}
+	}
+	sort.Strings(order)
+	subs := make([]*erDomainGroup, 0, len(order))
+	for _, n := range order {
+		subs = append(subs, groups[n])
+	}
+	return subs, cross
+}
+
+// erSubCrossMermaid 子域间关系图（领域级聚合——节点 = 子域，边 =
+// 子域间关系计数；erCrossMermaid 同款形态，domainOf 换成二级前缀）。
+func erSubCrossMermaid(cross []*domain.TableRelation) string {
+	type key struct{ from, to string }
+	counts := map[key]int{}
+	seen := map[string]bool{}
+	for _, r := range cross {
+		df, dt := erSubName(r.FromTable), erSubName(r.ToTable)
+		counts[key{df, dt}]++
+		seen[df] = true
+		seen[dt] = true
+	}
+	if len(counts) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("graph LR\n")
+	names := make([]string, 0, len(seen))
+	for n := range seen {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		b.WriteString(fmt.Sprintf("  %s[\"%s\"]\n", archDomainID(n), n))
+	}
+	keys := make([]key, 0, len(counts))
+	for k := range counts {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].from != keys[j].from {
+			return keys[i].from < keys[j].from
+		}
+		return keys[i].to < keys[j].to
+	})
+	for _, k := range keys {
+		b.WriteString(fmt.Sprintf("  %s -->|%d| %s\n", archDomainID(k.from), counts[k], archDomainID(k.to)))
+	}
+	return b.String()
+}
+
+// renderERSubDomainsMD 领域内图超限 → 二级前缀子域细分（md）。
+func renderERSubDomainsMD(d *erDomainGroup, rc *wikiRenderCtx) string {
+	subs, cross := splitERSubDomains(d.rels)
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("**子域分组**（领域 %s 内图 %d 条边超限（上限 %d）——域过大，按表二级前缀细分）：\n\n",
+		d.name, len(d.rels), mermaidEdgeLimit))
+	if m := erSubCrossMermaid(cross); m != "" {
+		b.WriteString("子域间关系：\n\n")
+		b.WriteString(rc.diagramMD(m))
+	}
+	for _, sd := range subs {
+		b.WriteString(fmt.Sprintf("<details><summary>子域 <code>%s</code>（%d 张表，%d 条关系）</summary>\n\n",
+			sd.name, len(sd.tables), len(sd.rels)))
+		if len(sd.rels) == 0 {
+			b.WriteString("（子域内无直接键关联）\n\n")
+		} else {
+			b.WriteString(rc.diagramMD(renderERMermaid(sd.rels, nil)))
+		}
+		b.WriteString("</details>\n\n")
+	}
+	return b.String()
+}
+
+// renderERSubDomainsHTML 领域内图超限 → 子域细分（html 折叠版）。
+func renderERSubDomainsHTML(d *erDomainGroup, rc *wikiRenderCtx, baseID string) string {
+	subs, cross := splitERSubDomains(d.rels)
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf(`<p class="muted">子域分组（领域 %s 内图 %d 条边超限——域过大，按表二级前缀细分）：</p>`,
+		htmlEsc(d.name), len(d.rels)))
+	if m := erSubCrossMermaid(cross); m != "" {
+		b.WriteString("<p class=\"muted\">子域间关系：</p>" + rc.diagramHTML(m))
+	}
+	for i, sd := range subs {
+		sid := fmt.Sprintf("%s-sub-%d", baseID, i)
+		inner := "（子域内无直接键关联）"
+		if len(sd.rels) > 0 {
+			inner = rc.diagramHTML(renderERMermaid(sd.rels, nil))
+		}
+		b.WriteString(fmt.Sprintf(`<h5 class="fold-btn" data-target="%s" data-label="1">▸ 子域 %s（%d 张表，%d 条关系）</h5><div class="sec-body" id="%s" style="display:none">%s</div>`,
+			sid, htmlEsc(sd.name), len(sd.tables), len(sd.rels), sid, inner))
+	}
+	return b.String()
+}

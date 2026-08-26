@@ -24,7 +24,7 @@ type erParams struct {
 }
 type processesParams struct {
 	Repo       string `json:"repo,omitempty"` // #232 多仓库：空=默认仓库
-	MaxEntries int    `json:"max_entries"`    // 每节入口展开上限（0 = 默认 15）
+	MaxEntries int    `json:"max_entries,omitempty"` // 每节入口展开上限（0 = 默认 15）
 }
 type moduleParams struct {
 	Repo string `json:"repo,omitempty"` // #232 多仓库：空=默认仓库

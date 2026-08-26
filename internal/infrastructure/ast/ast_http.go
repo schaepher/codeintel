@@ -46,8 +46,84 @@ func extractStringArg(pkg *packages.Package, methodVars map[string]string, arg a
 			}
 			return r
 		}
+	case *ast.CallExpr:
+		// R78：fmt.Sprintf 静态前缀求值（go2o cl253 形态：
+		// `fmt.Sprintf("%s?un=%s...", url常量, 动态...)`）——格式串
+		// 字面量 + 可解析参数展开，首个不可解析参数截断
+		if isFmtSprintf(pkg, a) {
+			return sprintfStaticPrefix(pkg, methodVars, a)
+		}
 	}
 	return ""
+}
+
+// isFmtSprintf 调用是否为 fmt.Sprintf（pkg 路径判定——防同名函数误伤）。
+func isFmtSprintf(pkg *packages.Package, call *ast.CallExpr) bool {
+	if len(call.Args) == 0 {
+		return false
+	}
+	sel, isSel := call.Fun.(*ast.SelectorExpr)
+	if !isSel || sel.Sel.Name != "Sprintf" {
+		return false
+	}
+	obj := pkg.TypesInfo.ObjectOf(sel.Sel)
+	if fn, isFn := obj.(*types.Func); isFn && fn.Pkg() != nil {
+		return fn.Pkg().Path() == "fmt"
+	}
+	return false
+}
+
+// sprintfStaticPrefix fmt.Sprintf 可静态求值前缀：格式串按 % 动词逐
+// 段处理——字面量段直接取；动词段对应实参可解析（字面量/常量/
+// methodVars）则展开拼接，不可解析停（返回已拼接前缀）。%% 转义为
+// 字面 %。无格式串（非字面量）返回空。
+func sprintfStaticPrefix(pkg *packages.Package, methodVars map[string]string, call *ast.CallExpr) string {
+	format := extractStringArg(pkg, methodVars, call.Args[0])
+	if format == "" {
+		return ""
+	}
+	var b strings.Builder
+	argIdx := 1
+	for i := 0; i < len(format); i++ {
+		if format[i] != '%' {
+			b.WriteByte(format[i])
+			continue
+		}
+		if i+1 >= len(format) {
+			break
+		}
+		if format[i+1] == '%' {
+			b.WriteByte('%')
+			i++
+			continue
+		}
+		// 动词（%s/%d/%v/%x…）：对应实参可解析则展开，否则截断。
+		// verbEnd = 动词字母位置——展开后跳过（外层 i++ 到 verbEnd+1，
+		// 否则动词字母会被当普通字符重复写入）
+		verbEnd := i + 1
+		for verbEnd < len(format) && !isFormatVerbEnd(format[verbEnd]) {
+			verbEnd++
+		}
+		if verbEnd >= len(format) {
+			break
+		}
+		if argIdx >= len(call.Args) {
+			break
+		}
+		v := extractStringArg(pkg, methodVars, call.Args[argIdx])
+		argIdx++
+		if v == "" {
+			break
+		}
+		b.WriteString(v)
+		i = verbEnd
+	}
+	return b.String()
+}
+
+// isFormatVerbEnd 格式动词结尾字符（宽度/精度/动词标志后的字母）。
+func isFormatVerbEnd(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
 
 // httpURLString 从 http.Get/NewRequest/NewRequestWithContext 调用提取

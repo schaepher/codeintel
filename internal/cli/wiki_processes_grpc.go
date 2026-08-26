@@ -55,6 +55,9 @@ const svcOtherDomain = "其他"
 // 2. 否则方法调用链涉及包匹配 domains.packages 投票（多数派；平局取
 //    首个——OrderService → order（交易履约域）实测）
 // 3. 无匹配 → ""（渲染为「其他」目录）
+// R78：投票排除服务实现包（svc.ImplID 的包——go2o 实测 AI 把
+// impl/domain、impl/service 实现包归入基础设施兜底域，不排除时投票
+// 被污染（服务实现包是调用链必然命中项，兜底域 60+ 包轻松得票））。
 func serviceDomain(rc *wikiRenderCtx, svc grpcRouteService) string {
 	for _, d := range rc.cfg.Domains {
 		for _, s := range d.Services {
@@ -63,6 +66,11 @@ func serviceDomain(rc *wikiRenderCtx, svc grpcRouteService) string {
 			}
 		}
 	}
+	// 实现包（服务方法所在包——归属信号被 AI 归入兜底域，投票排除）
+	implPkg := ""
+	if svc.ImplID != "" {
+		implPkg = symbolPkg(svc.ImplID)
+	}
 	votes := map[string]int{}
 	var order []string
 	for _, p := range grpcProcMethods(rc.acts, svc) {
@@ -70,6 +78,9 @@ func serviceDomain(rc *wikiRenderCtx, svc grpcRouteService) string {
 			continue
 		}
 		for _, pk := range p.Chain.Pkgs {
+			if implPkg != "" && pk == implPkg {
+				continue
+			}
 			for _, d := range rc.cfg.Domains {
 				for _, dp := range d.Packages {
 					if dp != "" && (strings.HasSuffix(pk, "/"+dp) || pk == dp) {
