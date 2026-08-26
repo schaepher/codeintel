@@ -44,6 +44,49 @@ func collectRegisterServers(pkgs []*packages.Package, modules []string) map[stri
 			}
 		}
 	}
+	// R90：外部仓库 grpc 工具生成的 Register 定义（依赖包——fast 模式
+	// 无 Syntax 仅 types；go/packages 顶层只返回 pattern 匹配包，依赖
+	// 须经 Imports 递归）——types 级扫描：首参 grpc.ServiceRegistrar/
+	// *grpc.Server + 第二参接口类型（svcFromType 去 Server 后缀）。
+	// 本仓库调用点（markServiceEntry）据此识别注册调用。
+	seen := map[string]bool{}
+	var walk func(p *packages.Package)
+	walk = func(p *packages.Package) {
+		if p == nil || seen[p.PkgPath] {
+			return
+		}
+		seen[p.PkgPath] = true
+		if !isInModule(p.PkgPath, modules) && p.Types != nil {
+			scope := p.Types.Scope()
+			for _, name := range scope.Names() {
+				fn, ok := scope.Lookup(name).(*types.Func)
+				if !ok || !fn.Exported() {
+					continue
+				}
+				sig, ok := fn.Type().(*types.Signature)
+				if !ok || sig.Params().Len() < 2 {
+					continue
+				}
+				// 判定：标准 grpc 首参 / 首参接口含 RegisterService 方法
+				// （自定义 Registrar 形态——proto 生成常用）/ 函数名
+				// Register<X>Server（配合第二参接口）
+				if !isGrpcRegistrar(sig.Params().At(0).Type()) &&
+					!ifaceHasMethod(sig.Params().At(0).Type(), "RegisterService") &&
+					!isRegisterServerName(fn.Name()) {
+					continue
+				}
+				if svc := svcFromType(sig.Params().At(1).Type()); svc != "" {
+					out[p.PkgPath+":"+fn.Name()] = svc
+				}
+			}
+		}
+		for _, imp := range p.Imports {
+			walk(imp)
+		}
+	}
+	for _, p := range pkgs {
+		walk(p)
+	}
 	return out
 }
 
@@ -130,4 +173,23 @@ func svcFromType(t types.Type) string {
 		return strings.TrimSuffix(name, "Server")
 	}
 	return ""
+}
+
+// ifaceHasMethod 类型是否为含指定方法的接口（types 级——依赖包无
+// Syntax 时的注册形态判定：自定义 Registrar 接口含 RegisterService）。
+func ifaceHasMethod(t types.Type, method string) bool {
+	named, ok := t.(*types.Named)
+	if !ok {
+		return false
+	}
+	iface, ok := named.Underlying().(*types.Interface)
+	if !ok {
+		return false
+	}
+	for i := 0; i < iface.NumMethods(); i++ {
+		if iface.Method(i).Name() == method {
+			return true
+		}
+	}
+	return false
 }
