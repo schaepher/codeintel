@@ -200,7 +200,10 @@ func renderEnumsHTML(repoAbs string) string {
 	entries := extractEnums(repoAbs, true)
 	var b strings.Builder
 	b.WriteString(`<section id="enums"><h2>枚举与工具函数</h2><p class="muted">数据源：源码 go/ast 提取（有类型枚举）——权威值，勿重新定义。</p>`)
+	// R87：每组枚举默认折叠（组名按钮——点击展开该组表格，减少长页
+	// 面滚动；枚举区只显示组名列表）
 	group := ""
+	groupIdx := 0
 	for _, e := range entries {
 		key := e.Type
 		if key == "" {
@@ -208,16 +211,20 @@ func renderEnumsHTML(repoAbs string) string {
 		}
 		if key != group {
 			if group != "" {
-				b.WriteString("</table>")
+				b.WriteString("</table></div>")
 			}
 			group = key
-			b.WriteString(fmt.Sprintf("<h3>%s</h3><table><tr><th>名称</th><th>值</th><th>说明</th><th>位置</th></tr>", htmlEsc(key)))
+			b.WriteString(fmt.Sprintf(`<div class="fold-btn" data-target="enum-%d" data-label="1">▸ %s</div>`,
+				groupIdx, htmlEsc(key)))
+			b.WriteString(fmt.Sprintf(`<div class="sec-body" id="enum-%d" style="display:none"><h3>%s</h3><table><tr><th>名称</th><th>值</th><th>说明</th><th>位置</th></tr>`,
+				groupIdx, htmlEsc(key)))
+			groupIdx++
 		}
 		b.WriteString(fmt.Sprintf("<tr><td>%s</td><td><code>%s</code></td><td>%s</td><td class=\"muted\">%s:%d</td></tr>",
 			htmlEsc(e.Name), htmlEsc(e.Value), htmlEsc(e.Comment), htmlEsc(filepath.Base(e.File)), e.Line))
 	}
 	if group != "" {
-		b.WriteString("</table>")
+		b.WriteString("</table></div>")
 	}
 	b.WriteString("</section>")
 	return b.String()

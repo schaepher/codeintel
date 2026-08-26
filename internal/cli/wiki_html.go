@@ -81,6 +81,11 @@ func wikiTablesSectionHTML(tables []tableRow, tableCfgs map[string]wikiTableConf
 			if sec := renderORMStructSectionHTML(t.name, ormStructs[t.name]); sec != "" {
 				b.WriteString(sec)
 			}
+			// R87：表字段明细默认折叠（标题始终可见——表索引锚点可跳转；
+			// 明细展开才显示，减少长页面滚动）
+			b.WriteString(fmt.Sprintf(`<div class="fold-btn" data-target="tbl-detail-%s" data-label="1">▸ 表字段明细</div>`,
+				htmlEsc(t.name)))
+			b.WriteString(fmt.Sprintf(`<div class="sec-body" id="tbl-detail-%s" style="display:none">`, htmlEsc(t.name)))
 			rows := mergeTableColumnsWithSchema(t.name, cols, tc.Columns, schemas, ormStructs)
 			if len(rows) == 0 {
 				b.WriteString("<p class=\"muted\">（无字段信息——维护者可在 wiki.yaml tables.columns 补充）</p>")
@@ -101,6 +106,7 @@ func wikiTablesSectionHTML(tables []tableRow, tableCfgs map[string]wikiTableConf
 			if tc.DDL != "" {
 				b.WriteString("<h4>建表语句</h4><pre><code>" + htmlEsc(tc.DDL) + "</code></pre>")
 			}
+			b.WriteString("</div>")
 		}
 	}
 	b.WriteString("</section>\n")
