@@ -1447,6 +1447,32 @@ AI prompt 输出 english/abbr + setGlossary/cfgSetGlossary 写回。
 - 事故：git stash push 不含 untracked 新文件（asttool split 产物）
   → pop 冲突；教训：stash 前先挪走 untracked
 
+### R86（2026-08-26）——grpc 注册点外部化仍识别服务与调用链
+
+用户：grpc 的 register 在外部包实现（另一仓库单独编译）→ 识别不到，
+wiki 展示"索引中没有调用链"？修复方向：从 register 去找（collect
+RegisterServers 的问题），不要接口名反推（命名可随意）。
+
+**调研结论**：三层识别中——grpc_service 节点不受影响（.pb.go 接口
+签名路径独立）；grpc_impl 边（唯一发射点在注册调用点 ast_grpc.go:43）
+丢失 → ImplID 空 → wiki grpc 子页无调用链；dispatch_to 边（MakeInterface
+注册点）同样依赖调用点。
+
+**修复（构建期 Register 定义路径）**：
+- collectRegisterDefs：Register 函数定义（.pb.go 签名识别——isGrpc
+  Registrar/RegisterService，与 collectRegisterServers 同源）→ 服务名
+  + srv 参数接口类型（Named Interface——签名固定形态，非名字反推）
+- interfaceImplsInModule：types.Implements 全模块扫描实现类型（指针/
+  值方法集任一；排除接口自身与 Unimplemented 桩）
+- emitGrpcServicesFromRegisters：发射 svc 节点 + registers_service
+  属性 + grpc_impl 边（实现类型 → 服务）——调用点路径同边 UPSERT
+  幂等合并（go2o 实测 30 服务/30 边无回归）
+- 测试：TestGrpcRegisterNoCallSite（fixture 无调用点 → grpc_impl 边
+  产生）/ TestGrpcRegisterUnimplementedExcluded
+- 已知边界：多实现时 grpc_impl 边全发（外部注册无精确信息——查询端
+  LIMIT 1 取首个）；dispatch_to 边仍依赖调用点（外部注册缺失——
+  接口具体化退化为 implements 边兜底，R84 已覆盖链查询）
+
 ### R85（2026-08-26）——--base 目录共享索引（多 workspace 分层复用）
 
 用户：多 workspace 支持指定 base 目录——base 分支先生成分析 cache；
