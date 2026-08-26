@@ -19,6 +19,8 @@ type erOut struct {
 }
 
 // erData 计算 ER 图（wiki er.md 同款：renderERMermaid——只画 fk/query）。
+// 数据获取 + 未算兜底编排在 action（Actions.ERRelations，R9x 迁入）；
+// 本层只做 fk/query 过滤（渲染选择）与 mermaid/plantuml 文本拼装。
 func erData(acts *action.Actions, cfg wikiConfig, toPuml bool) erOut {
 	out := erOut{Relations: []*domain.TableRelation{}}
 	rels, err := wikiRelations(acts)

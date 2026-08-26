@@ -15,24 +15,16 @@ import (
 // erNameRe 非安全 mermaid 实体名字符（表名清洗用——动态表名含 % 等）。
 var erNameRe = regexp.MustCompile(`[^a-zA-Z0-9_]`)
 
-// wikiRelations 获取全库表间关联（Q251 ER 图页面）：优先复用已算
-// relation_candidates；未算（ErrRelationInProgress）时同步兜底计算
-// （wiki 是批处理命令，直接等结果；serve 的异步兜底不适合）。
+// wikiRelations 获取全库表间关联（Q251 ER 图页面）：数据获取 + 未算
+// 兜底编排在 action（Actions.ERRelations，R9x 迁入）；本层只处理错误
+// 展示（失败降级为空——渲染层不报错）。
 func wikiRelations(acts *action.Actions) ([]*domain.TableRelation, error) {
-	rels, err := acts.RelationsAll("")
-	if err == nil {
-		return rels, nil
-	}
-	if !errors.Is(err, domain.ErrRelationInProgress) {
-		return nil, err
-	}
-	fmt.Fprintf(os.Stderr, "正在计算表间关系（ER 图首次生成需要）…\n")
-	if err := acts.PrecomputeAllRelations(nil); err != nil {
-		return nil, err
-	}
-	rels, err = acts.RelationsAll("")
+	rels, err := acts.ERRelations()
 	if err != nil {
-
+		if !errors.Is(err, domain.ErrRelationInProgress) {
+			return nil, err
+		}
+		// 兜底计算后关系仍不可用——降级为空（渲染层不报错）
 		fmt.Fprintf(os.Stderr, "warning: ER 图关系数据不可用: %v\n", err)
 		return nil, nil
 	}
