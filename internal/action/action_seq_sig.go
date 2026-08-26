@@ -28,10 +28,11 @@ func seqStopPkgHit(symID string, stops []string) bool {
 
 // implTypeShort 从被调符号 canonical ID 提取短类型名（R83：参与者第
 // 二行——包最后路径段.类型名）：
-//   symbol:go:example.com/m/domain/order:(orderManagerImpl).SubmitOrder
-//     → order.orderManagerImpl（方法形态取 (T) 的 T）
-//   symbol:go:example.com/m/repo:orderRepo → repo.orderRepo（类型形态）
-//   函数形态（无类型）→ 空。
+//
+//	symbol:go:example.com/m/domain/order:(orderManagerImpl).SubmitOrder
+//	  → order.orderManagerImpl（方法形态取 (T) 的 T）
+//	symbol:go:example.com/m/repo:orderRepo → repo.orderRepo（类型形态）
+//	函数形态（无类型）→ 空。
 func implTypeShort(symID string) string {
 	rest := strings.TrimPrefix(symID, "symbol:go:")
 	// 方法形态：(Type).Method——类型在括号里
@@ -79,7 +80,8 @@ func sigTypesOf(a *Actions, symID string) ([]string, []string, bool) {
 
 // parseSigTypes 解析 Go 函数签名的参数/返回类型（短名化）。
 // func (R).M(a pkg.T, b int) (pkg.U, error)
-//   → args=[T, int] rets=[U, error]（短名 = 包最后路径段.类型名）。
+//
+//	→ args=[T, int] rets=[U, error]（短名 = 包最后路径段.类型名）。
 func parseSigTypes(sig string) ([]string, []string, bool) {
 	// 找第一个 '('（receiver 起点）与匹配的 ')'，函数名在中间
 	depth := 0

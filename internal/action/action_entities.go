@@ -48,8 +48,8 @@ func aggregateEntities(raw *domain.EntityRaw, keep func(string) bool) *domain.En
 	}
 	// 1. 实体索引：类型实体（有方法才算） + 包门面实体（游离函数 ≥ 5）
 	byID := map[string]*domain.EntityNode{}
-	pkgTypeMethods := map[string]int{}	// 包 → 方法总数（face-heavy 诊断）
-	pkgFreeFuncs := map[string]int{}	// 包 → 游离函数数
+	pkgTypeMethods := map[string]int{} // 包 → 方法总数（face-heavy 诊断）
+	pkgFreeFuncs := map[string]int{}   // 包 → 游离函数数
 	var pkgNameOf = func(id string) string { return pkgOfEntityID(id) }
 
 	for _, t := range raw.Types {
@@ -62,8 +62,8 @@ func aggregateEntities(raw *domain.EntityRaw, keep func(string) bool) *domain.En
 			kind = domain.EntityKindStruct
 		}
 		byID[string(t.ID)] = &domain.EntityNode{
-			ID:	string(t.ID), Name: t.Name, Pkg: pkg,
-			Kind:	string(kind),
+			ID: string(t.ID), Name: t.Name, Pkg: pkg,
+			Kind: string(kind),
 		}
 	}
 	// has_method → 方法数（无方法的类型在最后剔除——先统计后过滤；
@@ -134,8 +134,8 @@ func aggregateEntities(raw *domain.EntityRaw, keep func(string) bool) *domain.En
 	for pkg, cnt := range pkgFreeFuncs {
 		if cnt >= domain.FaceMinFreeFuncs {
 			byID["symbol:go:"+pkg+":"+shortPkg(pkg)] = &domain.EntityNode{
-				ID:	"symbol:go:" + pkg + ":" + shortPkg(pkg), Name: shortPkg(pkg),
-				Pkg:	pkg, Kind: domain.EntityKindPkgFace, FreeFuncs: cnt,
+				ID: "symbol:go:" + pkg + ":" + shortPkg(pkg), Name: shortPkg(pkg),
+				Pkg: pkg, Kind: domain.EntityKindPkgFace, FreeFuncs: cnt,
 			}
 		}
 	}
@@ -145,11 +145,11 @@ func aggregateEntities(raw *domain.EntityRaw, keep func(string) bool) *domain.En
 	entityOf := map[string]string{}
 	entityOfID := func(id string) string {
 		if n, ok := byID[id]; ok {
-			return n.ID	// 类型本身
+			return n.ID // 类型本身
 		}
 		if t, ok := methodToType[id]; ok {
 			if _, ok := byID[t]; ok {
-				return t	// 归属类型未被行为门槛过滤
+				return t // 归属类型未被行为门槛过滤
 			}
 			return ""
 		}

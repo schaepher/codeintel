@@ -17,11 +17,11 @@ import (
 
 // ChainCallOut 调用链里的一个 grpc/http 出站调用。
 type ChainCallOut struct {
-	Service  string `json:"service"`            // grpc 服务名 / http host
-	Method   string `json:"method,omitempty"`   // grpc 方法名（调用点未记录时为空）
-	Path     string `json:"path,omitempty"`     // http path
-	CalledBy string `json:"called_by"`          // 调用点符号短名
-	Line     int    `json:"line,omitempty"`     // 调用行号
+	Service  string `json:"service"`          // grpc 服务名 / http host
+	Method   string `json:"method,omitempty"` // grpc 方法名（调用点未记录时为空）
+	Path     string `json:"path,omitempty"`   // http path
+	CalledBy string `json:"called_by"`        // 调用点符号短名
+	Line     int    `json:"line,omitempty"`   // 调用行号
 }
 
 // ChainIOOut 输出契约。

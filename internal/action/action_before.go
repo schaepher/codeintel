@@ -14,9 +14,9 @@ import (
 
 // BeforeTarget 目标解析结果（形态分派）。
 type BeforeTarget struct {
-	Kind string `json:"kind"`          // symbol / field / table
-	Name string `json:"name"`          // 显示名（符号名/字段路径/表名）
-	ID   string `json:"id,omitempty"`  // symbol: canonical ID；field: 读节点 ID
+	Kind string `json:"kind"`         // symbol / field / table
+	Name string `json:"name"`         // 显示名（符号名/字段路径/表名）
+	ID   string `json:"id,omitempty"` // symbol: canonical ID；field: 读节点 ID
 }
 
 // BeforeSummary 改动影响预判（Q244）——按目标形态聚合（缺省组省略）。
@@ -30,7 +30,7 @@ type BeforeSummary struct {
 	Reads   []*domain.FunctionFieldSummary `json:"reads,omitempty"`
 	// table 目标
 	Relations []*domain.TableRelation `json:"relations,omitempty"`
-	Columns   []*domain.TableColumn    `json:"columns,omitempty"`
+	Columns   []*domain.TableColumn   `json:"columns,omitempty"`
 }
 
 // TraceFlow 数据来龙去脉（Q244）：值流全链 + 生命周期主链。

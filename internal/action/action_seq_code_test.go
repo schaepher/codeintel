@@ -140,9 +140,9 @@ func helper() {}
 		{ID: "symbol:go:example.com/m/svc:helper", Kind: domain.KindFunction, Name: "helper", FilePath: "svc/svc.go", LineStart: 8},
 	}, []*domain.Fact{
 		{SourceID: "symbol:go:example.com/m:Prepare", TargetID: "symbol:go:example.com/m/svc:LoadItems",
-			Kind:	domain.FactCalls, Confidence: 0.9, Metadata: map[string]any{"line_num": 6}},
+			Kind: domain.FactCalls, Confidence: 0.9, Metadata: map[string]any{"line_num": 6}},
 		{SourceID: "symbol:go:example.com/m/svc:LoadItems", TargetID: "symbol:go:example.com/m/svc:helper",
-			Kind:	domain.FactCalls, Confidence: 0.9, Metadata: map[string]any{"line_num": 5}},
+			Kind: domain.FactCalls, Confidence: 0.9, Metadata: map[string]any{"line_num": 5}},
 	}, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +192,7 @@ func TestCodeSequenceStopPkg(t *testing.T) {
 	}
 	// svc 在停止列表：depth 2 不展开（节点保留 Nodes 空）
 	root2, err := acts.CodeSequence(CodeSequenceRequest{
-		Target:	"Prepare", RepoAbs: dir, Depth: 2, StopPackages: []string{"example.com/m/svc"}})
+		Target: "Prepare", RepoAbs: dir, Depth: 2, StopPackages: []string{"example.com/m/svc"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,10 +246,10 @@ func helper() error { return nil }
 	}, []*domain.Fact{
 		// 接口 → 实现
 		{SourceID: "symbol:go:example.com/m:Svc", TargetID: "symbol:go:example.com/m:svcImpl",
-			Kind:	domain.FactImplements, Confidence: 1.0},
+			Kind: domain.FactImplements, Confidence: 1.0},
 		// 实现方法内部调用 helper
 		{SourceID: "symbol:go:example.com/m:(svcImpl).Run", TargetID: "symbol:go:example.com/m:helper",
-			Kind:	domain.FactCalls, Confidence: 1.0, Metadata: map[string]any{"line_num": 11}},
+			Kind: domain.FactCalls, Confidence: 1.0, Metadata: map[string]any{"line_num": 11}},
 	}, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +261,7 @@ func helper() error { return nil }
 func TestCodeSequenceIfaceEntry(t *testing.T) {
 	acts, dir := seedIfaceEntryRepo(t)
 	root, err := acts.CodeSequence(CodeSequenceRequest{
-		Target:	"symbol:go:example.com/m:(Svc).Run", RepoAbs: dir, Depth: 1})
+		Target: "symbol:go:example.com/m:(Svc).Run", RepoAbs: dir, Depth: 1})
 	if err != nil {
 		t.Fatal(err)
 	}

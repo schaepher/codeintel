@@ -44,10 +44,19 @@ func renderCodeSeqMermaid(root *action.CodeSeqNode) string {
 }
 
 // collectTypes 收集参与者 → 短类型名（首个出现的调用节点为准）。
+// P0-5：数据流具体化命中时合并"声明接口 → 数据流实现"双行
+// （s.manager 字段声明 IManager、数据流实现 orderManagerImpl）。
 func collectTypes(nodes []*action.CodeSeqNode, out map[string]string) {
 	for _, n := range nodes {
 		if n.Kind == "call" && n.Type != "" && out[n.Actor] == "" {
-			out[n.Actor] = n.Type
+			t := n.Type
+			switch {
+			case n.DeclType != "" && n.ImplType != "":
+				t = n.DeclType + " → " + n.ImplType
+			case n.ImplType != "" && n.ImplType != t:
+				t += " → " + n.ImplType
+			}
+			out[n.Actor] = t
 		}
 		collectTypes(n.Nodes, out)
 		collectTypes(n.Else, out)

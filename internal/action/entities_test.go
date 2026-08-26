@@ -193,9 +193,15 @@ func entitiesDiagFixture(t *testing.T) *Actions {
 		facts = append(facts, &domain.Fact{SourceID: domain.CanonicalID(t), TargetID: domain.CanonicalID(m),
 			Kind: domain.FactHasMethod, ToolSource: domain.ToolCodeGraph, Confidence: 1})
 	}
-	mkType := func(id string) { nodes = append(nodes, &domain.CodeEntity{ID: domain.CanonicalID(id), Kind: domain.KindStruct, Name: id[strings.LastIndex(id, ":")+1:]}) }
-	mkMethod := func(id string) { nodes = append(nodes, &domain.CodeEntity{ID: domain.CanonicalID(id), Kind: domain.KindMethod, Name: id[strings.LastIndex(id, ":")+1:]}) }
-	mkFunc := func(id string) { nodes = append(nodes, &domain.CodeEntity{ID: domain.CanonicalID(id), Kind: domain.KindFunction, Name: id[strings.LastIndex(id, ":")+1:]}) }
+	mkType := func(id string) {
+		nodes = append(nodes, &domain.CodeEntity{ID: domain.CanonicalID(id), Kind: domain.KindStruct, Name: id[strings.LastIndex(id, ":")+1:]})
+	}
+	mkMethod := func(id string) {
+		nodes = append(nodes, &domain.CodeEntity{ID: domain.CanonicalID(id), Kind: domain.KindMethod, Name: id[strings.LastIndex(id, ":")+1:]})
+	}
+	mkFunc := func(id string) {
+		nodes = append(nodes, &domain.CodeEntity{ID: domain.CanonicalID(id), Kind: domain.KindFunction, Name: id[strings.LastIndex(id, ":")+1:]})
+	}
 
 	// 高耦合对（跨包）：hc1.A 的 4 方法 × hc2.B 的 5 方法 = 20 条边
 	mkType(typeID("hc1", "A"))

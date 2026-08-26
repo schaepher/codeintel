@@ -86,8 +86,8 @@ func (s *orderServiceImpl) SubmitOrder() error {
 }
 `
 	acts, dir := seedSeqDataflow(t, map[string]string{
-		"go.mod":   seqDataflowGoMod,
-		"main.go":  src,
+		"go.mod":  seqDataflowGoMod,
+		"main.go": src,
 	}, "symbol:go:example.com/m:NewOrderServiceImpl", ".orderServiceImpl.manager")
 	got := acts.receiverFieldImpl(CodeSequenceRequest{RepoAbs: dir}, "orderServiceImpl", "manager", "SubmitOrder")
 	if got != "symbol:go:example.com/m:(orderManagerImpl).SubmitOrder" {
@@ -123,8 +123,8 @@ func NewOrderServiceImpl() *orderServiceImpl {
 }
 `
 	acts, dir := seedSeqDataflow(t, map[string]string{
-		"go.mod":    seqDataflowGoMod,
-		"main.go":   mainSrc,
+		"go.mod":     seqDataflowGoMod,
+		"main.go":    mainSrc,
 		"svc/svc.go": svc,
 	}, "symbol:go:example.com/m:NewOrderServiceImpl", ".orderServiceImpl.manager")
 	got := acts.receiverFieldImpl(CodeSequenceRequest{RepoAbs: dir}, "orderServiceImpl", "manager", "SubmitOrder")
@@ -213,3 +213,7 @@ func NewOrderServiceImpl() *orderServiceImpl {
 		t.Fatalf("条件分支形态 = %q; want (orderManagerImpl).SubmitOrder", got)
 	}
 }
+
+// TestSeqNodeImplType：P0-5——数据流具体化命中时 ImplType 记录实现
+// 类型、Type 保留声明（接口）类型——参与者第二行"声明接口 → 数据流
+// 实现"双行显示。

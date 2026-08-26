@@ -13,19 +13,19 @@ import (
 	"strings"
 )
 
-
 // enumEntry 一个枚举常量。
 type EnumEntry struct {
-	Pkg	string	`json:"pkg"`		// 包路径（短名）/ proto package
-	Type	string	`json:"type"`		// 枚举类型（空 = 无类型 const 组）
-	Group	string	`json:"group"`		// 所在 const 块（首常量名）/ 枚举名
-	Name	string	`json:"name"`		// 常量名/值名
-	Value	string	`json:"value"`		// 字符串值/值号
-	Comment	string	`json:"comment"`	// 行内注释
-	File	string	`json:"file"`		// 定义文件
-	Line	int	`json:"line"`		// 定义行
-	Source	string	`json:"source"`		// 来源：go | proto（R29 grpc 枚举）
+	Pkg     string `json:"pkg"`     // 包路径（短名）/ proto package
+	Type    string `json:"type"`    // 枚举类型（空 = 无类型 const 组）
+	Group   string `json:"group"`   // 所在 const 块（首常量名）/ 枚举名
+	Name    string `json:"name"`    // 常量名/值名
+	Value   string `json:"value"`   // 字符串值/值号
+	Comment string `json:"comment"` // 行内注释
+	File    string `json:"file"`    // 定义文件
+	Line    int    `json:"line"`    // 定义行
+	Source  string `json:"source"`  // 来源：go | proto（R29 grpc 枚举）
 }
+
 // extractEnums 提取仓库内字符串枚举常量（类型化或 const 块内字符串
 // 字面量）——排除 _test.go 与外部目录（R29：全仓扫，不再限 internal/；
 // 跳过 _pb.go 生成代码——枚举由 .proto 源提供）。onlyTyped=true 时
@@ -53,7 +53,7 @@ func Enums(repoAbs string, onlyTyped bool) []EnumEntry {
 			if !ok || gd.Tok != token.CONST {
 				continue
 			}
-			var groupName string	// const 块首常量名（分组）
+			var groupName string // const 块首常量名（分组）
 			for _, spec := range gd.Specs {
 				vs, ok := spec.(*ast.ValueSpec)
 				if !ok || len(vs.Names) == 0 || len(vs.Values) == 0 {
@@ -88,10 +88,10 @@ func Enums(repoAbs string, onlyTyped bool) []EnumEntry {
 					comment = strings.TrimSpace(strings.TrimPrefix(vs.Comment.Text(), "//"))
 				}
 				out = append(out, EnumEntry{
-					Pkg:	pkg, Type: typ, Group: groupName,
-					Name:	vs.Names[0].Name, Value: val, Comment: comment,
-					File:	filepath.ToSlash(path), Line: fset.Position(vs.Pos()).Line,
-					Source:	"go",
+					Pkg: pkg, Type: typ, Group: groupName,
+					Name: vs.Names[0].Name, Value: val, Comment: comment,
+					File: filepath.ToSlash(path), Line: fset.Position(vs.Pos()).Line,
+					Source: "go",
 				})
 			}
 		}
@@ -110,6 +110,7 @@ func Enums(repoAbs string, onlyTyped bool) []EnumEntry {
 	})
 	return out
 }
+
 // exprName AST 表达式短名（*ast.Ident / SelectorExpr 末段）。
 // ExprName AST 表达式短名（*ast.Ident / SelectorExpr 末段）。
 func ExprName(e ast.Expr) string {
@@ -121,6 +122,7 @@ func ExprName(e ast.Expr) string {
 	}
 	return ""
 }
+
 // strconvUnquote 去掉字符串字面量引号（含反引号）。
 // StrconvUnquote 去掉字符串字面量引号（含反引号）。
 func StrconvUnquote(s string) (string, error) {

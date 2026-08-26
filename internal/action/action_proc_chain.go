@@ -25,8 +25,8 @@ type ProcChain struct {
 	Entry    string // 入口符号名
 	Steps    []domain.WikiSeqStep
 	Pkgs     []string
-	Miss     string         // R50：无调用链的原因（区分索引问题 vs 仅调用外部库）
-	KeyFlows []WikiKeyFlow  // R78：链上符号关键数据流（字段读写——value-trace 串联）
+	Miss     string        // R50：无调用链的原因（区分索引问题 vs 仅调用外部库）
+	KeyFlows []WikiKeyFlow // R78：链上符号关键数据流（字段读写——value-trace 串联）
 }
 
 // QueryChain 查询入口符号的深度 2 调用链 + 涉及包（短名展示）。

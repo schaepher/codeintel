@@ -24,8 +24,8 @@ func diagnoseEntities(g *domain.EntityGraph, byID map[string]*domain.EntityNode,
 	for _, e := range g.Edges {
 		if e.Count >= domain.DiagCoupledMin && pkgOfEntityID(e.From) != pkgOfEntityID(e.To) {
 			diags = append(diags, &domain.EntityDiag{
-				Kind:	domain.DiagCoupled, Target: short(e.From) + "→" + short(e.To),
-				Detail:	fmt.Sprintf("%d 次方法互调（≥%d）", e.Count, domain.DiagCoupledMin),
+				Kind: domain.DiagCoupled, Target: short(e.From) + "→" + short(e.To),
+				Detail: fmt.Sprintf("%d 次方法互调（≥%d）", e.Count, domain.DiagCoupledMin),
 			})
 		}
 	}
@@ -52,8 +52,8 @@ func diagnoseEntities(g *domain.EntityGraph, byID map[string]*domain.EntityNode,
 							if !visited[key] {
 								visited[key] = true
 								diags = append(diags, &domain.EntityDiag{
-									Kind:	domain.DiagCycle, Target: key,
-									Detail:	"跨包实体循环依赖（" + short(cyc[len(cyc)-1]) + "→" + short(cyc[0]) + "）",
+									Kind: domain.DiagCycle, Target: key,
+									Detail: "跨包实体循环依赖（" + short(cyc[len(cyc)-1]) + "→" + short(cyc[0]) + "）",
 								})
 							}
 						}
@@ -82,7 +82,7 @@ func diagnoseEntities(g *domain.EntityGraph, byID map[string]*domain.EntityNode,
 		if n.MethodCount >= domain.DiagGodMethods || n.OutCalls >= domain.DiagGodOutCalls {
 			detail := fmt.Sprintf("%d 方法 / %d 出边", n.MethodCount, n.OutCalls)
 			diags = append(diags, &domain.EntityDiag{Kind: domain.DiagGodObject,
-				Target:	short(n.ID), Detail: detail})
+				Target: short(n.ID), Detail: detail})
 		}
 	}
 
@@ -92,8 +92,8 @@ func diagnoseEntities(g *domain.EntityGraph, byID map[string]*domain.EntityNode,
 		}
 		if n.FreeFuncs >= 8 && n.FreeFuncs > pkgMethods[n.Pkg]+1 {
 			diags = append(diags, &domain.EntityDiag{Kind: domain.DiagFaceHeavy,
-				Target:	short(n.ID),
-				Detail:	fmt.Sprintf("%d 游离函数 > 包内 %d 个方法——考虑类型封装", n.FreeFuncs, pkgMethods[n.Pkg])})
+				Target: short(n.ID),
+				Detail: fmt.Sprintf("%d 游离函数 > 包内 %d 个方法——考虑类型封装", n.FreeFuncs, pkgMethods[n.Pkg])})
 		}
 	}
 

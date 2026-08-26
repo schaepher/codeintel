@@ -100,7 +100,7 @@ func TestQueryHTTPRoutesHandlerID(t *testing.T) {
 			Name: "GET /ping", Properties: map[string]any{
 				"method": "GET", "path": "/ping", "handler": "pingHandler",
 				"handler_id": "symbol:go:example.com/m/api:pingHandler",
-				"resolver": "gin", "register": "api/routes.go:20",
+				"resolver":   "gin", "register": "api/routes.go:20",
 			}},
 		{ID: "symbol:go:example.com/m/api:route.2", Kind: domain.KindHTTPRoute,
 			Name: " /", Properties: map[string]any{

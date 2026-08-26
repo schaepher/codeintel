@@ -173,3 +173,26 @@ func TestCodeSequenceNestedMermaid(t *testing.T) {
 		t.Errorf("mermaid 应含嵌套消息（From=LoadItems）:\n%s", m)
 	}
 }
+
+// TestSeqRenderDeclImplType：P0-5——参与者第二行"声明接口 → 数据流
+// 实现"双行合并（DeclType + ImplType 都有时）。
+func TestSeqRenderDeclImplType(t *testing.T) {
+	root := &action.CodeSeqNode{Kind: "call", Label: "Run", Line: 1,
+		Nodes: []*action.CodeSeqNode{{
+			Kind: "call", Label: "s.manager.SubmitOrder", Actor: "s.manager", Line: 2,
+			Type: "m.orderManagerImpl", DeclType: "IManager", ImplType: "m.orderManagerImpl",
+		}}}
+	m := renderCodeSeqMermaid(root)
+	if !strings.Contains(m, "s.manager<br/>IManager → m.orderManagerImpl") {
+		t.Errorf("参与者第二行应合并声明接口 → 数据流实现:\n%s", m)
+	}
+	// 无 DeclType/ImplType 时保持单行 Type（现状不回归）
+	root2 := &action.CodeSeqNode{Kind: "call", Label: "Run", Line: 1,
+		Nodes: []*action.CodeSeqNode{{
+			Kind: "call", Label: "r.Load", Actor: "r", Line: 2, Type: "m.orderRepo",
+		}}}
+	m2 := renderCodeSeqMermaid(root2)
+	if !strings.Contains(m2, "r<br/>m.orderRepo") {
+		t.Errorf("无数据流时保持单行类型:\n%s", m2)
+	}
+}

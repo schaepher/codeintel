@@ -25,10 +25,10 @@ type TablePathStep struct {
 // CandidatesTruncated（Q244）：同跳数候选超上限截断标记——CLI --json
 // 与 MCP 默认截断（capTablePathCandidates），--full 全列。
 type TablePathResult struct {
-	Path                []TablePathStep   `json:"path"`                     // 最优路径（类型序列最优先）
-	Candidates          [][]TablePathStep `json:"candidates,omitempty"`     // 同跳数最短路径（可截断）
+	Path                []TablePathStep   `json:"path"`                           // 最优路径（类型序列最优先）
+	Candidates          [][]TablePathStep `json:"candidates,omitempty"`           // 同跳数最短路径（可截断）
 	CandidatesTruncated bool              `json:"candidates_truncated,omitempty"` // 候选被截断（Q244）
-	Hops                int               `json:"hops"`                     // 跳数（边数）
+	Hops                int               `json:"hops"`                           // 跳数（边数）
 	Reachable           bool              `json:"reachable"`
 }
 
@@ -37,10 +37,10 @@ var relTypeRank = map[string]int{"fk": 0, "query": 1, "write": 2, "read": 3}
 
 // tableEdge 表级邻接边。
 type tableEdge struct {
-	to       string
-	fromCol  string
-	toCol    string
-	rtype    string
+	to      string
+	fromCol string
+	toCol   string
+	rtype   string
 }
 
 // TablePath 表 A → 表 B 最短通路（Q241）。

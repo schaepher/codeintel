@@ -7,39 +7,37 @@ package action
 
 import (
 	"go/ast"
-	"go/parser"
 	"go/token"
-	"os"
-	"path/filepath"
 	"strings"
 
-	"github.com/schaepher/codeintel/internal/domain"
 	"go.uber.org/zap"
 )
 
 // CodeSequenceRequest query sequence --code 参数。
 type CodeSequenceRequest struct {
-	Target		string		// 符号名或 canonical ID
-	RepoAbs		string		// 仓库绝对路径（源码读取）
-	Depth		int		// 嵌套层级（1 = 只本函数；>1 递归展开被调函数内部）
-	StopPackages	[]string	// 停止包列表（cli 从 config.yaml 读取——命中不深入）
+	Target       string   // 符号名或 canonical ID
+	RepoAbs      string   // 仓库绝对路径（源码读取）
+	Depth        int      // 嵌套层级（1 = 只本函数；>1 递归展开被调函数内部）
+	StopPackages []string // 停止包列表（cli 从 config.yaml 读取——命中不深入）
 	// 内部：递归展开路径防环（R97——grpc 实现内部调接口、接口具体化
 	// 回到同一 grpc 实现时自环；路径语义：进入标记、退出清除，不同
 	// 分支互不影响）
-	visited	map[string]bool
+	visited map[string]bool
 }
 
 // CodeSeqNode 代码级时序节点（树——分支/循环/嵌套调用）。
 type CodeSeqNode struct {
-	Kind	string		// call | branch | loop
-	Label	string		// call: 调用名（obj.Method/fn）；branch: 条件；loop: 循环条件
-	Actor	string		// R83：call 参与者（调用对象——s.manager/t.repo/ic；函数为函数名）
-	Type	string		// R83：参与者短类型名（包最后路径段.类型名——索引实现类型）
-	Args	[]string	// R83：参数类型短名（消息线内容）
-	Returns	[]string	// R83：返回类型短名（return 线内容）
-	Line	int		// 源码行号
-	Nodes	[]*CodeSeqNode	// 子节点（branch: then 分支；loop: 循环体；call: 嵌套展开的被调函数调用）
-	Else	[]*CodeSeqNode	// branch: else 分支（可选）
+	Kind     string         // call | branch | loop
+	Label    string         // call: 调用名（obj.Method/fn）；branch: 条件；loop: 循环条件
+	Actor    string         // R83：call 参与者（调用对象——s.manager/t.repo/ic；函数为函数名）
+	Type     string         // R83：参与者短类型名（包最后路径段.类型名——索引实现类型）
+	DeclType string         // P0-5：receiver 字段声明类型（接口——"声明接口"）
+	ImplType string         // P0-5：数据流实现类型（R97-2 具体化命中时——声明接口 → 数据流实现双行）
+	Args     []string       // R83：参数类型短名（消息线内容）
+	Returns  []string       // R83：返回类型短名（return 线内容）
+	Line     int            // 源码行号
+	Nodes    []*CodeSeqNode // 子节点（branch: then 分支；loop: 循环体；call: 嵌套展开的被调函数调用）
+	Else     []*CodeSeqNode // branch: else 分支（可选）
 }
 
 // CodeSequence 解析目标函数的代码级时序（读源码 AST——纯语法不依赖
@@ -69,77 +67,21 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 
 // codeSeqForSymbol 按符号 ID 解析函数体（递归入口——嵌套展开用
 // canonical ID 直接解析；depth = 当前剩余嵌套层级）。
-func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth int) *CodeSeqNode {
-	// R97：路径防环——展开链上已出现的符号再次展开 → 不再深入
-	// （grpc 实现内部调接口、接口具体化回到同一 grpc 实现的自环）
-	if req.visited[symID] {
-		return nil
-	}
-	req.visited[symID] = true
-	defer delete(req.visited, symID)
-	n, err := a.repo.GetSymbol(domain.CanonicalID(symID))
-	if err != nil || n.FilePath == "" {
-		return nil
-	}
-	src, err := os.ReadFile(filepath.Join(req.RepoAbs, n.FilePath))
-	if err != nil {
-		return nil
-	}
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, n.FilePath, src, 0)
-	if err != nil {
-		return nil
-	}
-	// 定位目标函数（LineStart 在函数体范围内）
-	var fn *ast.FuncDecl
-	ast.Inspect(f, func(node ast.Node) bool {
-		if fd, ok := node.(*ast.FuncDecl); ok {
-			start := fset.Position(fd.Pos()).Line
-			end := fset.Position(fd.End()).Line
-			if n.LineStart >= start && n.LineStart <= end {
-				fn = fd
-				return false
-			}
-		}
-		return true
-	})
-	if fn == nil {
-		return nil
-	}
-
-	lineTargets := map[int]string{}
-	if facts, err := a.CalleesConcrete(domain.CanonicalID(symID), 1); err == nil {
-		for _, f := range facts {
-			if ln, ok := f.Metadata["line_num"].(float64); ok {
-				lineTargets[int(ln)] = string(f.TargetID)
-			}
-		}
-	}
-	// R97-2：当前方法 receiver 类型（数据流具体化——receiver 字段
-	// s.manager 的赋值来源追踪）
-	recvType := ""
-	if fn.Recv != nil && len(fn.Recv.List) > 0 {
-		recvType = recvTypeName(fn.Recv.List[0].Type)
-	}
-	root := &CodeSeqNode{Kind: "call", Label: fn.Name.Name, Line: n.LineStart}
-	root.Nodes = walkStmts(a, req, fset, src, fn.Body.List, lineTargets, depth, recvType)
-	return root
-}
 
 // recvTypeName receiver 类型 AST → 类型名（*T / T → T；跨包形态
 // pkg.T → T——同包字段写入常见）。
 
 // walkStmts 遍历语句列表生成步骤（调用语句 / 分支 / 循环 / 块递归）。
-func walkStmts(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []byte, stmts []ast.Stmt, lineTargets map[int]string, depth int, recvType string) []*CodeSeqNode {
+func walkStmts(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []byte, stmts []ast.Stmt, lineTargets map[int]string, depth int, recvType string, recvDecl map[string]string) []*CodeSeqNode {
 	var out []*CodeSeqNode
 	for _, st := range stmts {
-		out = append(out, walkStmt(a, req, fset, src, st, lineTargets, depth, recvType)...)
+		out = append(out, walkStmt(a, req, fset, src, st, lineTargets, depth, recvType, recvDecl)...)
 	}
 	return out
 }
 
 // walkStmt 单条语句 → 步骤（可能多条：赋值内多个调用）。
-func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []byte, stmt ast.Stmt, lineTargets map[int]string, depth int, recvType string) []*CodeSeqNode {
+func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []byte, stmt ast.Stmt, lineTargets map[int]string, depth int, recvType string, recvDecl map[string]string) []*CodeSeqNode {
 	callNode := func(fun ast.Expr, line int) *CodeSeqNode {
 		node := &CodeSeqNode{Kind: "call", Label: callLabel(fset, src, fun), Actor: callActor(fset, src, fun), Line: line}
 		// R83：签名提取（类型节点用 AST 方法名构造 (Impl).Method 再查）
@@ -168,6 +110,12 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 				if sel, isSel := fun.(*ast.SelectorExpr); isSel && recvType != "" {
 					if field, ok2 := receiverFieldSel(sel, recvType); ok2 {
 						if implMethod := a.receiverFieldImpl(req, recvType, field, sel.Sel.Name); implMethod != "" {
+							// P0-5：数据流实现类型 + 字段声明类型（参与
+							// 者第二行——声明接口 → 数据流实现双行显示）
+							node.ImplType = implTypeShort(implMethod)
+							if decl, ok := recvDecl[field]; ok {
+								node.DeclType = decl
+							}
 							if child := codeSeqForSymbol(a, req, implMethod, depth-1); child != nil {
 								node.Nodes = child.Nodes
 								return node
@@ -205,11 +153,11 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		return out
 	case *ast.IfStmt:
 		node := &CodeSeqNode{Kind: "branch", Label: seqExprText(fset, src, s.Cond), Line: fset.Position(s.Cond.Pos()).Line}
-		node.Nodes = walkStmts(a, req, fset, src, s.Body.List, lineTargets, depth, recvType)
+		node.Nodes = walkStmts(a, req, fset, src, s.Body.List, lineTargets, depth, recvType, recvDecl)
 		if blk, ok := s.Else.(*ast.BlockStmt); ok {
-			node.Else = walkStmts(a, req, fset, src, blk.List, lineTargets, depth, recvType)
+			node.Else = walkStmts(a, req, fset, src, blk.List, lineTargets, depth, recvType, recvDecl)
 		} else if elseIf, ok := s.Else.(*ast.IfStmt); ok {
-			node.Else = walkStmt(a, req, fset, src, elseIf, lineTargets, depth, recvType)	// else if 链（渲染为 else 内分支）
+			node.Else = walkStmt(a, req, fset, src, elseIf, lineTargets, depth, recvType, recvDecl) // else if 链（渲染为 else 内分支）
 		}
 		return []*CodeSeqNode{node}
 	case *ast.ForStmt:
@@ -218,12 +166,12 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 			label = "无限循环"
 		}
 		return []*CodeSeqNode{{Kind: "loop", Label: label, Line: fset.Position(s.Pos()).Line,
-			Nodes:	walkStmts(a, req, fset, src, s.Body.List, lineTargets, depth, recvType)}}
+			Nodes: walkStmts(a, req, fset, src, s.Body.List, lineTargets, depth, recvType, recvDecl)}}
 	case *ast.RangeStmt:
 		return []*CodeSeqNode{{Kind: "loop", Label: "range " + seqExprText(fset, src, s.X), Line: fset.Position(s.Pos()).Line,
-			Nodes:	walkStmts(a, req, fset, src, s.Body.List, lineTargets, depth, recvType)}}
+			Nodes: walkStmts(a, req, fset, src, s.Body.List, lineTargets, depth, recvType, recvDecl)}}
 	case *ast.BlockStmt:
-		return walkStmts(a, req, fset, src, s.List, lineTargets, depth, recvType)
+		return walkStmts(a, req, fset, src, s.List, lineTargets, depth, recvType, recvDecl)
 	case *ast.DeferStmt:
 		return []*CodeSeqNode{callNode(s.Call.Fun, fset.Position(s.Call.Pos()).Line)}
 	case *ast.GoStmt:
@@ -247,7 +195,7 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		for _, st := range s.Body.List {
 			if cc, ok := st.(*ast.CaseClause); ok {
 				caseNode := &CodeSeqNode{Kind: "branch", Label: "case " + caseExpr(fset, src, cc), Line: fset.Position(cc.Pos()).Line}
-				caseNode.Nodes = walkStmts(a, req, fset, src, cc.Body, lineTargets, depth, recvType)
+				caseNode.Nodes = walkStmts(a, req, fset, src, cc.Body, lineTargets, depth, recvType, recvDecl)
 				node.Nodes = append(node.Nodes, caseNode)
 			}
 		}
@@ -257,7 +205,7 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		for _, st := range s.Body.List {
 			if cc, ok := st.(*ast.CaseClause); ok {
 				caseNode := &CodeSeqNode{Kind: "branch", Label: "case " + caseExpr(fset, src, cc), Line: fset.Position(cc.Pos()).Line}
-				caseNode.Nodes = walkStmts(a, req, fset, src, cc.Body, lineTargets, depth, recvType)
+				caseNode.Nodes = walkStmts(a, req, fset, src, cc.Body, lineTargets, depth, recvType, recvDecl)
 				node.Nodes = append(node.Nodes, caseNode)
 			}
 		}
@@ -280,3 +228,15 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 // 类型名（&orderManagerImpl{} → orderManagerImpl；构造器调用
 // newOrderManager() → newOrderManager 的返回？MVP：字面量与同包
 // Ident）。返回 (类型名, 包路径)。
+
+// exprTypeName 类型表达式 → 短名（Ident → 名；SelectorExpr pkg.T → T）
+// ——P0-5 receiver 字段声明类型提取。
+func exprTypeName(t ast.Expr) string {
+	if id, ok := t.(*ast.Ident); ok {
+		return id.Name
+	}
+	if sel, ok := t.(*ast.SelectorExpr); ok {
+		return sel.Sel.Name
+	}
+	return ""
+}

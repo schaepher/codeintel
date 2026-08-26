@@ -13,13 +13,13 @@ import (
 
 // CodeContext 节点全链上下文。
 type CodeContext struct {
-	Symbol   *domain.CodeEntity                `json:"symbol"`
-	Callers  []*domain.Fact                    `json:"callers,omitempty"`  // 调用者（depth 1）
-	Callees  []*domain.Fact                    `json:"callees,omitempty"`  // 被调用者（depth 1）
-	Fields   *ContextFields                    `json:"fields,omitempty"`   // 函数字段读写摘要
-	Chain    []SummaryStep                     `json:"chain,omitempty"`    // 生命周期主链（带条件标注）
-	Traces   []*domain.TraceRow                `json:"traces,omitempty"`   // 值流全链（depth 4）
-	Dispatch []*domain.Fact                    `json:"dispatch,omitempty"` // 动态派发候选（接口节点）
+	Symbol   *domain.CodeEntity `json:"symbol"`
+	Callers  []*domain.Fact     `json:"callers,omitempty"`  // 调用者（depth 1）
+	Callees  []*domain.Fact     `json:"callees,omitempty"`  // 被调用者（depth 1）
+	Fields   *ContextFields     `json:"fields,omitempty"`   // 函数字段读写摘要
+	Chain    []SummaryStep      `json:"chain,omitempty"`    // 生命周期主链（带条件标注）
+	Traces   []*domain.TraceRow `json:"traces,omitempty"`   // 值流全链（depth 4）
+	Dispatch []*domain.Fact     `json:"dispatch,omitempty"` // 动态派发候选（接口节点）
 }
 
 // ContextFields 字段摘要按访问类型分组。
