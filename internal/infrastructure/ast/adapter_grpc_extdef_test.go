@@ -117,3 +117,54 @@ func run() {
 		}
 	}
 }
+
+// TestGrpcExternalRegisterIfaceArg：调用点第二参是外部接口变量（业务
+// 实现经变量/注入传入——真实系统常见形态）——grpc_impl 边 source 为
+// 外部接口（kind=interface），查询端经 implements 边追业务实现。
+func TestGrpcExternalRegisterIfaceArg(t *testing.T) {
+	_, facts := indexFixture(t, map[string]string{
+		"go.mod": "module example.com/mtest\n\ngo 1.21\n\nrequire example.com/proto v0.0.0\n\nreplace example.com/proto => ../proto\n",
+		"../proto/go.mod":    "module example.com/proto\n\ngo 1.21\n",
+		"../proto/greet.pb.go": `package proto
+
+type Registrar interface{ RegisterService(desc any, impl any) }
+
+type GreeterServer interface{ SayHello(string) string }
+
+func RegisterGreeterServer(s Registrar, impl GreeterServer) {
+	s.RegisterService(nil, impl)
+}
+`,
+		"main.go": `package mtest
+
+import (
+	"example.com/proto"
+)
+
+type greeterImpl struct{}
+
+func (g *greeterImpl) SayHello(s string) string { return s }
+
+func register(s proto.Registrar) {
+	// 真实形态：接口变量承载业务实现（依赖注入）
+	var srv proto.GreeterServer = &greeterImpl{}
+	proto.RegisterGreeterServer(s, srv)
+}
+`,
+	})
+	found := false
+	for _, f := range facts {
+		if f.Kind == domain.FactGrpcImpl {
+			if string(f.SourceID) != "symbol:go:example.com/proto:GreeterServer" {
+				t.Errorf("grpc_impl source = %s; want 外部接口 GreeterServer（接口变量形态）", f.SourceID)
+			}
+			if string(f.TargetID) != "symbol:go:example.com/proto:svc.Greeter" {
+				t.Errorf("grpc_impl target = %s; want svc.Greeter", f.TargetID)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Error("接口变量调用点未产生 grpc_impl 边（外部接口 → svc）")
+	}
+}

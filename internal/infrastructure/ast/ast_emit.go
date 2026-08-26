@@ -207,13 +207,24 @@ func serviceImplNode(pkg *packages.Package, call *ast.CallExpr, repo *domain.Rep
 		return nil
 	}
 	obj := named.Obj()
-	if obj.Pkg() == nil || !isInModule(obj.Pkg().Path(), repo.Modules) {
+	if obj.Pkg() == nil {
+		return nil
+	}
+	// R90：第二参为外部接口（proto 生成的 XxxServer——业务实现经变量/
+	// 依赖注入传入，如 `var srv pb.GreeterServer = &impl{}; Register(s, srv)`）
+	// → 发接口节点（kind=interface）；查询端 grpcImpl 经 implements 边
+	// 追业务实现（R37 已有追链）。模块内具体类型照旧直连。外部具体
+	// 类型（非接口）——非本仓库实现，跳过。
+	kind := domain.KindStruct
+	if _, isIface := named.Underlying().(*types.Interface); isIface {
+		kind = domain.KindInterface
+	} else if !isInModule(obj.Pkg().Path(), repo.Modules) {
 		return nil
 	}
 	pos := pkg.Fset.PositionFor(obj.Pos(), false)
 	return &domain.CodeEntity{
 		ID:        canonicalizer.GoSymbolID(obj.Pkg().Path(), obj.Name()),
-		Kind:      domain.KindStruct,
+		Kind:      kind,
 		Name:      obj.Name(),
 		FilePath:  relPath(repo.Path, pos.Filename),
 		LineStart: pos.Line,
