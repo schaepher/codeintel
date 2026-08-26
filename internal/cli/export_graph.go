@@ -14,49 +14,16 @@ import (
 
 // cmdExportGraph 实现 `codeintel export graph`（Q89）：
 //
-//	--type value-trace|callees --target <节点> [--format mermaid|dot] [--out file]
+//	--type value-trace|callees [|lifecycle|modules] --target <节点> [--format mermaid|dot] [--out file]
 //
 // value-trace 默认 mermaid（flowchart 子图表达函数分组）；callees 默认 dot。
-// 数据来自 action 层（复用查询用例，Q86 CLI 主通道）。
+// R9x：图数据获取/编排迁 action（Actions.ExportGraph）；本文件只做
+// 参数解析 + 渲染（mermaid/dot 文本拼装）+ 输出。
 func cmdExportGraph(args []string) int {
 	logger := zap.L()
 	logger.Debug("enter cmdExportGraph")
 	defer logger.Debug("exit cmdExportGraph")
-	graphType := ""
-	target := ""
-	format := ""
-	outPath := ""
-	repoPath := "."
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
-		case a == "--type" && i+1 < len(args):
-			graphType = args[i+1]
-			i++
-		case strings.HasPrefix(a, "--type="):
-			graphType = strings.TrimPrefix(a, "--type=")
-		case a == "--target" && i+1 < len(args):
-			target = args[i+1]
-			i++
-		case strings.HasPrefix(a, "--target="):
-			target = strings.TrimPrefix(a, "--target=")
-		case a == "--format" && i+1 < len(args):
-			format = args[i+1]
-			i++
-		case strings.HasPrefix(a, "--format="):
-			format = strings.TrimPrefix(a, "--format=")
-		case a == "--out" && i+1 < len(args):
-			outPath = args[i+1]
-			i++
-		case strings.HasPrefix(a, "--out="):
-			outPath = strings.TrimPrefix(a, "--out=")
-		case a == "--repo" && i+1 < len(args):
-			repoPath = args[i+1]
-			i++
-		case strings.HasPrefix(a, "--repo="):
-			repoPath = strings.TrimPrefix(a, "--repo=")
-		}
-	}
+	graphType, target, format, outPath, repoPath := parseExportGraphFlags(args)
 	if graphType != "value-trace" && graphType != "callees" && graphType != "lifecycle" && graphType != "modules" {
 		fmt.Fprintln(os.Stderr, "error: --type 须为 value-trace / callees / lifecycle / modules")
 		return 2
@@ -93,30 +60,23 @@ func cmdExportGraph(args []string) int {
 	defer db.Close()
 	acts := action.New(sqlite.NewRepo(db))
 
+	res, err := acts.ExportGraph(action.ExportGraphRequest{Type: graphType, Target: target})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
 	var output string
-	anchor := domain.CanonicalID(target)
 	switch {
 	case graphType == "callees":
-		output, err = renderCalleesDot(acts, anchor)
+		output, err = renderCalleesDot(res.Facts)
 	case graphType == "modules":
-
-		calls, merr := acts.ModuleCalls("")
-		if merr != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", merr)
-			return 1
-		}
-		output = renderModulesMermaid(calls)
+		output = renderModulesMermaid(res.Calls)
 	case graphType == "lifecycle":
-
-		if anchor, err = acts.ResolveAnchor(target); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			return 1
-		}
-		output, err = renderLifecycleMermaid(acts, anchor)
+		output = renderLifecycleMermaid(res.Rows)
 	case format == "mermaid":
-		output, err = renderValueTraceMermaid(acts, anchor)
+		output = renderValueTraceMermaid(res.Rows)
 	default:
-		output, err = renderValueTraceDot(acts, anchor)
+		output = renderValueTraceDot(res.Rows)
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -134,12 +94,45 @@ func cmdExportGraph(args []string) int {
 	return 0
 }
 
-// renderCalleesDot 渲染 callees 为 DOT digraph（节点用短名，边带 kind）。
-func renderCalleesDot(acts *action.Actions, id domain.CanonicalID) (string, error) {
-	facts, err := acts.Callees(id, 1)
-	if err != nil {
-		return "", err
+// parseExportGraphFlags 解析 export graph 参数（--type/--target/
+// --format/--out/--repo，支持 --x=y 与 --x y 两种形态）。
+func parseExportGraphFlags(args []string) (graphType, target, format, outPath, repoPath string) {
+	repoPath = "."
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--type" && i+1 < len(args):
+			graphType = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--type="):
+			graphType = strings.TrimPrefix(a, "--type=")
+		case a == "--target" && i+1 < len(args):
+			target = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--target="):
+			target = strings.TrimPrefix(a, "--target=")
+		case a == "--format" && i+1 < len(args):
+			format = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--format="):
+			format = strings.TrimPrefix(a, "--format=")
+		case a == "--out" && i+1 < len(args):
+			outPath = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--out="):
+			outPath = strings.TrimPrefix(a, "--out=")
+		case a == "--repo" && i+1 < len(args):
+			repoPath = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--repo="):
+			repoPath = strings.TrimPrefix(a, "--repo=")
+		}
 	}
+	return graphType, target, format, outPath, repoPath
+}
+
+// renderCalleesDot 渲染 callees 为 DOT digraph（节点用短名，边带 kind）。
+func renderCalleesDot(facts []*domain.Fact) (string, error) {
 	var sb strings.Builder
 	sb.WriteString("digraph callees {\n")
 	sb.WriteString("  rankdir=LR;\n")
@@ -153,11 +146,7 @@ func renderCalleesDot(acts *action.Actions, id domain.CanonicalID) (string, erro
 
 // renderValueTraceMermaid 渲染 value-trace 为 mermaid flowchart，
 // 函数上下文用 subgraph 分组（Q89）。
-func renderValueTraceMermaid(acts *action.Actions, id domain.CanonicalID) (string, error) {
-	rows, err := acts.ValueTrace(id, 8, 0, false)
-	if err != nil {
-		return "", err
-	}
+func renderValueTraceMermaid(rows []*domain.TraceRow) string {
 	var sb strings.Builder
 	sb.WriteString("flowchart LR\n")
 	group := ""
@@ -182,15 +171,11 @@ func renderValueTraceMermaid(acts *action.Actions, id domain.CanonicalID) (strin
 	if group != "" {
 		sb.WriteString("  end\n")
 	}
-	return sb.String(), nil
+	return sb.String()
 }
 
 // renderValueTraceDot 渲染 value-trace 为 DOT（同数据，dot 形态）。
-func renderValueTraceDot(acts *action.Actions, id domain.CanonicalID) (string, error) {
-	rows, err := acts.ValueTrace(id, 8, 0, false)
-	if err != nil {
-		return "", err
-	}
+func renderValueTraceDot(rows []*domain.TraceRow) string {
 	var sb strings.Builder
 	sb.WriteString("digraph value_trace {\n  rankdir=LR;\n")
 	seen := map[string]bool{}
@@ -209,21 +194,14 @@ func renderValueTraceDot(acts *action.Actions, id domain.CanonicalID) (string, e
 			shortID(r.ID), shortID(r.ID)+"|"+r.Name, lastEdgeKind(r.EdgeKinds)))
 	}
 	sb.WriteString("}\n")
-	return sb.String(), nil
+	return sb.String()
 }
 
-// renderLifecycleMermaid 端到端生命周期图（Q99）：value-trace 全链聚合
-// （含写锚点的下游跳板，⑤），节点类型标注（来源/读写/存储/观测）+
-// 路径条件（Q92），mermaid flowchart 输出。复用 TraceConditions。
-func renderLifecycleMermaid(acts *action.Actions, id domain.CanonicalID) (string, error) {
-	rows, err := acts.Lifecycle(id)
-	if err != nil {
-		return "", err
-	}
-	rows, err = acts.TraceConditions(rows)
-	if err != nil {
-		return "", err
-	}
+// renderLifecycleMermaid 端到端生命周期图（Q99）：value-trace 全链
+// （含写锚点的下游跳板，⑤）+ 路径条件（Q92），mermaid flowchart 输出。
+// R9x：数据获取与条件标注迁 action（Actions.ExportGraph——lifecycle
+// 型）；本函数只做渲染。
+func renderLifecycleMermaid(rows []*domain.TraceRow) string {
 	var sb strings.Builder
 	sb.WriteString("flowchart LR\n")
 	group := ""
@@ -265,5 +243,5 @@ func renderLifecycleMermaid(acts *action.Actions, id domain.CanonicalID) (string
 	if group != "" {
 		sb.WriteString("  end\n")
 	}
-	return sb.String(), nil
+	return sb.String()
 }

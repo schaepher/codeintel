@@ -22,21 +22,27 @@ type architectureOut struct {
 }
 
 // architectureData 计算架构图（wiki 概览同款：archLayeredMermaid——
-// yaml architecture 存在时优先用配置）。
+// yaml architecture 存在时优先用配置）。R9x：结果装配迁 action
+// （Actions.Architecture）；mermaid fallback 生成与 plantuml 转换
+// （渲染）留 cli。
 func architectureData(acts *action.Actions, repo *sqlite.Repo, data []*domain.WikiModule, cfg wikiConfig, toPuml bool) architectureOut {
-	out := architectureOut{Modules: len(data)}
-	for _, d := range cfg.Domains {
-		out.Domains = append(out.Domains, d.Name)
-	}
 	arch := cfg.Architecture
 	if arch == "" {
 		arch = archMermaidFallback(data, cfg.Domains, repo, acts)
 	}
-	out.Mermaid = arch
-	if toPuml {
-		out.Plantuml = mermaidToPlantuml(arch)
+	var doms []string
+	for _, d := range cfg.Domains {
+		doms = append(doms, d.Name)
 	}
-	return out
+	out, err := acts.Architecture(action.ArchitectureRequest{Data: data, Domains: doms, Mermaid: arch})
+	if err != nil {
+		return architectureOut{}
+	}
+	ao := architectureOut{Modules: out.Modules, Domains: out.Domains, Mermaid: out.Mermaid}
+	if toPuml {
+		ao.Plantuml = mermaidToPlantuml(out.Mermaid)
+	}
+	return ao
 }
 
 // cmdQueryArchitecture 实现 `query architecture [--format mermaid|plantuml] [--json] [--yaml <file>]`。

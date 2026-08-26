@@ -15,42 +15,40 @@ import (
 
 // moduleOut 模块详情输出契约（cmd --json / MCP 共用）。
 type moduleOut struct {
-	Name        string        `json:"name"`
-	ShortName   string        `json:"short_name"`
-	Desc        string        `json:"desc,omitempty"`
-	Entries     []string      `json:"entries,omitempty"`
-	CoreSymbols []string      `json:"core_symbols,omitempty"` // "Name (Kind, callers 调用者)" 展示
-	KeyFlows    []action.WikiKeyFlow `json:"key_flows,omitempty"`    // 核心符号字段读写
-	OutCalls    []string      `json:"out_calls,omitempty"`
-	InCalls     []string      `json:"in_calls,omitempty"`
-	Tables      []string      `json:"tables,omitempty"`
-	PkgCalls    []*domain.WikiPkgCall `json:"pkg_calls,omitempty"` // 包间调用（模块架构图数据）
-	ArchMermaid string        `json:"arch_mermaid,omitempty"`      // 模块架构图（--format mermaid）
+	Name        string                `json:"name"`
+	ShortName   string                `json:"short_name"`
+	Desc        string                `json:"desc,omitempty"`
+	Entries     []string              `json:"entries,omitempty"`
+	CoreSymbols []string              `json:"core_symbols,omitempty"` // "Name (Kind, callers 调用者)" 展示
+	KeyFlows    []action.WikiKeyFlow  `json:"key_flows,omitempty"`    // 核心符号字段读写
+	OutCalls    []string              `json:"out_calls,omitempty"`
+	InCalls     []string              `json:"in_calls,omitempty"`
+	Tables      []string              `json:"tables,omitempty"`
+	PkgCalls    []*domain.WikiPkgCall `json:"pkg_calls,omitempty"`    // 包间调用（模块架构图数据）
+	ArchMermaid string                `json:"arch_mermaid,omitempty"` // 模块架构图（--format mermaid）
 }
 
-// moduleData 模块详情（wiki 模块页同款：WikiData + wikiModuleKeyFlows）。
+// moduleData 模块详情（wiki 模块页同款：WikiData + 关键数据流）。
+// R9x：查询装配迁 action（Actions.Module）；模块架构图 mermaid
+// （moduleArchMermaid）渲染留 cli。
 func moduleData(acts *action.Actions, data []*domain.WikiModule, name string) *moduleOut {
-	var wm *domain.WikiModule
-	for _, m := range data {
-		if m.Name == name || m.ShortName == name {
-			wm = m
+	out, err := acts.Module(action.ModuleRequest{Data: data, Name: name})
+	if err != nil || out == nil {
+		return nil
+	}
+	m := &moduleOut{
+		Name: out.Name, ShortName: out.ShortName, Desc: out.Desc,
+		Entries: out.Entries, CoreSymbols: out.CoreSymbols, KeyFlows: out.KeyFlows,
+		OutCalls: out.OutCalls, InCalls: out.InCalls, Tables: out.Tables,
+		PkgCalls: out.PkgCalls,
+	}
+	for _, wm := range data {
+		if wm.Name == name || wm.ShortName == name {
+			m.ArchMermaid = moduleArchMermaid(wm)
 			break
 		}
 	}
-	if wm == nil {
-		return nil
-	}
-	out := &moduleOut{
-		Name: wm.Name, ShortName: wm.ShortName, Desc: wm.Desc,
-		Entries: wm.Entries, OutCalls: wm.OutCalls, InCalls: wm.InCalls,
-		Tables: wm.Tables, PkgCalls: wm.PkgCalls,
-	}
-	for _, s := range wm.CoreSymbols {
-		out.CoreSymbols = append(out.CoreSymbols, fmt.Sprintf("%s（%s，%d 调用者）", s.Name, s.Kind, s.Callers))
-	}
-	out.KeyFlows = wikiModuleKeyFlows(acts, wm)
-	out.ArchMermaid = moduleArchMermaid(wm)
-	return out
+	return m
 }
 
 // cmdQueryModule 实现 `query module <name> [--json] [--format mermaid]`。

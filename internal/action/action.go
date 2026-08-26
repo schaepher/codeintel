@@ -31,7 +31,8 @@ type Reader interface {
 	GetValueTraceMulti(anchors []domain.CanonicalID, ctxField string, maxDepth int) ([]*domain.TraceRow, error)
 	GetFunctionFlows(funcID domain.CanonicalID, maxDepth int) ([]*domain.TraceRow, error)
 	GetRoots() ([]*domain.CodeEntity, error)
-	GetPackages() ([]*domain.CodeEntity, error) // R1：包职责地图（doc_comment）
+	GetPackages() ([]*domain.CodeEntity, error)                   // R1：包职责地图（doc_comment）
+	GetPkgCodeFacts(pkgPath string) (*domain.PkgCodeFacts, error) // R9x：包内代码事实（无 doc fallback）
 	Expand(id domain.CanonicalID) (facts []*domain.Fact, nodes []*domain.CodeEntity, err error)
 	AllSummaries() ([]*domain.FunctionFieldSummary, error)
 	GetIndirectWriteEdges(funcID domain.CanonicalID) ([]*domain.Fact, error)

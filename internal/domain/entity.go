@@ -159,14 +159,14 @@ type Fact struct {
 // BuildMeta 构建元数据（build_metadata 表），status 三态：success/degraded/failed。
 // json tag（Q243 JSON 契约）。
 type BuildMeta struct {
-	BuildID    string `json:"build_id"`
-	CommitSHA  string `json:"commit_sha,omitempty"`
-	ToolName   string `json:"tool_name"`
+	BuildID    string      `json:"build_id"`
+	CommitSHA  string      `json:"commit_sha,omitempty"`
+	ToolName   string      `json:"tool_name"`
 	Status     BuildStatus `json:"status"`
-	DurationMs int64  `json:"duration_ms,omitempty"`
-	ErrorMsg   string `json:"error_msg,omitempty"`
-	Nodes      int    `json:"nodes,omitempty"` // 构建产物节点数（--memory auto 判断缓存，P0④）
-	Edges      int    `json:"edges,omitempty"` // 构建产物边数
+	DurationMs int64       `json:"duration_ms,omitempty"`
+	ErrorMsg   string      `json:"error_msg,omitempty"`
+	Nodes      int         `json:"nodes,omitempty"` // 构建产物节点数（--memory auto 判断缓存，P0④）
+	Edges      int         `json:"edges,omitempty"` // 构建产物边数
 	// R6：降级统计（JSON：{"sql_ast_ok":N,"sql_ast_fail":M,
 	// "sql_heuristic":K}）——构建期降级可观测（AST 死代码类问题
 	// 提前暴露，不再静默）
@@ -188,6 +188,15 @@ type Repository struct {
 	// ModuleDirs 与 Modules 对齐的 module 目录（相对仓库根，根为 "."）——
 	// 加载与 scip-go 需要按目录定位 module
 	ModuleDirs []string `json:"module_dirs,omitempty"`
+}
+
+// PkgCodeFacts 包内代码事实（无包级 doc_comment 时的 fallback——
+// query packages / wiki 包结构节）：结构体（字段数）/方法/函数签名
+// 展示串。
+type PkgCodeFacts struct {
+	Structs []string // 结构体名（字段数）
+	Methods []string // 方法签名（截断）
+	Funcs   []string // 函数签名（截断）
 }
 
 // #237 recent_changes 工具数据：最近变更条目（commit → 变更文件 →

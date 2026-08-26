@@ -23,7 +23,7 @@ type erParams struct {
 	Repo string `json:"repo,omitempty"` // #232 多仓库：空=默认仓库
 }
 type processesParams struct {
-	Repo       string `json:"repo,omitempty"` // #232 多仓库：空=默认仓库
+	Repo       string `json:"repo,omitempty"`        // #232 多仓库：空=默认仓库
 	MaxEntries int    `json:"max_entries,omitempty"` // 每节入口展开上限（0 = 默认 15）
 }
 type moduleParams struct {
@@ -41,8 +41,11 @@ func (p moduleParams) getRepo() string       { return p.Repo }
 // 函数；repo 数据用默认仓库（同 grpc_routes/http_routes 模式））。
 func registerWikiTools(server *mcp.Server, env *mcpEnv, r *sqlite.Repo, repoAbs string) {
 	mcp.AddTool(server, &mcp.Tool{Name: "packages", Description: "包结构（包路径 + doc_comment + 无说明时包内结构体/方法/函数清单）——了解包职责"},
-		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args packagesParams) (*mcp.CallToolResult, []pkgInfo, error) {
-			out := packagesData(a, r)
+		staleWrap(r, repoAbs, mcpRepo(env, func(a *action.Actions, ctx context.Context, req *mcp.CallToolRequest, args packagesParams) (*mcp.CallToolResult, []action.PkgInfo, error) {
+			out, err := a.PackagesData()
+			if err != nil {
+				return toolErr(err.Error()), nil, nil
+			}
 			return toolJSON(out), out, nil
 		})))
 	mcp.AddTool(server, &mcp.Tool{Name: "architecture", Description: "整体架构图（三层架构：接入层→领域层→存储层，domains 配置时领域聚合 + 外部接口节点）——返回 mermaid 文本 + 结构摘要"},
