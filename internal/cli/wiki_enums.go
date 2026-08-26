@@ -14,6 +14,7 @@ import (
 
 	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
+	"sort"
 )
 
 // enumEntry 一个枚举常量。
@@ -96,7 +97,18 @@ func renderEnumsHTML(repoAbs string, repo *sqlite.Repo) string {
 		b.WriteString(sec)
 	}
 	// R87：每组枚举默认折叠（组名按钮——点击展开该组表格，减少长页
-	// 面滚动；枚举区只显示组名列表）
+	// 面滚动；枚举区只显示组名列表）。R93：展开后表上方展示所在包
+	groupPkgs := map[string]map[string]bool{}
+	for _, e := range entries {
+		key := e.Type
+		if key == "" {
+			key = e.Group
+		}
+		if groupPkgs[key] == nil {
+			groupPkgs[key] = map[string]bool{}
+		}
+		groupPkgs[key][e.Pkg] = true
+	}
 	group := ""
 	groupIdx := 0
 	for _, e := range entries {
@@ -111,8 +123,13 @@ func renderEnumsHTML(repoAbs string, repo *sqlite.Repo) string {
 			group = key
 			b.WriteString(fmt.Sprintf(`<div class="fold-btn" data-target="enum-%d" data-label="1">▸ %s</div>`,
 				groupIdx, htmlEsc(key)))
-			b.WriteString(fmt.Sprintf(`<div class="sec-body" id="enum-%d" style="display:none"><h3>%s</h3><table><tr><th>名称</th><th>值</th><th>说明</th><th>位置</th></tr>`,
-				groupIdx, htmlEsc(key)))
+			pkgs := make([]string, 0, len(groupPkgs[key]))
+			for pkg := range groupPkgs[key] {
+				pkgs = append(pkgs, pkg)
+			}
+			sort.Strings(pkgs)
+			b.WriteString(fmt.Sprintf(`<div class="sec-body" id="enum-%d" style="display:none"><h3>%s</h3><p class="muted">所在包：<code>%s</code></p><table><tr><th>名称</th><th>值</th><th>说明</th><th>位置</th></tr>`,
+				groupIdx, htmlEsc(key), htmlEsc(strings.Join(pkgs, ", "))))
 			groupIdx++
 		}
 		b.WriteString(fmt.Sprintf("<tr><td>%s</td><td><code>%s</code></td><td>%s</td><td class=\"muted\">%s:%d</td></tr>",
@@ -140,9 +157,10 @@ func renderHelpersMD(repo *sqlite.Repo) string {
 	b.WriteString("## 工具函数\n\n> 游离函数且被 ≥")
 	b.WriteString(fmt.Sprint(minPkgs))
 	b.WriteString(" 个包调用（`query helpers` 同源；config.yaml helpers.min_packages 可调）\n\n")
-	b.WriteString("| 函数 | 包数 | 调用方 |\n|---|---|---|\n")
+	// R93：展示所在包（ID 提取——同函数名跨包可区分）
+	b.WriteString("| 函数 | 所在包 | 包数 | 调用方 |\n|---|---|---|---|\n")
 	for _, h := range helpers {
-		fmt.Fprintf(&b, "| %s | %d | %d |\n", h.Name, h.Pkgs, h.Callers)
+		fmt.Fprintf(&b, "| %s | `%s` | %d | %d |\n", h.Name, pkgPathOfHelper(h.ID), h.Pkgs, h.Callers)
 	}
 	return b.String()
 }
@@ -160,8 +178,18 @@ func renderHelpersHTML(repo *sqlite.Repo) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf(`<h3 class="fold-btn" data-target="helpers" data-label="1">▸ 工具函数（游离函数，被 ≥%d 个包调用）</h3><div class="sec-body" id="helpers" style="display:none"><p class="muted">`+`query helpers`+` 同源；config.yaml helpers.min_packages 可调</p><table><tr><th>函数</th><th>包数</th><th>调用方</th></tr>`, minPkgs))
 	for _, h := range helpers {
-		fmt.Fprintf(&b, "<tr><td><code>%s</code></td><td>%d</td><td>%d</td></tr>", htmlEsc(h.Name), h.Pkgs, h.Callers)
+		fmt.Fprintf(&b, "<tr><td><code>%s</code></td><td><code>%s</code></td><td>%d</td><td>%d</td></tr>",
+			htmlEsc(h.Name), htmlEsc(pkgPathOfHelper(h.ID)), h.Pkgs, h.Callers)
 	}
 	b.WriteString("</table></div>")
 	return b.String()
+}
+
+// pkgPathOfHelper helperEntry ID → 包路径（symbol:go:<pkg>:<name>）。
+func pkgPathOfHelper(id string) string {
+	rest := strings.TrimPrefix(id, "symbol:go:")
+	if i := strings.LastIndex(rest, ":"); i > 0 {
+		return rest[:i]
+	}
+	return rest
 }

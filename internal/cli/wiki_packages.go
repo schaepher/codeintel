@@ -109,10 +109,8 @@ func renderPackagesHTML(pkgs []*domain.CodeEntity, repo *sqlite.Repo) string {
 	var b strings.Builder
 	b.WriteString(`<section id="packages"><h2>包结构</h2><p class="muted">数据源：包节点 doc_comment（代码事实；无说明时展示包内结构体/方法/函数签名）。</p>`)
 	for i, p := range pkgs {
+		// R93：完整包名（同末尾名无法区分）
 		name := p.Name
-		if i := strings.LastIndex(name, "/"); i >= 0 {
-			name = name[i+1:]
-		}
 		id := fmt.Sprintf("pkg-%d", i)
 		// R82：每个包 fold-btn 折叠（默认折叠）
 		b.WriteString(fmt.Sprintf(`<h4 class="fold-btn" data-target="%s" data-label="1">▸ <code>%s</code></h4><div class="sec-body" id="%s" style="display:none">`,
@@ -160,10 +158,8 @@ func renderPackagesMD(pkgs []*domain.CodeEntity, repo *sqlite.Repo) string {
 	var b strings.Builder
 	b.WriteString("## 包结构\n\n> 数据源：包节点 doc_comment（代码事实；无说明时展示包内结构体/方法/函数签名）。每个包可展开。\n\n")
 	for _, p := range pkgs {
+		// R93：完整包名（同末尾名无法区分）
 		name := p.Name
-		if i := strings.LastIndex(name, "/"); i >= 0 {
-			name = name[i+1:]
-		}
 		b.WriteString("<details><summary><code>" + name + "</code></summary>\n\n")
 		doc := packageDoc(p)
 		if doc != "" {
