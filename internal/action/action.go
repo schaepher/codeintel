@@ -63,6 +63,7 @@ type Reader interface {
 	GetGrpcImplNode(svcID domain.CanonicalID) (*domain.CodeEntity, error)
 	GetImplementsTarget(ifaceID domain.CanonicalID) (domain.CanonicalID, error) // implements 边（排除 Unimplemented 桩）
 	GetHTTPRouteNodes() ([]*domain.CodeEntity, error)                           // kind=http_route（含 properties）
+	GetFieldWriters(fieldPath string) ([]string, error)                         // R97-2：字段 direct_write 写入函数（数据流具体化）
 	// R94：外部依赖（redis/kafka）与外部接口调用（query external-*）
 	GetRedisKeyNodes() ([]*domain.CodeEntity, error)         // kind=redis_key（properties.write/cmd）
 	GetKafkaTopicNodes() ([]*domain.CodeEntity, error)       // kind=kafka_topic

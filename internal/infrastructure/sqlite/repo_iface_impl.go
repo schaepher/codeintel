@@ -31,3 +31,23 @@ func (r *Repo) orderImplsByGrpc(implIDs []string) []string {
 	}
 	return append(biz, grpc...)
 }
+
+// GetFieldWriters 字段的 direct_write 写入函数（R97-2 数据流具体化：
+// receiver 字段赋值来源——构造函数等；fieldPath 完整形态
+// "<pkg>.<Type>.<field>"，匹配摘要 field_path 全等）。
+func (r *Repo) GetFieldWriters(fieldPath string) ([]string, error) {
+	rows, err := r.Query(`SELECT function_id FROM function_field_summary
+		WHERE field_path = ? AND access_kind = 'direct_write'`, fieldPath)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil {
+			out = append(out, id)
+		}
+	}
+	return out, rows.Err()
+}
