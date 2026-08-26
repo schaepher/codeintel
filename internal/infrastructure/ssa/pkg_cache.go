@@ -30,6 +30,7 @@ import (
 	"sync"
 
 	"github.com/schaepher/codeintel/internal/domain"
+	"github.com/schaepher/codeintel/internal/infrastructure/ast"
 )
 
 // pkgCacheFormat 缓存文件格式版本（结构变更时递增，旧缓存全部失效）。
@@ -86,6 +87,13 @@ func analyzerVersionHash() string {
 			h.Write([]byte{0})
 		}
 		analyzerHash = hex.EncodeToString(h.Sum(nil))[:16]
+		// R92：ast 适配器逻辑（grpc 识别/调用分析/接口具体化）同样影响
+		// 索引产物——纳入版本（修改 ast 后 update 自动降级全量，替代
+		// 手动 reindex；增量写库无法让新逻辑对未变更包生效）
+		h2 := sha256.New()
+		h2.Write([]byte(analyzerHash))
+		h2.Write([]byte(ast.SourceHash()))
+		analyzerHash = hex.EncodeToString(h2.Sum(nil))[:16]
 	})
 	return analyzerHash
 }
