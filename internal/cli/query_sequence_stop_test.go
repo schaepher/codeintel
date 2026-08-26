@@ -4,6 +4,9 @@ package cli
 // 参与者按出现顺序排列（箭头从左到右）。
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -127,20 +130,68 @@ func helper() {}
 }
 
 // TestRenderCodeSeqOrder：R83——参与者按出现顺序（调用方先声明靠左，
-// 箭头从左到右；不再字母排序）。
+// 箭头从左到右；不再字母排序）；参与者 = 调用对象（Actor）。
 func TestRenderCodeSeqOrder(t *testing.T) {
-	root := &codeSeqNode{Kind: "call", Label: "Prepare", Nodes: []*codeSeqNode{
-		{Kind: "call", Label: "svc.Validate", Line: 1},
-		{Kind: "call", Label: "svc.Save", Line: 2},
+	root := &codeSeqNode{Kind: "call", Label: "Prepare", Actor: "Prepare", Nodes: []*codeSeqNode{
+		{Kind: "call", Label: "svc.Validate", Actor: "svc", Line: 1},
+		{Kind: "call", Label: "svc.Save", Actor: "svc", Line: 2},
+		{Kind: "call", Label: "repo.CreateOrder", Actor: "repo", Line: 3},
 	}}
 	m := renderCodeSeqMermaid(root)
-	// 出现顺序：Prepare → svc.Validate → svc.Save（不是字母序 Save 在前）
-	idxV := strings.Index(m, "as svc.Validate")
-	idxS := strings.Index(m, "as svc.Save")
+	// 出现顺序：Prepare → svc → repo（不是字母序）
+	idxV := strings.Index(m, "as svc")
+	idxS := strings.Index(m, "as repo")
 	if idxV < 0 || idxS < 0 || idxV > idxS {
-		t.Errorf("参与者应按出现顺序（Validate 在 Save 前）:\n%s", m)
+		t.Errorf("参与者应按出现顺序（svc 在 repo 前）:\n%s", m)
 	}
+	// 参与者是对象（svc/repo），消息线保留完整调用名
 	if !strings.Contains(m, "P0->>P1: svc.Validate") {
-		t.Errorf("消息线应 P0->>P1:\n%s", m)
+		t.Errorf("消息线应 P0->>P1: svc.Validate:\n%s", m)
+	}
+	if !strings.Contains(m, "->>P2: repo.CreateOrder") {
+		t.Errorf("参与者应为对象 repo:\n%s", m)
+	}
+}
+
+// TestCallActor：调用参与者提取（对象而非方法）。
+func TestCallActor(t *testing.T) {
+	dir := seedRepo(t)
+	src := `package m
+
+func Run() {
+	s.manager.SubmitOrder()
+	t.repo.CreateOrder()
+	ic.Put()
+	parser.NewPostedData()
+	helper()
+}
+`
+	fpath := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(fpath, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, fpath, src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{}
+	ast.Inspect(f, func(n ast.Node) bool {
+		if call, ok := n.(*ast.CallExpr); ok {
+			want[callLabel(fset, []byte(src), call.Fun)] = callActor(fset, []byte(src), call.Fun)
+		}
+		return true
+	})
+	cases := map[string]string{
+		"s.manager.SubmitOrder": "s.manager",
+		"t.repo.CreateOrder":    "t.repo",
+		"ic.Put":                "ic",
+		"parser.NewPostedData":  "parser",
+		"helper":                "helper",
+	}
+	for label, actor := range cases {
+		if want[label] != actor {
+			t.Errorf("callActor(%s) = %q; want %q", label, want[label], actor)
+		}
 	}
 }

@@ -24,6 +24,7 @@ import (
 type codeSeqNode struct {
 	Kind	string		// call | branch | loop
 	Label	string		// call: 调用名（obj.Method/fn）；branch: 条件；loop: 循环条件
+	Actor	string		// R83：call 参与者（调用对象——s.manager/t.repo/ic；函数为函数名）
 	Line	int		// 源码行号
 	Nodes	[]*codeSeqNode	// 子节点（branch: then 分支；loop: 循环体；call: 嵌套展开的被调函数调用）
 	Else	[]*codeSeqNode	// branch: else 分支（可选）
@@ -100,7 +101,7 @@ func walkStmts(acts *action.Actions, abs string, fset *token.FileSet, src []byte
 // walkStmt 单条语句 → 步骤（可能多条：赋值内多个调用）。
 func walkStmt(acts *action.Actions, abs string, fset *token.FileSet, src []byte, stmt ast.Stmt, lineTargets map[int]string, depth int) []*codeSeqNode {
 	callNode := func(fun ast.Expr, line int) *codeSeqNode {
-		node := &codeSeqNode{Kind: "call", Label: callLabel(fset, src, fun), Line: line}
+		node := &codeSeqNode{Kind: "call", Label: callLabel(fset, src, fun), Actor: callActor(fset, src, fun), Line: line}
 		// R81：嵌套展开——行号对齐被调符号，递归解析其函数体（depth-1）。
 		// 接口调用具体化到实现**类型**节点（无方法名——调用点未记录）
 		// 时，用 AST 调用方法名构造 (Impl).Method 再解析（R75 形态）；
@@ -223,6 +224,28 @@ func callLabel(fset *token.FileSet, src []byte, fun ast.Expr) string {
 		return exprText(fset, src, f.X) + "." + f.Sel.Name
 	default:
 		return exprText(fset, src, fun)
+	}
+}
+
+// callActor 调用参与者（R83：对象而非方法）——s.manager.SubmitOrder →
+// s.manager；t.repo.CreateOrder → t.repo；ic.Put → ic；链式
+// s.memberRepo.GetMember(...).GetAccount → s.memberRepo（取调用链
+// receiver）；纯函数（Ident/其他）→ 调用名本身。
+func callActor(fset *token.FileSet, src []byte, fun ast.Expr) string {
+	switch f := fun.(type) {
+	case *ast.SelectorExpr:
+		// 链式调用（X 是调用）：取被调方法的 receiver（GetMember 的
+		// receiver = s.memberRepo）
+		if call, ok := f.X.(*ast.CallExpr); ok {
+			if sel, ok2 := call.Fun.(*ast.SelectorExpr); ok2 {
+				return exprText(fset, src, sel.X)
+			}
+		}
+		return exprText(fset, src, f.X)
+	case *ast.Ident:
+		return f.Name
+	default:
+		return callLabel(fset, src, fun)
 	}
 }
 

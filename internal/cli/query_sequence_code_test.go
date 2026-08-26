@@ -118,7 +118,7 @@ func TestCodeSequenceMermaid(t *testing.T) {
 		"alt cart == nil",
 		"->>P1: ErrEmpty",
 		"loop range items",
-		"->>P3: svc.Validate",
+		"->>P2: svc.Validate", // 参与者 = 对象（svc 合并为 P2）
 	} {
 		if !strings.Contains(m, want) {
 			t.Errorf("mermaid 应含 %q:\n%s", want, m)

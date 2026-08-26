@@ -29,12 +29,13 @@ func renderCodeSeqMermaid(root *codeSeqNode) string {
 	writeSeqNode(&b, alias, root.Label, root.Nodes)
 	return b.String()
 }
-// collectParts 收集参与者（调用目标去重）。
+// collectParts 收集参与者（R83：调用对象 Actor 去重——s.manager/
+// t.repo/ic；消息线 label 保持完整调用名）。
 func collectParts(nodes []*codeSeqNode, parts *[]string, seen map[string]bool) {
 	for _, n := range nodes {
-		if n.Kind == "call" && !seen[n.Label] {
-			seen[n.Label] = true
-			*parts = append(*parts, n.Label)
+		if n.Kind == "call" && n.Actor != "" && !seen[n.Actor] {
+			seen[n.Actor] = true
+			*parts = append(*parts, n.Actor)
 		}
 		collectParts(n.Nodes, parts, seen)
 		collectParts(n.Else, parts, seen)
@@ -45,14 +46,14 @@ func writeSeqNode(b *strings.Builder, alias map[string]string, from string, node
 	for _, n := range nodes {
 		switch n.Kind {
 		case "call":
-			to := alias[n.Label]
+			to := alias[n.Actor]
 			if to == "" {
 				to = alias[from]
 			}
 			b.WriteString(fmt.Sprintf("  %s->>%s: %s\n", alias[from], to, n.Label))
 			if len(n.Nodes) > 0 {
-
-				writeSeqNode(b, alias, n.Label, n.Nodes)
+				// R81：嵌套展开——From 切换为被调者 Actor
+				writeSeqNode(b, alias, n.Actor, n.Nodes)
 			}
 		case "branch":
 			b.WriteString(fmt.Sprintf("  alt %s\n", n.Label))
