@@ -64,7 +64,7 @@ func TestCodeSequenceNodes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := codeSequence(acts, dir, "Prepare")
+	root := codeSequence(acts, dir, "Prepare", 1)
 	if root == nil {
 		t.Fatal("codeSequence 返回 nil")
 	}
@@ -109,7 +109,7 @@ func TestCodeSequenceMermaid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := codeSequence(acts, dir, "Prepare")
+	root := codeSequence(acts, dir, "Prepare", 1)
 	m := renderCodeSeqMermaid(root)
 	for _, want := range []string{
 		"sequenceDiagram",
@@ -138,6 +138,81 @@ func TestCodeSequenceCmd(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("sequence --code 应含 %q:\n%s", want, out)
 		}
+	}
+}
+
+// TestCodeSequenceNested：R81——--depth 2 嵌套展开（被调函数内部调用
+// 递归解析——行号对齐索引调用边；From 切换为被调者）。
+func TestCodeSequenceNested(t *testing.T) {
+	dir := seedRepo(t)
+	src := `package m
+
+import "example.com/m/svc"
+
+func Prepare() {
+	svc.LoadItems()
+}
+`
+	svcSrc := `package svc
+
+func LoadItems() {
+	helper()
+}
+
+func helper() {}
+`
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "svc"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "svc", "svc.go"), []byte(svcSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	r := sqlite.NewRepo(db)
+	if _, err := r.SaveBatchStats([]*domain.CodeEntity{
+		{ID: "symbol:go:example.com/m:Prepare", Kind: domain.KindFunction, Name: "Prepare", FilePath: "main.go", LineStart: 5},
+		{ID: "symbol:go:example.com/m/svc:LoadItems", Kind: domain.KindFunction, Name: "LoadItems", FilePath: "svc/svc.go", LineStart: 4},
+		{ID: "symbol:go:example.com/m/svc:helper", Kind: domain.KindFunction, Name: "helper", FilePath: "svc/svc.go", LineStart: 8},
+	}, []*domain.Fact{
+		{SourceID: "symbol:go:example.com/m:Prepare", TargetID: "symbol:go:example.com/m/svc:LoadItems",
+			Kind: domain.FactCalls, Confidence: 0.9, Metadata: map[string]any{"line_num": 6}},
+		{SourceID: "symbol:go:example.com/m/svc:LoadItems", TargetID: "symbol:go:example.com/m/svc:helper",
+			Kind: domain.FactCalls, Confidence: 0.9, Metadata: map[string]any{"line_num": 5}},
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	acts, err := newTestActions(t, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// depth 1：LoadItems 无嵌套
+	root1 := codeSequence(acts, dir, "Prepare", 1)
+	if len(root1.Nodes) != 1 || len(root1.Nodes[0].Nodes) != 0 {
+		t.Fatalf("depth 1 不应嵌套展开: %+v", root1.Nodes)
+	}
+	// depth 2：LoadItems 展开 helper
+	root2 := codeSequence(acts, dir, "Prepare", 2)
+	if len(root2.Nodes) != 1 {
+		t.Fatalf("depth 2 顶层步骤 = %d; want 1", len(root2.Nodes))
+	}
+	nested := root2.Nodes[0]
+	if nested.Kind != "call" || nested.Label != "svc.LoadItems" || len(nested.Nodes) != 1 {
+		t.Fatalf("depth 2 应嵌套展开 LoadItems: %+v", nested)
+	}
+	if nested.Nodes[0].Label != "helper" {
+		t.Errorf("嵌套内调用 = %q; want helper", nested.Nodes[0].Label)
+	}
+	// mermaid：嵌套消息 From 切换为 LoadItems（P2->>P1: helper）
+	m := renderCodeSeqMermaid(root2)
+	if !strings.Contains(m, "P2->>P1: helper") {
+		t.Errorf("mermaid 应含嵌套消息（From=LoadItems）:\n%s", m)
 	}
 }
 
