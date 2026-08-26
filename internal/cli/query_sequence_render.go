@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 )
 
@@ -19,7 +18,9 @@ func renderCodeSeqMermaid(root *codeSeqNode) string {
 	parts := []string{root.Label}
 	seen := map[string]bool{root.Label: true}
 	collectParts(root.Nodes, &parts, seen)
-	sort.Slice(parts[1:], func(i, j int) bool { return parts[i+1] < parts[j+1] })
+	// R83：参与者按出现顺序声明（mermaid 后声明者靠右）——调用方先
+	// 出现靠左、被调者靠右，箭头尽量从左到右（此前字母排序导致
+	// 指向 GetMyCart 的线从右到左——用户实测）
 	alias := map[string]string{}
 	for i, p := range parts {
 		alias[p] = fmt.Sprintf("P%d", i)

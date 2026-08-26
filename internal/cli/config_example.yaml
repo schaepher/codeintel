@@ -26,3 +26,10 @@ ai:
   fill: auto
   # 项目问答（codeintel ask 命令 + serve 对话界面）
   ask: auto
+
+# 时序图（query sequence --code）嵌套展开停止包列表（R83）：
+# 命中这些包的被调函数不再继续深入展开内部——如基础设施/第三方
+# 封装/样板包（内部调用无业务信息，图更聚焦；节点仍显示在图上）
+# 支持完整路径或包短名（如 internal/impl/repo 或 repo）
+seq:
+  stop_packages: []

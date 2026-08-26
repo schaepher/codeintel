@@ -118,7 +118,7 @@ func TestCodeSequenceMermaid(t *testing.T) {
 		"alt cart == nil",
 		"->>P1: ErrEmpty",
 		"loop range items",
-		"->>P4: svc.Validate",
+		"->>P3: svc.Validate",
 	} {
 		if !strings.Contains(m, want) {
 			t.Errorf("mermaid 应含 %q:\n%s", want, m)
@@ -209,9 +209,9 @@ func helper() {}
 	if nested.Nodes[0].Label != "helper" {
 		t.Errorf("嵌套内调用 = %q; want helper", nested.Nodes[0].Label)
 	}
-	// mermaid：嵌套消息 From 切换为 LoadItems（P2->>P1: helper）
+	// mermaid：嵌套消息 From 切换为 LoadItems（出现顺序 P1->>P2: helper）
 	m := renderCodeSeqMermaid(root2)
-	if !strings.Contains(m, "P2->>P1: helper") {
+	if !strings.Contains(m, "P1->>P2: helper") {
 		t.Errorf("mermaid 应含嵌套消息（From=LoadItems）:\n%s", m)
 	}
 }

@@ -107,6 +107,10 @@ func walkStmt(acts *action.Actions, abs string, fset *token.FileSet, src []byte,
 		// 函数节点先试方法形态失败后回退原 ID（LoadItems → 非方法）
 		if depth > 1 {
 			if tid, ok := lineTargets[line]; ok {
+				// R83：停止包配置——命中不深入（节点保留，Nodes 空）
+				if seqStopPkgHit(tid) {
+					return node
+				}
 				if !strings.Contains(tid, ":(") {
 					if sel, isSel := fun.(*ast.SelectorExpr); isSel {
 						if child := codeSeqForSymbol(acts, abs, grpcMethodEntryID(tid, sel.Sel.Name), depth-1); child != nil {
