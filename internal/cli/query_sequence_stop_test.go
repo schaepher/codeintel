@@ -133,7 +133,7 @@ func helper() {}
 // 箭头从左到右；不再字母排序）；参与者 = 调用对象（Actor）。
 func TestRenderCodeSeqOrder(t *testing.T) {
 	root := &codeSeqNode{Kind: "call", Label: "Prepare", Actor: "Prepare", Nodes: []*codeSeqNode{
-		{Kind: "call", Label: "svc.Validate", Actor: "svc", Line: 1},
+		{Kind: "call", Label: "svc.Validate", Actor: "svc", Line: 1, Args: []string{"order.Data"}, Returns: []string{"bool", "error"}},
 		{Kind: "call", Label: "svc.Save", Actor: "svc", Line: 2},
 		{Kind: "call", Label: "repo.CreateOrder", Actor: "repo", Line: 3},
 	}}
@@ -145,8 +145,11 @@ func TestRenderCodeSeqOrder(t *testing.T) {
 		t.Errorf("参与者应按出现顺序（svc 在 repo 前）:\n%s", m)
 	}
 	// 参与者是对象（svc/repo），消息线保留完整调用名
-	if !strings.Contains(m, "P0->>P1: svc.Validate") {
-		t.Errorf("消息线应 P0->>P1: svc.Validate:\n%s", m)
+	if !strings.Contains(m, "P0->>P1: svc.Validate(order.Data)") {
+		t.Errorf("消息线应带参数类型:\n%s", m)
+	}
+	if !strings.Contains(m, "P1-->>P0: return bool, error") {
+		t.Errorf("应含 return 线（返回值类型）:\n%s", m)
 	}
 	if !strings.Contains(m, "->>P2: repo.CreateOrder") {
 		t.Errorf("参与者应为对象 repo:\n%s", m)
@@ -165,6 +168,31 @@ func TestImplTypeShort(t *testing.T) {
 		if got := implTypeShort(id); got != want {
 			t.Errorf("implTypeShort(%s) = %q; want %q", id, got, want)
 		}
+	}
+}
+
+// TestParseSigTypes：签名解析——参数/返回类型短名（R83：消息线参数 +
+// return 线）。
+func TestParseSigTypes(t *testing.T) {
+	sig := `func (*orderManagerImpl).SubmitOrder(data github.com/ixre/go2o/pkg/interface/domain/order.SubmitOrderData) (github.com/ixre/go2o/pkg/interface/domain/order.IOrder, *github.com/ixre/go2o/pkg/interface/domain/order.SubmitReturnData, error)`
+	args, rets, ok := parseSigTypes(sig)
+	if !ok {
+		t.Fatal("签名解析失败")
+	}
+	if len(args) != 1 || args[0] != "order.SubmitOrderData" {
+		t.Errorf("args = %v; want [order.SubmitOrderData]", args)
+	}
+	if len(rets) != 3 || rets[0] != "order.IOrder" || rets[1] != "*order.SubmitReturnData" || rets[2] != "error" {
+		t.Errorf("rets = %v; want [order.IOrder *order.SubmitReturnData error]", rets)
+	}
+	// 多参数 + 基础类型
+	sig2 := `func Load(a, b int, s string) (bool, error)`
+	args2, rets2, ok2 := parseSigTypes(sig2)
+	if !ok2 || len(args2) != 3 || args2[0] != "int" || args2[1] != "int" || args2[2] != "string" {
+		t.Errorf("args2 = %v ok=%v", args2, ok2)
+	}
+	if len(rets2) != 2 || rets2[0] != "bool" || rets2[1] != "error" {
+		t.Errorf("rets2 = %v", rets2)
 	}
 }
 

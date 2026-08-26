@@ -69,10 +69,19 @@ func writeSeqNode(b *strings.Builder, alias map[string]string, from string, node
 			if to == "" {
 				to = alias[from]
 			}
-			b.WriteString(fmt.Sprintf("  %s->>%s: %s\n", alias[from], to, n.Label))
+			// R83：消息线带参数类型短名（Method(ArgType, ...)）
+			label := n.Label
+			if len(n.Args) > 0 {
+				label += "(" + strings.Join(n.Args, ", ") + ")"
+			}
+			b.WriteString(fmt.Sprintf("  %s->>%s: %s\n", alias[from], to, label))
 			if len(n.Nodes) > 0 {
 				// R81：嵌套展开——From 切换为被调者 Actor
 				writeSeqNode(b, alias, n.Actor, n.Nodes)
+			}
+			// R83：return 线（返回值类型——虚线返回；plantuml 转 return 语法）
+			if len(n.Returns) > 0 {
+				b.WriteString(fmt.Sprintf("  %s-->>%s: return %s\n", to, alias[from], strings.Join(n.Returns, ", ")))
 			}
 		case "branch":
 			b.WriteString(fmt.Sprintf("  alt %s\n", n.Label))

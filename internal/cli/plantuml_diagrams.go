@@ -79,7 +79,8 @@ func mermaidSequenceToPlantuml(m string) string {
 	b.WriteString("@startuml\n")
 	partRe := regexp.MustCompile(`^participant (\S+) as (.+)$`)
 	for _, l := range strings.Split(body, "\n") {
-		if pm := partRe.FindStringSubmatch(strings.TrimSpace(l)); pm != nil {
+		t := strings.TrimSpace(l)
+		if pm := partRe.FindStringSubmatch(t); pm != nil {
 			// label 可能已带引号（mermaid `as "名字"`）——去引号统一重包；
 			// <br/>（mermaid 参与者两行）→ 字面 \n（plantuml 换行——真实
 			// 换行符会破坏引号内字符串，实测语法错误）
@@ -87,6 +88,9 @@ func mermaidSequenceToPlantuml(m string) string {
 			fmt.Fprintf(&b, "participant \"%s\" as %s\n", label, pm[1])
 			continue
 		}
+		// return 线原样保留（X-->>Y: return 类型——plantuml 也支持 -->>
+		// 虚线返回箭头；return 关键字在嵌套调用场景配对失败（"Nowhere
+		// to return to" 实测 79 处）——显式端点无此问题）
 		b.WriteString(l + "\n")
 	}
 	b.WriteString("@enduml\n")

@@ -1,11 +1,7 @@
 package cli
 
-// R81 `query sequence --code <符号>`——代码级时序图：解析目标函数的
-// 源码 AST，把整个函数体的调用语句按源码顺序转成时序图（支持基本
-// 分支 if/else 与循环 for/range——mermaid alt/loop 块）。消息线写
-// 具体调用（obj.Method / fn()——源码调用名），不是实现类型。
-// 与索引调用链（CalleesConcrete）互补：索引链回答"调用了谁"，
-// 代码级回答"函数内部怎么调用"（顺序/分支/循环）。
+// R81 `query sequence --code <符号>`——代码级时序图：源码 AST 转时序
+// （调用/分支/循环/嵌套展开；消息线=源码调用名，参与者=对象）。
 
 import (
 	"fmt"
@@ -26,6 +22,8 @@ type codeSeqNode struct {
 	Label	string		// call: 调用名（obj.Method/fn）；branch: 条件；loop: 循环条件
 	Actor	string		// R83：call 参与者（调用对象——s.manager/t.repo/ic；函数为函数名）
 	Type	string		// R83：参与者短类型名（包最后路径段.类型名——索引实现类型）
+	Args	[]string	// R83：参数类型短名（消息线内容）
+	Returns	[]string	// R83：返回类型短名（return 线内容）
 	Line	int		// 源码行号
 	Nodes	[]*codeSeqNode	// 子节点（branch: then 分支；loop: 循环体；call: 嵌套展开的被调函数调用）
 	Else	[]*codeSeqNode	// branch: else 分支（可选）
@@ -102,9 +100,12 @@ func walkStmts(acts *action.Actions, abs string, fset *token.FileSet, src []byte
 func walkStmt(acts *action.Actions, abs string, fset *token.FileSet, src []byte, stmt ast.Stmt, lineTargets map[int]string, depth int) []*codeSeqNode {
 	callNode := func(fun ast.Expr, line int) *codeSeqNode {
 		node := &codeSeqNode{Kind: "call", Label: callLabel(fset, src, fun), Actor: callActor(fset, src, fun), Line: line}
-		// R83：参与者短类型名（索引被调符号的实现类型——包末段.类型名）
+		// R83：参与者短类型名 + 参数/返回类型（索引被调符号签名）
 		if tid, ok := lineTargets[line]; ok {
 			node.Type = implTypeShort(tid)
+			if args, rets, ok2 := sigTypesOf(acts, tid); ok2 {
+				node.Args, node.Returns = args, rets
+			}
 		}
 		// R81：嵌套展开——行号对齐被调符号，递归解析其函数体（depth-1）。
 		// 接口调用具体化到实现**类型**节点（无方法名——调用点未记录）
