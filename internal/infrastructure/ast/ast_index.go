@@ -19,6 +19,7 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	packages.PrintErrors(pkgs)
 
 	a.pkgsByPath = map[string]*packages.Package{}
+	a.modules = repo.Modules
 	for _, p := range pkgs {
 		a.pkgsByPath[p.PkgPath] = p
 	}

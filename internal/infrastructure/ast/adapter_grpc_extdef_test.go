@@ -18,8 +18,8 @@ import (
 func TestGrpcExternalRegisterDefinition(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
-		"go.mod":          "module example.com/mtest\n\ngo 1.21\n\nrequire example.com/proto v0.0.0\n\nreplace example.com/proto => ../proto\n",
-		"../proto/go.mod": "module example.com/proto\n\ngo 1.21\n",
+		"go.mod":		"module example.com/mtest\n\ngo 1.21\n\nrequire example.com/proto v0.0.0\n\nreplace example.com/proto => ../proto\n",
+		"../proto/go.mod":	"module example.com/proto\n\ngo 1.21\n",
 		"../proto/greet.pb.go": `package proto
 
 type Registrar interface{ RegisterService(desc any, impl any) }
@@ -99,7 +99,7 @@ func register(s proto.Registrar) {
 // grpc 库函数（如 grpc.NewServer——第二参不是接口形态）。
 func TestGrpcExternalRegisterNotGrpcLib(t *testing.T) {
 	_, facts := indexFixture(t, map[string]string{
-		"go.mod": "module example.com/mtest\n\ngo 1.21\n",
+		"go.mod":	"module example.com/mtest\n\ngo 1.21\n",
 		"main.go": `package mtest
 
 type Registrar interface{ RegisterService(desc any, impl any) }
@@ -119,12 +119,12 @@ func run() {
 }
 
 // TestGrpcExternalRegisterIfaceArg：调用点第二参是外部接口变量（业务
-// 实现经变量/注入传入——真实系统常见形态）——grpc_impl 边 source 为
-// 外部接口（kind=interface），查询端经 implements 边追业务实现。
+// 实现经变量/注入传入——DI 场景无直接调用关系）——R95-2 类型匹配
+// （types.Implements）直指业务实现 greeterImpl。
 func TestGrpcExternalRegisterIfaceArg(t *testing.T) {
 	_, facts := indexFixture(t, map[string]string{
-		"go.mod":          "module example.com/mtest\n\ngo 1.21\n\nrequire example.com/proto v0.0.0\n\nreplace example.com/proto => ../proto\n",
-		"../proto/go.mod": "module example.com/proto\n\ngo 1.21\n",
+		"go.mod":		"module example.com/mtest\n\ngo 1.21\n\nrequire example.com/proto v0.0.0\n\nreplace example.com/proto => ../proto\n",
+		"../proto/go.mod":	"module example.com/proto\n\ngo 1.21\n",
 		"../proto/greet.pb.go": `package proto
 
 type Registrar interface{ RegisterService(desc any, impl any) }
@@ -155,8 +155,8 @@ func register(s proto.Registrar) {
 	found := false
 	for _, f := range facts {
 		if f.Kind == domain.FactGrpcImpl {
-			if string(f.SourceID) != "symbol:go:example.com/proto:GreeterServer" {
-				t.Errorf("grpc_impl source = %s; want 外部接口 GreeterServer（接口变量形态）", f.SourceID)
+			if string(f.SourceID) != "symbol:go:example.com/mtest:greeterImpl" {
+				t.Errorf("grpc_impl source = %s; want 具体实现 greeterImpl（类型匹配——DI 无直接调用）", f.SourceID)
 			}
 			if string(f.TargetID) != "symbol:go:example.com/proto:svc.Greeter" {
 				t.Errorf("grpc_impl target = %s; want svc.Greeter", f.TargetID)
@@ -165,15 +165,18 @@ func register(s proto.Registrar) {
 		}
 	}
 	if !found {
-		t.Error("接口变量调用点未产生 grpc_impl 边（外部接口 → svc）")
+		t.Error("接口变量调用点未产生 grpc_impl 边（实现 → svc）")
 	}
 }
+
+// TestGrpcRegisterIfaceNoImpl：接口形态无本地实现 → 回退接口节点
+// （查询端 implements 追链兜底）。
 
 // TestGrpcCustomClientNotService：自定义客户端（方法签名与 grpc 一致
 // 但无 Register——业务系统调用外部服务的客户端桩）不产生 svc 节点。
 func TestGrpcCustomClientNotService(t *testing.T) {
 	_, facts := indexFixture(t, map[string]string{
-		"go.mod": "module example.com/mtest\n\ngo 1.21\n",
+		"go.mod":	"module example.com/mtest\n\ngo 1.21\n",
 		// 业务类型在 .pb.go（外部 proto 包类型形态——命中 R48
 		// pbDefinedType 信号）
 		"req.pb.go": `package mtest
@@ -209,7 +212,7 @@ func use(s SmsSender) {
 // RegisterXxxServer 包装函数）→ 接口签名识别有注册佐证 → svc 节点。
 func TestGrpcHandwrittenRegisterProof(t *testing.T) {
 	nodes, _ := indexFixture(t, map[string]string{
-		"go.mod": "module example.com/mtest\n\ngo 1.21\n",
+		"go.mod":	"module example.com/mtest\n\ngo 1.21\n",
 		"req.pb.go": `package mtest
 
 type SmsReq struct{ Phone string }
@@ -244,3 +247,7 @@ func register(reg Registrar) {
 		t.Error("手写直接注册的服务接口应有注册佐证（desc 名）→ svc 节点")
 	}
 }
+
+// TestGrpcRegisterCtorReturnImpl：注册第二参是构造器调用——函数声明
+// 返回接口、函数体 return 具体实现 → grpc_impl 边直指具体实现
+// （画图以具体实现展开，而非接口）。

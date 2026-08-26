@@ -33,6 +33,8 @@ type Adapter struct {
 	// grpc.RegisterService 直接注册 desc 名）——接口签名识别据此区分
 	// 真服务与自定义客户端（签名同 grpc 但无注册）
 	registeredServices map[string]bool
+	// R95-2：当前仓库 module 列表（Index 时填充——类型匹配实现扫描）
+	modules []string
 }
 
 // SetChangedFiles 限定增量分析的文件集合（orchestrator 增量构建注入，

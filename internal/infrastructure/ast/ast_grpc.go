@@ -43,7 +43,7 @@ func (ctx *fileCtx) emitGrpcServiceEntry(call *ast.CallExpr, callee *types.Func,
 			Properties: map[string]any{"registers_service": svcName},
 		}})
 	}
-	if impl := serviceImplNode(pkg, call, ctx.repo); impl != nil {
+	for _, impl := range serviceImplNodes(ctx.a, pkg, call, ctx.repo) {
 		_ = ctx.emit(domain.Item{Node: impl})
 		_ = ctx.emit(domain.Item{Fact: &domain.Fact{
 			SourceID:   impl.ID,

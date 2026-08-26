@@ -51,12 +51,12 @@ func (a *Adapter) markHTTPHandlers(repo *domain.Repository, pkg *packages.Packag
 		}
 		pos := pkg.Fset.PositionFor(obj.Pos(), false)
 		if err := emit(domain.Item{Node: &domain.CodeEntity{
-			ID:        canonicalizer.GoSymbolID(obj.Pkg().Path(), obj.Name()),
-			Kind:      domain.KindStruct,
-			Name:      obj.Name(),
-			FilePath:  relPath(repo.Path, pos.Filename),
-			LineStart: pos.Line,
-			LineEnd:   pos.Line,
+			ID:		canonicalizer.GoSymbolID(obj.Pkg().Path(), obj.Name()),
+			Kind:		domain.KindStruct,
+			Name:		obj.Name(),
+			FilePath:	relPath(repo.Path, pos.Filename),
+			LineStart:	pos.Line,
+			LineEnd:	pos.Line,
 			Properties: map[string]any{
 				"serves_http": "true",
 			},
@@ -123,12 +123,12 @@ func (a *Adapter) emitStructFields(repo *domain.Repository, pkg *packages.Packag
 			}
 			pos := pkg.Fset.PositionFor(ts.Pos(), false)
 			_ = emit(domain.Item{Node: &domain.CodeEntity{
-				ID:        canonicalizer.GoSymbolID(named.Obj().Pkg().Path(), named.Obj().Name()),
-				Kind:      domain.KindStruct,
-				Name:      named.Obj().Name(),
-				FilePath:  relPath(repo.Path, pos.Filename),
-				LineStart: pos.Line,
-				LineEnd:   pos.Line,
+				ID:		canonicalizer.GoSymbolID(named.Obj().Pkg().Path(), named.Obj().Name()),
+				Kind:		domain.KindStruct,
+				Name:		named.Obj().Name(),
+				FilePath:	relPath(repo.Path, pos.Filename),
+				LineStart:	pos.Line,
+				LineEnd:	pos.Line,
 				Properties: map[string]any{
 					"fields": fields,
 				},
@@ -153,35 +153,6 @@ func isRegisterServerName(name string) bool {
 //	http.HandleFunc("/", home)            // 具名函数
 //
 // 返回标记 serves_http 的节点；匿名函数（FuncLit）与外部函数返回 nil。
-func handlerFuncNode(pkg *packages.Package, call *ast.CallExpr, repo *domain.Repository) *domain.CodeEntity {
-	if len(call.Args) < 2 {
-		return nil
-	}
-	arg := call.Args[1]
-
-	if ce, ok := arg.(*ast.CallExpr); ok {
-		if sel, ok2 := ce.Fun.(*ast.SelectorExpr); ok2 && sel.Sel.Name == "HandlerFunc" && len(ce.Args) > 0 {
-			arg = ce.Args[0]
-		}
-	}
-	id, ok := arg.(*ast.Ident)
-	if !ok {
-		return nil
-	}
-	obj := pkg.TypesInfo.Uses[id]
-	if obj == nil {
-		obj = pkg.TypesInfo.Defs[id]
-	}
-	fn, ok := obj.(*types.Func)
-	if !ok || fn.Pkg() == nil || !isInModule(fn.Pkg().Path(), repo.Modules) {
-		return nil
-	}
-	fnID, fnKind := fnID(fn)
-	if fnID == "" {
-		return nil
-	}
-	return nodeFor(repo, pkg, fn, fnID, fnKind, map[string]bool{"serves_http": true})
-}
 
 // serviceImplNode 提取 RegisterXxxServer 调用的第二个参数（服务实现），
 // 生成标记 serves_grpc 的节点（作为顶层服务入口）。参数形态支持：
@@ -191,49 +162,6 @@ func handlerFuncNode(pkg *packages.Package, call *ast.CallExpr, repo *domain.Rep
 //	pb.RegisterGreeterServer(s, impl)               // 变量
 //
 // 返回 nil 表示无法解析为项目内类型。
-func serviceImplNode(pkg *packages.Package, call *ast.CallExpr, repo *domain.Repository) *domain.CodeEntity {
-	if len(call.Args) < 2 {
-		return nil
-	}
-	t := pkg.TypesInfo.TypeOf(call.Args[1])
-	if t == nil {
-		return nil
-	}
-	if p, ok := t.(*types.Pointer); ok {
-		t = p.Elem()
-	}
-	named, ok := t.(*types.Named)
-	if !ok {
-		return nil
-	}
-	obj := named.Obj()
-	if obj.Pkg() == nil {
-		return nil
-	}
-	// R90：第二参为外部接口（proto 生成的 XxxServer——业务实现经变量/
-	// 依赖注入传入，如 `var srv pb.GreeterServer = &impl{}; Register(s, srv)`）
-	// → 发接口节点（kind=interface）；查询端 grpcImpl 经 implements 边
-	// 追业务实现（R37 已有追链）。模块内具体类型照旧直连。外部具体
-	// 类型（非接口）——非本仓库实现，跳过。
-	kind := domain.KindStruct
-	if _, isIface := named.Underlying().(*types.Interface); isIface {
-		kind = domain.KindInterface
-	} else if !isInModule(obj.Pkg().Path(), repo.Modules) {
-		return nil
-	}
-	pos := pkg.Fset.PositionFor(obj.Pos(), false)
-	return &domain.CodeEntity{
-		ID:        canonicalizer.GoSymbolID(obj.Pkg().Path(), obj.Name()),
-		Kind:      kind,
-		Name:      obj.Name(),
-		FilePath:  relPath(repo.Path, pos.Filename),
-		LineStart: pos.Line,
-		LineEnd:   pos.Line,
-		Properties: map[string]any{
-			"serves_grpc": "true",
-		},
-	}
-}
 
 // markServiceEntry 服务入口标记：net/http / grpc 调用、HTTP handler
 // 注册、gRPC RegisterXxxServer → caller 节点带 serves_http/serves_grpc。
