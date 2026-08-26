@@ -98,7 +98,8 @@
 - `edges(source_id, target_id, kind, tool_source, confidence, metadata JSON, UNIQUE(source_id,target_id,kind))`
   - FK：端点节点必须存在（不存在则跳过并计数 SkippedEdges）
 - `function_field_summary(function_id, access_kind, field_path, instance_path, line_start, code_snippet, FK→nodes, UNIQUE(function_id,access_kind,field_path))` —— S1 预计算摘要（field_trace.md §5.2）
-- `build_metadata` —— 构建记录（tool_name/timestamp/status/commit_sha）
+- `build_metadata` —— 构建记录（tool_name/timestamp/status/commit_sha/
+  dispatch_pkgs——P0-2 dispatch 相关包 JSON 数组，增量构建补 Load 用）
 - schema 无自动迁移：改动表结构后验证仓库须 `codeintel clean` + `init` 重建
 
 ## 6. Canonical ID 规则

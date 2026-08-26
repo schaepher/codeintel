@@ -1409,6 +1409,54 @@ domain 1 包 1 自环边。
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
 
+### R98（2026-08-27）——P0 三项（dispatch 增量/数据流扩展/参与者类型）+ 迁移收尾批次 4-6
+
+用户选定 P0-2/3/5 + cli 迁移收尾，四项全部完成（commit d450393→2c760bc）。
+
+**P0-2 dispatch_to 边增量丢失根治**：改 impl 包时增量只 Load 变更包，
+注册点包（MakeInterface 注册 + 动态调用）未 Load → emitDispatches 收
+不到注册点 → dispatch_to 边整体丢失（实测 ~15 条/0.6%）。修复：
+collectDispatchRegistrations/emitDispatches 收集 dispatch 相关模块内
+包 → Adapter.DispatchPkgs → build_metadata.dispatch_pkgs 列（旧库
+ALTER 幂等迁移）→ 增量 mergeDispatchPkgPatterns 补 Load。端到端测试：
+容器包 + impl 包 fixture，全量 1 条 register 0.9 边、改 impl 增量后
+保留。教训：SetMaxOpenConns(1) 下单连接——rows 用完必须立即 Close，
+defer 在测试函数级会死锁 GetLatest。
+
+**P0-3 数据流具体化扩展**：fieldWriteType 从"仅同包 &T{} 字面量"
+扩展到四形态——构造器调用（newX()/pkg.NewX()，优先函数体 return
+RHS——"声明返回接口、函数体 return 具体实现"；跨包经索引节点读
+源码）、跨包类型（&svc.T{}——import 映射）、变量链（x.f = v 回溯
+初始化，深度 ≤3 防环）、条件分支多候选（if/else 各分支收集去重）。
+fieldWriteTypes 返回 []writeSource，receiverFieldImpl 遍历全部候选。
+
+**P0-5 时序图参与者类型准确性**：CodeSeqNode 加 DeclType（receiver
+字段声明类型——struct 定义字段，'声明接口'）+ ImplType（数据流实现）。
+渲染 collectTypes：DeclType+ImplType 都有 → 'IManager → orderManagerImpl'
+双行；只有 ImplType → 'Type → ImplType'；否则单行 Type 不回归。
+发现 CalleesConcrete 已把 Type 具体化为实现类型——声明类型需单独
+从字段声明提取。
+
+**迁移收尾批次 4-6**：
+- 批次 4：packages/architecture/module/export graph（GetPkgCodeFacts
+  + domain.PkgCodeFacts）
+- 批次 5：ERRelations（wikiRelations 编排）；核查发现 entities/fields/
+  symbol/graph 查询逻辑早已在 action，cli 剩渲染；query_dispatch.go
+  是 cmdQuery 主分发（R77 拆分，cli 正当职责）
+- 批次 6：domains 全编排（AnalyzeDomains——AgentRunner 注入）、
+  ParseDomains/YAMLEditor/collectDomainFacts 随迁、relations 过滤、
+  unused --since（ParseGitDiff 随迁）；processes/trace 判定保留
+  （展示装配与渲染上下文）；运维/配置/服务/AI 问答命令保留 cli
+- 已迁移命令累计 20 个；cli 剩余为薄壳 + 渲染 + 正当保留
+
+**教训**：verify.sh R67 把 TMPDIR 指向仓库 .tmp——t.TempDir() 落在
+git 仓库内，git -C 向上找到 .git（'非 git 仓库'测试前提不成立）；
+--since 测试改用不存在的 ref 触发 git 失败（环境无关）。
+
+**待办更新**：P0 剩 ① 真实系统端到端验证 ④ --with-qa 实战验证；
+P1 迁移收尾改为"已基本完成（剩 query_cli_routes/grpc_composites/
+precompute 直连 sqlite 的后续收紧）"。
+
 ### R97（2026-08-27）——时序图自环修复 + 接口调用数据流具体化
 
 用户：grpc 方法实现内部调接口（s.manager.SubmitOrder——IOrderManager），
