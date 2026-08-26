@@ -226,7 +226,12 @@ func renderGrpcServiceMD(rc *wikiRenderCtx, svc grpcRouteService, max int) strin
 		if p.Handler != "" {
 			b.WriteString("handler：" + p.Handler + "\n\n")
 		}
-		b.WriteString(renderProcChainMD(rc, p.Chain, grpcMethodMissNote(p)))
+		// R83：代码级时序（源码 AST，depth=rc.SeqDepth）优先；fallback 索引链
+		entryID := ""
+		if svc.ImplID != "" {
+			entryID = grpcMethodEntryID(svc.ImplID, p.Name)
+		}
+		b.WriteString(renderProcSeqMD(rc, entryID, p.Chain, grpcMethodMissNote(p)))
 	}
 	if len(folded) > 0 {
 		b.WriteString(fmt.Sprintf("其余 %d 个方法仅列清单（--max-entries 可调上限）：\n\n", len(folded)))
@@ -275,7 +280,12 @@ func renderGrpcServiceHTML(rc *wikiRenderCtx, svc grpcRouteService, max int) str
 		if p.Handler != "" {
 			b.WriteString(`<p class="muted">handler：` + htmlEsc(p.Handler) + `</p>`)
 		}
-		b.WriteString(renderProcChainHTML(rc, p.Chain, grpcMethodMissNote(p)))
+		// R83：代码级时序优先（fallback 索引链）
+		entryID := ""
+		if svc.ImplID != "" {
+			entryID = grpcMethodEntryID(svc.ImplID, p.Name)
+		}
+		b.WriteString(renderProcSeqHTML(rc, entryID, p.Chain, grpcMethodMissNote(p)))
 	}
 	if len(folded) > 0 {
 		b.WriteString(fmt.Sprintf(`<details><summary>其余 %d 个方法仅列清单（--max-entries 可调上限）</summary><ul>`, len(folded)))

@@ -99,6 +99,35 @@ func renderProcChainHTML(rc *wikiRenderCtx, chain *procChain, miss string) strin
 	return b.String()
 }
 
+// renderProcSeqMD 代码级时序渲染（R83：wiki grpc 方法图用 query
+// sequence --code 同款——源码 AST 时序，depth=rc.SeqDepth）；符号
+// 解析失败/源码缺失 fallback 索引调用链。entryID：方法入口 canonical
+// ID（(Impl).Method）。
+func renderProcSeqMD(rc *wikiRenderCtx, entryID string, fallback *procChain, miss string) string {
+	if entryID != "" && rc.RepoAbs != "" {
+		if root := codeSequence(rc.acts, rc.RepoAbs, entryID, rc.SeqDepth); root != nil {
+			var b strings.Builder
+			b.WriteString("**代码级时序**（源码 AST——调用/分支/循环；`query sequence --code` 同款）：\n\n")
+			b.WriteString(rc.diagramMD(renderCodeSeqMermaid(root)))
+			return b.String()
+		}
+	}
+	return renderProcChainMD(rc, fallback, miss)
+}
+
+// renderProcSeqHTML 代码级时序（html 版，同 renderProcSeqMD）。
+func renderProcSeqHTML(rc *wikiRenderCtx, entryID string, fallback *procChain, miss string) string {
+	if entryID != "" && rc.RepoAbs != "" {
+		if root := codeSequence(rc.acts, rc.RepoAbs, entryID, rc.SeqDepth); root != nil {
+			var b strings.Builder
+			b.WriteString(`<p class="muted"><strong>代码级时序</strong>（源码 AST——调用/分支/循环；query sequence --code 同款）：</p>`)
+			b.WriteString(rc.diagramHTML(renderCodeSeqMermaid(root)))
+			return b.String()
+		}
+	}
+	return renderProcChainHTML(rc, fallback, miss)
+}
+
 // httpMissNote handler 无调用链的原因说明。
 func httpMissNote(e httpProcEntry) string {
 	switch {

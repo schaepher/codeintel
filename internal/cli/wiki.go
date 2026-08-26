@@ -35,6 +35,7 @@ func cmdWiki(args []string) int {
 	aiWithQA := false
 	diagram := "plantuml" // R32：图引擎（默认 plantuml，Q3 定案）
 	maxEntries := 0       // R37：流程页入口展开上限（0 = 默认 15）
+	seqDepth := 0         // R83：grpc 方法代码级时序嵌套层级（0 = 全局配置，默认 3）
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
@@ -76,6 +77,9 @@ func cmdWiki(args []string) int {
 			diagram = strings.TrimPrefix(a, "--diagram=")
 		case a == "--max-entries" && i+1 < len(args):
 			maxEntries, _ = strconv.Atoi(args[i+1])
+			i++
+		case a == "--seq-depth" && i+1 < len(args):
+			seqDepth, _ = strconv.Atoi(args[i+1])
 			i++
 		case strings.HasPrefix(a, "--max-entries="):
 			maxEntries, _ = strconv.Atoi(strings.TrimPrefix(a, "--max-entries="))
@@ -209,7 +213,10 @@ func cmdWiki(args []string) int {
 		freshNote = "索引 commit: " + shortSHA(latest.CommitSHA)
 		degradeStats = latest.DegradeStats // R6：构建降级可观测
 	}
-	rc := &wikiRenderCtx{acts: acts, data: data, cfg: cfg, cols: cols, rels: rels, pkgs: pkgs, freshNote: freshNote, degradeStats: degradeStats, Diagram: diagram, repo: sqlite.NewRepo(db), MaxEntries: maxEntries, RepoAbs: abs}
+	if seqDepth <= 0 {
+		seqDepth = loadSeqDepth()
+	}
+	rc := &wikiRenderCtx{acts: acts, data: data, cfg: cfg, cols: cols, rels: rels, pkgs: pkgs, freshNote: freshNote, degradeStats: degradeStats, Diagram: diagram, repo: sqlite.NewRepo(db), MaxEntries: maxEntries, RepoAbs: abs, SeqDepth: seqDepth}
 	switch format {
 	case "html":
 		if err := renderWikiHTML(abs, outDir, rc); err != nil {
@@ -246,6 +253,7 @@ type wikiRenderCtx struct {
 	Diagram  string // R32：图引擎 plantuml（默认）| mermaid
 	repo     *sqlite.Repo // R34：包结构 fallback 查询（无包说明时查包内符号）
 	MaxEntries int // R37：流程页每节/每页入口展开上限（0 = procMaxEntries）
+	SeqDepth int // R83：grpc 方法代码级时序嵌套层级（默认 3——loadSeqDepth）
 	RepoAbs  string // R37：目标仓库绝对路径（grpc ServiceDesc 解析需要——空则方法全集缺失）
 }
 

@@ -12,6 +12,31 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// loadSeqDepth 全局配置 seq.depth（R83：wiki grpc 方法代码级时序的
+// 嵌套层级；默认 3；wiki --seq-depth 参数优先）。
+func loadSeqDepth() int {
+	p := agentConfigPath()
+	if p == "" {
+		return 3
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return 3
+	}
+	var c struct {
+		Seq struct {
+			Depth int `yaml:"depth"`
+		} `yaml:"seq"`
+	}
+	if err := yaml.Unmarshal(b, &c); err != nil {
+		return 3
+	}
+	if c.Seq.Depth > 0 {
+		return c.Seq.Depth
+	}
+	return 3
+}
+
 // loadSeqStopPkgs 读全局配置 seq.stop_packages（每次读取——配置文件
 // 小；agentConfigPath 可覆盖便于测试）。
 func loadSeqStopPkgs() []string {

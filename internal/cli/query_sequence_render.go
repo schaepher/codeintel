@@ -49,10 +49,11 @@ func collectTypes(nodes []*codeSeqNode, out map[string]string) {
 	}
 }
 // collectParts 收集参与者（R83：调用对象 Actor 去重——s.manager/
-// t.repo/ic；消息线 label 保持完整调用名）。
+// t.repo/ic；消息线 label 保持完整调用名）。R83：跳过 Go 基础类型
+// 参与者（int64(x) 类型转换——非调用）；匿名函数/变量函数保留。
 func collectParts(nodes []*codeSeqNode, parts *[]string, seen map[string]bool) {
 	for _, n := range nodes {
-		if n.Kind == "call" && n.Actor != "" && !seen[n.Actor] {
+		if n.Kind == "call" && n.Actor != "" && !seqBaseTypeActor(n.Actor) && !seen[n.Actor] {
 			seen[n.Actor] = true
 			*parts = append(*parts, n.Actor)
 		}
@@ -60,11 +61,26 @@ func collectParts(nodes []*codeSeqNode, parts *[]string, seen map[string]bool) {
 		collectParts(n.Else, parts, seen)
 	}
 }
+
+// seqBaseTypeActor 参与者是否为 Go 基础类型（int64(x) 类型转换等——
+// 非真实调用，图上无意义）。
+func seqBaseTypeActor(actor string) bool {
+	if sigTypeKeyword(actor) {
+		return true
+	}
+	// 类型转换带括号/泛型形态（int64(x) 的 Actor 是纯类型名）
+	return strings.HasPrefix(actor, "[]") || strings.HasPrefix(actor, "map[") ||
+		strings.HasPrefix(actor, "func(") || strings.HasPrefix(actor, "chan ")
+}
 // writeSeqNode 递归渲染节点块（call 消息 / branch alt / loop）。
 func writeSeqNode(b *strings.Builder, alias map[string]string, from string, nodes []*codeSeqNode) {
 	for _, n := range nodes {
 		switch n.Kind {
 		case "call":
+			// R83：基础类型参与者（int64 类型转换）跳过消息——非调用
+			if seqBaseTypeActor(n.Actor) {
+				continue
+			}
 			to := alias[n.Actor]
 			if to == "" {
 				to = alias[from]

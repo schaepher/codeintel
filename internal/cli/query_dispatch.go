@@ -10,10 +10,9 @@ import (
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 	"github.com/schaepher/codeintel/internal/logging"
-	"go.uber.org/zap"
 )
 
-// outputOpts 查询输出选项（--json / --compact，Q96）。
+// outputOpts 查询输出选项（--json / --compact / repoPath）。
 type outputOpts struct {
 	json     bool // 结构化 JSON 输出（stdout 仅 JSON，日志已切文件）
 	compact  bool // 树形/表格输出压缩为紧凑形式
@@ -22,11 +21,8 @@ type outputOpts struct {
 
 // cmdQuery 实现 `codeintel query ...`。
 func cmdQuery(args []string) int {
-	logger := zap.L()
-	logger.Debug("enter cmdQuery")
-	defer logger.Debug("exit cmdQuery")
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "error: query 需要一个子命令（symbol/fields/trace-backward/trace-forward/value-trace/summary/path/unused/callers/callees/impact/sequence/enums/entities/grpc-routes/http-routes/cli-routes/external-deps/external-interfaces/kafka-topics/grpc-composites/packages/architecture/er/processes/module）")
+		fmt.Fprintln(os.Stderr, "error: query 需要一个子命令（symbol/fields/trace/value-trace/summary/path/unused/callers/callees/impact/sequence/enums/entities/grpc-routes/http-routes/cli-routes/external-*/kafka-topics/grpc-composites/grpc-callers/http-callers/packages/architecture/er/processes/module）")
 		return 2
 	}
 	sub := args[0]
@@ -35,7 +31,7 @@ func cmdQuery(args []string) int {
 	f := parseQueryFlags(rest)
 	target := ""
 
-	if sub != "unused" && sub != "module-calls" && sub != "enums" && sub != "entities" && sub != "grpc-routes" && sub != "http-routes" && sub != "cli-routes" && sub != "external-deps" && sub != "external-interfaces" && sub != "kafka-topics" && sub != "grpc-composites" && sub != "packages" && sub != "architecture" && sub != "er" && sub != "processes" && !(sub == "relations" && f.all) {
+	if sub != "unused" && sub != "module-calls" && sub != "enums" && sub != "entities" && sub != "grpc-routes" && sub != "http-routes" && sub != "cli-routes" && sub != "external-deps" && sub != "external-interfaces" && sub != "kafka-topics" && sub != "grpc-composites" && sub != "grpc-callers" && sub != "http-callers" && sub != "packages" && sub != "architecture" && sub != "er" && sub != "processes" && !(sub == "relations" && f.all) {
 		if len(f.positional) < 1 {
 			fmt.Fprintf(os.Stderr, "error: 缺少符号参数\n")
 			return 2
@@ -67,8 +63,7 @@ func cmdQuery(args []string) int {
 		fmt.Fprintf(os.Stderr, "warning: %s\n", tip)
 	}
 
-	// R5：枚举权威清单（源码提取，不依赖索引——AI/Agent 获取避免
-	// 重复定义枚举值）
+	// R5：枚举权威清单（源码提取，不依赖索引）
 	if sub == "enums" {
 		return cmdEnums(abs, f)
 	}
@@ -76,27 +71,27 @@ func cmdQuery(args []string) int {
 	if sub == "entities" {
 		return cmdEntities(acts, outputOpts{json: f.json, compact: f.compact, repoPath: f.repoPath}, f.format)
 	}
-	// R29：服务端 gRPC 路由清单（不依赖符号参数）
+	// R29：服务端 gRPC 路由清单
 	if sub == "grpc-routes" {
 		return cmdGrpcRoutes(abs, f)
 	}
-	// R31：HTTP 路由清单（不依赖符号参数）
+	// R31：HTTP 路由清单
 	if sub == "http-routes" {
 		return cmdHTTPRoutes(abs, f)
 	}
-	// R35：urfave/cli 命令树（不依赖符号参数）
+	// R35：urfave/cli 命令树
 	if sub == "cli-routes" {
 		return cmdCLIRoutes(abs, f)
 	}
-	// R36：外部依赖（redis 键 / kafka topic——不依赖符号参数）
+	// R36：外部依赖（redis 键 / kafka topic）
 	if sub == "external-deps" {
 		return cmdExternalDeps(abs, f)
 	}
-	// R45：外部系统接口调用识别（接口未在本项目定义 / 请求对象不在本项目服务参数）
+	// R45：外部系统接口调用识别
 	if sub == "external-interfaces" {
 		return cmdExternalInterfaces(abs, f)
 	}
-	// R46：kafka topic 生产/消费归属分类
+	// R46：kafka topic 生产/消费归属
 	if sub == "kafka-topics" {
 		return cmdKafkaTopics(abs, f)
 	}
@@ -104,12 +99,20 @@ func cmdQuery(args []string) int {
 	if sub == "grpc-composites" {
 		return cmdGrpcComposites(abs, f)
 	}
+	// R83：调用链最终调用的 grpc/http
+	if sub == "grpc-callers" || sub == "http-callers" {
+		if len(f.positional) < 1 {
+			fmt.Fprintln(os.Stderr, "error: 缺少符号参数")
+			return 2
+		}
+		return cmdChainGrpcHTTP(acts, sqlite.NewRepo(db), f.positional[0], sub, f.json)
+	}
 
 	opts := outputOpts{json: f.json, compact: f.compact, repoPath: f.repoPath}
 	if code, done := dispatchWikiSub(sub, acts, db, abs, f, opts); done {
 		return code
 	}
-	// --since 标注（§17.2）：symbol/fields/callers/callees/impact 输出对函数/方法节点标注 [new]/[mod]
+	// --since：symbol/fields/callers/callees/impact 标注 [new]/[mod]
 	var since *domain.SinceInfo
 	if f.since != "" {
 		since = runGitDiffSince(abs, f.since)
@@ -174,11 +177,8 @@ func cmdQuery(args []string) int {
 	}
 }
 
-// parseQueryFlags 手动解析 query 子命令的参数，支持 flags 与位置参数任意顺序。
+// parseQueryFlags 手动解析 query 参数（flags 与位置参数任意顺序）。
 func parseQueryFlags(args []string) queryFlags {
-	logger := zap.L()
-	logger.Debug("enter parseQueryFlags")
-	defer logger.Debug("exit parseQueryFlags")
 	f := queryFlags{repoPath: "."}
 	// Q197 跳数上限：-1 = 未传（用默认 4）；显式 0 = 该类型不限制
 	f.queryMaxHops, f.writeMaxHops, f.readMaxHops = -1, -1, -1
