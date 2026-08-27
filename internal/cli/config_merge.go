@@ -99,93 +99,80 @@ func diffKeys(prefix string, tpl, cur map[string]any, missing *[][]string) {
 }
 
 // extractTemplateBlock 从模板原始文本提取键路径对应的行组（含前导
-// 注释与缩进内容——保持模板的默认值与注释）。
+// 注释与缩进内容——保持模板的默认值与注释）。任意深度（R100：3 层
+// 以上如 ai.fill.modules——原实现硬编码 2 层，3 层会整块返回）。
 func extractTemplateBlock(tmpl string, keyPath []string) string {
 	lines := strings.Split(tmpl, "\n")
-	// 定位顶层键行
-	top := keyPath[0]
+	// 第一层：定位顶层键行（无缩进）
 	start := -1
-	commentStart := -1
 	for i, l := range lines {
 		trim := strings.TrimSpace(l)
-		if strings.HasPrefix(trim, "#") || trim == "" {
+		if trim == "" || strings.HasPrefix(trim, "#") || !strings.HasPrefix(trim, keyPath[0]+":") {
 			continue
 		}
-		if !strings.HasPrefix(trim, top+":") {
-			continue
+		if countIndent(l) == 0 {
+			start = i
+			break
 		}
-		// 确认是顶层键（无缩进）
-		if l != "" && (l[0] == ' ' || l[0] == '\t') {
-			continue
-		}
-		start = i
-		// 前导注释块起点
-		commentStart = i
-		for commentStart > 0 && strings.HasPrefix(strings.TrimSpace(lines[commentStart-1]), "#") {
-			commentStart--
-		}
-		break
 	}
 	if start < 0 {
 		return ""
 	}
-	// 顶层块结束 = 下一个顶层键
-	end := len(lines)
-	for i := start + 1; i < len(lines); i++ {
-		l := lines[i]
-		if l == "" || strings.HasPrefix(strings.TrimSpace(l), "#") {
-			continue
-		}
-		if l[0] != ' ' && l[0] != '\t' {
-			end = i
-			break
-		}
-	}
-	block := strings.Join(lines[start:end], "\n")
-	if len(keyPath) == 1 {
-		// 含前导注释
-		if commentStart >= 0 {
-			block = strings.Join(lines[commentStart:end], "\n")
-		}
-		return block
-	}
-	// 嵌套键：在顶层块内定位子键行组（含前导注释）
-	sub := keyPath[1]
-	subIndent := -1
-	subStart := -1
-	for i, l := range lines[start:end] {
-		t := strings.TrimSpace(l)
+	// 第一层块结束 = 下一个顶层键（缩进 0）
+	topEnd := len(lines)
+	for j := start + 1; j < len(lines); j++ {
+		t := strings.TrimSpace(lines[j])
 		if t == "" || strings.HasPrefix(t, "#") {
 			continue
 		}
-		if strings.HasPrefix(t, sub+":") && countIndent(l) > 0 {
-			subIndent = countIndent(l)
-			subStart = i
+		if countIndent(lines[j]) == 0 {
+			topEnd = j
 			break
 		}
 	}
-	_ = subIndent
-	if subStart < 0 {
-		return ""
-	}
-	// 含前导注释（紧邻的 # 行）
-	subCommentStart := subStart
-	for subCommentStart > 0 && strings.HasPrefix(strings.TrimSpace(lines[start+subCommentStart-1]), "#") {
-		subCommentStart--
-	}
-	// 结束 = 下一个缩进 <= subIndent 的键行（或顶层块尾）——相对索引
-	subEnd := end - start
-	for i := subStart + 1; i < end-start; i++ {
-		t := strings.TrimSpace(lines[start+i])
-		if t == "" || strings.HasPrefix(t, "#") {
-			continue
+	// 逐层下钻：每层在父块内找 keyPath[i] 子键行（缩进 > 父缩进），
+	// 块边界 = 下一个缩进 <= 当前层缩进的键行
+	curStart, curEnd, curIndent := start, topEnd, 0
+	for i := 1; i < len(keyPath); i++ {
+		key := keyPath[i]
+		subStart, subIndent := -1, -1
+		for j := curStart + 1; j < curEnd; j++ {
+			l := lines[j]
+			t := strings.TrimSpace(l)
+			if t == "" || strings.HasPrefix(t, "#") {
+				continue
+			}
+			ind := countIndent(l)
+			if ind <= curIndent {
+				break // 已出父块
+			}
+			if strings.HasPrefix(t, key+":") {
+				subStart, subIndent = j, ind
+				break
+			}
 		}
-		if countIndent(lines[start+i]) <= subIndent {
-			subEnd = i
-			break
+		if subStart < 0 {
+			return ""
 		}
+		subEnd := curEnd
+		for j := subStart + 1; j < curEnd; j++ {
+			t := strings.TrimSpace(lines[j])
+			if t == "" || strings.HasPrefix(t, "#") {
+				continue
+			}
+			if countIndent(lines[j]) <= subIndent {
+				subEnd = j
+				break
+			}
+		}
+		curStart, curEnd, curIndent = subStart, subEnd, subIndent
 	}
-	return strings.Join(lines[start+subCommentStart:start+subEnd], "\n")
+	// 前导注释块（最近一层键的紧邻 # 行）
+	commentStart := curStart
+	for commentStart > 0 && strings.HasPrefix(strings.TrimSpace(lines[commentStart-1]), "#") {
+		commentStart--
+	}
+	return strings.Join(lines[commentStart:curEnd], "\n")
 }
 
 // countIndent 行前导缩进字符数。
@@ -202,7 +189,8 @@ func countIndent(l string) int {
 }
 
 // insertBlock 把模板块插入现有配置：顶层键缺失 → 文件尾追加；嵌套
-// 键缺失 → 插入父键块末尾（父键最后内容行后）。
+// 键缺失 → 插入父键块末尾（父键最后内容行后）。任意深度（R100：3
+// 层以上逐层下钻定位插入点——原实现只按 keyPath[0] 找顶层块）。
 func insertBlock(lines []string, keyPath []string, block string) []string {
 	if len(keyPath) == 1 {
 		// 顶层键：文件尾追加（前空一行）
@@ -211,34 +199,43 @@ func insertBlock(lines []string, keyPath []string, block string) []string {
 		}
 		return append(lines, strings.Split(block, "\n")...)
 	}
-	// 嵌套键：定位父键块末尾（父键下最深内容行后、下一个同级键前）
-	parent := keyPath[0]
-	parentEnd := -1
-	parentIndent := -1
-	for i, l := range lines {
-		t := strings.TrimSpace(l)
+	// 逐层下钻定位最深层父键行（i==0 顶层缩进 0；i>0 缩进 > 父缩进）
+	curStart, curEnd, curIndent := -1, len(lines), -1
+	for i := 0; i < len(keyPath)-1; i++ {
+		key := keyPath[i]
+		next := -1
+		for j := curStart + 1; j < curEnd; j++ {
+			l := lines[j]
+			t := strings.TrimSpace(l)
+			if t == "" || strings.HasPrefix(t, "#") {
+				continue
+			}
+			ind := countIndent(l)
+			if i > 0 && ind <= curIndent {
+				break // 已出父块
+			}
+			if strings.HasPrefix(t, key+":") && ((i == 0 && ind == 0) || (i > 0 && ind > curIndent)) {
+				next = j
+				break
+			}
+		}
+		if next < 0 {
+			return lines
+		}
+		curStart, curIndent = next, countIndent(lines[next])
+	}
+	// 父块末尾：父键行后最深内容行后、下一个缩进 <= 父缩进的键行前
+	parentEnd := len(lines)
+	for j := curStart + 1; j < len(lines); j++ {
+		t := strings.TrimSpace(lines[j])
 		if t == "" || strings.HasPrefix(t, "#") {
 			continue
 		}
-		if strings.HasPrefix(t, parent+":") && (i == 0 || (lines[i][0] != ' ' && lines[i][0] != '\t')) {
-			parentIndent = countIndent(l)
-			for j := i + 1; j < len(lines); j++ {
-				tj := strings.TrimSpace(lines[j])
-				if tj == "" || strings.HasPrefix(tj, "#") {
-					continue
-				}
-				if lines[j][0] != ' ' && lines[j][0] != '\t' {
-					parentEnd = j
-					break
-				}
-				parentEnd = j + 1
-			}
+		if countIndent(lines[j]) <= curIndent {
+			parentEnd = j
 			break
 		}
-	}
-	_ = parentIndent
-	if parentEnd < 0 {
-		return lines
+		parentEnd = j + 1
 	}
 	out := make([]string, 0, len(lines)+4)
 	out = append(out, lines[:parentEnd]...)
