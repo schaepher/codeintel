@@ -182,11 +182,14 @@ func (ctx *fileCtx) trackBindings(n ast.Node) {
 					}
 				}
 			}
-			// §18.6：method := "/pkg.Svc/M" 一层赋值链（常量传播）
-			if bl, isLit := assign.Rhs[0].(*ast.BasicLit); isLit && bl.Kind == token.STRING {
-				if mp := unquoteMethodPath(bl.Value); mp != "" {
-					ctx.methodVars[id.Name] = mp
-				}
+			// §18.6：字符串变量一层赋值链（常量传播）：method := "/pkg.Svc/M"
+			// 记录方法路径（含 :// 或 / 前缀判定；isGrpcMethodPath 消费端
+			// 再校验）；URL 形态记录 URL——动态 URL 变量拼接盲区（R100：
+			// base := "https://..." 后 http.Get(base) 的 host 漏检）。
+			// 非 URL 形态不记录（防 gin 路由/redis key 误伤）。
+			if v := extractStringArg(ctx.pkg, ctx.methodVars, assign.Rhs[0]); v != "" &&
+				(strings.Contains(v, "://") || strings.HasPrefix(v, "/")) {
+				ctx.methodVars[id.Name] = v
 			}
 			// R78：strUrl := fmt.Sprintf(...) → 静态前缀记录（go2o cl253
 			// 形态——http.Get(strUrl) 的 URL 变量追踪）
@@ -225,6 +228,14 @@ func (ctx *fileCtx) trackBindings(n ast.Node) {
 			}
 			if objID, ok := ctx.a.createObject(ctx.pkg, vs.Values[0], ctx.stack, ctx.emit, ctx.repo, ctx.objCache); ok {
 				ctx.objVars[vs.Names[0].Name] = objID
+			}
+			// R100：包级 var 字符串字面量（baseVar := "http://..." → 函数内
+			// http.Get(baseVar) 的 host 追踪；const 走 types.Const 已覆盖）
+			if bl, isLit := vs.Values[0].(*ast.BasicLit); isLit && bl.Kind == token.STRING {
+				if v, err := strconv.Unquote(bl.Value); err == nil &&
+					(strings.Contains(v, "://") || strings.HasPrefix(v, "/")) {
+					ctx.methodVars[vs.Names[0].Name] = v
+				}
 			}
 		}
 	}

@@ -159,6 +159,29 @@ func httpURLString(pkg *packages.Package, methodVars map[string]string,
 	return u, true
 }
 
+// httpBodyType HTTP 请求体实参类型（R100 待办11——http_call 边
+// req_type，与 grpc req_type 对齐，供外部接口请求对象判定）：
+// NewRequest → Args[2]；NewRequestWithContext → Args[3]；Get/Do 无
+// body → 空。
+func httpBodyType(pkg *packages.Package, call *ast.CallExpr, callee *types.Func) string {
+	if callee == nil {
+		return ""
+	}
+	idx := -1
+	switch callee.Name() {
+	case "NewRequest":
+		idx = 2
+	case "NewRequestWithContext":
+		idx = 3
+	default:
+		return ""
+	}
+	if len(call.Args) <= idx {
+		return ""
+	}
+	return typePath(pkg.TypesInfo.TypeOf(call.Args[idx]))
+}
+
 // httpMethodOf Q205d：按调用形态取 HTTP method 实参（常量传播）：
 // http.Get → "GET"；NewRequest → Args[0]；NewRequestWithContext →
 // Args[1]；未知/非常量 → ""（emitHTTP 默认 GET）。此前 emitHTTP 在

@@ -3,7 +3,6 @@ package ast
 import (
 	"go/ast"
 	"go/types"
-	"strconv"
 	"strings"
 
 	"github.com/schaepher/codeintel/internal/domain"
@@ -99,16 +98,6 @@ func clientTypeService(name string) (string, bool) {
 		return "", false
 	}
 	return strings.TrimSuffix(name, "Client"), true
-}
-
-// unquoteMethodPath 校验并还原字符串字面量为 gRPC 方法路径
-// （/pkg.Service/Method 格式）；非路径返回空。
-func unquoteMethodPath(lit string) string {
-	s, err := strconv.Unquote(lit)
-	if err != nil || !isGrpcMethodPath(s) {
-		return ""
-	}
-	return s
 }
 
 // isGrpcMethodPath gRPC 方法路径格式："/<包.服务>/<方法>"。
@@ -247,7 +236,8 @@ func (ctx *fileCtx) emitSelectorCall(call *ast.CallExpr, callee *types.Func, sel
 	// NewRequestWithContext → Args[1]）——不得把 URL 当 method
 	if url, okURL := httpURLString(pkg, ctx.methodVars, call, callee); okURL {
 		ctx.emitHTTP(call, callerID, url, pkg.Fset.PositionFor(call.Pos(), false).Line,
-			httpMethodOf(pkg, ctx.methodVars, call, callee))
+			httpMethodOf(pkg, ctx.methodVars, call, callee),
+			httpBodyType(pkg, call, callee))
 	}
 	// P1-3：client.Do(req)——req 由本函数 NewRequest 赋值（URL 已建
 	// 边 → 防重复跳过；请求发出点语义仍以 NewRequest 行号为准）
@@ -258,7 +248,7 @@ func (ctx *fileCtx) emitSelectorCall(call *ast.CallExpr, callee *types.Func, sel
 				if m == "" {
 					m = "GET"
 				}
-				ctx.emitHTTP(call, callerID, url, pkg.Fset.PositionFor(call.Pos(), false).Line, m)
+				ctx.emitHTTP(call, callerID, url, pkg.Fset.PositionFor(call.Pos(), false).Line, m, "")
 			}
 		}
 	}
