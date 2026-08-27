@@ -109,7 +109,8 @@ func isInterfaceType(n *types.Named) bool {
 }
 
 // isInterfaceMethod 判断 *types.Func 是否为接口方法（接收者类型是接口）。
-// 接口方法不作为独立节点：SCIP 适配器不建、AST 适配器调用处也不建。
+// W1：接口方法节点在调用处发射（emitcall 接口分支——时序图具体化
+// 依据：调用边 target 含方法名才能定位接口方法的具体实现）。
 func isInterfaceMethod(fn *types.Func) bool {
 	logger := zap.L()
 	logger.Debug("enter isInterfaceMethod")

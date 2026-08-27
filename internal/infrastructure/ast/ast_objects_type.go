@@ -93,9 +93,14 @@ func (a *Adapter) concreteMethodFor(pkg *packages.Package, call *ast.CallExpr, c
 		return "", "", nil
 	}
 	if isInterfaceType(named) {
-
-		id := canonicalizer.GoSymbolID(named.Obj().Pkg().Path(), named.Obj().Name())
-		return id, domain.KindInterface, &domain.CodeEntity{ID: id, Kind: domain.KindInterface, Name: named.Obj().Name()}
+		// W1：指向接口方法节点（含方法名）——时序图据此具体化到实现
+		// 并展开；旧实现指向接口类型节点（无方法名），调用链无法展开。
+		// 具体实现由查询端（ResolveIfaceCalls/InterfaceMethodImpl——
+		// implements 边枚举）确定。
+		iface := named.Obj()
+		mn := canonicalizer.MethodName(iface.Name(), callee.Name())
+		mid := canonicalizer.GoSymbolID(iface.Pkg().Path(), mn)
+		return mid, domain.KindMethod, &domain.CodeEntity{ID: mid, Kind: domain.KindMethod, Name: mn}
 	}
 
 	for i := 0; i < named.NumMethods(); i++ {
