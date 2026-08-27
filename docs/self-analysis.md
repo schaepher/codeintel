@@ -1457,6 +1457,28 @@ git 仓库内，git -C 向上找到 .git（'非 git 仓库'测试前提不成立
 P1 迁移收尾改为"已基本完成（剩 query_cli_routes/grpc_composites/
 precompute 直连 sqlite 的后续收紧）"。
 
+### R99（2026-08-27）——wiki 三项 + 调用解析接口方法名（W1-W4）
+
+用户四需求：grpc 服务入口方法折叠 / 包结构折叠点完整包名+排序 /
+包间调用架构图按领域拆分 / 调用解析包含接口方法名（时序图具体化
+根因）。
+
+**W1（解析层根因）**：接口方法节点不发射（'不作为独立节点'旧决定）
+→ 无法确定实现时 concreteMethodFor 指向接口类型节点（无方法名）→
+时序图找不到接口方法的具体实现无法展开。修复：concreteMethodFor
+接口分支指向接口方法节点 (Iface).Method（含方法名，节点同步发射）
+——具体实现由查询端 ResolveIfaceCalls/InterfaceMethodImpl 确定；
+链式调用能确定实现仍优先具体实现（R18 不破坏）。
+
+**W2**：grpc 服务入口具体方法折叠（details summary = 方法名 +
+handler——领域展开 → 服务折叠 → 方法折叠三层，MD/HTML 双通道）。
+**W3**：包结构折叠点显示完整包名（SymbolPkg 完整路径），渲染前按
+完整包名排序。
+**W4**：模块页包间调用架构图按领域拆分（每领域一张图——该领域包
+作为调用方；无归属 → 「其他」最后；被调方跨领域节点保留）。
+
+落档 commit 835aedc；W1 独立 commit ad1015d。全仓测试绿。
+
 ### R97（2026-08-27）——时序图自环修复 + 接口调用数据流具体化
 
 用户：grpc 方法实现内部调接口（s.manager.SubmitOrder——IOrderManager），
