@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/schaepher/codeintel/internal/canonicalizer"
 	"github.com/schaepher/codeintel/internal/domain"
@@ -53,7 +52,7 @@ func isModuleFunction(fn *ssa.Function, modules []string) bool {
 // 闭包内字段访问在 Phase 2 归入外层函数（field_trace.md Q14 适配）。
 func emitFunction(repo *domain.Repository, prog *ssa.Program, fn *ssa.Function,
 	idents map[token.Pos]string, assignTargets []assignTarget,
-	specs map[string]summarySpec, fallbackTotal *atomic.Int64, emit domain.EmitFunc,
+	specs map[string]summarySpec, fallbackAgg *fallbackAgg, emit domain.EmitFunc,
 	pkgs []*types.Package, dispatchRegs *dispatchReg, regHits regHits, typeMapping map[*types.Named]string) (domain.CanonicalID, *funcData, error) {
 	logger := zap.L()
 	logger.Debug("enter emitFunction")
@@ -87,7 +86,7 @@ func emitFunction(repo *domain.Repository, prog *ssa.Program, fn *ssa.Function,
 			return "", nil, nil
 		}
 		fd := &funcData{}
-		err := emitFunctionFields(repo, prog, fn, pid, idents, assignTargets, fd, specs, fallbackTotal, emit, pkgs, dispatchRegs, regHits, typeMapping, false)
+		err := emitFunctionFields(repo, prog, fn, pid, idents, assignTargets, fd, specs, fallbackAgg, emit, pkgs, dispatchRegs, regHits, typeMapping, false)
 		return pid, fd, err
 	}
 	obj, ok := fn.Object().(*types.Func)
@@ -123,7 +122,7 @@ func emitFunction(repo *domain.Repository, prog *ssa.Program, fn *ssa.Function,
 		return "", nil, err
 	}
 	fd := &funcData{}
-	err := emitFunctionFields(repo, prog, fn, id, idents, assignTargets, fd, specs, fallbackTotal, emit, pkgs, dispatchRegs, regHits, typeMapping, true)
+	err := emitFunctionFields(repo, prog, fn, id, idents, assignTargets, fd, specs, fallbackAgg, emit, pkgs, dispatchRegs, regHits, typeMapping, true)
 	return id, fd, err
 }
 

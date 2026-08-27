@@ -21,11 +21,11 @@ func (ext *fieldExtractor) newFieldAccessValue(f *ssa.Field) *fieldAccess {
 	instance := ext.instancePath(f.X) + "." + info.fieldName
 	if info.fullPath == "" {
 		info.fullPath = instance
-		ext.fallbackCount++
-		// S1：失败明细（函数名: 字段路径: 行号——追踪哪些解析失败）
-		ext.fallbackDetails = append(ext.fallbackDetails,
-			fmt.Sprintf("%s: %s: 行 %d", ext.fn.Name(), instance,
-				ext.prog.Fset.PositionFor(f.Pos(), false).Line))
+		// R100：失败明细进跨函数聚合（去重 ×N——finishIndex 统一打印）
+		if ext.fallbackAgg != nil {
+			ext.fallbackAgg.add(ext.fn.Name(), instance,
+				ext.prog.Fset.PositionFor(f.Pos(), false).Line)
+		}
 	}
 	ext.recordEntry("read", info, instance)
 	return &fieldAccess{

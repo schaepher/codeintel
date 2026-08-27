@@ -170,8 +170,7 @@ type fieldExtractor struct {
 	specs            map[string]summarySpec                 // 外部函数摘要（内置 + 用户）
 	extSummaries     map[domain.CanonicalID]bool            // 已创建 external_summary 节点
 	currentFile      string                                 // 当前函数文件（虚拟节点用）
-	fallbackCount    int                                    // 静态类型解析失败回退数（警告汇总）
-	fallbackDetails  []string                               // S1：失败明细（函数名: 字段路径——追踪用）
+	fallbackAgg      *fallbackAgg                           // R100：失败明细跨函数聚合（去重 ×N——共享实例）
 	dispatchRegs     dispatchReg                            // 接口注册点缓存（Q161 动态边候选元数据，一次扫描）
 	regHits          map[string]map[string]bool             // Q168：iface.String() → candidateKey → register 命中（O(1) 判定）
 	chainTables      map[ssa.Value]string                   // Q175：XORM 链式表名（Table 调用返回值 → 表名）

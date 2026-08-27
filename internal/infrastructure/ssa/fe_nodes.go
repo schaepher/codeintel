@@ -34,9 +34,12 @@ func (ext *fieldExtractor) newFieldAccess(fa *ssa.FieldAddr, access string) *fie
 	}
 	instance := ext.instancePath(fa.X) + "." + info.fieldName
 	if info.fullPath == "" {
-
 		info.fullPath = instance
-		ext.fallbackCount++
+		// R100：写访问失败明细补全（S1 只记读——newFieldAccess 不加明细）
+		if ext.fallbackAgg != nil {
+			ext.fallbackAgg.add(ext.fn.Name(), instance,
+				ext.prog.Fset.PositionFor(fa.Pos(), false).Line)
+		}
 	}
 	ext.recordEntry(access, info, instance)
 	return &fieldAccess{

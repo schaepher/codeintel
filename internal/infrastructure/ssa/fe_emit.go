@@ -1,26 +1,18 @@
 package ssa
 
 import (
-	"fmt"
 	"go/token"
 	"go/types"
-	"os"
-	"sync/atomic"
 
 	"github.com/schaepher/codeintel/internal/domain"
 	"go.uber.org/zap"
 	"golang.org/x/tools/go/ssa"
 )
 
-// fallbackDetailShown S1：失败明细打印限量（超过只打印汇总）。
-var fallbackDetailShown atomic.Int64
-
-const fallbackDetailLimit = 50
-
 // emitFunctionFields 发射单个函数内的字段访问节点与数据流边。
 func emitFunctionFields(repo *domain.Repository, prog *ssa.Program, fn *ssa.Function,
 	funcID domain.CanonicalID, idents map[token.Pos]string, assignTargets []assignTarget,
-	funcData *funcData, specs map[string]summarySpec, fallbackTotal *atomic.Int64, emit domain.EmitFunc,
+	funcData *funcData, specs map[string]summarySpec, fallbackAgg *fallbackAgg, emit domain.EmitFunc,
 	pkgs []*types.Package, dispatchRegs *dispatchReg, regHits regHits, typeMapping map[*types.Named]string,
 	sigEmitted bool) error {
 	logger := zap.L()
@@ -57,6 +49,7 @@ func emitFunctionFields(repo *domain.Repository, prog *ssa.Program, fn *ssa.Func
 		chainTables:   map[ssa.Value]string{},
 		tableNames:    map[*types.Named]string{},
 		typeMapping:   typeMapping,
+		fallbackAgg:   fallbackAgg,
 	}
 
 	// Q231：第一遍收集（FieldAddr/IndexAddr 用途判定）抽到
@@ -197,17 +190,7 @@ func emitFunctionFields(repo *domain.Repository, prog *ssa.Program, fn *ssa.Func
 		}
 	}
 
-	err := ext.emitCrossFlow()
-	if fallbackTotal != nil {
-		fallbackTotal.Add(int64(ext.fallbackCount))
-		// S1：失败明细打印（限量——go2o 上千条不刷屏；stderr 界面可见）
-		for _, d := range ext.fallbackDetails {
-			if fallbackDetailShown.Add(1) <= fallbackDetailLimit {
-				fmt.Fprintf(os.Stderr, "warning: 字段访问静态类型解析失败（回退源码字面量）: %s\n", d)
-			}
-		}
-	}
-	return err
+	return ext.emitCrossFlow()
 }
 
 // collectAddrUses 第一遍遍历（Q231 拆分自 emitFunctionFields）：

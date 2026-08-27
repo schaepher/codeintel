@@ -8,7 +8,6 @@ import (
 	"runtime"
 	"sort"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/schaepher/codeintel/internal/domain"
@@ -92,7 +91,7 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	}
 
 	a.fd = map[domain.CanonicalID]*funcData{}
-	var fallbackTotal atomic.Int64
+	fallbackAgg := newFallbackAgg()
 	// 接口动态派发候选枚举用（⑮：模块内类型池）
 	var typePkgs []*types.Package
 	for _, p := range pkgs {
@@ -245,7 +244,7 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 				return emit(item)
 			}
 			for _, fn := range blk.fns {
-				owner, fd, err := emitFunction(repo, prog, fn, idents, assignTargets, specs, &fallbackTotal, pkgEmit, typePkgs, &a.dispatchRegs, a.regHits, a.typeMapping)
+				owner, fd, err := emitFunction(repo, prog, fn, idents, assignTargets, specs, fallbackAgg, pkgEmit, typePkgs, &a.dispatchRegs, a.regHits, a.typeMapping)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "emitFunction %s: %v\n", fn.Name(), err)
 					return
@@ -291,7 +290,7 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	stage("emitFunction 循环（全库函数块池 + 缓存）")
 
 	// Q231：构建收尾（alias/摘要/全局/动态派发）抽到 adapter_finish.go
-	if err := finishIndex(repo, prog, idents, a, typePkgs, &fallbackTotal, emit); err != nil {
+	if err := finishIndex(repo, prog, idents, a, typePkgs, fallbackAgg, emit); err != nil {
 		return err
 	}
 	stage("finishIndex")
