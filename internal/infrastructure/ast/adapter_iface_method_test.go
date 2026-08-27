@@ -86,3 +86,89 @@ func run() {
 		t.Error("链式调用能确定实现时应指向 (engImpl).Handle（具体化优先于接口方法回退）")
 	}
 }
+
+// TestChainedCallNewServiceDotDoSth：aa.NewService().DoSth() 链式调用
+// ——sel.X 是 CallExpr（走 emitGinChainedCall，非 gin 方法 return 无
+// 效果）→ 应继续建 DoSth 的 calls 边（用户疑问：是否识别不到）。
+func TestChainedCallNewServiceDotDoSth(t *testing.T) {
+	nodes, facts := indexFixture(t, map[string]string{
+		"go.mod": "module example.com/mtest\n\ngo 1.21\n",
+		"aa/aa.go": `package aa
+
+type Service struct{}
+
+func (s *Service) DoSth() {}
+
+// 构造器：返回具体类型
+func NewService() *Service {
+	return &Service{}
+}
+`,
+		"main.go": `package mtest
+
+import "example.com/mtest/aa"
+
+func run() {
+	aa.NewService().DoSth()
+}
+`,
+	})
+	_ = nodes
+	// DoSth 的 calls 边存在（source = run）
+	found := false
+	for _, f := range facts {
+		if f.Kind == domain.FactCalls &&
+			string(f.SourceID) == "symbol:go:example.com/mtest:run" &&
+			string(f.TargetID) == "symbol:go:example.com/mtest/aa:(Service).DoSth" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("aa.NewService().DoSth() 的 calls 边应存在（source=run, target=(Service).DoSth）")
+	}
+}
+
+// TestChainedCallIfaceReturn：NewService 返回接口（函数体 return 具体
+// 实现）→ aa.NewService().DoSth() 应具体化到实现方法（R18 链式具体化
+// 在接口分支——W1 后无法确定时回退接口方法）。
+func TestChainedCallIfaceReturn(t *testing.T) {
+	_, facts := indexFixture(t, map[string]string{
+		"go.mod": "module example.com/mtest\n\ngo 1.21\n",
+		"aa/aa.go": `package aa
+
+type Service interface {
+	DoSth()
+}
+
+type svcImpl struct{}
+
+func (s *svcImpl) DoSth() {}
+
+// 构造器：声明返回接口、函数体 return 具体实现
+func NewService() Service {
+	return &svcImpl{}
+}
+`,
+		"main.go": `package mtest
+
+import "example.com/mtest/aa"
+
+func run() {
+	aa.NewService().DoSth()
+}
+`,
+	})
+	found := false
+	for _, f := range facts {
+		if f.Kind == domain.FactCalls &&
+			string(f.SourceID) == "symbol:go:example.com/mtest:run" {
+			t.Logf("边: %s → %s", f.SourceID, f.TargetID)
+			if string(f.TargetID) == "symbol:go:example.com/mtest/aa:(svcImpl).DoSth" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Error("接口返回的链式调用应具体化到 (svcImpl).DoSth（构造器 return 追踪）")
+	}
+}
