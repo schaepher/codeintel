@@ -160,7 +160,7 @@ func TestWikiFillOff(t *testing.T) {
 	})
 	defer restore()
 	out := filepath.Join(t.TempDir(), "wiki")
-	if code := cmdWiki([]string{"--repo", dir, "--out", out, "--ai", "--agent", "claude"}); code != 0 {
+	if code := cmdWiki([]string{"--repo", dir, "--out", out, "--ai", "--agent", "claude", "--diagram", "mermaid"}); code != 0 {
 		t.Fatalf("cmdWiki --ai = %d; want 0", code)
 	}
 	if called {

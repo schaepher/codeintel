@@ -50,9 +50,10 @@ func TestArchMermaidFallback(t *testing.T) {
 func TestArchMermaidFallbackFullPathPackages(t *testing.T) {
 	data := []*domain.WikiModule{
 		{Name: "m1", PkgCalls: []*domain.WikiPkgCall{
-			{From: "cli", To: "order", Count: 4},
-			{From: "order", To: "member", Count: 7},
-			{From: "order", To: "item", Count: 3},
+			// R99-3：PkgCalls From/To 已是完整包路径（短名歧义修复）
+			{From: "github.com/ixre/go2o/cmd", To: "github.com/ixre/go2o/internal/impl/domain/order", Count: 4},
+			{From: "github.com/ixre/go2o/internal/impl/domain/order", To: "github.com/ixre/go2o/internal/impl/domain/member", Count: 7},
+			{From: "github.com/ixre/go2o/internal/impl/domain/order", To: "github.com/ixre/go2o/internal/impl/domain/item", Count: 3},
 		}},
 	}
 	doms := []wikiDomainCfg{
@@ -65,7 +66,7 @@ func TestArchMermaidFallbackFullPathPackages(t *testing.T) {
 		"subgraph 领域层[领域层]",
 		`D交易域["交易域（1 包）"]`,
 		`D会员域["会员域（1 包）"]`,
-		"cli -->|4| D交易域", // 接入 → 领域
+		"cmd -->|4| D交易域", // 接入 → 领域（id 完整路径清洗后短名）
 		"D交易域 -->|7| D会员域",
 		"D交易域 -->|3| D商品域",
 	} {
@@ -163,13 +164,13 @@ func TestArchMermaidFallbackExternal(t *testing.T) {
 	defer db.Close()
 	data := []*domain.WikiModule{
 		{Name: "m1", PkgCalls: []*domain.WikiPkgCall{
-			{From: "cli", To: "app", Count: 2},
-			{From: "app", To: "order", Count: 5},
+			{From: "example.com/m/cmd", To: "example.com/m/app", Count: 2},
+			{From: "example.com/m/app", To: "example.com/m/order", Count: 5},
 		}},
 	}
 	doms := []wikiDomainCfg{
-		{Name: "接入域", Packages: []string{"github.com/ixre/go2o/internal/app"}},
-		{Name: "交易域", Packages: []string{"github.com/ixre/go2o/internal/impl/domain/order"}},
+		{Name: "接入域", Packages: []string{"example.com/m/app"}},
+		{Name: "交易域", Packages: []string{"example.com/m/order"}},
 	}
 	got := archMermaidFallback(data, doms, sqlite.NewRepo(db), action.New(sqlite.NewRepo(db)))
 	for _, want := range []string{

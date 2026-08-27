@@ -207,16 +207,12 @@ func moduleArchMermaids(wm *domain.WikiModule, doms []wikiDomainCfg) map[string]
 	if len(wm.PkgCalls) == 0 {
 		return nil
 	}
-	// 包短名 → 领域名（末段匹配 domains.packages——archLayeredMermaid
-	// 同款映射）
+	// 完整包路径 → 领域名（domains.packages 配置即完整路径；R99-3：
+	// 短名 key 会覆盖——同末尾名不同包）
 	pkgDomain := map[string]string{}
 	for _, d := range doms {
 		for _, p := range d.Packages {
-			short := p
-			if i := strings.LastIndex(p, "/"); i >= 0 {
-				short = p[i+1:]
-			}
-			pkgDomain[short] = d.Name
+			pkgDomain[p] = d.Name
 		}
 	}
 	byDomain := map[string][]*domain.WikiPkgCall{}
@@ -256,8 +252,10 @@ func sortedArchKeys(m map[string]string) []string {
 
 // archNode mermaid 节点（Q251 补：`[cli]` 纯方括号是非法语法——
 // mermaid 要求 id[文本] 形态；id 用短名保证唯一）。
+// archNode 节点：mermaid id 用完整路径清洗（唯一——同末尾名不撞），
+// label 用短名（可读）。R99-3：PkgCalls From/To 已是完整路径。
 func archNode(name string) string {
-	return name + "[" + name + "]"
+	return mermaidID(name) + "[" + shortMod(name) + "]"
 }
 
 // shortMod module 路径末段（渲染用）。

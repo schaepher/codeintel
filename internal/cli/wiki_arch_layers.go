@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
@@ -55,15 +56,12 @@ const archPadLabel = "　　　　　　　　　　　　　　"
 func archLayeredMermaid(data []*domain.WikiModule, doms []wikiDomainCfg, repo *sqlite.Repo, acts *action.Actions) string {
 	type key struct{ from, to string }
 	counts := map[key]int{}
-	// 包短名 → 层名 / 领域名（短名匹配——PkgCalls 的 From/To 是短名）
+	// 完整包路径 → 领域名（domains.packages 配置即完整路径；R99-3：
+	// 短名 key 会覆盖——同末尾名不同包，如 member 两个包）
 	pkgDomain := map[string]string{}
 	for _, d := range doms {
 		for _, p := range d.Packages {
-			short := p
-			if i := strings.LastIndex(p, "/"); i >= 0 {
-				short = p[i+1:]
-			}
-			pkgDomain[short] = d.Name
+			pkgDomain[p] = d.Name
 		}
 	}
 	// R82：grpc/http 服务所在包 → 接入层（服务入口——不依赖短名约定）
@@ -80,7 +78,12 @@ func archLayeredMermaid(data []*domain.WikiModule, doms []wikiDomainCfg, repo *s
 				if nodeID[p] != "" {
 					continue
 				}
-				switch archLayerOf(p, svcPkgs) {
+				// 层判定按短名（接入/存储层模式匹配）；领域匹配按完整路径
+				short := p
+				if i := strings.LastIndex(p, "/"); i >= 0 {
+					short = p[i+1:]
+				}
+				switch archLayerOf(short, svcPkgs) {
 				case "接入层":
 					if !accessSeen[p] {
 						accessSeen[p] = true
@@ -168,12 +171,9 @@ func archLayeredMermaid(data []*domain.WikiModule, doms []wikiDomainCfg, repo *s
 					extNodes = append(extNodes, ei.Service)
 				}
 				for _, c := range ei.Callers {
-					// 调用方包（完整路径）→ 领域（末段查 pkgDomain）
-					short := c.Pkg
-					if i := strings.LastIndex(short, "/"); i >= 0 {
-						short = short[i+1:]
-					}
-					d := pkgDomain[short]
+					// 调用方包（完整路径）→ 领域（R99-3：完整路径匹配——
+					// 短名覆盖）
+					d := pkgDomain[c.Pkg]
 					if d == "" {
 						continue
 					}
@@ -224,7 +224,10 @@ func archLayeredMermaid(data []*domain.WikiModule, doms []wikiDomainCfg, repo *s
 	b.WriteString("    padC[\"" + archPadLabel + "\"]\n")
 	b.WriteString("  end\n")
 	for _, k := range keys {
-		b.WriteString(fmt.Sprintf("  %s -->|%d| %s\n", k.from, counts[k], k.to))
+		// R99-3：PkgCalls 完整路径后 nodeID 含点（mermaid id 非法——
+		// 点被当 class 选择器）——输出前 mermaidID 清洗；节点定义处
+		// archNode 已清洗
+		b.WriteString(fmt.Sprintf("  %s -->|%d| %s\n", mermaidID(k.from), counts[k], mermaidID(k.to)))
 	}
 	// R47：调用方领域 → 外部接口节点边（领域层右侧）
 	extKeys := make([]string, 0, len(extEdges))
@@ -240,15 +243,16 @@ func archLayeredMermaid(data []*domain.WikiModule, doms []wikiDomainCfg, repo *s
 	return b.String()
 }
 
-// mermaidID 任意文本 → mermaid 安全节点 id（字母数字下划线——外部
-// 服务名/域名含点横线）。
+// mermaidID 任意文本 → mermaid 安全节点 id（Unicode 字母数字下划线
+// ——外部服务名/域名含点横线；中文保留——mermaid 支持 Unicode id，
+// 领域节点 D交易域 清洗成 D___ 会指向不存在的节点，与
+// mermaidGraphToPlantuml 的节点正则 [\p{L}\p{N}_]+ 一致）。
 func mermaidID(s string) string {
 	var b strings.Builder
 	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_':
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' {
 			b.WriteRune(r)
-		default:
+		} else {
 			b.WriteByte('_')
 		}
 	}

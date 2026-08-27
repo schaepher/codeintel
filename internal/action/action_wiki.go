@@ -110,7 +110,10 @@ func (a *Actions) pkgCallsForModule(mod string, calls []*domain.Fact) []*domain.
 	out := make([]*domain.WikiPkgCall, 0, len(keys))
 	for _, k := range keys {
 		p := strings.SplitN(k, "|", 2)
-		out = append(out, &domain.WikiPkgCall{From: shortModName(p[0]), To: shortModName(p[1]), Count: counts[k]})
+		// R99-3：From/To 用完整包路径——短名会歧义（同末尾名不同包
+		// 覆盖，如 internal/impl/domain/member 与 pkg/interface/domain/
+		// member 短名都是 member）；渲染端自行取短名展示
+		out = append(out, &domain.WikiPkgCall{From: p[0], To: p[1], Count: counts[k]})
 	}
 	return out
 }

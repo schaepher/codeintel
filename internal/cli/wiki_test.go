@@ -96,7 +96,8 @@ func TestWikiGenerate(t *testing.T) {
 		}
 	}
 	// Q251-A：模块页架构图区块 = 包间调用图（util→m x2、m→svc x1）
-	for _, want := range []string{"包间调用", "util[util] -->|2| m[m]", "m[m] -->|1| svc[svc]"} {
+	// R99-3：PkgCalls 完整路径——archNode 输出 完整id["短名label"]
+	for _, want := range []string{"包间调用", `example_com_m_util[util] -->|2| example_com_m[m]`, `example_com_m[m] -->|1| example_com_m_svc[svc]`} {
 		if !strings.Contains(ms, want) {
 			t.Errorf("模块页包间调用图应含 %q:\n%s", want, ms)
 		}

@@ -184,7 +184,8 @@ func newModuleActions(t *testing.T, dir string) *Actions {
 }
 
 // TestPkgCallsForModule：Q251-A 模块内包间调用聚合——calls 边按包
-// 聚合计数（次数降序 + 键序确定性）；同包调用/跨模块边跳过；包短名。
+// 聚合计数（次数降序 + 键序确定性）；同包调用/跨模块边跳过。
+// R99-3：From/To 用完整包路径（短名歧义——同末尾名不同包）。
 func TestPkgCallsForModule(t *testing.T) {
 	a := &Actions{}
 	calls := []*domain.Fact{
@@ -196,7 +197,7 @@ func TestPkgCallsForModule(t *testing.T) {
 		{Kind: domain.FactCalls, SourceID: "symbol:go:other.com/x:F", TargetID: "symbol:go:example.com/m:main"},
 	}
 	got := a.pkgCallsForModule("example.com/m", calls)
-	want := []*domain.WikiPkgCall{{From: "util", To: "m", Count: 2}, {From: "m", To: "svc", Count: 1}}
+	want := []*domain.WikiPkgCall{{From: "example.com/m/util", To: "example.com/m", Count: 2}, {From: "example.com/m", To: "example.com/m/svc", Count: 1}}
 	if len(got) != len(want) {
 		t.Fatalf("pkgCalls = %+v, want %+v", got, want)
 	}
