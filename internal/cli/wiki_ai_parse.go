@@ -9,7 +9,6 @@ import (
 
 	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
-	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 	"gopkg.in/yaml.v3"
 )
 
@@ -36,9 +35,10 @@ type wikiBatchOut struct {
 }
 
 // wikiQAReferences 历史问答参考资料（--with-qa）：按缺口表名/模块
-// 短名匹配 qa_history（context/question LIKE），最多 5 条。
-func wikiQAReferences(repo *sqlite.Repo, mods []aiModuleGap, tbls []aiTableGap, colGaps []aiColGap) []string {
-	if repo == nil {
+// 短名匹配 qa_history（context/question LIKE），最多 5 条。R100：数据
+// 经 action（Actions.QAReferences）——cli 不再直连 sqlite。
+func wikiQAReferences(acts *action.Actions, mods []aiModuleGap, tbls []aiTableGap, colGaps []aiColGap) []string {
+	if acts == nil {
 		return nil
 	}
 	var kw []string
@@ -55,7 +55,7 @@ func wikiQAReferences(repo *sqlite.Repo, mods []aiModuleGap, tbls []aiTableGap, 
 	for _, g := range colGaps {
 		kw = append(kw, g.table)
 	}
-	recs, err := repo.QAForSymbols(kw, 5)
+	recs, err := acts.QAReferences(kw, 5)
 	if err != nil || len(recs) == 0 {
 		return nil
 	}

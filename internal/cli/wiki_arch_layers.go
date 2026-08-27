@@ -14,7 +14,6 @@ import (
 
 	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
-	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
 
 // archAccessPkgs 接入层包短名（入口：命令层/HTTP 服务/app）。
@@ -52,8 +51,9 @@ const archPadLabel = "　　　　　　　　　　　　　　"
 // domains 非空时领域层 = 领域聚合节点（含包数）；否则领域层 = 包节点。
 // R47：外部接口调用按服务聚合（grpc 服务名 / http host）为领域层右侧
 // 节点（外部系统集成点），边 = 调用方领域 → 外部服务。acts nil（纯
-// 函数测试）跳过外部节点；repo 仍用于接入层服务包识别（archSvcPkgs）。
-func archLayeredMermaid(data []*domain.WikiModule, doms []wikiDomainCfg, repo *sqlite.Repo, acts *action.Actions) string {
+// 函数测试）跳过外部节点；接入层服务包识别经 action（ArchSvcPkgs——
+// R100：cli 不再直连 sqlite）。
+func archLayeredMermaid(data []*domain.WikiModule, doms []wikiDomainCfg, acts *action.Actions) string {
 	type key struct{ from, to string }
 	counts := map[key]int{}
 	// 完整包路径 → 领域名（domains.packages 配置即完整路径；R99-3：
@@ -65,7 +65,14 @@ func archLayeredMermaid(data []*domain.WikiModule, doms []wikiDomainCfg, repo *s
 		}
 	}
 	// R82：grpc/http 服务所在包 → 接入层（服务入口——不依赖短名约定）
-	svcPkgs := archSvcPkgs(repo)
+	svcPkgs := map[string]bool{}
+	if acts != nil {
+		if pkgs, err := acts.ArchSvcPkgs(); err == nil {
+			for _, p := range pkgs {
+				svcPkgs[p] = true
+			}
+		}
+	}
 	// 节点归类：短名 → 展示节点 id（接入/存储包原样；领域包 → 领域节点）
 	nodeID := map[string]string{}
 	var accessNodes, storageNodes []string
@@ -143,7 +150,7 @@ func archLayeredMermaid(data []*domain.WikiModule, doms []wikiDomainCfg, repo *s
 		// → 降级包级模式（等同无 domains——域内包间调用可见；go2o
 		// 多域不受影响）
 		if len(doms) > 0 {
-			return archLayeredMermaid(data, nil, repo, acts)
+			return archLayeredMermaid(data, nil, acts)
 		}
 		return ""
 	}

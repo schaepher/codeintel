@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
@@ -142,7 +143,7 @@ func TestWikiAIFillWithQA(t *testing.T) {
 		return aiBatchYAML, nil
 	})
 	defer restore()
-	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second, true, repo, "")
+	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second, true, action.New(repo), "")
 	if ok != 5 || fail != 0 {
 		t.Fatalf("计数 = %d/%d; want 5/0", ok, fail)
 	}

@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/schaepher/codeintel/internal/action"
-	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 	"sort"
 )
 
@@ -62,7 +61,7 @@ func cmdEnums(repoAbs string, f queryFlags) int {
 // renderEnumsMD 枚举页 Markdown（含索引实际值分布对照 + 工具函数）。
 // R88：工具函数 = 游离函数且被 ≥3 个包调用（helpers.min_packages
 // 可调）——与 `query helpers` 同源（queryHelpers）。
-func renderEnumsMD(repoAbs string, repo *sqlite.Repo) string {
+func renderEnumsMD(repoAbs string, acts *action.Actions) string {
 	entries := action.Enums(repoAbs, true)
 	var b strings.Builder
 	b.WriteString("# 枚举与工具函数\n\n> 数据源：源码 go/ast 提取（代码事实，默认只显示有类型枚举）\n")
@@ -89,11 +88,11 @@ func renderEnumsMD(repoAbs string, repo *sqlite.Repo) string {
 }
 
 // renderEnumsHTML 枚举页 html 内容。
-func renderEnumsHTML(repoAbs string, repo *sqlite.Repo) string {
+func renderEnumsHTML(repoAbs string, acts *action.Actions) string {
 	entries := action.Enums(repoAbs, true)
 	var b strings.Builder
 	b.WriteString(`<section id="enums"><h2>枚举与工具函数</h2><p class="muted">数据源：源码 go/ast 提取（有类型枚举）——权威值，勿重新定义。</p>`)
-	if sec := renderHelpersHTML(repo); sec != "" {
+	if sec := renderHelpersHTML(acts); sec != "" {
 		b.WriteString(sec)
 	}
 	// R87：每组枚举默认折叠（组名按钮——点击展开该组表格，减少长页
@@ -144,12 +143,12 @@ func renderEnumsHTML(repoAbs string, repo *sqlite.Repo) string {
 
 // renderHelpersMD 工具函数 Markdown 小节（R88/R89：游离函数 + 跨包
 // 使用数 ≥ minPkgs——action.Helpers 同源）。
-func renderHelpersMD(repo *sqlite.Repo) string {
-	if repo == nil {
+func renderHelpersMD(acts *action.Actions) string {
+	if acts == nil {
 		return ""
 	}
 	minPkgs := helperMinPackages()
-	helpers, err := action.New(repo).Helpers(action.HelpersRequest{MinPackages: minPkgs})
+	helpers, err := acts.Helpers(action.HelpersRequest{MinPackages: minPkgs})
 	if err != nil || len(helpers) == 0 {
 		return ""
 	}
@@ -166,12 +165,12 @@ func renderHelpersMD(repo *sqlite.Repo) string {
 }
 
 // renderHelpersHTML 工具函数 html 小节（同源 action.Helpers）。
-func renderHelpersHTML(repo *sqlite.Repo) string {
-	if repo == nil {
+func renderHelpersHTML(acts *action.Actions) string {
+	if acts == nil {
 		return ""
 	}
 	minPkgs := helperMinPackages()
-	helpers, err := action.New(repo).Helpers(action.HelpersRequest{MinPackages: minPkgs})
+	helpers, err := acts.Helpers(action.HelpersRequest{MinPackages: minPkgs})
 	if err != nil || len(helpers) == 0 {
 		return ""
 	}

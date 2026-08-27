@@ -130,13 +130,13 @@ func TestGrpcServicePageMethodsTable(t *testing.T) {
 			{Name: "Query", Handler: "_QueryService_Query_Handler"},
 			{Name: "PagingShops", Handler: "_QueryService_PagingShops_Handler"},
 		}}
-	md := renderGrpcServiceMD(&wikiRenderCtx{acts: acts, repo: sqlite.NewRepo(db), Diagram: "mermaid"}, svc, 15)
+	md := renderGrpcServiceMD(&wikiRenderCtx{acts: acts, Diagram: "mermaid"}, svc, 15)
 	for _, want := range []string{"| 方法 |", "Query", "_QueryService_Query_Handler", "PagingShops"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("服务页应含方法表格 %q:\n%s", want, md)
 		}
 	}
-	html := renderGrpcServiceHTML(&wikiRenderCtx{acts: acts, repo: sqlite.NewRepo(db), Diagram: "mermaid"}, svc, 15)
+	html := renderGrpcServiceHTML(&wikiRenderCtx{acts: acts, Diagram: "mermaid"}, svc, 15)
 	if !strings.Contains(html, "<table") {
 		t.Errorf("html 服务内容应含方法表格:\n%s", html)
 	}
@@ -163,13 +163,13 @@ func TestPackagesMethodsTable(t *testing.T) {
 	}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	md := renderPackagesMD(pkgs, r)
+	md := renderPackagesMD(action.New(r), pkgs)
 	for _, want := range []string{"| 方法 |", "(T).Run", "| 函数 |", "F1"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("包结构 md 应含方法/函数表格 %q:\n%s", want, md)
 		}
 	}
-	html := renderPackagesHTML(pkgs, r)
+	html := renderPackagesHTML(action.New(r), pkgs)
 	if !strings.Contains(html, "<table") {
 		t.Errorf("包结构 html 应含表格:\n%s", html)
 	}

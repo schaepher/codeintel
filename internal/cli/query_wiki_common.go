@@ -92,13 +92,12 @@ func dispatchWikiSub(sub string, acts *action.Actions, db *sqlite.DB, abs string
 // wikiCtx 查询命令共用的渲染上下文构造（processes/architecture 复用
 // wiki 渲染函数——grpcServiceList/httpProcEntries/archLayeredMermaid
 // 依赖 rc 字段）。
-func wikiCtx(acts *action.Actions, repo *sqlite.Repo, data []*domain.WikiModule, cfg wikiConfig, abs string, maxEntries int) *wikiRenderCtx {
+func wikiCtx(acts *action.Actions, data []*domain.WikiModule, cfg wikiConfig, abs string, maxEntries int) *wikiRenderCtx {
 	return &wikiRenderCtx{
 		acts:       acts,
 		data:       data,
 		cfg:        cfg,
 		Diagram:    "mermaid",
-		repo:       repo,
 		MaxEntries: maxEntries,
 		RepoAbs:    abs,
 	}

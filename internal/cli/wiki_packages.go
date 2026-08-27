@@ -7,26 +7,12 @@ import (
 
 	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
-	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
-
-// pkgCodeFactsFor 包内代码事实（fallback——无包级说明时展示结构体/
-// 方法/函数签名，用户要求）。R9x：SQL 收口到仓储层
-// （Repo.GetPkgCodeFacts）。
-func pkgCodeFactsFor(repo *sqlite.Repo, pkgPath string) *domain.PkgCodeFacts {
-	if repo == nil {
-		return nil
-	}
-	facts, err := repo.GetPkgCodeFacts(pkgPath)
-	if err != nil {
-		return nil
-	}
-	return facts
-}
 
 // renderPackagesHTML 包结构 html 内容（R1：KindPackage doc_comment；
 // R34：去 Copyright；无包级说明 → fallback 包内结构体/方法/函数签名）。
-func renderPackagesHTML(pkgs []*domain.CodeEntity, repo *sqlite.Repo) string {
+// R100：代码事实经 action（PkgCodeFacts）——cli 不再直连 sqlite。
+func renderPackagesHTML(acts *action.Actions, pkgs []*domain.CodeEntity) string {
 	if len(pkgs) == 0 {
 		return ""
 	}
@@ -49,7 +35,7 @@ func renderPackagesHTML(pkgs []*domain.CodeEntity, repo *sqlite.Repo) string {
 			b.WriteString("</div>")
 			continue
 		}
-		if facts := pkgCodeFactsFor(repo, action.SymbolPkg(string(p.ID))); facts != nil {
+		if facts, _ := acts.PkgCodeFacts(action.SymbolPkg(string(p.ID))); facts != nil {
 			b.WriteString(`<p class="muted">（无包级说明——代码事实）</p>`)
 			if len(facts.Structs) > 0 {
 				b.WriteString("<p><strong>结构体</strong>：" + htmlEsc(strings.Join(facts.Structs, "、")) + "</p>")
@@ -79,7 +65,7 @@ func renderPackagesHTML(pkgs []*domain.CodeEntity, repo *sqlite.Repo) string {
 // renderPackagesMD 包结构（R1：KindPackage 节点 doc_comment；R34：去
 // Copyright；无包级说明 → fallback 代码事实）。R82：每个包 details
 // 折叠（默认折叠——包多时页面长）。
-func renderPackagesMD(pkgs []*domain.CodeEntity, repo *sqlite.Repo) string {
+func renderPackagesMD(acts *action.Actions, pkgs []*domain.CodeEntity) string {
 	if len(pkgs) == 0 {
 		return ""
 	}
@@ -99,7 +85,7 @@ func renderPackagesMD(pkgs []*domain.CodeEntity, repo *sqlite.Repo) string {
 			b.WriteString("</details>\n\n")
 			continue
 		}
-		if facts := pkgCodeFactsFor(repo, action.SymbolPkg(string(p.ID))); facts != nil {
+		if facts, _ := acts.PkgCodeFacts(action.SymbolPkg(string(p.ID))); facts != nil {
 			b.WriteString("（无包级说明——代码事实）\n\n")
 			if len(facts.Structs) > 0 {
 				b.WriteString("**结构体**：" + strings.Join(facts.Structs, "、") + "\n\n")

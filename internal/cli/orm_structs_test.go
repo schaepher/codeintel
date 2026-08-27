@@ -53,7 +53,14 @@ type Plain struct {
 // TestScanORMStructs：TableName 反查结构体 + 源码片段。
 func TestScanORMStructs(t *testing.T) {
 	dir := ormStructFixture(t)
-	got := scanORMStructs(dir)
+	acts, err := newTestActions(t, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := acts.ORMStructs(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	orders := got["order_tab"]
 	if len(orders) != 1 || orders[0].Name != "Order" {
 		t.Fatalf("order_tab = %+v, want Order", orders)
@@ -74,7 +81,12 @@ func TestScanORMStructs(t *testing.T) {
 // （gorm column tag 优先、无 tag snake_case）。
 func TestORMColTypes(t *testing.T) {
 	dir := ormStructFixture(t)
-	got := ormColTypes(scanORMStructs(dir))
+	acts, err := newTestActions(t, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ormStructs, _ := acts.ORMStructs(dir)
+	got := ormColTypes(ormStructs)
 	// order_tab：ID → column:order_id（tag 优先）+ int64
 	if typ := got["order_tab"]["order_id"]; typ != "int64" {
 		t.Errorf("order_tab.order_id = %q, want int64（gorm column tag）", typ)
@@ -95,7 +107,11 @@ func TestORMColTypes(t *testing.T) {
 // TestORMFieldOrderAndAutoInc：字段顺序还原结构体序 + 自增列第一。
 func TestORMFieldOrderAndAutoInc(t *testing.T) {
 	dir := ormStructFixture(t)
-	ormStructs := scanORMStructs(dir)
+	acts, err := newTestActions(t, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ormStructs, _ := acts.ORMStructs(dir)
 	order := ormColOrder(ormStructs)
 	autoInc := ormAutoIncCols(ormStructs)
 	oi, ok1 := order["order_tab"]["order_id"]
@@ -112,7 +128,11 @@ func TestORMFieldOrderAndAutoInc(t *testing.T) {
 // TestMergeTableColumnsOrder：自增第一 + 结构体序——渲染行顺序。
 func TestMergeTableColumnsOrder(t *testing.T) {
 	dir := ormStructFixture(t)
-	ormStructs := scanORMStructs(dir)
+	acts, err := newTestActions(t, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ormStructs, _ := acts.ORMStructs(dir)
 	rows := mergeTableColumnsWithSchema("order_tab", nil, nil, nil, ormStructs)
 	var names []string
 	for _, r := range rows {

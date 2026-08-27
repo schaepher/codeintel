@@ -25,10 +25,10 @@ type architectureOut struct {
 // yaml architecture 存在时优先用配置）。R9x：结果装配迁 action
 // （Actions.Architecture）；mermaid fallback 生成与 plantuml 转换
 // （渲染）留 cli。
-func architectureData(acts *action.Actions, repo *sqlite.Repo, data []*domain.WikiModule, cfg wikiConfig, toPuml bool) architectureOut {
+func architectureData(acts *action.Actions, data []*domain.WikiModule, cfg wikiConfig, toPuml bool) architectureOut {
 	arch := cfg.Architecture
 	if arch == "" {
-		arch = archMermaidFallback(data, cfg.Domains, repo, acts)
+		arch = archMermaidFallback(data, cfg.Domains, acts)
 	}
 	var doms []string
 	for _, d := range cfg.Domains {
@@ -47,7 +47,7 @@ func architectureData(acts *action.Actions, repo *sqlite.Repo, data []*domain.Wi
 
 // cmdQueryArchitecture 实现 `query architecture [--format mermaid|plantuml] [--json] [--yaml <file>]`。
 func cmdQueryArchitecture(acts *action.Actions, repo *sqlite.Repo, data []*domain.WikiModule, cfg wikiConfig, opts outputOpts, format string) int {
-	out := architectureData(acts, repo, data, cfg, format == "plantuml")
+	out := architectureData(acts, data, cfg, format == "plantuml")
 	if opts.json {
 		encodeJSON(out)
 		return 0

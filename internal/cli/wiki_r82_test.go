@@ -65,7 +65,7 @@ func TestPackagesFoldable(t *testing.T) {
 		{ID: "symbol:go:example.com/m:m", Kind: domain.KindPackage, Name: "m",
 			Properties: map[string]any{"doc_comment": "主包"}},
 	}
-	out := renderPackagesMD(pkgs, nil)
+	out := renderPackagesMD(nil, pkgs)
 	if !strings.Contains(out, "<details><summary>") {
 		t.Errorf("包应 details 折叠:\n%s", out)
 	}

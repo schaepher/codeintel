@@ -72,7 +72,7 @@ func TestGrpcServiceListSkipsEmpty(t *testing.T) {
 		t.Fatalf("save nodes: %v", err)
 	}
 	acts := action.New(sqlite.NewRepo(db))
-	rc := &wikiRenderCtx{acts: acts, repo: sqlite.NewRepo(db), cfg: wikiConfig{
+	rc := &wikiRenderCtx{acts: acts, cfg: wikiConfig{
 		Domains: []wikiDomainCfg{{Name: "其他", Packages: []string{"impl"}}},
 	}}
 	svcs := grpcServiceList(rc)

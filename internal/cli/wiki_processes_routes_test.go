@@ -137,7 +137,7 @@ func TestRenderProcessesRoutes(t *testing.T) {
 	}
 	defer db.Close()
 	acts := action.New(sqlite.NewRepo(db))
-	m := renderProcessesMD(&wikiRenderCtx{acts: acts, repo: sqlite.NewRepo(db), Diagram: "mermaid"})
+	m := renderProcessesMD(&wikiRenderCtx{acts: acts, Diagram: "mermaid"})
 	for _, want := range []string{
 		"# 系统流程", "## 入口 `main`", // main 节保留
 		"## HTTP 路由入口", "GET /ping", "GET /v1/ping", "doPing", // 路由节 + 展开
@@ -147,7 +147,7 @@ func TestRenderProcessesRoutes(t *testing.T) {
 			t.Errorf("processes md 应含 %q", want)
 		}
 	}
-	h := renderProcessesHTML(&wikiRenderCtx{acts: acts, repo: sqlite.NewRepo(db), Diagram: "mermaid"})
+	h := renderProcessesHTML(&wikiRenderCtx{acts: acts, Diagram: "mermaid"})
 	for _, want := range []string{
 		`<h2>系统流程</h2>`, "HTTP 路由入口", "gRPC 服务入口", "服务 QueryService",
 	} {
@@ -171,7 +171,7 @@ func TestGrpcServicePageMD(t *testing.T) {
 		Methods: []action.GrpcRouteMethod{
 			{Name: "Query", Handler: "_QueryService_Query_Handler"},
 		}}
-	page := renderGrpcServiceMD(&wikiRenderCtx{acts: acts, repo: sqlite.NewRepo(db), Diagram: "mermaid"}, svc, 15)
+	page := renderGrpcServiceMD(&wikiRenderCtx{acts: acts, Diagram: "mermaid"}, svc, 15)
 	for _, want := range []string{"QueryService", "(queryServiceImpl).Query", "queryHelper", "涉及包"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("服务页应含 %q", want)
@@ -228,7 +228,7 @@ func TestProcFoldMaxEntries(t *testing.T) {
 	defer db.Close()
 	acts := action.New(sqlite.NewRepo(db))
 	entries := httpProcEntries(acts)
-	m := renderHTTPRoutesMD(&wikiRenderCtx{acts: acts, repo: sqlite.NewRepo(db), Diagram: "mermaid"}, entries, 1)
+	m := renderHTTPRoutesMD(&wikiRenderCtx{acts: acts, Diagram: "mermaid"}, entries, 1)
 	if !strings.Contains(m, "其余 1 个入口仅列清单") {
 		t.Errorf("超上限应标注折叠提示:\n%s", m)
 	}

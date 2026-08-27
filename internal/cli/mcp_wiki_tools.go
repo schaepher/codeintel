@@ -54,7 +54,7 @@ func registerWikiTools(server *mcp.Server, env *mcpEnv, r *sqlite.Repo, repoAbs 
 			if err != nil {
 				return toolErr(err.Error()), architectureOut{}, nil
 			}
-			out := architectureData(a, r, data, loadWikiCfg(repoAbs, ""), false)
+			out := architectureData(a, data, loadWikiCfg(repoAbs, ""), false)
 			return toolJSON(out), out, nil
 		})))
 	mcp.AddTool(server, &mcp.Tool{Name: "er", Description: "ER 图（表间直接键关联 fk/query 的 erDiagram + 关系明细）——了解表间真实键关联"},

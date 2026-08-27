@@ -29,7 +29,7 @@ func TestServiceDomain(t *testing.T) {
 		Methods: []action.GrpcRouteMethod{{Name: "Query", Handler: "_QueryService_Query_Handler"}}}
 
 	// 1. yaml services 显式优先
-	rcExp := &wikiRenderCtx{acts: acts, repo: sqlite.NewRepo(db), cfg: wikiConfig{
+	rcExp := &wikiRenderCtx{acts: acts, cfg: wikiConfig{
 		Domains: []wikiDomainCfg{{Name: "查询域", Services: []string{"QueryService"}}},
 	}}
 	if d := serviceDomain(rcExp, svc); d != "查询域" {
@@ -48,7 +48,7 @@ func TestServiceDomain(t *testing.T) {
 	}, nil); err != nil {
 		t.Fatal(err)
 	}
-	rcVote := &wikiRenderCtx{acts: acts, repo: sqlite.NewRepo(db), cfg: wikiConfig{
+	rcVote := &wikiRenderCtx{acts: acts, cfg: wikiConfig{
 		Domains: []wikiDomainCfg{
 			{Name: "实现域", Packages: []string{"impl"}},
 			{Name: "业务域", Packages: []string{"business"}},
@@ -57,14 +57,14 @@ func TestServiceDomain(t *testing.T) {
 	if d := serviceDomain(rcVote, svc); d != "业务域" {
 		t.Errorf("调用链投票（排除实现包） = %q; want 业务域", d)
 	}
-	rcImplOnly := &wikiRenderCtx{acts: acts, repo: sqlite.NewRepo(db), cfg: wikiConfig{
+	rcImplOnly := &wikiRenderCtx{acts: acts, cfg: wikiConfig{
 		Domains: []wikiDomainCfg{{Name: "实现域", Packages: []string{"impl"}}},
 	}}
 	if d := serviceDomain(rcImplOnly, svc); d != "" {
 		t.Errorf("仅实现包调用 = %q; want 空（实现包不投票）", d)
 	}
 	// 3. 无匹配 → 空（其他）
-	rcNone := &wikiRenderCtx{acts: acts, repo: sqlite.NewRepo(db), cfg: wikiConfig{
+	rcNone := &wikiRenderCtx{acts: acts, cfg: wikiConfig{
 		Domains: []wikiDomainCfg{{Name: "无关域", Packages: []string{"nope"}}},
 	}}
 	if d := serviceDomain(rcNone, svc); d != "" {
@@ -90,7 +90,7 @@ func TestGrpcIndexByDomain(t *testing.T) {
 			ImplID:  "symbol:go:example.com/m/impl:anotherImpl",
 			Methods: []action.GrpcRouteMethod{{Name: "Do"}}},
 	}
-	rc := &wikiRenderCtx{acts: acts, repo: sqlite.NewRepo(db), cfg: wikiConfig{
+	rc := &wikiRenderCtx{acts: acts, cfg: wikiConfig{
 		Domains: []wikiDomainCfg{
 			{Name: "实现域", Packages: []string{"impl"}, Services: []string{"QueryService"}},
 		},

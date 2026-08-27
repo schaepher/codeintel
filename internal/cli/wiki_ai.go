@@ -13,7 +13,6 @@ import (
 
 	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
-	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
 
 // aiTimeout 单条补缺超时（超时跳过该条）。真实 claude JSON 模式
@@ -118,8 +117,7 @@ const (
 // 单个 prompt，AI 一次返回完整 YAML）→ 合并 wiki.yaml。
 // withQA 时从 qa_history 读取相关 Q&A 作为参考资料（W3）。
 // 返回 成功/跳过/失败 计数；*cfg 同步更新（渲染用）。
-func wikiAIFill(yamlPath string, cfg *wikiConfig, data []*domain.WikiModule, cols []*domain.TableColumn, rels []*domain.TableRelation, agent string, timeout time.Duration, withQA bool, repo *sqlite.Repo, repoAbs string) (ok, skip, fail int) {
-	_ = repo
+func wikiAIFill(yamlPath string, cfg *wikiConfig, data []*domain.WikiModule, cols []*domain.TableColumn, rels []*domain.TableRelation, agent string, timeout time.Duration, withQA bool, acts *action.Actions, repoAbs string) (ok, skip, fail int) {
 	mods, tbls, colGaps := wikiAIGaps(data, *cfg, cols)
 	// R57：ai.fill.<类别>=off（wiki.yaml/全局）→ 该类别缺口剔除（整类跳过）
 	if !aiEnabled("fill.modules", *cfg) {
@@ -196,7 +194,7 @@ func wikiAIFill(yamlPath string, cfg *wikiConfig, data []*domain.WikiModule, col
 	// 表名/模块短名匹配，最多 5 条）
 	var qaRefs []string
 	if withQA {
-		qaRefs = wikiQAReferences(repo, mods, tbls, colGaps)
+		qaRefs = wikiQAReferences(acts, mods, tbls, colGaps)
 	}
 	// R57：ai.fill.glossary=off → prompt 不带术语表段（AI 不生成）
 	withGlossary := aiEnabled("fill.glossary", *cfg)

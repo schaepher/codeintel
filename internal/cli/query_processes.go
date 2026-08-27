@@ -49,7 +49,7 @@ func procChainToOut(c *action.ProcChain) *procChainOut {
 // HTTP 路由 + gRPC 服务方法）。
 func processesData(acts *action.Actions, repo *sqlite.Repo, data []*domain.WikiModule, cfg wikiConfig, abs string, maxEntries int) processesOut {
 	out := processesOut{Entries: []procEntryOut{}}
-	rc := wikiCtx(acts, repo, data, cfg, abs, maxEntries)
+	rc := wikiCtx(acts, data, cfg, abs, maxEntries)
 	// 1. main 入口
 	for _, e := range entrySymbols(acts, abs) {
 		detail := e.File

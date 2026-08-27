@@ -8,7 +8,6 @@ import (
 	"github.com/schaepher/codeintel/internal/action"
 
 	"github.com/schaepher/codeintel/internal/domain"
-	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
 
 // wikiAutoDesc 自动推断描述（F）：yaml 描述/包注释都空时的结构化
@@ -176,8 +175,9 @@ func renderModulePage(wm *domain.WikiModule, eg *domain.EntityGraph, keyFlows []
 // subgraph 大框 + 占位节点等宽；领域层有 domains 时用领域聚合节点
 // （R34 领域优化延续），无 domains 时包节点；跨层/层内调用边聚合。
 // R47：acts 非空时领域层右侧聚合外部接口节点（grpc 服务/http host）。
-func archMermaidFallback(data []*domain.WikiModule, doms []wikiDomainCfg, repo *sqlite.Repo, acts *action.Actions) string {
-	return archLayeredMermaid(data, doms, repo, acts)
+// R100：repo 参数删除——接入层服务包识别经 action（ArchSvcPkgs）。
+func archMermaidFallback(data []*domain.WikiModule, doms []wikiDomainCfg, acts *action.Actions) string {
+	return archLayeredMermaid(data, doms, acts)
 }
 
 // archDomainID 领域名 → mermaid 节点 id（中文/空格安全——D 前缀）。

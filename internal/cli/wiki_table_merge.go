@@ -9,7 +9,7 @@ import (
 
 // mergeTableColumnsWithSchema 列合并（R19）：类型/默认值填充优先级
 // yaml > sqlite schema > gorm tag——schema 事实自动补全，yaml 人工可覆盖。
-func mergeTableColumnsWithSchema(table string, cols []*domain.TableColumn, yamlCols []wikiTableColumn, schemas map[string]map[string]schemaCol, ormStructs map[string][]ormStruct) []tableColRow {
+func mergeTableColumnsWithSchema(table string, cols []*domain.TableColumn, yamlCols []wikiTableColumn, schemas map[string]map[string]schemaCol, ormStructs map[string][]domain.ORMStruct) []tableColRow {
 	rows := mergeTableColumns(table, cols, yamlCols)
 
 	if len(rows) == 0 {
