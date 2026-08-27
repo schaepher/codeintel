@@ -88,6 +88,32 @@ func seqBaseTypeActor(actor string) bool {
 		strings.HasPrefix(actor, "func(") || strings.HasPrefix(actor, "chan ")
 }
 
+// hasRenderableSeqNode 递归检查节点树是否有可渲染内容（R100：基础类型
+// actor 的 call 消息渲染时被跳过——空分支检查须排除它们，否则 alt/end
+// 之间无中间行的空块；return/continue/break 线可渲染）。
+func hasRenderableSeqNode(nodes []*action.CodeSeqNode) bool {
+	for _, n := range nodes {
+		switch n.Kind {
+		case "call":
+			// 基础类型 actor（int32(x) 转换）消息被跳过；嵌套展开仍可渲染
+			if !seqBaseTypeActor(n.Actor) || hasRenderableSeqNode(n.Nodes) {
+				return true
+			}
+		case "branch":
+			if hasRenderableSeqNode(n.Nodes) || hasRenderableSeqNode(n.Else) {
+				return true
+			}
+		case "loop":
+			if hasRenderableSeqNode(n.Nodes) {
+				return true
+			}
+		default: // return/continue/break
+			return true
+		}
+	}
+	return false
+}
+
 // writeSeqNode 递归渲染节点块（call 消息 / branch alt / loop）。
 func writeSeqNode(b *strings.Builder, alias map[string]string, from, caller string, nodes []*action.CodeSeqNode) {
 	for _, n := range nodes {
@@ -117,7 +143,10 @@ func writeSeqNode(b *strings.Builder, alias map[string]string, from, caller stri
 			}
 		case "branch":
 			// S2：空分支（无 then 无 else）不输出 alt 块——避免渲染问题
-			if len(n.Nodes) == 0 && len(n.Else) == 0 {
+			// R100：预过滤可渲染内容——基础类型 actor 的 call 消息会被
+			// 跳过（如 if 内只执行 A = int32(util.GetTime())），len>0
+			// 但实际无行——递归检查避免 alt 和 end 之间无中间行
+			if !hasRenderableSeqNode(n.Nodes) && !hasRenderableSeqNode(n.Else) {
 				continue
 			}
 			b.WriteString(fmt.Sprintf("  alt %s\n", n.Label))
@@ -136,6 +165,10 @@ func writeSeqNode(b *strings.Builder, alias map[string]string, from, caller stri
 		case "break":
 			b.WriteString(fmt.Sprintf("  %s-->>%s: break\n", alias[from], alias[from]))
 		case "loop":
+			// R100：空循环体（无可渲染内容）不输出 loop 块——与 branch 同语义
+			if !hasRenderableSeqNode(n.Nodes) {
+				continue
+			}
 			b.WriteString(fmt.Sprintf("  loop %s\n", n.Label))
 			writeSeqNode(b, alias, from, caller, n.Nodes)
 			b.WriteString("  end\n")

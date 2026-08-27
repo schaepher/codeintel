@@ -197,6 +197,43 @@ func TestSeqRenderDeclImplType(t *testing.T) {
 	}
 }
 
+// TestSeqRenderAltBaseTypeOnly（R100 续）：if 分支只执行类型转换赋值
+// （A = int32(util.GetTime())）——call 节点 actor 是基础类型，渲染时
+// 消息被跳过 → alt 块不应输出（否则 alt 和 end 之间无中间行的空块）。
+func TestSeqRenderAltBaseTypeOnly(t *testing.T) {
+	root := &action.CodeSeqNode{Kind: "call", Label: "Run", Line: 1,
+		Nodes: []*action.CodeSeqNode{
+			// int32(util.GetTime())——actor 是基础类型 int32，消息跳过
+			{Kind: "branch", Label: "flag", Line: 2,
+				Nodes: []*action.CodeSeqNode{
+					{Kind: "call", Label: "int32", Actor: "int32", Line: 3},
+				}},
+			// 对照：分支里是真实调用 → alt 正常输出
+			{Kind: "branch", Label: "flag2", Line: 4,
+				Nodes: []*action.CodeSeqNode{
+					{Kind: "call", Label: "svc.Save", Actor: "svc", Line: 5},
+				}},
+			// 嵌套：分支里只有空 loop（循环体也是基础类型调用）→ 不输出
+			{Kind: "branch", Label: "flag3", Line: 6,
+				Nodes: []*action.CodeSeqNode{
+					{Kind: "loop", Label: "range x", Line: 7,
+						Nodes: []*action.CodeSeqNode{
+							{Kind: "call", Label: "int64", Actor: "int64", Line: 8},
+						}},
+				}},
+		}}
+	m := renderCodeSeqMermaid(root)
+	if strings.Contains(m, "alt flag\n") {
+		t.Errorf("基础类型转换赋值的分支不应输出空 alt 块:\n%s", m)
+	}
+	if strings.Contains(m, "alt flag3") {
+		t.Errorf("仅含基础类型调用的嵌套分支不应输出空 alt 块:\n%s", m)
+	}
+	if !strings.Contains(m, "alt flag2\n") {
+		t.Errorf("真实调用分支应输出 alt 块:\n%s", m)
+	}
+}
+
 // TestSeqRenderReturnAndEmptyAlt（S2）：分支内 return 画线回调用者；
 // 空分支（无 then/else）不输出 alt 块。
 func TestSeqRenderReturnAndEmptyAlt(t *testing.T) {
