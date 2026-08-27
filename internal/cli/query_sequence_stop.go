@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/schaepher/codeintel/internal/action"
 	"gopkg.in/yaml.v3"
 )
 
@@ -64,4 +65,30 @@ func loadSeqStopPkgs() []string {
 		}
 	}
 	return out
+}
+
+// loadSeqFilter 读全局配置 seq.filter_pkgs/filter_files/filter_fns/
+// filter_regex（S5——导出时过滤调用，如 log）。
+func loadSeqFilter() action.SeqFilter {
+	p := agentConfigPath()
+	if p == "" {
+		return action.SeqFilter{}
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return action.SeqFilter{}
+	}
+	var c struct {
+		Seq struct {
+			FilterPkgs  []string `yaml:"filter_pkgs"`
+			FilterFiles []string `yaml:"filter_files"`
+			FilterFns   []string `yaml:"filter_fns"`
+			FilterRegex []string `yaml:"filter_regex"`
+		} `yaml:"seq"`
+	}
+	if err := yaml.Unmarshal(b, &c); err != nil {
+		return action.SeqFilter{}
+	}
+	return action.SeqFilter{Pkgs: c.Seq.FilterPkgs, Files: c.Seq.FilterFiles,
+		Fns: c.Seq.FilterFns, Regex: c.Seq.FilterRegex}
 }

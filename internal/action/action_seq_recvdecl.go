@@ -89,7 +89,7 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 		})
 	}
 	root := &CodeSeqNode{Kind: "call", Label: fn.Name.Name, Line: n.LineStart}
-	root.Nodes = walkStmts(a, req, fset, src, fn.Body.List, tgts, depth, recvType, recvDecl, f, pkgPathOf(symID))
+	root.Nodes = walkStmts(a, req, fset, src, fn.Body.List, tgts, depth, recvType, recvDecl, f, pkgPathOf(symID), n.FilePath)
 	return root
 }
 

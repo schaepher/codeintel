@@ -38,3 +38,13 @@ helpers:
 # 支持完整路径或包短名（如 internal/impl/repo 或 repo）
 seq:
   stop_packages: []
+  # S5：时序图导出过滤（命中不生成节点，如 log 调用）——按包/文件/
+  # 函数/正则匹配
+  filter_pkgs: []
+  filter_files: []
+  filter_fns: []
+  filter_regex: []
+
+# S4：plantuml.jar 路径（配置了用它转图片；没配置尝试 PLANTUML_JAR
+# 环境变量与 /opt/plantuml/plantuml.jar；都失败写文本）
+plantuml_jar: ""

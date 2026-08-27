@@ -84,3 +84,78 @@ func run(s Saver, n Notifier) {
 		t.Errorf("第二个调用 Type = %q; want m.Notifier", n1.Type)
 	}
 }
+
+// TestSeqFilterLog（S5）：导出过滤——按函数名/包过滤的调用不生成节点。
+func TestSeqFilterLog(t *testing.T) {
+	src := `package m
+
+import "example.com/m/log"
+
+func run() {
+	log.Printf("hi")
+	svc()
+}
+
+func svc() {}
+`
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/m\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	r := sqlite.NewRepo(db)
+	logOff := strings.Index(src, "Printf(") + len("Printf")
+	svcOff := strings.Index(src, "svc(") + len("svc")
+	if _, err := r.SaveBatchStats([]*domain.CodeEntity{
+		{ID: "symbol:go:example.com/m:run", Kind: domain.KindFunction, Name: "run", FilePath: "main.go", LineStart: 5},
+		{ID: "symbol:go:example.com/m:svc", Kind: domain.KindFunction, Name: "svc", FilePath: "main.go", LineStart: 9},
+		{ID: "symbol:go:example.com/m/log:Printf", Kind: domain.KindFunction, Name: "Printf", FilePath: "log/log.go", LineStart: 1},
+	}, []*domain.Fact{
+		{SourceID: "symbol:go:example.com/m:run", TargetID: "symbol:go:example.com/m/log:Printf",
+			Kind: domain.FactCalls, Confidence: 1.0, Metadata: map[string]any{"line_num": 7, "pos": float64(logOff)}},
+		{SourceID: "symbol:go:example.com/m:run", TargetID: "symbol:go:example.com/m:svc",
+			Kind: domain.FactCalls, Confidence: 1.0, Metadata: map[string]any{"line_num": 8, "pos": float64(svcOff)}},
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	acts := New(sqlite.NewRepo(db))
+	// 按函数名过滤 log.Printf
+	root, err := acts.CodeSequence(CodeSequenceRequest{
+		Target: "symbol:go:example.com/m:run", RepoAbs: dir, Depth: 1,
+		Filter: SeqFilter{Fns: []string{"Printf"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root == nil {
+		t.Fatal("root nil")
+	}
+	if len(root.Nodes) != 1 || root.Nodes[0].Label != "svc" {
+		t.Errorf("过滤后应只剩 svc 调用（log.Printf 被过滤）: %+v", root.Nodes)
+	}
+	// 按包过滤（log 包短名）
+	root2, err := acts.CodeSequence(CodeSequenceRequest{
+		Target: "symbol:go:example.com/m:run", RepoAbs: dir, Depth: 1,
+		Filter: SeqFilter{Pkgs: []string{"log"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(root2.Nodes) != 1 || root2.Nodes[0].Label != "svc" {
+		t.Errorf("按包过滤后应只剩 svc: %+v", root2.Nodes)
+	}
+	// 无过滤：两个都在
+	root3, err := acts.CodeSequence(CodeSequenceRequest{
+		Target: "symbol:go:example.com/m:run", RepoAbs: dir, Depth: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(root3.Nodes) != 2 {
+		t.Errorf("无过滤应有两个调用: %+v", root3.Nodes)
+	}
+}

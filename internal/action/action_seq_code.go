@@ -7,7 +7,6 @@ package action
 
 import (
 	"go/ast"
-	"go/token"
 	"strings"
 
 	"go.uber.org/zap"
@@ -15,10 +14,11 @@ import (
 
 // CodeSequenceRequest query sequence --code 参数。
 type CodeSequenceRequest struct {
-	Target       string   // 符号名或 canonical ID
-	RepoAbs      string   // 仓库绝对路径（源码读取）
-	Depth        int      // 嵌套层级（1 = 只本函数；>1 递归展开被调函数内部）
-	StopPackages []string // 停止包列表（cli 从 config.yaml 读取——命中不深入）
+	Target       string    // 符号名或 canonical ID
+	RepoAbs      string    // 仓库绝对路径（源码读取）
+	Depth        int       // 嵌套层级（1 = 只本函数；>1 递归展开被调函数内部）
+	StopPackages []string  // 停止包列表（cli 从 config.yaml 读取——命中不深入）
+	Filter       SeqFilter // S5：导出过滤（按包/文件/函数/正则——命中不生成节点，如 log 调用）
 	// 内部：递归展开路径防环（R97——grpc 实现内部调接口、接口具体化
 	// 回到同一 grpc 实现时自环；路径语义：进入标记、退出清除，不同
 	// 分支互不影响）
@@ -75,191 +75,8 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 // f = 当前函数所在文件（局部变量 DI 注入数据流查询用）；curPkg = 当前
 // 函数包路径（P0-6）。tgts = 调用点 → 被调符号映射（R99-3：offset
 // 优先——同行多调用区分）。
-func walkStmts(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []byte, stmts []ast.Stmt, tgts *seqTargets, depth int, recvType string, recvDecl map[string]string, f *ast.File, curPkg string) []*CodeSeqNode {
-	var out []*CodeSeqNode
-	for _, st := range stmts {
-		out = append(out, walkStmt(a, req, fset, src, st, tgts, depth, recvType, recvDecl, f, curPkg)...)
-	}
-	return out
-}
 
 // walkStmt 单条语句 → 步骤（可能多条：赋值内多个调用）。
-func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []byte, stmt ast.Stmt, tgts *seqTargets, depth int, recvType string, recvDecl map[string]string, f *ast.File, curPkg string) []*CodeSeqNode {
-	callNode := func(fun ast.Expr, pos token.Position) *CodeSeqNode {
-		node := &CodeSeqNode{Kind: "call", Label: callLabel(fset, src, fun), Actor: callActor(fset, src, fun), Line: pos.Line}
-		// R83：签名提取（类型节点用 AST 方法名构造 (Impl).Method 再查）
-		if tid, ok := tgts.lookup(pos); ok {
-			sigID := tid
-			if !strings.Contains(tid, ":(") {
-				if sel, isSel := fun.(*ast.SelectorExpr); isSel {
-					sigID = GrpcMethodEntryID(tid, sel.Sel.Name)
-				}
-			}
-			node.Type = implTypeShort(tid)
-			if args, rets, ok2 := sigTypesOf(a, sigID); ok2 {
-				node.Args, node.Returns = args, rets
-			}
-		}
-		// R81：嵌套展开（类型节点用 AST 方法名构造 (Impl).Method；函数失败回退原 ID）
-		if depth > 1 {
-			if tid, ok := tgts.lookup(pos); ok {
-				// R83：停止包配置——命中不深入（节点保留，Nodes 空）
-				if seqStopPkgHit(tid, req.StopPackages) {
-					return node
-				}
-				// R97-2：receiver 字段数据流优先——s.manager.SubmitOrder
-				// 的 s.manager 赋值来源（构造函数 &orderManagerImpl{}）
-				// → 直接落到具体实现（比接口类型匹配更精确）
-				if sel, isSel := fun.(*ast.SelectorExpr); isSel && recvType != "" {
-					if field, ok2 := receiverFieldSel(sel, recvType); ok2 {
-						if implMethod := a.receiverFieldImpl(req, recvType, field, sel.Sel.Name); implMethod != "" {
-							// P0-5：数据流实现类型 + 字段声明类型（参与
-							// 者第二行——声明接口 → 数据流实现双行显示）
-							node.ImplType = implTypeShort(implMethod)
-							if decl, ok := recvDecl[field]; ok {
-								node.DeclType = decl
-							}
-							if child := codeSeqForSymbol(a, req, implMethod, depth-1); child != nil {
-								node.Nodes = child.Nodes
-								return node
-							}
-						}
-					}
-				}
-				// P0-6：局部变量 DI 注入——m.SubmitOrder 的 m 初始化自
-				// 构造器（m := newX()，newX 返回接口、函数体 return 具体
-				// 实现）或字面量 → 具体化到实现方法
-				if sel, isSel := fun.(*ast.SelectorExpr); isSel {
-					if id, ok := sel.X.(*ast.Ident); ok {
-						if implMethod := a.localVarImpl(req, f, curPkg, id.Name, sel.Sel.Name); implMethod != "" {
-							node.ImplType = implTypeShort(implMethod)
-							if child := codeSeqForSymbol(a, req, implMethod, depth-1); child != nil {
-								node.Nodes = child.Nodes
-								return node
-							}
-						}
-					}
-				}
-				// P0-7：接口方法 fallback——数据流/localVar 找不到（参数
-				// 注入形态：接口实现由外部 DI 框架注入构造器参数，函数
-				// 内无显式创建）→ 接口实现枚举（InterfaceMethodImpl——
-				// 业务实现优先、grpc 实现排后防自环）
-				if strings.Contains(tid, ":(") {
-					if impl, ok := a.InterfaceMethodImpl(tid); ok {
-						node.ImplType = implTypeShort(impl)
-						if child := codeSeqForSymbol(a, req, impl, depth-1); child != nil {
-							node.Nodes = child.Nodes
-							return node
-						}
-					}
-				}
-				if !strings.Contains(tid, ":(") {
-					if sel, isSel := fun.(*ast.SelectorExpr); isSel {
-						if child := codeSeqForSymbol(a, req, GrpcMethodEntryID(tid, sel.Sel.Name), depth-1); child != nil {
-							node.Nodes = child.Nodes
-							return node
-						}
-					}
-				}
-				if child := codeSeqForSymbol(a, req, tid, depth-1); child != nil {
-					node.Nodes = child.Nodes
-				}
-			}
-		}
-		return node
-	}
-	switch s := stmt.(type) {
-	case *ast.ExprStmt:
-		if call, ok := s.X.(*ast.CallExpr); ok {
-			return []*CodeSeqNode{callNode(call.Fun, fset.Position(call.Lparen))}
-		}
-	case *ast.AssignStmt:
-		var out []*CodeSeqNode
-		for _, rhs := range s.Rhs {
-			if call, ok := rhs.(*ast.CallExpr); ok {
-				out = append(out, callNode(call.Fun, fset.Position(call.Lparen)))
-			}
-		}
-		return out
-	case *ast.IfStmt:
-		var steps []*CodeSeqNode
-		// S6：if err := f(); err != nil 同行——Init（初始化语句）里的
-		// 调用也生成步骤（go/ast 自带 Init 字段，之前遗漏未处理）
-		if s.Init != nil {
-			steps = append(steps, walkStmt(a, req, fset, src, s.Init, tgts, depth, recvType, recvDecl, f, curPkg)...)
-		}
-		node := &CodeSeqNode{Kind: "branch", Label: seqExprText(fset, src, s.Cond), Line: fset.Position(s.Cond.Pos()).Line}
-		node.Nodes = walkStmts(a, req, fset, src, s.Body.List, tgts, depth, recvType, recvDecl, f, curPkg)
-		if blk, ok := s.Else.(*ast.BlockStmt); ok {
-			node.Else = walkStmts(a, req, fset, src, blk.List, tgts, depth, recvType, recvDecl, f, curPkg)
-		} else if elseIf, ok := s.Else.(*ast.IfStmt); ok {
-			node.Else = walkStmt(a, req, fset, src, elseIf, tgts, depth, recvType, recvDecl, f, curPkg) // else if 链（渲染为 else 内分支）
-		}
-		steps = append(steps, node)
-		return steps
-	case *ast.ForStmt:
-		label := seqExprText(fset, src, s.Cond)
-		if label == "" {
-			label = "无限循环"
-		}
-		return []*CodeSeqNode{{Kind: "loop", Label: label, Line: fset.Position(s.Pos()).Line,
-			Nodes: walkStmts(a, req, fset, src, s.Body.List, tgts, depth, recvType, recvDecl, f, curPkg)}}
-	case *ast.RangeStmt:
-		return []*CodeSeqNode{{Kind: "loop", Label: "range " + seqExprText(fset, src, s.X), Line: fset.Position(s.Pos()).Line,
-			Nodes: walkStmts(a, req, fset, src, s.Body.List, tgts, depth, recvType, recvDecl, f, curPkg)}}
-	case *ast.BlockStmt:
-		return walkStmts(a, req, fset, src, s.List, tgts, depth, recvType, recvDecl, f, curPkg)
-	case *ast.DeferStmt:
-		return []*CodeSeqNode{callNode(s.Call.Fun, fset.Position(s.Call.Lparen))}
-	case *ast.GoStmt:
-		return []*CodeSeqNode{callNode(s.Call.Fun, fset.Position(s.Call.Lparen))}
-	case *ast.ReturnStmt:
-		var out []*CodeSeqNode
-		for _, r := range s.Results {
-			if call, ok := r.(*ast.CallExpr); ok {
-				out = append(out, callNode(call.Fun, fset.Position(call.Lparen)))
-			}
-		}
-		// S2：分支内裸 return（无返回值调用）→ return 节点（渲染画线
-		// 回调用者）；带调用的 return 由调用节点承接
-		if len(out) == 0 {
-			out = append(out, &CodeSeqNode{Kind: "return", Label: "return", Line: fset.Position(s.Pos()).Line})
-		}
-		return out
-	case *ast.BranchStmt:
-		// S2：continue/break——循环控制流（渲染：continue 画回循环、
-		// break 标注）
-		kind := s.Tok.String()
-		return []*CodeSeqNode{{Kind: kind, Label: kind, Line: fset.Position(s.Pos()).Line}}
-	case *ast.SwitchStmt:
-		// R82：switch 分派（manager.SubmitOrder 实测——data.Type 分支里
-		// 才是真实业务调用；每 case 一个子分支）
-		tag := seqExprText(fset, src, s.Tag)
-		if tag == "" {
-			tag = "switch"
-		}
-		node := &CodeSeqNode{Kind: "branch", Label: tag, Line: fset.Position(s.Pos()).Line}
-		for _, st := range s.Body.List {
-			if cc, ok := st.(*ast.CaseClause); ok {
-				caseNode := &CodeSeqNode{Kind: "branch", Label: "case " + caseExpr(fset, src, cc), Line: fset.Position(cc.Pos()).Line}
-				caseNode.Nodes = walkStmts(a, req, fset, src, cc.Body, tgts, depth, recvType, recvDecl, f, curPkg)
-				node.Nodes = append(node.Nodes, caseNode)
-			}
-		}
-		return []*CodeSeqNode{node}
-	case *ast.TypeSwitchStmt:
-		node := &CodeSeqNode{Kind: "branch", Label: "type switch", Line: fset.Position(s.Pos()).Line}
-		for _, st := range s.Body.List {
-			if cc, ok := st.(*ast.CaseClause); ok {
-				caseNode := &CodeSeqNode{Kind: "branch", Label: "case " + caseExpr(fset, src, cc), Line: fset.Position(cc.Pos()).Line}
-				caseNode.Nodes = walkStmts(a, req, fset, src, cc.Body, tgts, depth, recvType, recvDecl, f, curPkg)
-				node.Nodes = append(node.Nodes, caseNode)
-			}
-		}
-		return []*CodeSeqNode{node}
-	}
-	return nil
-}
 
 // receiverFieldSel 调用 fun（s.manager.SubmitOrder）是否为 receiver
 // 字段方法调用——s 是当前方法 receiver 名（recvType 对应）、X 是
@@ -287,3 +104,14 @@ func exprTypeName(t ast.Expr) string {
 	}
 	return ""
 }
+
+// SeqFilter 时序图导出过滤（S5）：按包/文件/函数/正则——命中不生成
+// 节点（如 log 调用）。cli 从 config.yaml 的 seq.filter_* 读取。
+type SeqFilter struct {
+	Pkgs  []string // 包路径（完整或短名/末段匹配）
+	Files []string // 源码文件（仓库相对路径，末段匹配）
+	Fns   []string // 调用名（label 精确或末段 .Method 匹配）
+	Regex []string // label 正则
+}
+
+// seqFilterHit 检查调用是否命中过滤（任一维度命中即过滤）。

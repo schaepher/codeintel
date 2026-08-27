@@ -13,12 +13,21 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"gopkg.in/yaml.v3"
 	"strings"
 	"time"
 )
 
-// plantumlJarPath 定位 plantuml.jar（PLANTUML_JAR > /opt/plantuml/plantuml.jar）。
+// plantumlJarPath 定位 plantuml.jar（全局配置 plantuml_jar >
+// PLANTUML_JAR > /opt/plantuml/plantuml.jar——用户：配置了就用配置，
+// 没配置就尝试直接执行默认路径）。
 func plantumlJarPath() string {
+	if p := plantumlJarFromConfig(); p != "" {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
 	if p := os.Getenv("PLANTUML_JAR"); p != "" {
 		if _, err := os.Stat(p); err == nil {
 			return p
@@ -28,6 +37,25 @@ func plantumlJarPath() string {
 		return "/opt/plantuml/plantuml.jar"
 	}
 	return ""
+}
+
+// plantumlJarFromConfig 读全局配置 plantuml_jar（~/.codeintel/config.yaml）。
+func plantumlJarFromConfig() string {
+	p := agentConfigPath()
+	if p == "" {
+		return ""
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return ""
+	}
+	var c struct {
+		PlantumlJar string `yaml:"plantuml_jar"`
+	}
+	if err := yaml.Unmarshal(b, &c); err != nil {
+		return ""
+	}
+	return c.PlantumlJar
 }
 
 // plantumlTmpDir java 临时目录（仓库外——/tmp 配额满）。
