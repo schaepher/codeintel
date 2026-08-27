@@ -172,3 +172,48 @@ func run() {
 		t.Error("接口返回的链式调用应具体化到 (svcImpl).DoSth（构造器 return 追踪）")
 	}
 }
+
+// TestExternalCallEdge（用户要求）：第三方依赖包调用也要建边——
+// 外部包方法（c.Get()）与外部包函数（ext.Helper()）都建 calls 边
+// （轻量节点），不深入外部包内部解析（无 Syntax 天然不展开）。
+func TestExternalCallEdge(t *testing.T) {
+	_, facts := indexFixture(t, map[string]string{
+		"go.mod":        "module example.com/mtest\n\ngo 1.21\n\nrequire example.com/ext v0.0.0\n\nreplace example.com/ext => ../ext\n",
+		"../ext/go.mod": "module example.com/ext\n\ngo 1.21\n",
+		"../ext/ext.go": `package ext
+
+type Client struct{}
+
+func (c *Client) Get() {}
+
+func NewClient() *Client {
+	return &Client{}
+}
+
+func Helper() {}
+`,
+		"main.go": `package mtest
+
+import "example.com/ext"
+
+func run() {
+	c := ext.NewClient()
+	c.Get()      // 外部包方法调用
+	ext.Helper() // 外部包函数调用
+}
+`,
+	})
+	got := map[string]bool{}
+	for _, f := range facts {
+		if f.Kind == domain.FactCalls && string(f.SourceID) == "symbol:go:example.com/mtest:run" {
+			got[string(f.TargetID)] = true
+		}
+	}
+	if !got["symbol:go:example.com/ext:(Client).Get"] {
+		t.Error("外部包方法调用 c.Get() 应建边 → (Client).Get")
+	}
+	// 纯包函数（ext.Helper）不建边——防图爆炸（fmt.Println 同款旧设计）
+	if got["symbol:go:example.com/ext:Helper"] {
+		t.Error("外部包纯函数调用 ext.Helper() 不应建边（防图爆炸——方法/接口方法才建）")
+	}
+}

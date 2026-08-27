@@ -63,11 +63,11 @@ func setup() {
 	})
 	routes := routePropsOf(nodes)
 	want := map[string][]string{
-		"/":            {"", "native", "home"},
-		"/health":      {"", "native", "home"},
-		"/api/orders":  {"", "native", "home"},
-		"/assets":      {"", "native", "home"},
-		"/api/users/":  {"", "native", "s.orders"},
+		"/":           {"", "native", "home"},
+		"/health":     {"", "native", "home"},
+		"/api/orders": {"", "native", "home"},
+		"/assets":     {"", "native", "home"},
+		"/api/users/": {"", "native", "s.orders"},
 	}
 	for path, props := range want {
 		got, ok := routes[path]

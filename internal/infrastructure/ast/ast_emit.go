@@ -51,12 +51,12 @@ func (a *Adapter) markHTTPHandlers(repo *domain.Repository, pkg *packages.Packag
 		}
 		pos := pkg.Fset.PositionFor(obj.Pos(), false)
 		if err := emit(domain.Item{Node: &domain.CodeEntity{
-			ID:		canonicalizer.GoSymbolID(obj.Pkg().Path(), obj.Name()),
-			Kind:		domain.KindStruct,
-			Name:		obj.Name(),
-			FilePath:	relPath(repo.Path, pos.Filename),
-			LineStart:	pos.Line,
-			LineEnd:	pos.Line,
+			ID:        canonicalizer.GoSymbolID(obj.Pkg().Path(), obj.Name()),
+			Kind:      domain.KindStruct,
+			Name:      obj.Name(),
+			FilePath:  relPath(repo.Path, pos.Filename),
+			LineStart: pos.Line,
+			LineEnd:   pos.Line,
 			Properties: map[string]any{
 				"serves_http": "true",
 			},
@@ -123,12 +123,12 @@ func (a *Adapter) emitStructFields(repo *domain.Repository, pkg *packages.Packag
 			}
 			pos := pkg.Fset.PositionFor(ts.Pos(), false)
 			_ = emit(domain.Item{Node: &domain.CodeEntity{
-				ID:		canonicalizer.GoSymbolID(named.Obj().Pkg().Path(), named.Obj().Name()),
-				Kind:		domain.KindStruct,
-				Name:		named.Obj().Name(),
-				FilePath:	relPath(repo.Path, pos.Filename),
-				LineStart:	pos.Line,
-				LineEnd:	pos.Line,
+				ID:        canonicalizer.GoSymbolID(named.Obj().Pkg().Path(), named.Obj().Name()),
+				Kind:      domain.KindStruct,
+				Name:      named.Obj().Name(),
+				FilePath:  relPath(repo.Path, pos.Filename),
+				LineStart: pos.Line,
+				LineEnd:   pos.Line,
 				Properties: map[string]any{
 					"fields": fields,
 				},

@@ -97,3 +97,57 @@ func NewService() *Service {
 		t.Errorf("展开子调用 = %q; want s.helper", child.Nodes[0].Label)
 	}
 }
+
+// TestSeqExternalCallNotExpanded（用户要求）：第三方依赖包调用建边
+// 但时序图不深入展开——外部方法（c.Get，FilePath 空）节点保留、
+// Nodes 空（不深入第三方内部）。
+func TestSeqExternalCallNotExpanded(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/m\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(`package m
+
+type Client interface{ Get() }
+
+func run() {
+	var c Client
+	c.Get()
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	r := sqlite.NewRepo(db)
+	if _, err := r.SaveBatchStats([]*domain.CodeEntity{
+		{ID: "symbol:go:example.com/m:run", Kind: domain.KindFunction, Name: "run", FilePath: "main.go", LineStart: 5},
+		// 外部依赖方法：FilePath 空（第三方包无 Syntax——不深入）
+		{ID: "symbol:go:example.com/ext:(Client).Get", Kind: domain.KindMethod, Name: "(Client).Get"},
+	}, []*domain.Fact{
+		{SourceID: "symbol:go:example.com/m:run", TargetID: "symbol:go:example.com/ext:(Client).Get",
+			Kind: domain.FactCalls, Confidence: 1.0, Metadata: map[string]any{"line_num": 6}},
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	acts := New(sqlite.NewRepo(db))
+	root, err := acts.CodeSequence(CodeSequenceRequest{
+		Target: "symbol:go:example.com/m:run", RepoAbs: dir, Depth: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root == nil || len(root.Nodes) == 0 {
+		t.Fatalf("无子调用:\n%+v", root)
+	}
+	child := root.Nodes[0]
+	if child.Label != "c.Get" {
+		t.Fatalf("子调用 = %q; want c.Get", child.Label)
+	}
+	// 外部依赖：节点保留但不深入（Nodes 空——第三方内部不展开）
+	if len(child.Nodes) != 0 {
+		t.Errorf("外部调用不应深入展开（Nodes 空）——第三方依赖内部不解析: %+v", child.Nodes)
+	}
+}

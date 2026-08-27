@@ -18,8 +18,8 @@ import (
 func TestGrpcExternalRegisterDefinition(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
-		"go.mod":		"module example.com/mtest\n\ngo 1.21\n\nrequire example.com/proto v0.0.0\n\nreplace example.com/proto => ../proto\n",
-		"../proto/go.mod":	"module example.com/proto\n\ngo 1.21\n",
+		"go.mod":          "module example.com/mtest\n\ngo 1.21\n\nrequire example.com/proto v0.0.0\n\nreplace example.com/proto => ../proto\n",
+		"../proto/go.mod": "module example.com/proto\n\ngo 1.21\n",
 		"../proto/greet.pb.go": `package proto
 
 type Registrar interface{ RegisterService(desc any, impl any) }
@@ -99,7 +99,7 @@ func register(s proto.Registrar) {
 // grpc 库函数（如 grpc.NewServer——第二参不是接口形态）。
 func TestGrpcExternalRegisterNotGrpcLib(t *testing.T) {
 	_, facts := indexFixture(t, map[string]string{
-		"go.mod":	"module example.com/mtest\n\ngo 1.21\n",
+		"go.mod": "module example.com/mtest\n\ngo 1.21\n",
 		"main.go": `package mtest
 
 type Registrar interface{ RegisterService(desc any, impl any) }
@@ -123,8 +123,8 @@ func run() {
 // （types.Implements）直指业务实现 greeterImpl。
 func TestGrpcExternalRegisterIfaceArg(t *testing.T) {
 	_, facts := indexFixture(t, map[string]string{
-		"go.mod":		"module example.com/mtest\n\ngo 1.21\n\nrequire example.com/proto v0.0.0\n\nreplace example.com/proto => ../proto\n",
-		"../proto/go.mod":	"module example.com/proto\n\ngo 1.21\n",
+		"go.mod":          "module example.com/mtest\n\ngo 1.21\n\nrequire example.com/proto v0.0.0\n\nreplace example.com/proto => ../proto\n",
+		"../proto/go.mod": "module example.com/proto\n\ngo 1.21\n",
 		"../proto/greet.pb.go": `package proto
 
 type Registrar interface{ RegisterService(desc any, impl any) }
@@ -176,7 +176,7 @@ func register(s proto.Registrar) {
 // 但无 Register——业务系统调用外部服务的客户端桩）不产生 svc 节点。
 func TestGrpcCustomClientNotService(t *testing.T) {
 	_, facts := indexFixture(t, map[string]string{
-		"go.mod":	"module example.com/mtest\n\ngo 1.21\n",
+		"go.mod": "module example.com/mtest\n\ngo 1.21\n",
 		// 业务类型在 .pb.go（外部 proto 包类型形态——命中 R48
 		// pbDefinedType 信号）
 		"req.pb.go": `package mtest
@@ -212,7 +212,7 @@ func use(s SmsSender) {
 // RegisterXxxServer 包装函数）→ 接口签名识别有注册佐证 → svc 节点。
 func TestGrpcHandwrittenRegisterProof(t *testing.T) {
 	nodes, _ := indexFixture(t, map[string]string{
-		"go.mod":	"module example.com/mtest\n\ngo 1.21\n",
+		"go.mod": "module example.com/mtest\n\ngo 1.21\n",
 		"req.pb.go": `package mtest
 
 type SmsReq struct{ Phone string }

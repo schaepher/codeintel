@@ -59,14 +59,14 @@ func (a *Adapter) markGrpcServiceInterfaces(repo *domain.Repository, pkg *packag
 				}
 				svcID := domain.CanonicalID("symbol:go:" + pkg.PkgPath + ":svc." + svcName)
 				if err := emit(domain.Item{Node: &domain.CodeEntity{
-					ID:	svcID, Kind: domain.KindGrpcService,
-					Name:	"svc." + svcName,
+					ID: svcID, Kind: domain.KindGrpcService,
+					Name: "svc." + svcName,
 					Properties: map[string]any{
-						"service_name":	svcName,
-						"methods":	strings.Join(methods, ","),
+						"service_name": svcName,
+						"methods":      strings.Join(methods, ","),
 						// R45：方法首参类型完整路径（外部接口判定——
 						// 客户端实参类型 ∉ 本项目服务参数集合）
-						"param_types":	strings.Join(paramTypes, ","),
+						"param_types": strings.Join(paramTypes, ","),
 					},
 				}}); err != nil {
 					return err
@@ -185,12 +185,12 @@ func inGrpcPackage(t types.Type) bool {
 // 信息：服务名 + srv 参数接口类型。调用点在外部仓库（单独编译）时
 // 调用点路径（emitGrpcServiceEntry）不触发——定义路径兜底。
 type grpcRegisterDef struct {
-	svcName	string
-	iface	*types.Named	// srv 参数接口类型（XxxServer）
-	fnPkg	string		// Register 函数所在包路径
-	fnName	string
-	line	int
-	file	string
+	svcName string
+	iface   *types.Named // srv 参数接口类型（XxxServer）
+	fnPkg   string       // Register 函数所在包路径
+	fnName  string
+	line    int
+	file    string
 }
 
 // collectRegisterDefs 扫描模块内 Register 函数定义（与

@@ -181,8 +181,19 @@ func (ctx *fileCtx) emitCall(call *ast.CallExpr) {
 			}
 		}
 	}
-	if callee.Pkg() == nil || !isInModule(callee.Pkg().Path(), ctx.repo.Modules) {
-		return // 内建/外部函数不建边
+	if callee.Pkg() == nil {
+		return // 内建（new/len 等）不建边
+	}
+	// R99-2（用户）：第三方依赖包调用建边——方法/接口方法（业务集成
+	// 点：c.Get()、ext.NewService().DoSth()——轻量节点 file_path 空，
+	// 不深入解析：外部包无 Syntax，内部调用天然不展开，时序图
+	// codeSeqForSymbol 对 FilePath 空返回 nil 不深入）；纯包函数
+	// （fmt.Println 等）不建——防图爆炸（旧设计保留）
+	if !isInModule(callee.Pkg().Path(), ctx.repo.Modules) {
+		sig, _ := callee.Type().(*types.Signature)
+		if sig == nil || sig.Recv() == nil {
+			return // 外部纯函数（无 receiver）不建边
+		}
 	}
 	if calleeID == "" || calleeID == callerID {
 		return

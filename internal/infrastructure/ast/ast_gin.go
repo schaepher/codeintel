@@ -106,9 +106,9 @@ func isGinRouter(pkg *packages.Package, e ast.Expr) bool {
 
 // emitGinRouteCall gin 路由注册调用（x.GET("/path", h)——x 是
 // *gin.Engine/*gin.RouterGroup；Group 前缀拼接）。形态：
-// - 路由方法 x.GET/POST/...：args[0]=路径、args[1:]=handlers
-//   （多 handler 时最后一个为业务 handler——中间件在前）
-// - 通用注册 x.Handle("GET", "/path", h)：args[0]=method、args[1]=路径
+//   - 路由方法 x.GET/POST/...：args[0]=路径、args[1:]=handlers
+//     （多 handler 时最后一个为业务 handler——中间件在前）
+//   - 通用注册 x.Handle("GET", "/path", h)：args[0]=method、args[1]=路径
 func (ctx *fileCtx) emitGinRouteCall(call *ast.CallExpr, sel *ast.SelectorExpr, xid *ast.Ident) {
 	if !isGinRouter(ctx.pkg, xid) {
 		return
