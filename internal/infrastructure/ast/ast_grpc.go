@@ -199,7 +199,7 @@ func (ctx *fileCtx) emitSelectorCall(call *ast.CallExpr, callee *types.Func, sel
 			Metadata: map[string]any{
 				"method":   sel.Sel.Name,
 				"req_type": reqType,
-				"line_num": pkg.Fset.PositionFor(call.Pos(), false).Line,
+				"line_num": pkg.Fset.PositionFor(call.Pos(), false).Line, "pos": pkg.Fset.PositionFor(call.Pos(), false).Offset,
 			},
 		}})
 	}
@@ -235,6 +235,7 @@ func (ctx *fileCtx) emitSelectorCall(call *ast.CallExpr, callee *types.Func, sel
 					"method_path": mp,
 					"req_type":    reqType,
 					"line_num":    pkg.Fset.PositionFor(call.Pos(), false).Line,
+					"pos":         pkg.Fset.PositionFor(call.Pos(), false).Offset,
 				},
 			}})
 		}

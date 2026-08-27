@@ -73,21 +73,22 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 
 // walkStmts 遍历语句列表生成步骤（调用语句 / 分支 / 循环 / 块递归）。
 // f = 当前函数所在文件（局部变量 DI 注入数据流查询用）；curPkg = 当前
-// 函数包路径（P0-6）。
-func walkStmts(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []byte, stmts []ast.Stmt, lineTargets map[int]string, depth int, recvType string, recvDecl map[string]string, f *ast.File, curPkg string) []*CodeSeqNode {
+// 函数包路径（P0-6）。tgts = 调用点 → 被调符号映射（R99-3：offset
+// 优先——同行多调用区分）。
+func walkStmts(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []byte, stmts []ast.Stmt, tgts *seqTargets, depth int, recvType string, recvDecl map[string]string, f *ast.File, curPkg string) []*CodeSeqNode {
 	var out []*CodeSeqNode
 	for _, st := range stmts {
-		out = append(out, walkStmt(a, req, fset, src, st, lineTargets, depth, recvType, recvDecl, f, curPkg)...)
+		out = append(out, walkStmt(a, req, fset, src, st, tgts, depth, recvType, recvDecl, f, curPkg)...)
 	}
 	return out
 }
 
 // walkStmt 单条语句 → 步骤（可能多条：赋值内多个调用）。
-func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []byte, stmt ast.Stmt, lineTargets map[int]string, depth int, recvType string, recvDecl map[string]string, f *ast.File, curPkg string) []*CodeSeqNode {
-	callNode := func(fun ast.Expr, line int) *CodeSeqNode {
-		node := &CodeSeqNode{Kind: "call", Label: callLabel(fset, src, fun), Actor: callActor(fset, src, fun), Line: line}
+func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []byte, stmt ast.Stmt, tgts *seqTargets, depth int, recvType string, recvDecl map[string]string, f *ast.File, curPkg string) []*CodeSeqNode {
+	callNode := func(fun ast.Expr, pos token.Position) *CodeSeqNode {
+		node := &CodeSeqNode{Kind: "call", Label: callLabel(fset, src, fun), Actor: callActor(fset, src, fun), Line: pos.Line}
 		// R83：签名提取（类型节点用 AST 方法名构造 (Impl).Method 再查）
-		if tid, ok := lineTargets[line]; ok {
+		if tid, ok := tgts.lookup(pos); ok {
 			sigID := tid
 			if !strings.Contains(tid, ":(") {
 				if sel, isSel := fun.(*ast.SelectorExpr); isSel {
@@ -101,7 +102,7 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		}
 		// R81：嵌套展开（类型节点用 AST 方法名构造 (Impl).Method；函数失败回退原 ID）
 		if depth > 1 {
-			if tid, ok := lineTargets[line]; ok {
+			if tid, ok := tgts.lookup(pos); ok {
 				// R83：停止包配置——命中不深入（节点保留，Nodes 空）
 				if seqStopPkgHit(tid, req.StopPackages) {
 					return node
@@ -170,23 +171,23 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 	switch s := stmt.(type) {
 	case *ast.ExprStmt:
 		if call, ok := s.X.(*ast.CallExpr); ok {
-			return []*CodeSeqNode{callNode(call.Fun, fset.Position(call.Pos()).Line)}
+			return []*CodeSeqNode{callNode(call.Fun, fset.Position(call.Pos()))}
 		}
 	case *ast.AssignStmt:
 		var out []*CodeSeqNode
 		for _, rhs := range s.Rhs {
 			if call, ok := rhs.(*ast.CallExpr); ok {
-				out = append(out, callNode(call.Fun, fset.Position(call.Pos()).Line))
+				out = append(out, callNode(call.Fun, fset.Position(call.Pos())))
 			}
 		}
 		return out
 	case *ast.IfStmt:
 		node := &CodeSeqNode{Kind: "branch", Label: seqExprText(fset, src, s.Cond), Line: fset.Position(s.Cond.Pos()).Line}
-		node.Nodes = walkStmts(a, req, fset, src, s.Body.List, lineTargets, depth, recvType, recvDecl, f, curPkg)
+		node.Nodes = walkStmts(a, req, fset, src, s.Body.List, tgts, depth, recvType, recvDecl, f, curPkg)
 		if blk, ok := s.Else.(*ast.BlockStmt); ok {
-			node.Else = walkStmts(a, req, fset, src, blk.List, lineTargets, depth, recvType, recvDecl, f, curPkg)
+			node.Else = walkStmts(a, req, fset, src, blk.List, tgts, depth, recvType, recvDecl, f, curPkg)
 		} else if elseIf, ok := s.Else.(*ast.IfStmt); ok {
-			node.Else = walkStmt(a, req, fset, src, elseIf, lineTargets, depth, recvType, recvDecl, f, curPkg) // else if 链（渲染为 else 内分支）
+			node.Else = walkStmt(a, req, fset, src, elseIf, tgts, depth, recvType, recvDecl, f, curPkg) // else if 链（渲染为 else 内分支）
 		}
 		return []*CodeSeqNode{node}
 	case *ast.ForStmt:
@@ -195,21 +196,21 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 			label = "无限循环"
 		}
 		return []*CodeSeqNode{{Kind: "loop", Label: label, Line: fset.Position(s.Pos()).Line,
-			Nodes: walkStmts(a, req, fset, src, s.Body.List, lineTargets, depth, recvType, recvDecl, f, curPkg)}}
+			Nodes: walkStmts(a, req, fset, src, s.Body.List, tgts, depth, recvType, recvDecl, f, curPkg)}}
 	case *ast.RangeStmt:
 		return []*CodeSeqNode{{Kind: "loop", Label: "range " + seqExprText(fset, src, s.X), Line: fset.Position(s.Pos()).Line,
-			Nodes: walkStmts(a, req, fset, src, s.Body.List, lineTargets, depth, recvType, recvDecl, f, curPkg)}}
+			Nodes: walkStmts(a, req, fset, src, s.Body.List, tgts, depth, recvType, recvDecl, f, curPkg)}}
 	case *ast.BlockStmt:
-		return walkStmts(a, req, fset, src, s.List, lineTargets, depth, recvType, recvDecl, f, curPkg)
+		return walkStmts(a, req, fset, src, s.List, tgts, depth, recvType, recvDecl, f, curPkg)
 	case *ast.DeferStmt:
-		return []*CodeSeqNode{callNode(s.Call.Fun, fset.Position(s.Call.Pos()).Line)}
+		return []*CodeSeqNode{callNode(s.Call.Fun, fset.Position(s.Call.Pos()))}
 	case *ast.GoStmt:
-		return []*CodeSeqNode{callNode(s.Call.Fun, fset.Position(s.Call.Pos()).Line)}
+		return []*CodeSeqNode{callNode(s.Call.Fun, fset.Position(s.Call.Pos()))}
 	case *ast.ReturnStmt:
 		var out []*CodeSeqNode
 		for _, r := range s.Results {
 			if call, ok := r.(*ast.CallExpr); ok {
-				out = append(out, callNode(call.Fun, fset.Position(call.Pos()).Line))
+				out = append(out, callNode(call.Fun, fset.Position(call.Pos())))
 			}
 		}
 		return out
@@ -224,7 +225,7 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		for _, st := range s.Body.List {
 			if cc, ok := st.(*ast.CaseClause); ok {
 				caseNode := &CodeSeqNode{Kind: "branch", Label: "case " + caseExpr(fset, src, cc), Line: fset.Position(cc.Pos()).Line}
-				caseNode.Nodes = walkStmts(a, req, fset, src, cc.Body, lineTargets, depth, recvType, recvDecl, f, curPkg)
+				caseNode.Nodes = walkStmts(a, req, fset, src, cc.Body, tgts, depth, recvType, recvDecl, f, curPkg)
 				node.Nodes = append(node.Nodes, caseNode)
 			}
 		}
@@ -234,7 +235,7 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		for _, st := range s.Body.List {
 			if cc, ok := st.(*ast.CaseClause); ok {
 				caseNode := &CodeSeqNode{Kind: "branch", Label: "case " + caseExpr(fset, src, cc), Line: fset.Position(cc.Pos()).Line}
-				caseNode.Nodes = walkStmts(a, req, fset, src, cc.Body, lineTargets, depth, recvType, recvDecl, f, curPkg)
+				caseNode.Nodes = walkStmts(a, req, fset, src, cc.Body, tgts, depth, recvType, recvDecl, f, curPkg)
 				node.Nodes = append(node.Nodes, caseNode)
 			}
 		}
