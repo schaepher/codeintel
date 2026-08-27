@@ -1436,6 +1436,87 @@ domain 1 包 1 自环边。
 
 **待办更新**：新增推荐项见待办清单（R99 版）。
 
+### R100（2026-08-27）——待办 5/7/8/9/11/12/13/14 + wiki 数据源全部改 action
+
+用户选定 8 项待办（5+7+8+9+11+12+13+14）+ wiki 架构重构，全部完成
+（commit d4fe7ee→347159d，9 个 commit 全部推送）。
+
+**待办5 动态 URL 变量拼接**：trackBindings 字符串变量一层赋值链扩展
+——URL 形态（含 :// 或以 / 开头）记录 methodVars：`base :=
+"https://..."` 后 http.Get(base) 的 host 不再漏检（原只认字面量/
+Sprintf）；包级 var 同追踪；链式拼接（url := base + "/api"）随
+extractStringArg 递归自然覆盖。非 URL 形态不记录（防 gin 路由/redis
+key 误伤——routeHandlerName 消费端无格式校验）。unquoteMethodPath 死
+代码删除（消费端 isGrpcMethodPath 再校验）。
+
+**待办7 时序图 filter 进 wiki**：wikiRenderCtx 加 SeqFilter（loadSeqFilter）
+→ renderProcSeqMD/HTML 的 CodeSequenceRequest 传 Filter——wiki grpc 方
+法时序图与 query sequence --code 同源过滤生效（解析端命中不生成节点）。
+**坑**：seedNestedSeqRepo fixture 行号断言全部 +1 偏移（svc.go 实际
+3/4/7 行、facts 记 4/5/8）——filter 命中依赖 tgts.lookup 行号对齐，
+错位时 tid 查不到、filter 检查被跳过（停止包测试碰巧在 Prepare 层拦
+住不受影响）。
+
+**待办8 plantuml --out**：query sequence --out <file>——plantuml 成功
+写 PNG；渲染失败 fallback 写 mermaid 文本；mermaid/json/文本同样支持
+（stdout 打印路径）。writeSeqText 抽 seqText 字符串版复用；plantumlRender
+改 plantumlRenderFunc（注入测试）。
+
+**待办9 fallback 明细去重**：fallbackAgg 跨函数聚合器（函数:路径 键
+→ ×N 次数 + 首行）替代 per-函数切片 + 全局原子限量——纯重复项不再
+挤掉有信息量条目；打印移到 finishIndex（50 条唯一明细限量）；写访问
+明细补全（newFieldAccess 只计数不加明细的 S1 缺口）。emitFunction 块
+池多 goroutine——聚合器加锁。
+
+**待办11 http 请求对象判定**：两路对齐 grpc——
+① 构建期 gin 路由 handler 请求对象采集（ShouldBind/Bind(&req) →
+路由节点 req_types 属性；内联 FuncLit + 同包具名函数；方法值跳过——
+跨文件成本高，形态矩阵先覆盖两种）；
+② http_call 边 metadata 加 req_type（NewRequest/NewRequestWithContext
+的 body 实参类型）；
+ExternalInterfaces http 分支条件②：请求对象 ∉ 本地路由请求类型 →
+确认外部（∈ 排除），ReqType 字段填充（原恒空）。
+
+**待办12 config merge 多层嵌套**：extractTemplateBlock/insertBlock 按
+keyPath 逐层下钻（原硬编码 2 层——3 层如 ai.fill.modules 会整块返回
+父键全部子键）；第一层块边界修正（下一个顶层键——重构首版遗漏导致
+plantuml_jar 重复插入）。
+
+**待办13 迁移收尾**：query_cli_routes/grpc_composites/precompute 迁
+action——GetCLICommandNodes/GetPbServerInterfaces 仓储窄方法收口裸
+SQL；Actions.CliRoutes/GrpcComposites/PrecomputeRelations（状态机
+already-done/done/running——进度回调留 cli UI）；wiki 命令树渲染同迁
+（renderCommandsMD/HTML 经 CliRoutes）。
+
+**待办14 P2 候选五项**：
+- ① 流程页深度：ProcChain.ValueLinks——入口写入字段 → 下游被调者
+  读取交集自动标注（跨符号连接；R78 只列每符号清单——页面仍引导手动
+  trace 的缺口补上）
+- ② 服务归属静态兜底：投票无命中 → 服务名前缀 → 表前缀域匹配
+  （ItemService → item → domains.tables 命中域；显式 services 优先）
+- ③ 外部依赖形态扩展：动态 URL（待办5）+ http 请求对象（待办11）已
+  覆盖原候选具体形态；mysql/rabbitmq 等新形态无真实候选未做
+- ④ ER 500 边细分递归保护：子域内仍 >500 边 → 提示 + 最热表对统计
+  （topTablePairs——不渲染超限图）
+- ⑤ 实体对 Top-N：DomainFacts.top_pairs（Count 降序取 10——实体对级
+  调用热度，R69 包对级 pkg_calls 的补充）
+
+**wiki 数据源全部改 action（任务9）**：残余直连 sqlite（archSvcPkgs
+裸 SQL / GetPkgCodeFacts / QAForSymbols）+ 源码解析（scanORMStructs /
+parseAPIRoutes）全部迁 action——ArchSvcPkgs（组合 GetGrpcServices +
+GetHTTPRouteNodes）、PkgCodeFacts、QAReferences（Reader 加
+QAForSymbols）、ORMStructs（R20 扫描 + domain.ORMStruct 类型）、
+APIRoutes（R1 路由解析 + domain.APIRoute）；wikiRenderCtx 删 repo 字
+段（渲染函数全改经 acts）；serve 保留 repo 写通道（saveQA——非渲染
+数据源）。wiki 模块现在只组合 action 结果到 html/md。
+
+**教训**：① ER 图 mermaid 边语法是 `||--` 不是 `-->`（断言写错）；
+② 实体图行为门槛会滤掉"1 方法 0 出边"类型（测试 fixture 要 ≥2 方法）；
+③ 迁移多文件重构时中间 commit 必须编译通过（pre-commit hook 会跑
+verify——删除 cliRoutes 后 wiki_entries 引用要同 commit 处理）。
+
+**待办更新**：完成项剔除见待办清单（R100 版）。
+
 ### R98（2026-08-27）——P0 三项（dispatch 增量/数据流扩展/参与者类型）+ 迁移收尾批次 4-6
 
 用户选定 P0-2/3/5 + cli 迁移收尾，四项全部完成（commit d450393→2c760bc）。
@@ -1506,40 +1587,32 @@ handler——领域展开 → 服务折叠 → 方法折叠三层，MD/HTML 双�
 
 落档 commit 835aedc；W1 独立 commit ad1015d。全仓测试绿。
 
-### 待办清单（R99 版——R97 版基础上更新：R98/R99 完成项剔除 + 新增推荐项）
+### 待办清单（R100 版——R99 版基础上更新：R100 完成项剔除 + 新增推荐项）
 
 **P0——高优先级**：
-- 1. **真实业务系统端到端验证**（最高价值）：R90-R99 全部 grpc 识别
-  形态 + 时序图 pos/过滤/return 线——用户系统多次暴露测试盲区
+- 1. **真实业务系统端到端验证**（最高价值）：R90-R100 全部 grpc 识别
+  形态 + 时序图 pos/过滤/return 线 + http 请求对象——用户系统多次
+  暴露测试盲区
 - 2. **--with-qa 实战验证**（交接遗留）：qa_history 已积累——
   `wiki --ai --with-qa` 端到端确认
 - 3. **渲染基准告知设计**（R70 前置就绪）：prompt 告知 AI 渲染基准
   （域内实体数/调用边 500 上限）
 - 4. **go2o domains.services 人工确认**：30 个服务归属维护者过目
-- 5. **动态 URL 出站调用识别盲区**（R45 实测暴露）：URL 变量拼接 →
-  httpURLString 只认字面量 → http_call 边漏检
-- 6. **术语表 24 条 / flows 5 条 review**（交接遗留）
+- 5. **术语表 24 条 / flows 5 条 review**（交接遗留）
 
 **P1——中优先级（补全/验证）**：
-- 7. **时序图 filter 扩展到 wiki 入口**（R99 推荐）：filter 现只在
-  query sequence --code——wiki grpc 方法时序图同源消费 CodeSequence，
-  入口统一后过滤自动生效（wiki 侧传 loadSeqFilter）
-- 8. **sequence plantuml 输出文件**（R99 推荐）：--format plantuml 现
-  输出 base64 一行——加 --out 保存 PNG 文件
-- 9. **fallback 明细去重**（R99 推荐）：相同字段路径多次失败重复打印
-  （限量已控刷屏——可加去重与按路径聚合统计）
-- 10. **表字段类型剩余 10 列 / 新人实测演练 / F2 非 DDD 效果**（交接
+- 6. **表字段类型剩余 10 列 / 新人实测演练 / F2 非 DDD 效果**（交接
   遗留）
-- 11. **external-interfaces http 请求对象判定缺失**（R45 已知局限）
+- 7. **mysql/rabbitmq/elasticsearch 外部依赖形态**（R100 候选保留）：
+  redis/kafka 已覆盖——新形态无真实项目候选，待真实项目验证
+- 8. **http 请求对象扩展形态**（R100 候选）：gin 方法值 handler
+  （x.Method）请求类型跳过——跨文件/跨包解析成本高，待真实形态
 
 **P2——低优先级/候选**：
-- 12. **config merge 多层嵌套**（R99 推荐）：extractTemplateBlock 现
-  支持 2 层键——3 层以上配置项（如 ai.fill.xxx）需扩展
-- 13. **迁移收尾残余**：query_cli_routes/grpc_composites/precompute 直连
-  sqlite 收紧
-- 14. **流程页深度**（value-trace 串联）/ **服务归属静态兜底改进** /
-  **外部依赖识别形态扩展** / **ER 500 边细分** / **实体对 Top-N**（原
-  P2 候选保留）
+- 9. **渲染阈值配置化**（R100 候选）：mermaidEdgeLimit 500 硬编码——
+  渲染基准告知设计（P0-3）落地时一并走配置
+- 10. **serve 快照仓库内缓存**（R100 候选）：wiki serve snapshot 的
+  ormStructs 等每次全量重扫（R20 源码扫描）——大仓库可缓存
 
 ### R97（2026-08-27）——时序图自环修复 + 接口调用数据流具体化
 
