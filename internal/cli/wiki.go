@@ -195,7 +195,7 @@ func cmdWiki(args []string) int {
 			if yp == "" {
 				yp = filepath.Join(abs, "wiki.yaml")
 			}
-			okN, skipN, failN := wikiAIFill(yp, &cfg, data, cols, rels, agent, aiTimeout, aiWithQA, sqlite.NewRepo(db), abs)
+			okN, skipN, failN := wikiAIFill(yp, &cfg, data, cols, rels, agent, aiTimeout, aiWithQA, acts, abs)
 			fmt.Printf("wiki --ai：补全 %d 条、跳过 %d 条、失败 %d 条（已写回 %s，标注 # AI 初稿——git diff 可回滚）\n",
 				okN, skipN, failN, yp)
 		}
@@ -216,7 +216,7 @@ func cmdWiki(args []string) int {
 	if seqDepth <= 0 {
 		seqDepth = loadSeqDepth()
 	}
-	rc := &wikiRenderCtx{acts: acts, data: data, cfg: cfg, cols: cols, rels: rels, pkgs: pkgs, freshNote: freshNote, degradeStats: degradeStats, Diagram: diagram, repo: sqlite.NewRepo(db), MaxEntries: maxEntries, RepoAbs: abs, SeqDepth: seqDepth, SeqStopPkgs: loadSeqStopPkgs()}
+	rc := &wikiRenderCtx{acts: acts, data: data, cfg: cfg, cols: cols, rels: rels, pkgs: pkgs, freshNote: freshNote, degradeStats: degradeStats, Diagram: diagram, MaxEntries: maxEntries, RepoAbs: abs, SeqDepth: seqDepth, SeqStopPkgs: loadSeqStopPkgs(), SeqFilter: loadSeqFilter()}
 	switch format {
 	case "html":
 		if err := renderWikiHTML(abs, outDir, rc); err != nil {
@@ -241,8 +241,9 @@ func cmdWiki(args []string) int {
 }
 
 // wikiRenderCtx 渲染上下文（R1 起统一：模块/配置/表列/关系/包地图/新鲜度）。
+// R100：数据源全部经 action（acts）——cli 不持 sqlite.Repo。
 type wikiRenderCtx struct {
-	acts         *action.Actions // R2：流程页调用链查询
+	acts         *action.Actions // R2：流程页调用链查询（全部数据源经此）
 	degradeStats string          // R6：构建降级统计 JSON（SQL 解析）
 	data         []*domain.WikiModule
 	cfg          wikiConfig
@@ -250,15 +251,15 @@ type wikiRenderCtx struct {
 	rels         []*domain.TableRelation
 	pkgs         []*domain.CodeEntity // R1：包职责地图（GetPackages）
 	freshNote    string
-	Diagram      string       // R32：图引擎 plantuml（默认）| mermaid
-	repo         *sqlite.Repo // R34：包结构 fallback 查询（无包说明时查包内符号）
-	MaxEntries   int          // R37：流程页每节/每页入口展开上限（0 = procMaxEntries）
+	Diagram      string // R32：图引擎 plantuml（默认）| mermaid
+	MaxEntries   int    // R37：流程页每节/每页入口展开上限（0 = procMaxEntries）
 	SeqDepth     int          // R83：grpc 方法代码级时序嵌套层级（默认 3——loadSeqDepth）
 	// R99：plantuml 转换失败即停——diagramMD/diagramHTML 记录首个错误，
 	// 渲染入口检查后中止（不产出部分成功的 wiki）
 	renderErr   error
-	SeqStopPkgs []string // R95：时序停止包（loadSeqStopPkgs——命中不深入）
-	RepoAbs     string   // R37：目标仓库绝对路径（grpc ServiceDesc 解析需要——空则方法全集缺失）
+	SeqStopPkgs []string       // R95：时序停止包（loadSeqStopPkgs——命中不深入）
+	SeqFilter   action.SeqFilter // R100：时序过滤（loadSeqFilter——命中不生成节点；wiki 与 query sequence --code 同源）
+	RepoAbs     string         // R37：目标仓库绝对路径（grpc ServiceDesc 解析需要——空则方法全集缺失）
 }
 
 // diagramMD/diagramHTML 已拆到 wiki_diagram.go（行数治理）。

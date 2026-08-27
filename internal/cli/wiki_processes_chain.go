@@ -5,6 +5,7 @@ package cli
 // 优先——区分索引问题 vs 仅调用外部库）+ httpMissNote。
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/schaepher/codeintel/internal/action"
@@ -49,6 +50,14 @@ func renderProcChainMD(rc *wikiRenderCtx, chain *action.ProcChain, miss string) 
 			b.WriteString("- `" + fl.Symbol + "`：" + strings.Join(parts, "；") + "\n")
 		}
 		b.WriteString("（`query trace-backward/forward <字段>` 深挖产生与使用链）\n\n")
+	}
+	if len(chain.ValueLinks) > 0 {
+		// R100 待办14-①：数据流串联标注（入口写入 → 下游读取交集）
+		b.WriteString("**数据流串联**（入口写入 → 下游读取）：\n\n")
+		for _, v := range chain.ValueLinks {
+			b.WriteString(fmt.Sprintf("- `%s` 写 `%s` → `%s` 读\n", v.ProducedBy, v.Field, v.ReadBy))
+		}
+		b.WriteString("\n")
 	}
 	if len(chain.Pkgs) > 0 {
 		b.WriteString("涉及包：`" + strings.Join(chain.Pkgs, "`、`") + "`\n\n")
@@ -95,6 +104,15 @@ func renderProcChainHTML(rc *wikiRenderCtx, chain *action.ProcChain, miss string
 		}
 		b.WriteString(`</ul><p class="muted">query trace-backward/forward 深挖产生与使用链。</p>`)
 	}
+	if len(chain.ValueLinks) > 0 {
+		// R100 待办14-①：数据流串联标注（入口写入 → 下游读取交集）
+		b.WriteString(`<p class="muted"><strong>数据流串联</strong>（入口写入 → 下游读取）：</p><ul>`)
+		for _, v := range chain.ValueLinks {
+			b.WriteString(fmt.Sprintf("<li><code>%s</code> 写 <code>%s</code> → <code>%s</code> 读</li>",
+				htmlEsc(v.ProducedBy), htmlEsc(v.Field), htmlEsc(v.ReadBy)))
+		}
+		b.WriteString("</ul>")
+	}
 	if len(chain.Pkgs) > 0 {
 		b.WriteString("<p class=\"muted\">涉及包：" + htmlEsc(strings.Join(chain.Pkgs, "、")) + "</p>")
 	}
@@ -109,7 +127,7 @@ func renderProcChainHTML(rc *wikiRenderCtx, chain *action.ProcChain, miss string
 func renderProcSeqMD(rc *wikiRenderCtx, entryID string, fallback *action.ProcChain, miss string) string {
 	if entryID != "" && rc.RepoAbs != "" {
 		root, err := rc.acts.CodeSequence(action.CodeSequenceRequest{
-			Target: entryID, RepoAbs: rc.RepoAbs, Depth: rc.SeqDepth, StopPackages: rc.SeqStopPkgs})
+			Target: entryID, RepoAbs: rc.RepoAbs, Depth: rc.SeqDepth, StopPackages: rc.SeqStopPkgs, Filter: rc.SeqFilter})
 		if err == nil && root != nil {
 			var b strings.Builder
 			b.WriteString("**代码级时序**（源码 AST——调用/分支/循环；`query sequence --code` 同款）：\n\n")
@@ -124,7 +142,7 @@ func renderProcSeqMD(rc *wikiRenderCtx, entryID string, fallback *action.ProcCha
 func renderProcSeqHTML(rc *wikiRenderCtx, entryID string, fallback *action.ProcChain, miss string) string {
 	if entryID != "" && rc.RepoAbs != "" {
 		root, err := rc.acts.CodeSequence(action.CodeSequenceRequest{
-			Target: entryID, RepoAbs: rc.RepoAbs, Depth: rc.SeqDepth, StopPackages: rc.SeqStopPkgs})
+			Target: entryID, RepoAbs: rc.RepoAbs, Depth: rc.SeqDepth, StopPackages: rc.SeqStopPkgs, Filter: rc.SeqFilter})
 		if err == nil && root != nil {
 			var b strings.Builder
 			b.WriteString(`<p class="muted"><strong>代码级时序</strong>（源码 AST——调用/分支/循环；query sequence --code 同款）：</p>`)

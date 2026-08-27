@@ -111,6 +111,11 @@ func parseQueryFlags(args []string) queryFlags {
 			f.maxEntries, _ = strconv.Atoi(strings.TrimPrefix(a, "--max-entries="))
 		case a == "--code":
 			f.code = true
+		case a == "--out" && i+1 < len(args):
+			f.out = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--out="):
+			f.out = strings.TrimPrefix(a, "--out=")
 		case a == "--json":
 			f.json = true
 		case a == "--full":

@@ -145,26 +145,33 @@ func writeSeqNode(b *strings.Builder, alias map[string]string, from, caller stri
 
 // writeSeqText 缩进文本渲染（默认输出）。
 func writeSeqText(nodes []*action.CodeSeqNode, depth int) {
+	fmt.Print(seqText(nodes, depth))
+}
+
+// seqText 缩进文本渲染 → 字符串（R100：--out 文件输出复用）。
+func seqText(nodes []*action.CodeSeqNode, depth int) string {
+	var b strings.Builder
 	pad := strings.Repeat("  ", depth)
 	for _, n := range nodes {
 		switch n.Kind {
 		case "call":
-			fmt.Printf("%s%d. %s\n", pad, n.Line, n.Label)
+			b.WriteString(fmt.Sprintf("%s%d. %s\n", pad, n.Line, n.Label))
 			if len(n.Nodes) > 0 {
-				writeSeqText(n.Nodes, depth+1) // 嵌套展开（--depth >1）
+				b.WriteString(seqText(n.Nodes, depth+1)) // 嵌套展开（--depth >1）
 			}
 		case "branch":
-			fmt.Printf("%sif %s\n", pad, n.Label)
-			writeSeqText(n.Nodes, depth+1)
+			b.WriteString(fmt.Sprintf("%sif %s\n", pad, n.Label))
+			b.WriteString(seqText(n.Nodes, depth+1))
 			if len(n.Else) > 0 {
-				fmt.Printf("%selse\n", pad)
-				writeSeqText(n.Else, depth+1)
+				b.WriteString(fmt.Sprintf("%selse\n", pad))
+				b.WriteString(seqText(n.Else, depth+1))
 			}
 		case "loop":
-			fmt.Printf("%sloop %s\n", pad, n.Label)
-			writeSeqText(n.Nodes, depth+1)
+			b.WriteString(fmt.Sprintf("%sloop %s\n", pad, n.Label))
+			b.WriteString(seqText(n.Nodes, depth+1))
 		case "return", "continue", "break":
-			fmt.Printf("%s%s\n", pad, n.Label)
+			b.WriteString(fmt.Sprintf("%s%s\n", pad, n.Label))
 		}
 	}
+	return b.String()
 }

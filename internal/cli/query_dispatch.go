@@ -77,7 +77,7 @@ func cmdQuery(args []string) int {
 		return cmdHTTPRoutes(acts, f)
 	}
 	if sub == "cli-routes" {
-		return cmdCLIRoutes(abs, f)
+		return cmdCLIRoutes(acts, f)
 	}
 	// R36：外部依赖（redis/kafka）
 	if sub == "external-deps" {
@@ -93,7 +93,7 @@ func cmdQuery(args []string) int {
 	}
 	// R49：完整包含 grpc server 接口的组合接口
 	if sub == "grpc-composites" {
-		return cmdGrpcComposites(abs, f)
+		return cmdGrpcComposites(acts, f)
 	}
 	// R88：工具函数清单（游离函数 + 跨包使用数 ≥N）
 	if sub == "helpers" {
@@ -162,7 +162,7 @@ func cmdQuery(args []string) int {
 		// R76：时序图；R81：--code 代码级时序（--depth 嵌套层级）；
 		// S4：--format plantuml 转 PNG base64
 		if f.code {
-			return cmdQuerySequenceCode(acts, abs, target, f.depth, f.format == "mermaid" || f.format == "plantuml", f.json, f.format)
+			return cmdQuerySequenceCode(acts, abs, target, f.depth, f.format == "mermaid" || f.format == "plantuml", f.json, f.format, f.out)
 		}
 		return cmdQuerySequence(acts, target, f.depth, f.format == "mermaid", f.json)
 	case "callers", "callees", "impact":
