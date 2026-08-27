@@ -52,6 +52,14 @@ type PkgCallFacts struct {
 	To   []PkgCallTarget `json:"to"`   // 被调目标数组（同 from 聚合）
 }
 
+// EntityPairFacts 实体对调用热度（R100 待办14-⑤：实体对级 Top-N——
+// R69 pkg_calls 是包对级，实体对级是内聚捆绑的补充信号）。
+type EntityPairFacts struct {
+	From  string `json:"from"` // 实体名（短名——调用发起方）
+	To    string `json:"to"`   // 实体名（被调方）
+	Count int    `json:"count"`
+}
+
 // SvcFacts 一个服务（grpc 服务名 / http 方法+路径）。
 // R54：grpc 服务带方法名列表——一个服务定义可能包含多个域的方法
 // （分开部署），AI 需要方法级归属信息。
@@ -63,11 +71,12 @@ type SvcFacts struct {
 
 // DomainFacts AI 分析前的结构化事实包（JSON 序列化——导出文件）。
 type DomainFacts struct {
-	Pkgs     []PkgFacts     `json:"packages"`
-	Tables   []TableFacts   `json:"tables"`
-	Ents     []EntityFacts  `json:"entities"`
-	Svcs     []SvcFacts     `json:"services"`
-	PkgCalls []PkgCallFacts `json:"pkg_calls,omitempty"` // R65：包级调用矩阵
+	Pkgs     []PkgFacts         `json:"packages"`
+	Tables   []TableFacts       `json:"tables"`
+	Ents     []EntityFacts      `json:"entities"`
+	Svcs     []SvcFacts         `json:"services"`
+	PkgCalls []PkgCallFacts     `json:"pkg_calls,omitempty"` // R65：包级调用矩阵
+	TopPairs []EntityPairFacts  `json:"top_pairs,omitempty"` // R100：实体对热度 Top-10
 }
 
 // DomainFactsRequest 事实包收集参数（表别名来自 wiki.yaml tables——
@@ -179,6 +188,29 @@ func (a *Actions) collectDomainFacts(req DomainFactsRequest) *DomainFacts {
 			f.PkgCalls = append(f.PkgCalls, PkgCallFacts{From: from, To: targets})
 		}
 		sort.Slice(f.PkgCalls, func(i, j int) bool { return f.PkgCalls[i].From < f.PkgCalls[j].From })
+		// R100 待办14-⑤：实体对热度 Top-10（Count 降序——确定性排序）
+		nameOf := map[string]string{}
+		for _, n := range g.Nodes {
+			nameOf[n.ID] = n.Name
+		}
+		pairs := make([]EntityPairFacts, 0, len(g.Edges))
+		for _, e := range g.Edges {
+			pairs = append(pairs, EntityPairFacts{From: nameOf[e.From], To: nameOf[e.To], Count: e.Count})
+		}
+		sort.Slice(pairs, func(i, j int) bool {
+			if pairs[i].Count != pairs[j].Count {
+				return pairs[i].Count > pairs[j].Count
+			}
+			if pairs[i].From != pairs[j].From {
+				return pairs[i].From < pairs[j].From
+			}
+			return pairs[i].To < pairs[j].To
+		})
+		const maxPairs = 10
+		if len(pairs) > maxPairs {
+			pairs = pairs[:maxPairs]
+		}
+		f.TopPairs = pairs
 	}
 
 	if res, err := a.GrpcRoutes(req.RepoAbs); err == nil {

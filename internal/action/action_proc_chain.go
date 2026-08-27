@@ -20,13 +20,23 @@ type WikiKeyFlow struct {
 	Writes []string `json:"writes"` // direct_write + indirect_write（去重）
 }
 
+// ValueLink value-trace 串联标注（R100 待办14-①）：入口写入字段 → 下游
+// 被调者读取的交集——跨符号连接自动标注（流程页直接显示"谁写谁读"，
+// 不必手动 query trace-backward/forward）。
+type ValueLink struct {
+	Field      string `json:"field"`       // 字段路径（类型限定）
+	ProducedBy string `json:"produced_by"` // 写入符号（入口）
+	ReadBy     string `json:"read_by"`     // 读取符号（下游被调者）
+}
+
 // ProcChain 一条流程的调用链（入口 + 边 + 涉及包）。
 type ProcChain struct {
-	Entry    string // 入口符号名
-	Steps    []domain.WikiSeqStep
-	Pkgs     []string
-	Miss     string        // R50：无调用链的原因（区分索引问题 vs 仅调用外部库）
-	KeyFlows []WikiKeyFlow // R78：链上符号关键数据流（字段读写——value-trace 串联）
+	Entry      string
+	Steps      []domain.WikiSeqStep
+	Pkgs       []string
+	Miss       string        // R50：无调用链的原因（区分索引问题 vs 仅调用外部库）
+	KeyFlows   []WikiKeyFlow // R78：链上符号关键数据流（字段读写——value-trace 串联）
+	ValueLinks []ValueLink   // R100：入口写入 → 下游读取交集（跨符号串联标注）
 }
 
 // QueryChain 查询入口符号的深度 2 调用链 + 涉及包（短名展示）。
@@ -64,6 +74,27 @@ func (a *Actions) QueryChain(entryName string) *ProcChain {
 	}
 	if flows := a.WikiKeyFlows("", flowIDs); len(flows) > 0 {
 		chain.KeyFlows = flows
+		// R100 待办14-①：value-trace 串联——入口写入字段与下游被调者
+		// 读取的交集自动标注（入口级：主链路方向；反向不标注）
+		entryWrites := map[string]bool{}
+		for _, fl := range flows {
+			if fl.Symbol == chain.Entry {
+				for _, w := range fl.Writes {
+					entryWrites[w] = true
+				}
+			}
+		}
+		for _, fl := range flows {
+			if fl.Symbol == chain.Entry {
+				continue
+			}
+			for _, rd := range fl.Reads {
+				if entryWrites[rd] {
+					chain.ValueLinks = append(chain.ValueLinks, ValueLink{
+						Field: rd, ProducedBy: chain.Entry, ReadBy: fl.Symbol})
+				}
+			}
+		}
 	}
 	pkgs := map[string]bool{}
 	pkgs[pkgPathOf(string(entry.ID))] = true

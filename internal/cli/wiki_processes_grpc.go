@@ -103,7 +103,30 @@ func serviceDomain(rc *wikiRenderCtx, svc action.GrpcRouteService) string {
 			best, bestN = dn, votes[dn]
 		}
 	}
+	if best == "" {
+		// R100 待办14-②：静态兜底——服务名前缀 → 表前缀域匹配
+		// （ItemService → item → domains[].tables 前缀命中域）
+		return serviceStaticDomain(rc, svc)
+	}
 	return best
+}
+
+// serviceStaticDomain 服务归属静态兜底（R100 待办14-②）：投票无命中
+// 时，服务名去 Service 后缀转小写 → 表前缀域匹配（ItemService → item
+// → domains.tables 前缀命中域）；无匹配返回空（走「其他」）。
+func serviceStaticDomain(rc *wikiRenderCtx, svc action.GrpcRouteService) string {
+	prefix := strings.ToLower(strings.TrimSuffix(svc.Name, "Service"))
+	if prefix == "" {
+		return ""
+	}
+	for _, d := range rc.cfg.Domains {
+		for _, t := range d.Tables {
+			if strings.HasPrefix(t, prefix) {
+				return d.Name
+			}
+		}
+	}
+	return ""
 }
 
 // grpcDomainGroup 领域分组（R38 目录化：服务子页按领域分目录）。

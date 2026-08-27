@@ -139,12 +139,40 @@ func renderERSubDomainsMD(d *erDomainGroup, rc *wikiRenderCtx) string {
 			sd.name, len(sd.tables), len(sd.rels)))
 		if len(sd.rels) == 0 {
 			b.WriteString("（子域内无直接键关联）\n\n")
+		} else if len(sd.rels) > mermaidEdgeLimit {
+			// R100 待办14-④：子域内仍超限——不再细分（表级粒度末端），
+			// 提示 + 表级统计（不渲染超限图）
+			b.WriteString(fmt.Sprintf("（子域 %s 关系 %d 条仍超上限——最热表对：%s）\n\n",
+				sd.name, len(sd.rels), topTablePairs(sd.rels, 10)))
 		} else {
 			b.WriteString(rc.diagramMD(renderERMermaid(sd.rels, nil)))
 		}
 		b.WriteString("</details>\n\n")
 	}
 	return b.String()
+}
+
+// topTablePairs 子域内最热表对（按条目数聚合降序——超限子域的表级
+// 统计，防超限图渲染）。
+func topTablePairs(rels []*domain.TableRelation, n int) string {
+	type key struct{ from, to string }
+	counts := map[key]int{}
+	for _, r := range rels {
+		k := key{r.FromTable, r.ToTable}
+		if k.from > k.to {
+			k.from, k.to = k.to, k.from
+		}
+		counts[k]++
+	}
+	pairs := make([]string, 0, len(counts))
+	for k, c := range counts {
+		pairs = append(pairs, fmt.Sprintf("%s↔%s×%d", k.from, k.to, c))
+	}
+	sort.Slice(pairs, func(i, j int) bool { return pairs[i] > pairs[j] })
+	if len(pairs) > n {
+		pairs = pairs[:n]
+	}
+	return strings.Join(pairs, "、")
 }
 
 // renderERSubDomainsHTML 领域内图超限 → 子域细分（html 折叠版）。
@@ -159,7 +187,11 @@ func renderERSubDomainsHTML(d *erDomainGroup, rc *wikiRenderCtx, baseID string) 
 	for i, sd := range subs {
 		sid := fmt.Sprintf("%s-sub-%d", baseID, i)
 		inner := "（子域内无直接键关联）"
-		if len(sd.rels) > 0 {
+		if len(sd.rels) > mermaidEdgeLimit {
+			// R100 待办14-④：子域内仍超限——提示 + 表级统计（不渲染超限图）
+			inner = fmt.Sprintf(`<p class="muted">子域 %s 关系 %d 条仍超上限——最热表对：%s</p>`,
+				htmlEsc(sd.name), len(sd.rels), htmlEsc(topTablePairs(sd.rels, 10)))
+		} else if len(sd.rels) > 0 {
 			inner = rc.diagramHTML(renderERMermaid(sd.rels, nil))
 		}
 		b.WriteString(fmt.Sprintf(`<h5 class="fold-btn" data-target="%s" data-label="1">▸ 子域 %s（%d 张表，%d 条关系）</h5><div class="sec-body" id="%s" style="display:none">%s</div>`,
