@@ -41,7 +41,7 @@ func (ctx *fileCtx) emitCall(call *ast.CallExpr) {
 						Kind:       domain.FactCalls,
 						ToolSource: domain.ToolCodeGraph,
 						Confidence: 0.8,
-						Metadata:   map[string]any{"line_num": pkg.Fset.PositionFor(call.Pos(), false).Line, "pos": pkg.Fset.PositionFor(call.Pos(), false).Offset},
+						Metadata:   map[string]any{"line_num": pkg.Fset.PositionFor(call.Pos(), false).Line, "pos": pkg.Fset.PositionFor(call.Lparen, false).Offset},
 					}})
 				}
 			}
@@ -165,7 +165,7 @@ func (ctx *fileCtx) emitCall(call *ast.CallExpr) {
 					ToolSource: domain.ToolCodeGraph,
 					Confidence: 0.8,
 					Metadata: map[string]any{
-						"line_num": pkg.Fset.PositionFor(call.Pos(), false).Line, "pos": pkg.Fset.PositionFor(call.Pos(), false).Offset,
+						"line_num": pkg.Fset.PositionFor(call.Pos(), false).Line, "pos": pkg.Fset.PositionFor(call.Lparen, false).Offset,
 					},
 				}})
 			}
@@ -217,7 +217,7 @@ func (ctx *fileCtx) emitCall(call *ast.CallExpr) {
 			Kind:       domain.FactCalls,
 			ToolSource: domain.ToolCodeGraph,
 			Confidence: 0.8,
-			Metadata:   map[string]any{"line_num": pkg.Fset.PositionFor(call.Pos(), false).Line, "pos": pkg.Fset.PositionFor(call.Pos(), false).Offset},
+			Metadata:   map[string]any{"line_num": pkg.Fset.PositionFor(call.Pos(), false).Line, "pos": pkg.Fset.PositionFor(call.Lparen, false).Offset},
 		}})
 		return
 	}
@@ -234,7 +234,7 @@ func (ctx *fileCtx) emitCall(call *ast.CallExpr) {
 		Kind:       domain.FactCalls,
 		ToolSource: domain.ToolCodeGraph,
 		Confidence: 0.8,
-		Metadata:   map[string]any{"line_num": pkg.Fset.PositionFor(call.Pos(), false).Line, "pos": pkg.Fset.PositionFor(call.Pos(), false).Offset},
+		Metadata:   map[string]any{"line_num": pkg.Fset.PositionFor(call.Pos(), false).Line, "pos": pkg.Fset.PositionFor(call.Lparen, false).Offset},
 	}})
 }
 

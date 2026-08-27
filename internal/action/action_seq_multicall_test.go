@@ -35,9 +35,10 @@ func run(s Saver, n Notifier) {
 	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// 两个调用同行（line 7）；offset 不同（修复后区分依据）
-	saveOff := strings.Index(src, "s.Save")
-	notifyOff := strings.Index(src, "n.Notify")
+	// 两个调用同行（line 7）；offset 不同（修复后区分依据——与发射端
+	// 一致：call.Lparen 的字节偏移）
+	saveOff := strings.Index(src, "s.Save(") + len("s.Save")
+	notifyOff := strings.Index(src, "n.Notify(") + len("n.Notify")
 	if saveOff < 0 || notifyOff < 0 {
 		t.Fatal("fixture 源码定位失败")
 	}

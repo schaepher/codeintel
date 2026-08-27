@@ -218,7 +218,7 @@ func (ctx *fileCtx) trackBindings(n ast.Node) {
 							Kind:       domain.FactCalls,
 							ToolSource: domain.ToolCodeGraph,
 							Confidence: 0.8,
-							Metadata:   map[string]any{"line_num": ctx.pkg.Fset.PositionFor(call.Pos(), false).Line, "pos": ctx.pkg.Fset.PositionFor(call.Pos(), false).Offset},
+							Metadata:   map[string]any{"line_num": ctx.pkg.Fset.PositionFor(call.Pos(), false).Line, "pos": ctx.pkg.Fset.PositionFor(call.Lparen, false).Offset},
 						}})
 					}
 				}

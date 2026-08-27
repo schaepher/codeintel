@@ -171,13 +171,13 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 	switch s := stmt.(type) {
 	case *ast.ExprStmt:
 		if call, ok := s.X.(*ast.CallExpr); ok {
-			return []*CodeSeqNode{callNode(call.Fun, fset.Position(call.Pos()))}
+			return []*CodeSeqNode{callNode(call.Fun, fset.Position(call.Lparen))}
 		}
 	case *ast.AssignStmt:
 		var out []*CodeSeqNode
 		for _, rhs := range s.Rhs {
 			if call, ok := rhs.(*ast.CallExpr); ok {
-				out = append(out, callNode(call.Fun, fset.Position(call.Pos())))
+				out = append(out, callNode(call.Fun, fset.Position(call.Lparen)))
 			}
 		}
 		return out
@@ -210,7 +210,7 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		var out []*CodeSeqNode
 		for _, r := range s.Results {
 			if call, ok := r.(*ast.CallExpr); ok {
-				out = append(out, callNode(call.Fun, fset.Position(call.Pos())))
+				out = append(out, callNode(call.Fun, fset.Position(call.Lparen)))
 			}
 		}
 		return out

@@ -144,7 +144,7 @@ func (ctx *fileCtx) emitRedisCall(call *ast.CallExpr, callee *types.Func, sel *a
 			"cmd":      cmd,
 			"key":      key,
 			"write":    isWrite,
-			"line_num": ctx.pkg.Fset.PositionFor(call.Pos(), false).Line, "pos": ctx.pkg.Fset.PositionFor(call.Pos(), false).Offset,
+			"line_num": ctx.pkg.Fset.PositionFor(call.Pos(), false).Line, "pos": ctx.pkg.Fset.PositionFor(call.Lparen, false).Offset,
 		},
 	}})
 }
@@ -248,7 +248,7 @@ func (ctx *fileCtx) emitKafkaCall(call *ast.CallExpr, callee *types.Func, sel *a
 		Confidence: 1.0,
 		Metadata: map[string]any{
 			"topic":    topic,
-			"line_num": ctx.pkg.Fset.PositionFor(call.Pos(), false).Line, "pos": ctx.pkg.Fset.PositionFor(call.Pos(), false).Offset,
+			"line_num": ctx.pkg.Fset.PositionFor(call.Pos(), false).Line, "pos": ctx.pkg.Fset.PositionFor(call.Lparen, false).Offset,
 		},
 	}})
 }
