@@ -234,6 +234,12 @@ func indexedFuncReturnTypes(a *Actions, req CodeSequenceRequest, pkg, name strin
 	return funcReturnTypes(a, req, f, importAliases(f), name, depth, pkg)
 }
 
+// localVarImpl P0-6（用户实测）：调用点 X 是局部变量（m.SubmitOrder
+// 的 m）时的 DI 注入具体化——变量初始化自构造器（m := newX()，newX
+// 返回接口、函数体 return 真实实现）或字面量（m := &Impl{}）→ 构造
+// (Impl).Method。找不到（参数形态/无初始化）返回空——fallback 现有
+// 接口匹配/枚举。
+
 // varChainTypes 变量链回溯：找 "v := RHS" / "v = RHS" 赋值 → 递归解析
 // RHS（多赋值处都收集——条件分支形态）。
 func varChainTypes(a *Actions, req CodeSequenceRequest, f *ast.File, imports map[string]string, name string, depth int, curPkg string) []writeSource {
