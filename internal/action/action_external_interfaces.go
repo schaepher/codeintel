@@ -107,6 +107,20 @@ func (a *Actions) ExternalInterfaces() (*ExternalInterfacesResult, error) {
 
 	// 3. http_call 边：目标路由无 handler 属性（外部 URL 创建的只有
 	//    path/method——本项目路由带 handler/resolver/register）→ 外部
+	//    R100 条件②：请求对象判定——调用请求体类型 ∉ 本项目路由请求
+	//    类型集合（handler req_types）→ 确认外部；∈ → 排除（可能内部）
+	localHTTPReqTypes := map[string]bool{}
+	httpRoutes, err := a.repo.GetHTTPRouteNodes()
+	if err != nil {
+		return nil, err
+	}
+	for _, n := range httpRoutes {
+		for _, p := range strings.Split(n.Property("req_types"), ",") {
+			if p = strings.TrimSpace(p); p != "" {
+				localHTTPReqTypes[p] = true
+			}
+		}
+	}
 	httpFacts, err := a.repo.GetFactsByKinds(string(domain.FactHTTPCall))
 	if err != nil {
 		return nil, err
@@ -118,13 +132,17 @@ func (a *Actions) ExternalInterfaces() (*ExternalInterfacesResult, error) {
 		}
 		host := metaStr(f.Metadata, "host")
 		method := metaStr(f.Metadata, "method")
+		reqType := metaStr(f.Metadata, "req_type")
+		if reqType != "" && localHTTPReqTypes[reqType] {
+			continue
+		}
 		path := ""
 		if i := strings.LastIndex(tgt, ":route."); i >= 0 {
 			path = tgt[i+len(":route."):]
 		}
 		key := "http|" + tgt
 		addCaller(key, &ExternalInterface{
-			Kind: "http", Service: host, Method: strings.ToUpper(method) + " " + path,
+			Kind: "http", Service: host, Method: strings.ToUpper(method) + " " + path, ReqType: reqType,
 		}, string(f.SourceID), metaInt(f.Metadata, "line_num"))
 	}
 

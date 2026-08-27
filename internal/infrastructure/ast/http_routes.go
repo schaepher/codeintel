@@ -14,6 +14,7 @@ package ast
 import (
 	"fmt"
 	"go/ast"
+	"go/token"
 	"go/types"
 	"strings"
 
@@ -92,26 +93,94 @@ func methodValueCanonicalID(pkg *packages.Package, x *ast.Ident, method string) 
 	return "symbol:go:" + n.Obj().Pkg().Path() + ":(" + n.Obj().Name() + ")." + method
 }
 
+// ginBindMethods gin 请求绑定方法（ShouldBind 系列 + Bind 系列——handler
+// 请求对象采集 R100 待办11：外部接口请求对象判定）。
+var ginBindMethods = map[string]bool{
+	"ShouldBind": true, "ShouldBindJSON": true, "ShouldBindQuery": true,
+	"ShouldBindXML": true, "ShouldBindYAML": true, "ShouldBindForm": true,
+	"Bind": true, "BindJSON": true, "BindQuery": true, "BindXML": true,
+}
+
+// handlerReqTypes 路由 handler 的请求对象类型（ShouldBind/Bind(&req) 的
+// req 类型全路径，逗号分隔写入路由节点 req_types——R100 待办11）：
+// FuncLit 直接解析函数体；Ident 查同包 FuncDecl；http.HandlerFunc 包装
+// 递归。方法值（x.Method）暂不解析（跨文件/跨包成本高——形态矩阵先
+// 覆盖内联 + 具名函数）。
+func handlerReqTypes(pkg *packages.Package, arg ast.Expr) []string {
+	switch a := arg.(type) {
+	case *ast.FuncLit:
+		if a.Body != nil {
+			return reqTypesFromBody(pkg, a.Body)
+		}
+	case *ast.Ident:
+		for _, f := range pkg.Syntax {
+			for _, decl := range f.Decls {
+				fd, ok := decl.(*ast.FuncDecl)
+				if !ok || fd.Name.Name != a.Name || fd.Body == nil {
+					continue
+				}
+				return reqTypesFromBody(pkg, fd.Body)
+			}
+		}
+	case *ast.CallExpr:
+		if sel, ok := a.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "HandlerFunc" && len(a.Args) > 0 {
+			return handlerReqTypes(pkg, a.Args[0])
+		}
+	}
+	return nil
+}
+
+// reqTypesFromBody 函数体请求绑定调用（c.ShouldBind(&req)）的第一实参
+// （&X）类型全路径——去重保持顺序。
+func reqTypesFromBody(pkg *packages.Package, body *ast.BlockStmt) []string {
+	var out []string
+	seen := map[string]bool{}
+	ast.Inspect(body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, isSel := call.Fun.(*ast.SelectorExpr)
+		if !isSel || !ginBindMethods[sel.Sel.Name] || len(call.Args) == 0 {
+			return true
+		}
+		un, isUn := call.Args[0].(*ast.UnaryExpr)
+		if !isUn || un.Op != token.AND {
+			return true
+		}
+		if t := typePath(pkg.TypesInfo.TypeOf(un.X)); t != "" && !seen[t] {
+			seen[t] = true
+			out = append(out, t)
+		}
+		return true
+	})
+	return out
+}
+
 // emitHTTPRoute 发射 http_route 节点（每注册点一个；Q1 契约字段：
-// method/path/handler/resolver/register + R37 handler_id）。
-func (ctx *fileCtx) emitHTTPRoute(method, path, handler, handlerID, resolver string, call *ast.CallExpr) {
+// method/path/handler/resolver/register + R37 handler_id + R100 req_types）。
+func (ctx *fileCtx) emitHTTPRoute(method, path, handler, handlerID, resolver string, reqTypes []string, call *ast.CallExpr) {
 	if path == "" || handler == "" {
 		return
 	}
 	pos := ctx.pkg.Fset.PositionFor(call.Pos(), false)
 	ctx.routeSeq++
+	props := map[string]any{
+		"method":     method,
+		"path":       path,
+		"handler":    handler,
+		"handler_id": handlerID,
+		"resolver":   resolver,
+		"register":   fmt.Sprintf("%s:%d", relPath(ctx.repo.Path, pos.Filename), pos.Line),
+	}
+	if len(reqTypes) > 0 {
+		props["req_types"] = strings.Join(reqTypes, ",")
+	}
 	_ = ctx.emit(domain.Item{Node: &domain.CodeEntity{
-		ID:   domain.CanonicalID(fmt.Sprintf("symbol:go:%s:route.%d", ctx.pkg.PkgPath, ctx.routeSeq)),
-		Kind: domain.KindHTTPRoute,
-		Name: strings.TrimSpace(method + " " + path),
-		Properties: map[string]any{
-			"method":     method,
-			"path":       path,
-			"handler":    handler,
-			"handler_id": handlerID,
-			"resolver":   resolver,
-			"register":   fmt.Sprintf("%s:%d", relPath(ctx.repo.Path, pos.Filename), pos.Line),
-		},
+		ID:         domain.CanonicalID(fmt.Sprintf("symbol:go:%s:route.%d", ctx.pkg.PkgPath, ctx.routeSeq)),
+		Kind:       domain.KindHTTPRoute,
+		Name:       strings.TrimSpace(method + " " + path),
+		Properties: props,
 	}})
 }
 
@@ -126,5 +195,5 @@ func (ctx *fileCtx) emitServeMuxCall(call *ast.CallExpr, callee *types.Func, xid
 	}
 	path := extractStringArg(ctx.pkg, ctx.methodVars, call.Args[0])
 	hn, hid := routeHandlerName(ctx.pkg, call.Args[1])
-	ctx.emitHTTPRoute("", path, hn, hid, "native", call)
+	ctx.emitHTTPRoute("", path, hn, hid, "native", nil, call)
 }

@@ -131,7 +131,7 @@ func (ctx *fileCtx) emitGinRouteCall(call *ast.CallExpr, sel *ast.SelectorExpr, 
 		path = strings.TrimSuffix(base, "/") + "/" + strings.TrimPrefix(path, "/")
 	}
 	hn, hid := routeHandlerName(ctx.pkg, handlerArg)
-	ctx.emitHTTPRoute(method, path, hn, hid, "gin", call)
+	ctx.emitHTTPRoute(method, path, hn, hid, "gin", handlerReqTypes(ctx.pkg, handlerArg), call)
 }
 
 // emitGinChainedCall gin 链式路由注册（r.Group("/api").GET("/x", h)）：
@@ -159,7 +159,7 @@ func (ctx *fileCtx) emitGinChainedCall(call *ast.CallExpr, sel *ast.SelectorExpr
 	}
 	path = strings.TrimSuffix(prefix, "/") + "/" + strings.TrimPrefix(path, "/")
 	hn, hid := routeHandlerName(ctx.pkg, handlerArg)
-	ctx.emitHTTPRoute(method, path, hn, hid, "gin", call)
+	ctx.emitHTTPRoute(method, path, hn, hid, "gin", handlerReqTypes(ctx.pkg, handlerArg), call)
 }
 
 // ginChainedPrefix 链式组表达式（r.Group("/a").Group("/b")...）→ 前缀

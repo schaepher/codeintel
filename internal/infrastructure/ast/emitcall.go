@@ -244,7 +244,7 @@ func (ctx *fileCtx) emitCall(call *ast.CallExpr) {
 // 空则默认 GET——此前在函数内猜 Args[0] 会把 http.Get(url) 的 URL 当
 // method（模块间调用页 label 显示 "http http://..." 噪音）。
 
-func (ctx *fileCtx) emitHTTP(call *ast.CallExpr, callerID domain.CanonicalID, url string, line int, httpMethod string) {
+func (ctx *fileCtx) emitHTTP(call *ast.CallExpr, callerID domain.CanonicalID, url string, line int, httpMethod, reqType string) {
 	host, path := parseURL(url)
 	target := ""
 	for _, re := range ctx.a.routes {
@@ -263,6 +263,16 @@ func (ctx *fileCtx) emitHTTP(call *ast.CallExpr, callerID domain.CanonicalID, ur
 	if httpMethod == "" {
 		httpMethod = "GET"
 	}
+	meta := map[string]any{
+		"url":      url,
+		"host":     host,
+		"path":     path,
+		"method":   httpMethod,
+		"line_num": line,
+	}
+	if reqType != "" {
+		meta["req_type"] = reqType // R100：请求体实参类型（外部接口判定）
+	}
 	_ = ctx.emit(domain.Item{Node: &domain.CodeEntity{
 		ID:         domain.CanonicalID(target),
 		Kind:       domain.KindHTTPRoute,
@@ -275,13 +285,7 @@ func (ctx *fileCtx) emitHTTP(call *ast.CallExpr, callerID domain.CanonicalID, ur
 		Kind:       domain.FactHTTPCall,
 		ToolSource: domain.ToolCodeGraph,
 		Confidence: 1.0,
-		Metadata: map[string]any{
-			"url":      url,
-			"host":     host,
-			"path":     path,
-			"method":   httpMethod,
-			"line_num": line,
-		},
+		Metadata:   meta,
 	}})
 	ctx.httpURLsSeen[url] = true
 }
