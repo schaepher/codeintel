@@ -196,3 +196,29 @@ func TestSeqRenderDeclImplType(t *testing.T) {
 		t.Errorf("无数据流时保持单行类型:\n%s", m2)
 	}
 }
+
+// TestSeqRenderReturnAndEmptyAlt（S2）：分支内 return 画线回调用者；
+// 空分支（无 then/else）不输出 alt 块。
+func TestSeqRenderReturnAndEmptyAlt(t *testing.T) {
+	root := &action.CodeSeqNode{Kind: "call", Label: "Run", Line: 1,
+		Nodes: []*action.CodeSeqNode{
+			// 空分支（无内容）→ 不渲染
+			{Kind: "branch", Label: "x == nil", Line: 2},
+			// 分支内 return → 虚线回调用者
+			{Kind: "branch", Label: "err != nil", Line: 3,
+				Nodes: []*action.CodeSeqNode{{Kind: "return", Label: "return", Line: 4}}},
+			// 循环内 continue
+			{Kind: "loop", Label: "range items", Line: 5,
+				Nodes: []*action.CodeSeqNode{{Kind: "continue", Label: "continue", Line: 6}}},
+		}}
+	m := renderCodeSeqMermaid(root)
+	if strings.Contains(m, "alt x == nil") {
+		t.Errorf("空分支不应输出 alt 块:\n%s", m)
+	}
+	if !strings.Contains(m, "P0-->>P0: return") {
+		t.Errorf("分支内 return 应画线回调用者:\n%s", m)
+	}
+	if !strings.Contains(m, "P0-->>P0: continue") {
+		t.Errorf("循环内 continue 应画自回环线:\n%s", m)
+	}
+}

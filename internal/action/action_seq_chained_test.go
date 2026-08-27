@@ -243,3 +243,57 @@ func NewService() Service {
 		t.Errorf("接口返回的链式调用应展开到实现内部（s.helper）:\n%+v", child.Nodes)
 	}
 }
+
+// S6 测试：if err := f(); err != nil 同行——Init 里的调用生成步骤。
+func TestSeqIfInitCall(t *testing.T) {
+	src := `package m
+
+func f() error { return nil }
+
+func run() {
+	if err := f(); err != nil {
+		handle(err)
+	}
+}
+
+func handle(e error) {}
+`
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/m\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	r := sqlite.NewRepo(db)
+	if _, err := r.SaveBatchStats([]*domain.CodeEntity{
+		{ID: "symbol:go:example.com/m:run", Kind: domain.KindFunction, Name: "run", FilePath: "main.go", LineStart: 5},
+		{ID: "symbol:go:example.com/m:f", Kind: domain.KindFunction, Name: "f", FilePath: "main.go", LineStart: 3},
+	}, []*domain.Fact{
+		{SourceID: "symbol:go:example.com/m:run", TargetID: "symbol:go:example.com/m:f",
+			Kind: domain.FactCalls, Confidence: 1.0, Metadata: map[string]any{"line_num": 6, "pos": float64(85)}},
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	acts := New(sqlite.NewRepo(db))
+	root, err := acts.CodeSequence(CodeSequenceRequest{
+		Target: "symbol:go:example.com/m:run", RepoAbs: dir, Depth: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root == nil || len(root.Nodes) == 0 {
+		t.Fatalf("无子调用:\n%+v", root)
+	}
+	// Init 里的 f() 应生成调用步骤（在 branch 之前）
+	if root.Nodes[0].Kind != "call" || root.Nodes[0].Label != "f" {
+		t.Errorf("Init 调用应为第一个步骤（f）: %+v", root.Nodes[0])
+	}
+	if root.Nodes[1].Kind != "branch" {
+		t.Errorf("第二个步骤应为 branch: %+v", root.Nodes[1])
+	}
+}

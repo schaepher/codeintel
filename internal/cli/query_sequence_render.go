@@ -39,7 +39,7 @@ func renderCodeSeqMermaid(root *action.CodeSeqNode) string {
 		}
 		b.WriteString(fmt.Sprintf("  participant %s as %s\n", alias[p], label))
 	}
-	writeSeqNode(&b, alias, root.Label, root.Nodes)
+	writeSeqNode(&b, alias, root.Label, "", root.Nodes)
 	return b.String()
 }
 
@@ -89,7 +89,7 @@ func seqBaseTypeActor(actor string) bool {
 }
 
 // writeSeqNode 递归渲染节点块（call 消息 / branch alt / loop）。
-func writeSeqNode(b *strings.Builder, alias map[string]string, from string, nodes []*action.CodeSeqNode) {
+func writeSeqNode(b *strings.Builder, alias map[string]string, from, caller string, nodes []*action.CodeSeqNode) {
 	for _, n := range nodes {
 		switch n.Kind {
 		case "call":
@@ -109,23 +109,35 @@ func writeSeqNode(b *strings.Builder, alias map[string]string, from string, node
 			b.WriteString(fmt.Sprintf("  %s->>%s: %s\n", alias[from], to, label))
 			if len(n.Nodes) > 0 {
 				// R81：嵌套展开——From 切换为被调者 Actor
-				writeSeqNode(b, alias, n.Actor, n.Nodes)
+				writeSeqNode(b, alias, n.Actor, from, n.Nodes)
 			}
 			// R83：return 线（返回值类型——虚线返回；plantuml 转 return 语法）
 			if len(n.Returns) > 0 {
 				b.WriteString(fmt.Sprintf("  %s-->>%s: return %s\n", to, alias[from], strings.Join(n.Returns, ", ")))
 			}
 		case "branch":
+			// S2：空分支（无 then 无 else）不输出 alt 块——避免渲染问题
+			if len(n.Nodes) == 0 && len(n.Else) == 0 {
+				continue
+			}
 			b.WriteString(fmt.Sprintf("  alt %s\n", n.Label))
-			writeSeqNode(b, alias, from, n.Nodes)
+			writeSeqNode(b, alias, from, caller, n.Nodes)
 			if len(n.Else) > 0 {
 				b.WriteString("  else\n")
-				writeSeqNode(b, alias, from, n.Else)
+				writeSeqNode(b, alias, from, caller, n.Else)
 			}
 			b.WriteString("  end\n")
+		case "return":
+			// S2：分支内 return → 虚线回调用者
+			b.WriteString(fmt.Sprintf("  %s-->>%s: return\n", alias[from], alias[from]))
+		case "continue":
+			// S2：循环内 continue → 回循环继续（参与者自回环）
+			b.WriteString(fmt.Sprintf("  %s-->>%s: continue\n", alias[from], alias[from]))
+		case "break":
+			b.WriteString(fmt.Sprintf("  %s-->>%s: break\n", alias[from], alias[from]))
 		case "loop":
 			b.WriteString(fmt.Sprintf("  loop %s\n", n.Label))
-			writeSeqNode(b, alias, from, n.Nodes)
+			writeSeqNode(b, alias, from, caller, n.Nodes)
 			b.WriteString("  end\n")
 		}
 	}
@@ -151,6 +163,8 @@ func writeSeqText(nodes []*action.CodeSeqNode, depth int) {
 		case "loop":
 			fmt.Printf("%sloop %s\n", pad, n.Label)
 			writeSeqText(n.Nodes, depth+1)
+		case "return", "continue", "break":
+			fmt.Printf("%s%s\n", pad, n.Label)
 		}
 	}
 }

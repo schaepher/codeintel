@@ -56,7 +56,8 @@ func recurse(n int) int {
 		}
 	}
 	walk(root, 0)
-	if maxDepth > 1 {
-		t.Errorf("递归自环应防环（maxDepth = %d; want ≤1——子调用不再展开）", maxDepth)
+	// ≤2：branch 内 S2 裸 return 节点占一层——递归调用本身不再展开
+	if maxDepth > 2 {
+		t.Errorf("递归自环应防环（maxDepth = %d; want ≤2——子调用不再展开，return 节点占一层）", maxDepth)
 	}
 }

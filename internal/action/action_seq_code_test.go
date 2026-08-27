@@ -69,9 +69,9 @@ func TestCodeSequenceNodes(t *testing.T) {
 	if root.Label != "Prepare" {
 		t.Errorf("入口 = %q; want Prepare", root.Label)
 	}
-	// 语句：if → LoadItems 赋值 → for → Save
-	if len(root.Nodes) != 4 {
-		t.Fatalf("顶层步骤 = %d; want 4（if/赋值/for/调用）:\n%+v", len(root.Nodes), root.Nodes)
+	// 语句：if → LoadItems 赋值 → for → Save → return（S2 裸 return 节点）
+	if len(root.Nodes) != 5 {
+		t.Fatalf("顶层步骤 = %d; want 5（if/赋值/for/调用/return）:\n%+v", len(root.Nodes), root.Nodes)
 	}
 	if root.Nodes[0].Kind != "branch" || !strings.Contains(root.Nodes[0].Label, "cart == nil") {
 		t.Errorf("步骤 1 应为 if 分支: %+v", root.Nodes[0])

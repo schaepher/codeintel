@@ -182,6 +182,12 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		}
 		return out
 	case *ast.IfStmt:
+		var steps []*CodeSeqNode
+		// S6：if err := f(); err != nil 同行——Init（初始化语句）里的
+		// 调用也生成步骤（go/ast 自带 Init 字段，之前遗漏未处理）
+		if s.Init != nil {
+			steps = append(steps, walkStmt(a, req, fset, src, s.Init, tgts, depth, recvType, recvDecl, f, curPkg)...)
+		}
 		node := &CodeSeqNode{Kind: "branch", Label: seqExprText(fset, src, s.Cond), Line: fset.Position(s.Cond.Pos()).Line}
 		node.Nodes = walkStmts(a, req, fset, src, s.Body.List, tgts, depth, recvType, recvDecl, f, curPkg)
 		if blk, ok := s.Else.(*ast.BlockStmt); ok {
@@ -189,7 +195,8 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		} else if elseIf, ok := s.Else.(*ast.IfStmt); ok {
 			node.Else = walkStmt(a, req, fset, src, elseIf, tgts, depth, recvType, recvDecl, f, curPkg) // else if 链（渲染为 else 内分支）
 		}
-		return []*CodeSeqNode{node}
+		steps = append(steps, node)
+		return steps
 	case *ast.ForStmt:
 		label := seqExprText(fset, src, s.Cond)
 		if label == "" {
@@ -213,7 +220,17 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 				out = append(out, callNode(call.Fun, fset.Position(call.Lparen)))
 			}
 		}
+		// S2：分支内裸 return（无返回值调用）→ return 节点（渲染画线
+		// 回调用者）；带调用的 return 由调用节点承接
+		if len(out) == 0 {
+			out = append(out, &CodeSeqNode{Kind: "return", Label: "return", Line: fset.Position(s.Pos()).Line})
+		}
 		return out
+	case *ast.BranchStmt:
+		// S2：continue/break——循环控制流（渲染：continue 画回循环、
+		// break 标注）
+		kind := s.Tok.String()
+		return []*CodeSeqNode{{Kind: kind, Label: kind, Line: fset.Position(s.Pos()).Line}}
 	case *ast.SwitchStmt:
 		// R82：switch 分派（manager.SubmitOrder 实测——data.Type 分支里
 		// 才是真实业务调用；每 case 一个子分支）

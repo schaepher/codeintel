@@ -68,6 +68,10 @@ func seqExprText(fset *token.FileSet, src []byte, e ast.Expr) string {
 		return ""
 	}
 	s := string(src[start:end])
+	// S3：换行/制表符统一换空格——多行条件合并成一行（mermaid label
+	// 含 tab 渲染失败）；字符串字面量内的 \t 转义序列（反斜杠+t）不
+	// 含真实 tab 字符，不受影响
 	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\t", " ")
 	return strings.TrimSpace(s)
 }
