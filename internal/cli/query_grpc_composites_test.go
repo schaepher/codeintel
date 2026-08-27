@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
@@ -45,9 +46,9 @@ func TestGrpcComposites(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	res, err := grpcComposites(sqlite.NewRepo(db))
+	res, err := action.New(sqlite.NewRepo(db)).GrpcComposites()
 	if err != nil {
-		t.Fatalf("grpcComposites: %v", err)
+		t.Fatalf("GrpcComposites: %v", err)
 	}
 	if len(res.Composites) != 1 {
 		t.Fatalf("组合接口数 = %d; want 1（非组合不应列出）:\n%+v", len(res.Composites), res.Composites)
@@ -67,8 +68,14 @@ func TestGrpcComposites(t *testing.T) {
 // TestCmdGrpcComposites：CLI 输出。
 func TestCmdGrpcComposites(t *testing.T) {
 	dir := seedGrpcCompositesRepo(t)
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	acts := action.New(sqlite.NewRepo(db))
 	out := captureStdout(func() {
-		if code := cmdGrpcComposites(dir, queryFlags{}); code != 0 {
+		if code := cmdGrpcComposites(acts, queryFlags{}); code != 0 {
 			t.Errorf("cmdGrpcComposites = %d; want 0", code)
 		}
 	})

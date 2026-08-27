@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/schaepher/codeintel/internal/action"
-	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
 
 type entrySymbol struct {
@@ -58,15 +57,16 @@ func entrySymbols(acts *action.Actions, repoAbs string) []entrySymbol {
 
 // renderCommandsMD 命令与入口页 Markdown（R35：有 urfave/cli 命令树
 // 先展示命令清单；后接目标仓库 main 入口 + 一级调用链）。repoAbs：
-// main 入口噪音过滤（R39——tmp/ 前缀 + 文件不存在）。
-func renderCommandsMD(acts *action.Actions, repo *sqlite.Repo, repoAbs string) string {
+// main 入口噪音过滤（R39——tmp/ 前缀 + 文件不存在）。R100：命令树经
+// action（Actions.CliRoutes）——cli 不再直连 sqlite。
+func renderCommandsMD(acts *action.Actions, repoAbs string) string {
 	var b strings.Builder
 	b.WriteString("# 命令与入口\n\n")
 	b.WriteString("> 数据源：urfave/cli 命令树（代码事实）+ main 入口调用链（索引事实）。\n\n")
-	if res, err := cliRoutes(repo); err == nil && len(res.Commands) > 0 {
+	if res, err := acts.CliRoutes(); err == nil && len(res.Commands) > 0 {
 		b.WriteString("## 命令清单\n\n")
-		var walk func(cmds []cliCommandEntry, depth int)
-		walk = func(cmds []cliCommandEntry, depth int) {
+		var walk func(cmds []action.CliCommandEntry, depth int)
+		walk = func(cmds []action.CliCommandEntry, depth int) {
 			for _, c := range cmds {
 				line := "- `" + c.Name + "`"
 				if c.Usage != "" {
@@ -111,13 +111,14 @@ func renderCommandsMD(acts *action.Actions, repo *sqlite.Repo, repoAbs string) s
 
 // renderCommandsHTML 命令与入口页 html 内容（R35：urfave/cli 命令树
 // 前置 + main 入口调用链）。repoAbs：main 入口噪音过滤（R39）。
-func renderCommandsHTML(acts *action.Actions, repo *sqlite.Repo, repoAbs string) string {
+// R100：命令树经 action（Actions.CliRoutes）——cli 不再直连 sqlite。
+func renderCommandsHTML(acts *action.Actions, repoAbs string) string {
 	var b strings.Builder
 	b.WriteString(`<section id="commands"><h2>命令与入口</h2><p class="muted">数据源：urfave/cli 命令树（代码事实）+ main 入口调用链（索引事实）。</p>`)
-	if res, err := cliRoutes(repo); err == nil && len(res.Commands) > 0 {
+	if res, err := acts.CliRoutes(); err == nil && len(res.Commands) > 0 {
 		b.WriteString("<h3>命令清单</h3><ul>")
-		var walk func(cmds []cliCommandEntry)
-		walk = func(cmds []cliCommandEntry) {
+		var walk func(cmds []action.CliCommandEntry)
+		walk = func(cmds []action.CliCommandEntry) {
 			for _, c := range cmds {
 				line := "<code>" + htmlEsc(c.Name) + "</code>"
 				if c.Usage != "" {

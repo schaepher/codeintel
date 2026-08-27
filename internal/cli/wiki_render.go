@@ -24,9 +24,10 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	defer logger.Debug("exit renderWiki")
 	eg, egErr := acts.Entities() // R9：实体协作图（概览/模块页渲染）
 	_ = egErr
-	schemas := wikiSchemas(acts)          // R19 表 schema 事实源（列类型/默认值）
-	ormStructs := scanORMStructs(repoAbs) // R20 表关联结构体
-	goTypes := ormColTypes(ormStructs)    // R21 结构体 Go 类型 fallback
+	schemas := wikiSchemas(acts) // R19 表 schema 事实源（列类型/默认值）
+	// R100：ORM 结构体扫描迁 action（Actions.ORMStructs）——cli 只消费
+	ormStructs, _ := acts.ORMStructs(repoAbs) // R20 表关联结构体
+	goTypes := ormColTypes(ormStructs)        // R21 结构体 Go 类型 fallback
 
 	if err := cleanWikiOutDir(outDir, data); err != nil {
 		return err
@@ -77,7 +78,7 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 		// R82：第一张架构图严格从上到下——yaml architecture 若写 LR
 		// 强制转 TB（用户要求方向统一）
 		idx.WriteString("## 整体架构图\n\n> 来源：wiki.yaml architecture\n\n" + rc.diagramMD(archForceTB(cfg.Architecture)))
-	} else if arch := archMermaidFallback(data, rc.cfg.Domains, rc.repo, rc.acts); arch != "" {
+	} else if arch := archMermaidFallback(data, rc.cfg.Domains, rc.acts); arch != "" {
 		idx.WriteString("## 整体架构图\n\n> 自动生成：接入层→领域→存储层三层架构（yaml architecture 可覆盖）\n\n" + rc.diagramMD(arch))
 	}
 	// R7：AI 整理架构图（过滤 logging/seed 等基础包 + 分层分组）
@@ -123,7 +124,7 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	idx.WriteString("- [ER 图（表间关系）](er.md)\n")
 	idx.WriteString("- [表清单](tables.md)\n")
 	if len(pkgs) > 0 {
-		idx.WriteString("\n" + renderPackagesMD(pkgs, rc.repo))
+		idx.WriteString("\n" + renderPackagesMD(acts, pkgs))
 	}
 	if degradeStats != "" {
 		idx.WriteString("> 构建 SQL 解析降级统计：" + degradeStats + "（AST 降级率异常高时检查解析器）\n\n")
@@ -159,7 +160,7 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 		return err
 	}
 
-	if err := os.WriteFile(filepath.Join(outDir, "commands.md"), []byte(renderCommandsMD(acts, rc.repo, rc.RepoAbs)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(outDir, "commands.md"), []byte(renderCommandsMD(acts, rc.RepoAbs)), 0o644); err != nil {
 		return err
 	}
 	if err := os.WriteFile(filepath.Join(outDir, "api.md"), []byte(renderAPIMD(repoAbs)), 0o644); err != nil {
@@ -186,7 +187,7 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 		}
 	}
 	// R5：枚举与工具函数（源码事实——AI 权威值来源）
-	return os.WriteFile(filepath.Join(outDir, "enums.md"), []byte(renderEnumsMD(repoAbs, rc.repo)), 0o644)
+	return os.WriteFile(filepath.Join(outDir, "enums.md"), []byte(renderEnumsMD(repoAbs, acts)), 0o644)
 }
 
 // wikiArtifacts wiki 渲染产物文件名（全局页 + 模块页）——清理时只删

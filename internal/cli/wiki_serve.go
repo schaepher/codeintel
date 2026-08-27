@@ -42,7 +42,7 @@ type wikiSnapshot struct {
 	eg           *domain.EntityGraph             // R9：实体协作图（概览/模块页渲染）
 	keyFlows     map[string][]action.WikiKeyFlow // R17：模块关键数据流（核心符号字段读写）
 	schemas      map[string]map[string]schemaCol // R19：表 schema 事实源（列类型/默认值）
-	ormStructs   map[string][]ormStruct          // R20：表关联结构体（TableName 反查）
+	ormStructs   map[string][]domain.ORMStruct          // R20：表关联结构体（TableName 反查）
 	goTypes      map[string]map[string]string    // R21：结构体 Go 类型 fallback
 	yamlMod      int64
 	data         []*domain.WikiModule
@@ -98,13 +98,13 @@ func wikiServeHandler(repoAbs string, acts *action.Actions, repo *sqlite.Repo) h
 		case path == "tables":
 			serveWikiHTML(w, ws.tablesPage(snap))
 		case path == "commands":
-			serveWikiHTML(w, ws.pageHTML(snap, "/wiki/commands", renderCommandsHTML(ws.acts, ws.repo, ws.repoAbs)))
+			serveWikiHTML(w, ws.pageHTML(snap, "/wiki/commands", renderCommandsHTML(ws.acts, ws.repoAbs)))
 		case path == "processes":
 			serveWikiHTML(w, ws.pageHTML(snap, "/wiki/processes", renderProcessesHTML(&wikiRenderCtx{acts: ws.acts, Diagram: "mermaid"})))
 		case path == "api":
 			serveWikiHTML(w, ws.pageHTML(snap, "/wiki/api", renderAPIHTML(ws.repoAbs)))
 		case path == "enums":
-			serveWikiHTML(w, ws.pageHTML(snap, "/wiki/enums", renderEnumsHTML(ws.repoAbs, ws.repo)))
+			serveWikiHTML(w, ws.pageHTML(snap, "/wiki/enums", renderEnumsHTML(ws.repoAbs, ws.acts)))
 		default:
 			http.NotFound(w, r)
 		}
@@ -225,7 +225,7 @@ func (ws *wikiServe) load(buildID, commitSHA, degradeStats string, yamlMod int64
 	}
 	// R19：表 schema 事实源（sqlite_master → 列类型/默认值）
 	schemas := wikiSchemas(ws.acts)
-	ormStructs := scanORMStructs(ws.repoAbs)
+	ormStructs, _ := ws.acts.ORMStructs(ws.repoAbs)
 	goTypes := ormColTypes(ormStructs)
 	return &wikiSnapshot{
 		buildID: buildID, commitSHA: commitSHA, degradeStats: degradeStats, yamlMod: yamlMod, data: data, ordered: ordered,

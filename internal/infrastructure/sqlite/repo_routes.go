@@ -102,6 +102,37 @@ func (r *Repo) GetImplementsTarget(ifaceID domain.CanonicalID) (domain.Canonical
 	return domain.CanonicalID(id), err
 }
 
+// GetCLICommandNodes kind='cli_command' 节点全量（R100 迁移收尾——
+// cliRoutes 裸 SQL 收口；properties 含 cli_name/cli_usage/cli_action/
+// cli_parent/register）。
+func (r *Repo) GetCLICommandNodes() ([]*domain.CodeEntity, error) {
+	logger := zap.L()
+	logger.Debug("enter (Repo).GetCLICommandNodes")
+	defer logger.Debug("exit (Repo).GetCLICommandNodes")
+	rows, err := r.Query(`SELECT id, kind, name, file_path, line_start, line_end, properties
+		FROM nodes WHERE kind = 'cli_command'`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanNodes(rows)
+}
+
+// GetPbServerInterfaces 带 pb_servers 属性的接口节点（R100 迁移收尾——
+// grpcComposites 裸 SQL 收口）。
+func (r *Repo) GetPbServerInterfaces() ([]*domain.CodeEntity, error) {
+	logger := zap.L()
+	logger.Debug("enter (Repo).GetPbServerInterfaces")
+	defer logger.Debug("exit (Repo).GetPbServerInterfaces")
+	rows, err := r.Query(`SELECT id, kind, name, file_path, line_start, line_end, properties
+		FROM nodes WHERE kind = 'interface' AND json_extract(properties, '$.pb_servers') IS NOT NULL`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanNodes(rows)
+}
+
 // GetHTTPRouteNodes kind='http_route' 节点全量（含 properties——
 // method/path/handler/handler_id/resolver/register）。
 func (r *Repo) GetHTTPRouteNodes() ([]*domain.CodeEntity, error) {

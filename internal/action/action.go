@@ -64,11 +64,14 @@ type Reader interface {
 	GetGrpcImplNode(svcID domain.CanonicalID) (*domain.CodeEntity, error)
 	GetImplementsTarget(ifaceID domain.CanonicalID) (domain.CanonicalID, error) // implements 边（排除 Unimplemented 桩）
 	GetHTTPRouteNodes() ([]*domain.CodeEntity, error)                           // kind=http_route（含 properties）
+	GetCLICommandNodes() ([]*domain.CodeEntity, error)                          // R100：kind=cli_command（cli-routes 裸 SQL 收口）
+	GetPbServerInterfaces() ([]*domain.CodeEntity, error)                       // R100：带 pb_servers 的接口（grpc-composites 收口）
 	GetFieldWriters(fieldPath string) ([]string, error)                         // R97-2：字段 direct_write 写入函数（数据流具体化）
 	// R94：外部依赖（redis/kafka）与外部接口调用（query external-*）
 	GetRedisKeyNodes() ([]*domain.CodeEntity, error)         // kind=redis_key（properties.write/cmd）
 	GetKafkaTopicNodes() ([]*domain.CodeEntity, error)       // kind=kafka_topic
 	GetFactsByKinds(kinds ...string) ([]*domain.Fact, error) // 指定 kind 的调用边（metadata 全量）
+	QAForSymbols(keywords []string, limit int) ([]*domain.QARecord, error) // R100：wiki --with-qa 参考资料
 	Counts() (nodes int, edges int, err error)
 	GetLatest() (*domain.BuildMeta, error)
 	RepoPath() string

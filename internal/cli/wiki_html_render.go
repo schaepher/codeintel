@@ -40,9 +40,10 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 
 	eg, egErr := acts.Entities() // R9：实体协作图（模块页/概览渲染）
 	_ = egErr
-	schemas := wikiSchemas(acts)          // R19 表 schema 事实源（列类型/默认值）
-	ormStructs := scanORMStructs(repoAbs) // R20 表关联结构体
-	goTypes := ormColTypes(ormStructs)    // R21 结构体 Go 类型 fallback
+	schemas := wikiSchemas(acts) // R19 表 schema 事实源（列类型/默认值）
+	// R100：ORM 结构体扫描迁 action——cli 只消费
+	ormStructs, _ := acts.ORMStructs(repoAbs) // R20 表关联结构体
+	goTypes := ormColTypes(ormStructs)        // R21 结构体 Go 类型 fallback
 
 	title := filepath.Base(repoAbs) + " 业务 wiki"
 	var nav strings.Builder  // 左侧目录
@@ -50,7 +51,7 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	archMermaid := cfg.Architecture
 	archNote := "（来源：wiki.yaml architecture）"
 	if archMermaid == "" {
-		archMermaid = archMermaidFallback(data, rc.cfg.Domains, rc.repo, rc.acts)
+		archMermaid = archMermaidFallback(data, rc.cfg.Domains, rc.acts)
 		archNote = "（自动生成：接入层→领域→存储层三层架构——yaml architecture 可覆盖）"
 	}
 	if archMermaid != "" {
@@ -75,7 +76,7 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	}
 
 	// R1：命令/接口区块（单文件 html 全量包含——怎么用，靠前）
-	main.WriteString(renderCommandsHTML(acts, rc.repo, rc.RepoAbs))
+	main.WriteString(renderCommandsHTML(acts, rc.RepoAbs))
 	nav.WriteString(`<li><a href="#commands">命令清单</a></li>`)
 	main.WriteString(renderAPIHTML(repoAbs))
 	nav.WriteString(`<li><a href="#api">HTTP 接口</a></li>`)
@@ -95,10 +96,10 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	// R40（用户要求）：gRPC 服务流程内容内嵌进 index.html 单文件——
 	// 不再写独立子页（所有东西都在一个文件里）；md 模式仍多文件
 	// R5：枚举与工具函数区块（AI 权威值）
-	main.WriteString(renderEnumsHTML(repoAbs, rc.repo))
+	main.WriteString(renderEnumsHTML(repoAbs, acts))
 	nav.WriteString(`<li><a href="#enums">枚举与工具函数</a></li>`)
 	if len(pkgs) > 0 {
-		main.WriteString(renderPackagesHTML(pkgs, rc.repo))
+		main.WriteString(renderPackagesHTML(acts, pkgs))
 		nav.WriteString(`<li><a href="#packages">包结构</a></li>`)
 	}
 	// R14：ER 图与表清单同属数据层，归位在实现细节区（认知路径靠后）

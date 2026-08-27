@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
@@ -36,7 +37,8 @@ func seedCLIRoutesRepo(t *testing.T) string {
 	return dir
 }
 
-// TestQueryCLIRoutes：命令树 JSON——顶层命令 + 嵌套子命令组织。
+// TestQueryCLIRoutes：命令树 JSON——顶层命令 + 嵌套子命令组织（R100
+// 查询逻辑迁 action——cli 渲染层测试）。
 func TestQueryCLIRoutes(t *testing.T) {
 	dir := seedCLIRoutesRepo(t)
 	db, err := sqlite.Open(dir)
@@ -44,9 +46,9 @@ func TestQueryCLIRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	res, err := cliRoutes(sqlite.NewRepo(db))
+	res, err := action.New(sqlite.NewRepo(db)).CliRoutes()
 	if err != nil {
-		t.Fatalf("cliRoutes: %v", err)
+		t.Fatalf("CliRoutes: %v", err)
 	}
 	if len(res.Commands) != 2 {
 		t.Fatalf("顶层命令数 = %d; want 2（serve/db）:\n%+v", len(res.Commands), res.Commands)
@@ -55,7 +57,7 @@ func TestQueryCLIRoutes(t *testing.T) {
 	if res.Commands[0].Name != "db" && res.Commands[1].Name != "db" {
 		t.Errorf("缺 db 命令: %+v", res.Commands)
 	}
-	var dbCmd *cliCommandEntry
+	var dbCmd *action.CliCommandEntry
 	for i := range res.Commands {
 		if res.Commands[i].Name == "db" {
 			dbCmd = &res.Commands[i]
