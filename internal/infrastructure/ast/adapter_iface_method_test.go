@@ -7,6 +7,9 @@ package ast
 // （无方法名），时序图无法展开。
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"testing"
 
 	"github.com/schaepher/codeintel/internal/domain"
@@ -215,5 +218,81 @@ func run() {
 	// 纯包函数（ext.Helper）不建边——防图爆炸（fmt.Println 同款旧设计）
 	if got["symbol:go:example.com/ext:Helper"] {
 		t.Error("外部包纯函数调用 ext.Helper() 不应建边（防图爆炸——方法/接口方法才建）")
+	}
+}
+
+// TestChainedPosAlign（用户提示）：a().b() 链式调用的 pos 对齐——
+// 发射端 call.Pos()（Lparen 位置）与消费端 fset.Position(call.Pos())
+// 必须一致；同行链式 + 并列调用各自独立。
+func TestChainedPosAlign(t *testing.T) {
+	src := `package mtest
+
+import "example.com/mtest/aa"
+
+func run() {
+	aa.NewService().DoSth(); aa.Helper()
+}
+`
+	_, facts := indexFixture(t, map[string]string{
+		"go.mod": "module example.com/mtest\n\ngo 1.21\n",
+		"aa/aa.go": `package aa
+
+type Service interface {
+	DoSth()
+}
+
+type svcImpl struct{}
+
+func (s *svcImpl) DoSth() {}
+
+// 构造器：声明返回接口、函数体 return 具体实现
+func NewService() Service {
+	return &svcImpl{}
+}
+
+func Helper() {}
+`,
+		"main.go": src,
+	})
+	// 预期 offset：与消费端同算法——parser 解析 src，CallExpr.Pos()
+	// （Lparen）的字节偏移
+	fset := token.NewFileSet()
+	f, _ := parser.ParseFile(fset, "main.go", src, 0)
+	doSthOff, helperOff := -1, -1
+	ast.Inspect(f, func(n ast.Node) bool {
+		if call, ok := n.(*ast.CallExpr); ok {
+			if sel, ok2 := call.Fun.(*ast.SelectorExpr); ok2 {
+				switch sel.Sel.Name {
+				case "DoSth":
+					doSthOff = fset.Position(call.Pos()).Offset
+				case "Helper":
+					helperOff = fset.Position(call.Pos()).Offset
+				}
+			}
+		}
+		return true
+	})
+	got := map[string]float64{}
+	for _, f := range facts {
+		if f.Kind == domain.FactCalls && string(f.SourceID) == "symbol:go:example.com/mtest:run" {
+			// 内存 facts 的 pos 为 int；DB 反序列化为 float64——双兼容
+			switch v := f.Metadata["pos"].(type) {
+			case float64:
+				got[string(f.TargetID)] = v
+			case int:
+				got[string(f.TargetID)] = float64(v)
+			}
+		}
+	}
+	// aa.NewService().DoSth() 链式：外层边 pos = DoSth 的 Lparen
+	if p := got["symbol:go:example.com/mtest/aa:(svcImpl).DoSth"]; int(p) != doSthOff {
+		t.Errorf("DoSth 边 pos = %d; want %d（call.Pos()=Lparen——与消费端一致）", int(p), doSthOff)
+	}
+	if p := got["symbol:go:example.com/mtest/aa:Helper"]; int(p) != helperOff {
+		t.Errorf("Helper 边 pos = %d; want %d", int(p), helperOff)
+	}
+	// 同行两个调用 pos 不同（互不覆盖）
+	if int(got["symbol:go:example.com/mtest/aa:(svcImpl).DoSth"]) == int(got["symbol:go:example.com/mtest/aa:Helper"]) {
+		t.Error("同行链式 + 并列调用 pos 应不同（各自独立）")
 	}
 }
