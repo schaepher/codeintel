@@ -1515,6 +1515,22 @@ APIRoutes（R1 路由解析 + domain.APIRoute）；wikiRenderCtx 删 repo 字
 ③ 迁移多文件重构时中间 commit 必须编译通过（pre-commit hook 会跑
 verify——删除 cliRoutes 后 wiki_entries 引用要同 commit 处理）。
 
+### R100-2（2026-08-27）——时序图被丢弃的正常代码形态修复（用户排查驱动）
+
+用户问：函数体单行 return 调用解析结果如何 + 排查其他被丢弃的正常
+形式。排查发现 walkStmt 只认顶层 CallExpr，五类形态整条/调用丢失：
+- return foo() + 1：BinaryExpr 内调用丢（只画 return 线）
+- x = foo() + bar()：同 RHS 多调用丢（只认顶层）
+- ch <- foo()：SendStmt 无 case 整条丢
+- select {}：SelectStmt 无 case 整块丢（send 分支调用在 Comm 不在 Body）
+- Loop: for {}：LabeledStmt 无 case 整块丢
+
+修复：collectCalls（表达式内最外层调用提取——参数位不提取与
+isArgCall 语义一致；链式只收最外层）；AssignStmt/ReturnStmt 改用；
+SendStmt/SelectStmt/LabeledStmt 新增 case（commExprText 处理 Comm
+的 ExprStmt/SendStmt/AssignStmt 三种包装形态）。return foo() 本身
+调用已显示（无 return 线——S2 return 线服务于分支内返回，行为不变）。
+
 **待办更新**：完成项剔除见待办清单（R100 版）。
 
 ### R98（2026-08-27）——P0 三项（dispatch 增量/数据流扩展/参与者类型）+ 迁移收尾批次 4-6
