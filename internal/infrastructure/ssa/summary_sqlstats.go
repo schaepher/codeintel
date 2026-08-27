@@ -12,9 +12,9 @@ import (
 // AST 成功/失败/启发式次数——"一直降级"提前可见。
 
 var (
-	sqlAstOK       atomic.Int64 // AST 主路径成功
-	sqlAstFail     atomic.Int64 // AST 解析失败（含转义第二尝试失败）
-	sqlFailed      sync.Map     // 降级 SQL 去重集（同一 SQL 只计一次——多候选重复计数失真）
+	sqlAstOK   atomic.Int64 // AST 主路径成功
+	sqlAstFail atomic.Int64 // AST 解析失败（含转义第二尝试失败）
+	sqlFailed  sync.Map     // 降级 SQL 去重集（同一 SQL 只计一次——多候选重复计数失真）
 )
 
 // classifyHeuristic 降级形态分类（R7 调查）：动态拼接（%s 等 Sprintf

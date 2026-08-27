@@ -1,10 +1,10 @@
 package ssa
 
 import (
-	"reflect"
 	"fmt"
 	"go/constant"
 	"go/types"
+	"reflect"
 	"strings"
 
 	"github.com/schaepher/codeintel/internal/domain"

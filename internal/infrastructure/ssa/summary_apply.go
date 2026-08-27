@@ -88,9 +88,6 @@ func (ext *fieldExtractor) applySummary(cc *ssa.CallCommon, callee *ssa.Function
 	return true, nil
 }
 
-
-
-
 // applyTxBoundary 事务边界（Q97）：Begin/Commit/Rollback → 事务虚拟节点
 // （Name=sql.tx.<boundary>），标注事务边界位置。
 func (ext *fieldExtractor) applyTxBoundary(cc *ssa.CallCommon, calleeID domain.CanonicalID, boundary string) error {

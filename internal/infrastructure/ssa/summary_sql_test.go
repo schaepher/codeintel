@@ -208,8 +208,6 @@ func settle(c Conn) {
 	}
 }
 
-
-
 // TestParseSQLSubqueryParen：Q239——子查询右括号不得并进表名/列名
 // （(SELECT COUNT(1) FROM mm_member) → mm_member；Q220a 同类 where 串误解析）。
 func TestParseSQLSubqueryParen(t *testing.T) {
@@ -240,14 +238,6 @@ func TestParseSQLSubqueryParen(t *testing.T) {
 		}
 	}
 }
-
-
-
-
-
-
-
-
 
 // TestParseSQLStmtAliasColOwnership：R4——SELECT 别名列归属。
 // `SELECT e.source_id, n.name FROM edges e JOIN nodes n`——n.name 属

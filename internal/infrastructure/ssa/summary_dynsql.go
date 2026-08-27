@@ -40,6 +40,7 @@ func (ext *fieldExtractor) resolveSQLString(v ssa.Value, depth int) string {
 //   - phi（if/else 分支赋值）→ 每分支常量各一候选——「把所有分支的
 //     条件都加进去」：还原出每个分支的 SQL，全部候选参与解析，提取
 //     并集（walkEdges 的 anchor=source_id/target_id 形态）
+//
 // 不可还原返回 nil（调用方保持原始 SQL → 解析失败降级启发式）。
 func (ext *fieldExtractor) resolveSQLCandidates(v ssa.Value, depth int) []string {
 	if depth > maxSQLResolveDepth {

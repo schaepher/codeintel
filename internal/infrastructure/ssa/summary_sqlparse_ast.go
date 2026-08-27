@@ -48,7 +48,6 @@ type astTable struct {
 	alias string
 }
 
-
 // astSelect SELECT 语句提取。
 func astSelect(s *sqlparser.Select, cte map[string]bool) (string, string, []string, []string, []sqlJoinPair, bool) {
 	// CTE 定义名（递归引用不当表）
@@ -158,6 +157,3 @@ func astDelete(s *sqlparser.Delete, cte map[string]bool) (string, string, []stri
 	whereCols := astWhereCols(s.Where, aliases, cteQual)
 	return table, alias, nil, whereCols, nil, true
 }
-
-
-

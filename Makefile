@@ -30,6 +30,9 @@ install:
 	  mkdir -p $${HOME}/.codeintel; \
 	  go run ./cmd/codeintel config default > "$$CONFIG"; \
 	else \
+	  echo "== 检查配置缺失项（S7）：$$CONFIG =="; \
+	  go run ./cmd/codeintel config merge; \
+	else \
 	  echo "== 全局配置已存在：$$CONFIG（跳过） =="; \
 	fi
 

@@ -126,7 +126,6 @@ func splitQualified(s string) (string, string) {
 	return "", s
 }
 
-
 // extractWhereCols 从 SQL 语句剩余部分提取 WHERE 子句的过滤列
 // （`列 = ?` 序列，值实参按 ? 顺序映射——表关联分析的数据基础）。
 // 支持 a.y = ? 表前缀（去前缀）；WHERE 缺失返回 nil。
@@ -274,7 +273,7 @@ func parseSQLStmt(sql string) (table, alias string, cols []string, whereCols []s
 			return t, a, c, wc, jp
 		}
 	}
-	sqlAstFail.Add(1) // R6：AST 失败（含转义第二尝试）
+	sqlAstFail.Add(1)      // R6：AST 失败（含转义第二尝试）
 	classifyHeuristic(sql) // R7：降级去重 + 形态分类（动态拼接预期/方言/其他）
 	logger := zap.L()
 	// R6 调查：降级样本记录（debug 日志——构建日志可看降级形态，

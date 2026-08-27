@@ -67,9 +67,9 @@ func (ext *fieldExtractor) chainTableNameValue(recv ssa.Value) string {
 		}
 		if callee == "Table" || callee == "Model" {
 			arg1 := c.Call.Args[1]
-					if mi, ok := arg1.(*ssa.MakeInterface); ok {
+			if mi, ok := arg1.(*ssa.MakeInterface); ok {
 				arg1 = mi.X
-						}
+			}
 			if cst, isConst := arg1.(*ssa.Const); isConst && cst.Value != nil {
 				if s := constant.StringVal(cst.Value); s != "" {
 					return s

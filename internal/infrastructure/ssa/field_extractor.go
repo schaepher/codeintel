@@ -157,25 +157,26 @@ type fieldExtractor struct {
 	// （Q222 同款漏报）
 	sigEmitted bool
 
-	fields        map[*ssa.FieldAddr]*fieldAccess        // FieldAddr → write 节点（Store 解析目标）
-	reads         map[*ssa.FieldAddr]*fieldAccess        // FieldAddr → read 节点（UnOp 解引用）
-	indexes       map[*ssa.IndexAddr]*fieldAccess        // IndexAddr → write 节点（slice 元素）
-	indexReads    map[*ssa.IndexAddr]*fieldAccess        // IndexAddr → read 节点
-	values        map[ssa.Value]domain.CanonicalID       // 已发射的 ssa_value
-	funcIDs       map[*ssa.Function]domain.CanonicalID   // 函数 → canonical ID 缓存
-	slotsFor      map[domain.CanonicalID]map[string]bool // 每函数 slot 占用（shadowing 消歧）
-	rets          map[*ssa.Function][][]ssa.Value        // 被调函数 Return 指令缓存（returns 边复用）
-	lines         map[string][]string                    // 源码行缓存（filePath → 行数组）
-	funcData      *funcData                              // 摘要收集（direct 读写 + 静态调用）
-	specs         map[string]summarySpec                 // 外部函数摘要（内置 + 用户）
-	extSummaries  map[domain.CanonicalID]bool            // 已创建 external_summary 节点
-	currentFile   string                                 // 当前函数文件（虚拟节点用）
-	fallbackCount int                                    // 静态类型解析失败回退数（警告汇总）
-	dispatchRegs  dispatchReg                            // 接口注册点缓存（Q161 动态边候选元数据，一次扫描）
-	regHits       map[string]map[string]bool             // Q168：iface.String() → candidateKey → register 命中（O(1) 判定）
-	chainTables   map[ssa.Value]string                   // Q175：XORM 链式表名（Table 调用返回值 → 表名）
-	tableNames    map[*types.Named]string                // Q205：tableNameOf 结果缓存（无 spec 接口调用兜底高频触发）
-	typeMapping   map[*types.Named]string                // Q211：orm.Mapping 实体类型→表名（Index 级收集共享）
-	paramCallerCache map[*ssa.Function]*paramCalls       // Q239：参数→静态调用点缓存（动态 SQL 还原）
-	funcCache      []*ssa.Function                       // Q239：prog 全函数缓存
+	fields           map[*ssa.FieldAddr]*fieldAccess        // FieldAddr → write 节点（Store 解析目标）
+	reads            map[*ssa.FieldAddr]*fieldAccess        // FieldAddr → read 节点（UnOp 解引用）
+	indexes          map[*ssa.IndexAddr]*fieldAccess        // IndexAddr → write 节点（slice 元素）
+	indexReads       map[*ssa.IndexAddr]*fieldAccess        // IndexAddr → read 节点
+	values           map[ssa.Value]domain.CanonicalID       // 已发射的 ssa_value
+	funcIDs          map[*ssa.Function]domain.CanonicalID   // 函数 → canonical ID 缓存
+	slotsFor         map[domain.CanonicalID]map[string]bool // 每函数 slot 占用（shadowing 消歧）
+	rets             map[*ssa.Function][][]ssa.Value        // 被调函数 Return 指令缓存（returns 边复用）
+	lines            map[string][]string                    // 源码行缓存（filePath → 行数组）
+	funcData         *funcData                              // 摘要收集（direct 读写 + 静态调用）
+	specs            map[string]summarySpec                 // 外部函数摘要（内置 + 用户）
+	extSummaries     map[domain.CanonicalID]bool            // 已创建 external_summary 节点
+	currentFile      string                                 // 当前函数文件（虚拟节点用）
+	fallbackCount    int                                    // 静态类型解析失败回退数（警告汇总）
+	fallbackDetails  []string                               // S1：失败明细（函数名: 字段路径——追踪用）
+	dispatchRegs     dispatchReg                            // 接口注册点缓存（Q161 动态边候选元数据，一次扫描）
+	regHits          map[string]map[string]bool             // Q168：iface.String() → candidateKey → register 命中（O(1) 判定）
+	chainTables      map[ssa.Value]string                   // Q175：XORM 链式表名（Table 调用返回值 → 表名）
+	tableNames       map[*types.Named]string                // Q205：tableNameOf 结果缓存（无 spec 接口调用兜底高频触发）
+	typeMapping      map[*types.Named]string                // Q211：orm.Mapping 实体类型→表名（Index 级收集共享）
+	paramCallerCache map[*ssa.Function]*paramCalls          // Q239：参数→静态调用点缓存（动态 SQL 还原）
+	funcCache        []*ssa.Function                        // Q239：prog 全函数缓存
 }

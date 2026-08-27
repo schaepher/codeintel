@@ -22,6 +22,10 @@ func (ext *fieldExtractor) newFieldAccessValue(f *ssa.Field) *fieldAccess {
 	if info.fullPath == "" {
 		info.fullPath = instance
 		ext.fallbackCount++
+		// S1：失败明细（函数名: 字段路径: 行号——追踪哪些解析失败）
+		ext.fallbackDetails = append(ext.fallbackDetails,
+			fmt.Sprintf("%s: %s: 行 %d", ext.fn.Name(), instance,
+				ext.prog.Fset.PositionFor(f.Pos(), false).Line))
 	}
 	ext.recordEntry("read", info, instance)
 	return &fieldAccess{
