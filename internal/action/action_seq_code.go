@@ -139,6 +139,19 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 						}
 					}
 				}
+				// P0-7：接口方法 fallback——数据流/localVar 找不到（参数
+				// 注入形态：接口实现由外部 DI 框架注入构造器参数，函数
+				// 内无显式创建）→ 接口实现枚举（InterfaceMethodImpl——
+				// 业务实现优先、grpc 实现排后防自环）
+				if strings.Contains(tid, ":(") {
+					if impl, ok := a.InterfaceMethodImpl(tid); ok {
+						node.ImplType = implTypeShort(impl)
+						if child := codeSeqForSymbol(a, req, impl, depth-1); child != nil {
+							node.Nodes = child.Nodes
+							return node
+						}
+					}
+				}
 				if !strings.Contains(tid, ":(") {
 					if sel, isSel := fun.(*ast.SelectorExpr); isSel {
 						if child := codeSeqForSymbol(a, req, GrpcMethodEntryID(tid, sel.Sel.Name), depth-1); child != nil {
