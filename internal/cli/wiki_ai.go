@@ -178,11 +178,12 @@ func wikiAIFill(yamlPath string, cfg *wikiConfig, data []*domain.WikiModule, col
 			}
 		}
 	}
-	// 分批：模块/表/列组按条数切（每批 ≤ aiBatchMax），列组额外按
-	// 列名数切（每批累计 ≤ aiBatchMaxCols）——超大缺口（go2o 实测
-	// 300 条 1446 列）按类型分两批 prompt 过大导致 AI 超时；同会话
-	// resume——AI 保留前批上下文
-	batches := splitGapBatches(mods, tbls, colGaps, aiBatchMax, aiBatchMaxCols)
+	// 分批（方案 A）：模块描述/表别名各一批（短文本——合并全部缺口，
+	// 一次 AI 请求；原按条数切 aiBatchMax=20——go2o 148 表别名切成 8+
+	// 批 → 8+ 次调用，用户预期一次）；列说明按列名数切批（长文本——
+	// 每批累计 ≤ aiBatchMaxCols，go2o 1446 列防 prompt 爆炸；同会话
+	// resume——AI 保留前批上下文）
+	batches := splitGapBatches(mods, tbls, colGaps, aiBatchMaxCols)
 	// W3：--with-qa——从历史问答读取相关 Q&A 作参考资料（按缺口
 	// 表名/模块短名匹配，最多 5 条）
 	var qaRefs []string
@@ -215,48 +216,43 @@ type aiBatchGaps struct {
 	colGaps []aiColGap
 }
 
-// splitGapBatches 缺口切片：模块/表/列组按条数计（每批 ≤ maxItems），
-// 列组额外按列名数计（每批累计 ≤ maxCols）——列组内列名多时按组数
-// 切仍超时（go2o 1446 列分 150 组，60 组/批 prompt 巨大）。
-func splitGapBatches(mods []aiModuleGap, tbls []aiTableGap, colGaps []aiColGap, maxItems, maxCols int) []aiBatchGaps {
+// splitGapBatches 缺口分批（方案 A——用户：预期一次 AI 调用）：
+//   - 小缺口（总量 ≤ aiBatchMax 且列名 ≤ maxCols）：全部合并一批——
+//     一次 AI 调用（原行为，测试基准）
+//   - 大缺口（go2o 实测 300+ 条 1446 列）：按类别各一批——模块描述/
+//     表别名各一批（短文本——合并该类全部缺口，一次 AI 请求；原按
+//     条数切 20/批——go2o 148 表别名被切成 8+ 批 → 8+ 次 AI 调用），
+//     列说明按列名数切批（长文本——每批累计 ≤ maxCols 防 prompt 爆
+//     炸；同会话 resume——AI 保留前批上下文）
+func splitGapBatches(mods []aiModuleGap, tbls []aiTableGap, colGaps []aiColGap, maxCols int) []aiBatchGaps {
 	totalCols := 0
 	for _, g := range colGaps {
 		totalCols += len(g.cols)
 	}
-	if len(mods)+len(tbls)+len(colGaps) <= maxItems && totalCols <= maxCols {
+	if len(mods)+len(tbls)+len(colGaps) <= aiBatchMax && totalCols <= maxCols {
 		return []aiBatchGaps{{mods: mods, tbls: tbls, colGaps: colGaps}}
 	}
 	var out []aiBatchGaps
-	cur := aiBatchGaps{}
+	if len(mods) > 0 {
+		out = append(out, aiBatchGaps{mods: mods})
+	}
+	if len(tbls) > 0 {
+		out = append(out, aiBatchGaps{tbls: tbls})
+	}
+	var cur aiBatchGaps
 	colNames := 0
-	flush := func() {
-		if len(cur.mods)+len(cur.tbls)+len(cur.colGaps) > 0 {
-			out = append(out, cur)
-		}
-		cur = aiBatchGaps{}
-		colNames = 0
-	}
-	itemFull := func() bool { return len(cur.mods)+len(cur.tbls)+len(cur.colGaps) >= maxItems }
-	for _, g := range mods {
-		if itemFull() {
-			flush()
-		}
-		cur.mods = append(cur.mods, g)
-	}
-	for _, g := range tbls {
-		if itemFull() {
-			flush()
-		}
-		cur.tbls = append(cur.tbls, g)
-	}
 	for _, g := range colGaps {
-		if itemFull() || colNames+len(g.cols) > maxCols {
-			flush()
+		if colNames+len(g.cols) > maxCols && len(cur.colGaps) > 0 {
+			out = append(out, cur)
+			cur = aiBatchGaps{}
+			colNames = 0
 		}
 		cur.colGaps = append(cur.colGaps, g)
 		colNames += len(g.cols)
 	}
-	flush()
+	if len(cur.colGaps) > 0 {
+		out = append(out, cur)
+	}
 	return out
 }
 

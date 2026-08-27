@@ -100,28 +100,34 @@ func TestWikiAIFillSplitBatches(t *testing.T) {
 	}
 	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration, dir string) (string, error) {
 		prompts = append(prompts, prompt)
-		if strings.Contains(prompt, "表列中文说明") {
-			// 最后一批：剩余模块 + 表 + 列 + 术语
-			return modsOf(prompt) + "tables:\n  - name: user_tab\n    columns:\n      - name: id\n        comment: 用户 ID\nglossary:\n  - term: ORM\n    definition: 对象关系映射", nil
+		// 方案 A 类别分批：模块批 / 表别名批 / 列批——runner 按 prompt
+		// 类别特征返回对应内容
+		switch {
+		case strings.Contains(prompt, "表列中文说明"):
+			return "tables:\n  - name: user_tab\n    columns:\n      - name: id\n        comment: 用户 ID\nglossary:\n  - term: ORM\n    definition: 对象关系映射", nil
+		case strings.Contains(prompt, "表中文别名"):
+			return "tables:\n  - name: user_tab\n    alias: 用户表", nil
+		default:
+			// 模块批（runner 按 prompt 中出现的模块名回）
+			return modsOf(prompt), nil
 		}
-		// 模块描述（每批返回批内模块——runner 按 prompt 中出现的模块名回）
-		return modsOf(prompt), nil
 	})
 	defer restore()
 	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second, false, nil, "")
-	// 61 模块 + 1 表 + 1 列组
-	if ok != 63 || fail != 0 {
-		t.Fatalf("计数 = %d/%d; want 63/0", ok, fail)
+	// 61 模块 + 1 表别名 + 1 列说明 + 1 术语
+	if ok != 64 || fail != 0 {
+		t.Fatalf("计数 = %d/%d; want 64/0", ok, fail)
 	}
-	// 63 条 / 20 = 4 批（20 + 20 + 20 + 3）
-	if len(prompts) != 4 {
-		t.Fatalf("调用次数 = %d; want 4（每批 ≤20 条）", len(prompts))
+	// 方案 A：大缺口按类别各一批（61 模块一批 + 表别名一批 + 列一批），
+	// 不再按条数切（原 20/批 → 4 批）
+	if len(prompts) != 3 {
+		t.Fatalf("调用次数 = %d; want 3（模块/表别名/列各一批——方案 A）", len(prompts))
 	}
 	if !strings.Contains(prompts[0], "example.com/m00") {
 		t.Errorf("第一批应含模块缺口:\n%s", prompts[0][:200])
 	}
-	if !strings.Contains(prompts[3], "表列中文说明") {
-		t.Errorf("最后一批应含列区:\n%s", prompts[3][:200])
+	if !strings.Contains(prompts[2], "表列中文说明") {
+		t.Errorf("最后一批应含列区:\n%s", prompts[2][:200])
 	}
 }
 
@@ -170,7 +176,7 @@ func TestSplitGapBatchesCols(t *testing.T) {
 		cols := make([]string, 100) // 每表 100 列
 		colGaps = append(colGaps, aiColGap{table: fmt.Sprintf("t%d", i), cols: cols})
 	}
-	batches := splitGapBatches(nil, nil, colGaps, 60, 300)
+	batches := splitGapBatches(nil, nil, colGaps, 300)
 	// 400 列 / 300 = 2 批（300 + 100）
 	if len(batches) != 2 {
 		t.Fatalf("批数 = %d; want 2（按列名数切）", len(batches))
@@ -202,5 +208,28 @@ func TestWikiAIFillSkipNoGaps(t *testing.T) {
 	}
 	if called {
 		t.Error("无缺口不应调用 AI")
+	}
+}
+
+// TestSplitGapBatchesByCategory：方案 A——模块/表别名各一批（合并
+// 全部缺口，不按条数切）；列说明单独切批。go2o 场景：148 表别名
+// 只调 1 次 AI（原按 20 条/批 → 8 次）。
+func TestSplitGapBatchesByCategory(t *testing.T) {
+	var mods []aiModuleGap
+	for i := 0; i < 30; i++ {
+		mods = append(mods, aiModuleGap{name: fmt.Sprintf("m%d", i)})
+	}
+	var tbls []aiTableGap
+	for i := 0; i < 148; i++ {
+		tbls = append(tbls, aiTableGap{name: fmt.Sprintf("t%d", i)})
+	}
+	batches := splitGapBatches(mods, tbls, nil, 200)
+	// 模块 1 批 + 表 1 批 = 2 次 AI 调用（原按条数切：30/20+148/20=9 次）
+	if len(batches) != 2 {
+		t.Fatalf("批数 = %d; want 2（模块一批 + 表别名一批，不按条数切）", len(batches))
+	}
+	if len(batches[0].mods) != 30 || len(batches[1].tbls) != 148 {
+		t.Errorf("分批 = mods %d / tbls %d; want 全部合并 30/148",
+			len(batches[0].mods), len(batches[1].tbls))
 	}
 }
