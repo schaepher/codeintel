@@ -18,7 +18,7 @@ func entitySequenceMermaid(g *domain.EntityGraph, steps []domain.WikiSeqStep) st
 	//    记录每个实体的被调函数名（消息行展示 call 了什么）
 	type pair struct{ from, to string }
 	var seq []pair
-	var calleeNames []string	// 与 seq 平行：每条边的被调函数短名
+	var calleeNames []string // 与 seq 平行：每条边的被调函数短名
 	firstEntity := func(sym string) string {
 		for _, eid := range g.ByName[sym] {
 			return eid
@@ -39,8 +39,8 @@ func entitySequenceMermaid(g *domain.EntityGraph, steps []domain.WikiSeqStep) st
 	// 2. 合并连续重复（保留顺序；被调函数名去重收集）
 	var merged []struct {
 		pair
-		count	int
-		names	[]string
+		count int
+		names []string
 	}
 	for i, p := range seq {
 		if n := len(merged); n > 0 && merged[n-1].pair == p {
@@ -51,8 +51,8 @@ func entitySequenceMermaid(g *domain.EntityGraph, steps []domain.WikiSeqStep) st
 		} else {
 			merged = append(merged, struct {
 				pair
-				count	int
-				names	[]string
+				count int
+				names []string
 			}{p, 1, []string{calleeNames[i]}})
 		}
 	}

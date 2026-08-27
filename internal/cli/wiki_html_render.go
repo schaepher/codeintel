@@ -17,6 +17,10 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	logger := zap.L()
 	logger.Debug("enter renderWikiHTML", zap.Int("modules", len(data)))
 	defer logger.Debug("exit renderWikiHTML")
+	// R99：plantuml 转换失败 → 立即中止（不渲染、不产出部分成功的 wiki）
+	if rc.renderErr != nil {
+		return rc.renderErr
+	}
 	if err := cleanWikiOutDir(outDir, data); err != nil {
 		return err
 	}

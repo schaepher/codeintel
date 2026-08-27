@@ -33,8 +33,8 @@ func procMaxOf(max int) int {
 
 // httpProcEntry 一个 HTTP 流程入口（同 handler 去重后；匿名/无 id 每路由一个）。
 type httpProcEntry struct {
-	Handler   string // handler 名（展示；匿名 = "(匿名)"）
-	HandlerID string // canonical ID（展开用；可能为空）
+	Handler   string   // handler 名（展示；匿名 = "(匿名)"）
+	HandlerID string   // canonical ID（展开用；可能为空）
 	Paths     []string // 该 handler 注册的路由（"GET /ping" 形态）
 	Resolver  string
 	Register  string // 首个注册点

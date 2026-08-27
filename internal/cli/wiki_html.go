@@ -12,10 +12,6 @@ import (
 	"github.com/schaepher/codeintel/internal/domain"
 )
 
-
-
-
-
 // tableRow 表清单行。
 type tableRow struct {
 	name  string
@@ -112,6 +108,3 @@ func wikiTablesSectionHTML(tables []tableRow, tableCfgs map[string]wikiTableConf
 	b.WriteString("</section>\n")
 	return b.String()
 }
-
-
-

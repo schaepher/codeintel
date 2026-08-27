@@ -2,7 +2,13 @@ package cli
 
 // R32 图块渲染（从 wiki.go 拆出——行数治理）。
 
-import "encoding/base64"
+import (
+	"encoding/base64"
+	"fmt"
+)
+
+// plantumlRenderFunc 可注入（测试替换——R99 失败即停验证）。
+var plantumlRenderFunc = plantumlRender
 
 // diagramMD md 图块：plantuml 模式渲染 PNG → base64 <img> 嵌入
 // （R83：凡是用 plantuml 的都要先转成图片再放进去——md 也看图，
@@ -21,12 +27,21 @@ func (rc *wikiRenderCtx) diagramMD(mermaid string) string {
 	}
 	puml := mermaidToPlantuml(mermaid)
 	if puml == "" {
-		return "```plantuml\n" + mermaid + "\n```\n\n"
+		// R99（用户）：mermaid→plantuml 转换失败同样立即停止并报错
+		if rc.renderErr == nil {
+			rc.renderErr = fmt.Errorf("mermaid→plantuml 转换失败（不支持的图类型）")
+		}
+		return ""
 	}
-	if png, err := plantumlRender(puml); err == nil {
+	png, err := plantumlRenderFunc(puml)
+	if err == nil {
 		return "<img src=\"data:image/png;base64," + base64.StdEncoding.EncodeToString(png) + "\" alt=\"diagram\"/>\n\n"
 	}
-	return "```plantuml\n" + puml + "\n```\n\n"
+	// R99（用户）：plantuml 转换失败立即停止并报错——不降级文本块
+	if rc.renderErr == nil {
+		rc.renderErr = fmt.Errorf("plantuml 转换失败: %w", err)
+	}
+	return ""
 }
 
 // diagramHTML html 图块：plantuml 模式渲染 PNG → base64 <img>（单文件
@@ -46,15 +61,24 @@ func (rc *wikiRenderCtx) diagramHTML(mermaid string) string {
 	}
 	puml := mermaidToPlantuml(mermaid)
 	if puml == "" {
-		return "<pre class=\"mermaid\">" + htmlEsc(mermaid) + "</pre>"
+		// R99（用户）：mermaid→plantuml 转换失败同样立即停止并报错
+		if rc.renderErr == nil {
+			rc.renderErr = fmt.Errorf("mermaid→plantuml 转换失败（不支持的图类型）")
+		}
+		return ""
 	}
 	// R33：plantuml 渲染大图也慢/失败（go2o 1283 边 ER 图实测）——
 	// 超限直接提示，不白等渲染
 	if n := diagramEdgeCount(mermaid); n > mermaidEdgeLimit {
 		return "<p class=\"muted\">图过大（" + itoa(n) + " 条边）——按领域分组图或 `query relations` 按表查询</p>"
 	}
-	if png, err := plantumlRender(puml); err == nil {
+	png, err := plantumlRenderFunc(puml)
+	if err == nil {
 		return "<img src=\"data:image/png;base64," + base64.StdEncoding.EncodeToString(png) + "\" alt=\"diagram\"/>"
 	}
-	return "<pre class=\"plantuml\">" + htmlEsc(puml) + "</pre>"
+	// R99（用户）：plantuml 转换失败立即停止并报错——不降级文本块
+	if rc.renderErr == nil {
+		rc.renderErr = fmt.Errorf("plantuml 转换失败: %w", err)
+	}
+	return ""
 }

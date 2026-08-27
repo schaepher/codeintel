@@ -136,7 +136,6 @@ func cmdAsk(args []string) int {
 	return 0
 }
 
-
 // askContextNames 问题中命中项目事实的符号/表名（qa_history context
 
 // buildAskPrompt 组装 prompt：系统提示 + 项目事实上下文 + 问题。

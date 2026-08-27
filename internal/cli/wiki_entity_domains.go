@@ -16,10 +16,10 @@ import (
 
 // entityDomain 一个领域（子域）。
 type entityDomain struct {
-	Name   string               // 领域名（order/wallet/infra…）
-	Nodes  []*domain.EntityNode // 该领域实体
-	ByID   map[string]bool      // 实体 ID 集合（跨领域边判定用）
-	Edges  []*domain.EntityEdge // 领域内部边（两端都在领域内）
+	Name  string               // 领域名（order/wallet/infra…）
+	Nodes []*domain.EntityNode // 该领域实体
+	ByID  map[string]bool      // 实体 ID 集合（跨领域边判定用）
+	Edges []*domain.EntityEdge // 领域内部边（两端都在领域内）
 }
 
 // splitEntityDomains 实体按领域分组：**R34 统一消费 wiki.yaml domains**

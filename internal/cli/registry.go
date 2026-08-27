@@ -119,6 +119,7 @@ func unregisterRepoAfterClean(abs string) {
 //  2. 注册表绝对路径后缀匹配（唯一）→ 返回匹配路径
 //  3. 注册表目录名精确匹配（唯一）→ 返回
 //  4. 注册表 module 名精确匹配（唯一）→ 返回
+//
 // 多命中 → stderr 打印候选列表、返回空（调用方报错）；
 // 未命中/注册表不可用 → 原样返回（调用方报原路径错误）。
 func ResolveRepoRef(arg string) string {

@@ -41,7 +41,6 @@ func askREPL(acts *action.Actions, repo *sqlite.Repo, agent string, timeout time
 	return 0
 }
 
-
 // saveQA 写入历史问答（失败静默——收集不影响主流程）。
 func saveQA(repo *sqlite.Repo, question, answer, context, agent string) {
 	if repo == nil || question == "" || answer == "" {
@@ -55,7 +54,6 @@ func saveQA(repo *sqlite.Repo, question, answer, context, agent string) {
 		CreatedAt: time.Now().Unix(),
 	})
 }
-
 
 // 字段——参考资料按此相关性匹配）。
 func askContextNames(acts *action.Actions, question string) string {
@@ -71,4 +69,3 @@ func askContextNames(acts *action.Actions, question string) string {
 	}
 	return strings.Join(names, ",")
 }
-

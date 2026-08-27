@@ -17,19 +17,19 @@ import (
 
 // procEntryOut 一个入口（main/http/grpc 通用展示）。
 type procEntryOut struct {
-	Kind   string         `json:"kind"`   // main | http | grpc
-	Title  string         `json:"title"`  // 入口名（main / METHOD path / 服务名）
-	Detail string         `json:"detail"` // 补充（位置/实现/注册点）
-	Chain  *procChainOut  `json:"chain,omitempty"`
+	Kind   string        `json:"kind"`   // main | http | grpc
+	Title  string        `json:"title"`  // 入口名（main / METHOD path / 服务名）
+	Detail string        `json:"detail"` // 补充（位置/实现/注册点）
+	Chain  *procChainOut `json:"chain,omitempty"`
 }
 
 // procChainOut 调用链输出（复用 procChain 数据）。
 type procChainOut struct {
-	Entry     string               `json:"entry"`            // 入口符号
-	Steps     []domain.WikiSeqStep `json:"steps,omitempty"`  // 调用步骤（caller → callee）
-	Pkgs      []string             `json:"pkgs,omitempty"`   // 涉及包
-	Miss      string               `json:"miss,omitempty"`   // 无链原因
-	KeyFlows  []action.WikiKeyFlow `json:"key_flows,omitempty"` // R78：链上符号字段读写（value-trace 串联）
+	Entry    string               `json:"entry"`               // 入口符号
+	Steps    []domain.WikiSeqStep `json:"steps,omitempty"`     // 调用步骤（caller → callee）
+	Pkgs     []string             `json:"pkgs,omitempty"`      // 涉及包
+	Miss     string               `json:"miss,omitempty"`      // 无链原因
+	KeyFlows []action.WikiKeyFlow `json:"key_flows,omitempty"` // R78：链上符号字段读写（value-trace 串联）
 }
 
 // processesOut 系统流程输出契约（cmd --json / MCP 共用）。

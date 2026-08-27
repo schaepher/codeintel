@@ -21,6 +21,7 @@ func goTypeString(expr ast.Expr) string {
 		return ""
 	}
 }
+
 // columnOf 字段 → 列名：gorm tag `column:xxx` 优先，否则 snake_case。
 func columnOf(fieldName string, tag *ast.BasicLit) string {
 	if tag != nil {
@@ -30,8 +31,10 @@ func columnOf(fieldName string, tag *ast.BasicLit) string {
 	}
 	return snakeCase(fieldName)
 }
+
 // gormColumnRe gorm tag 的 column 名（`gorm:"column:order_id;..."`）。
 var gormColumnRe = regexp.MustCompile(`column:([A-Za-z0-9_]+)`)
+
 // snakeCase 大驼峰 → snake_case（GORM 默认列名：OrderNo → order_no、
 // ID → id——连续大写不拆，遇到小写后再遇大写才拆）。
 func snakeCase(name string) string {
@@ -51,6 +54,7 @@ func snakeCase(name string) string {
 	}
 	return b.String()
 }
+
 // ormColTypes 表列 → Go 类型 fallback（R21）：结构体字段 Go 类型
 // 映射表列（gorm column tag 优先、无 tag snake_case）——yaml/schema
 // 都无类型时的兜底。
@@ -74,6 +78,7 @@ func ormColTypes(ormStructs map[string][]ormStruct) map[string]map[string]string
 	}
 	return out
 }
+
 // ormColOrder 表 → 列 → 结构体字段位置（R22：字段顺序还原结构体序）。
 func ormColOrder(ormStructs map[string][]ormStruct) map[string]map[string]int {
 	out := map[string]map[string]int{}
@@ -97,6 +102,7 @@ func ormColOrder(ormStructs map[string][]ormStruct) map[string]map[string]int {
 	}
 	return out
 }
+
 // ormAutoIncCols 表 → 列 → 是否自增（R22：gorm autoIncrement tag）。
 func ormAutoIncCols(ormStructs map[string][]ormStruct) map[string]map[string]bool {
 	out := map[string]map[string]bool{}

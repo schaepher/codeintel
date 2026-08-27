@@ -150,10 +150,10 @@ func renderEntitiesSectionMD(g *domain.EntityGraph, rc *wikiRenderCtx) string {
 		// R62：设计诊断默认折叠（用户要求——展开和折叠形式）
 		b.WriteString(fmt.Sprintf("<details><summary><strong>设计诊断</strong>（%d 条——信号 → 行动；展开查看）</summary>\n\n", len(g.Diags)))
 		labels := map[string]string{
-			domain.DiagCoupled:	"高耦合对",
-			domain.DiagCycle:	"循环依赖",
-			domain.DiagGodObject:	"上帝对象",
-			domain.DiagFaceHeavy:	"游离函数占比",
+			domain.DiagCoupled:   "高耦合对",
+			domain.DiagCycle:     "循环依赖",
+			domain.DiagGodObject: "上帝对象",
+			domain.DiagFaceHeavy: "游离函数占比",
 		}
 		for _, d := range g.Diags {
 			exp := entityDiagExplain[d.Kind]
@@ -276,10 +276,10 @@ func renderEntitiesSectionHTML(g *domain.EntityGraph, rc *wikiRenderCtx) string 
 	if len(g.Diags) > 0 {
 		// R62：设计诊断默认折叠（details 无 open）
 		labels := map[string]string{
-			domain.DiagCoupled:	"高耦合对",
-			domain.DiagCycle:	"循环依赖",
-			domain.DiagGodObject:	"上帝对象",
-			domain.DiagFaceHeavy:	"游离函数占比",
+			domain.DiagCoupled:   "高耦合对",
+			domain.DiagCycle:     "循环依赖",
+			domain.DiagGodObject: "上帝对象",
+			domain.DiagFaceHeavy: "游离函数占比",
 		}
 		b.WriteString(fmt.Sprintf("<details><summary>设计诊断（%d 条——信号 → 行动；展开查看）</summary><ul>", len(g.Diags)))
 		for _, d := range g.Diags {
@@ -292,4 +292,3 @@ func renderEntitiesSectionHTML(g *domain.EntityGraph, rc *wikiRenderCtx) string 
 	b.WriteString("</section>")
 	return b.String()
 }
-

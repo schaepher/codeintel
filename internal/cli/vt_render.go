@@ -27,12 +27,6 @@ const (
 	vtUsage      vtGroup = "去向"
 )
 
-
-
-
-
-
-
 // vtNode 渲染用节点（分组后的扁平列表：来源树按 depth 排序 + 去向）。
 type vtNode struct {
 	row   *domain.TraceRow

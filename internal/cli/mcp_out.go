@@ -54,10 +54,10 @@ type GraphOut struct {
 
 // SequenceOut sequence 工具输出（R76：时序图——接口具体化后步骤）。
 type SequenceOut struct {
-	Symbol string                 `json:"symbol"`
-	ID     string                 `json:"id"`
-	Depth  int                    `json:"depth"`
-	Steps  []domain.WikiSeqStep   `json:"steps"`
+	Symbol string               `json:"symbol"`
+	ID     string               `json:"id"`
+	Depth  int                  `json:"depth"`
+	Steps  []domain.WikiSeqStep `json:"steps"`
 }
 
 // ImpactOut impact 工具输出。

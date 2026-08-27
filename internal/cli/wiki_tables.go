@@ -128,10 +128,10 @@ func wikiMetaIndex(cfg wikiConfig) (map[string]wikiMeta, map[string]string, map[
 
 // tableColRow 渲染用表字段行。
 type tableColRow struct {
-	name	string
-	typ	string
-	def	string
-	comment	string
+	name    string
+	typ     string
+	def     string
+	comment string
 }
 
 // schemaCol 一个列的 schema 事实（R19：sqlite_master 解析）。

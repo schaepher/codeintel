@@ -13,9 +13,9 @@ import (
 
 // erOut ER 图输出契约（cmd --json / MCP 共用）。
 type erOut struct {
-	Mermaid   string              `json:"mermaid"`             // erDiagram mermaid 文本
-	Plantuml  string              `json:"plantuml,omitempty"`  // plantuml 转换（--format plantuml）
-	Relations []*domain.TableRelation `json:"relations"`       // 关系明细（fk/query 直接键关联）
+	Mermaid   string                  `json:"mermaid"`            // erDiagram mermaid 文本
+	Plantuml  string                  `json:"plantuml,omitempty"` // plantuml 转换（--format plantuml）
+	Relations []*domain.TableRelation `json:"relations"`          // 关系明细（fk/query 直接键关联）
 }
 
 // erData 计算 ER 图（wiki er.md 同款：renderERMermaid——只画 fk/query）。

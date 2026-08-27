@@ -6,10 +6,11 @@ import (
 
 // schemaCol 一个列的 schema 事实（R19：sqlite_master 解析）。
 type schemaCol struct {
-	Typ	string
-	Def	string
-	AutoInc	bool	// R22：INTEGER PRIMARY KEY（SQLite rowid 自增）
+	Typ     string
+	Def     string
+	AutoInc bool // R22：INTEGER PRIMARY KEY（SQLite rowid 自增）
 }
+
 // parseCreateTableSchema 解析 CREATE TABLE DDL → 每表列类型/默认值
 // （R19：不借助 AI 填类型——SQLite schema 是权威事实源）。
 // 跳过 FOREIGN KEY/PRIMARY KEY/UNIQUE/CHECK 等约束行；列定义

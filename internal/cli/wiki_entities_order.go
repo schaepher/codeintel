@@ -1,7 +1,6 @@
 package cli
 
 import (
-
 	"github.com/schaepher/codeintel/internal/domain"
 )
 

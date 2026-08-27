@@ -38,22 +38,22 @@ type wikiServe struct {
 type wikiSnapshot struct {
 	buildID      string
 	commitSHA    string
-	degradeStats string // R6：构建降级统计
-	eg           *domain.EntityGraph // R9：实体协作图（概览/模块页渲染）
+	degradeStats string                          // R6：构建降级统计
+	eg           *domain.EntityGraph             // R9：实体协作图（概览/模块页渲染）
 	keyFlows     map[string][]action.WikiKeyFlow // R17：模块关键数据流（核心符号字段读写）
 	schemas      map[string]map[string]schemaCol // R19：表 schema 事实源（列类型/默认值）
-	ormStructs    map[string][]ormStruct // R20：表关联结构体（TableName 反查）
-	goTypes       map[string]map[string]string // R21：结构体 Go 类型 fallback
-	yamlMod    int64
-	data       []*domain.WikiModule
-	ordered    []*domain.WikiModule
-	cfg        wikiConfig
-	meta       map[string]wikiMeta
-	tableAlias map[string]string
-	hidden     map[string]bool
-	tableCfgs  map[string]wikiTableConfig
-	cols       []*domain.TableColumn
-	rels       []*domain.TableRelation
+	ormStructs   map[string][]ormStruct          // R20：表关联结构体（TableName 反查）
+	goTypes      map[string]map[string]string    // R21：结构体 Go 类型 fallback
+	yamlMod      int64
+	data         []*domain.WikiModule
+	ordered      []*domain.WikiModule
+	cfg          wikiConfig
+	meta         map[string]wikiMeta
+	tableAlias   map[string]string
+	hidden       map[string]bool
+	tableCfgs    map[string]wikiTableConfig
+	cols         []*domain.TableColumn
+	rels         []*domain.TableRelation
 }
 
 // wikiServeHandler 生成 /wiki/ 前缀 handler（serve 注入点）。

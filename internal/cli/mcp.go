@@ -18,7 +18,6 @@ import (
 
 // #229 file:line 定位参数。
 
-
 func (p symbolParams) getRepo() string      { return p.Repo }
 func (p fieldsParams) getRepo() string      { return p.Repo }
 func (p graphParams) getRepo() string       { return p.Repo }
@@ -34,14 +33,7 @@ func (p batchParams) getRepo() string       { return p.Repo }
 func (p fileSymbolsParams) getRepo() string { return p.Repo }
 func (p updateParams) getRepo() string      { return p.Repo }
 
-
 // #232 多仓库：mcpEnv 持有默认仓库 + 已解析仓库缓存（ref → 条目）。
-
-
-
-
-
-
 
 // registerMCPTools 注册全部工具（handler 闭包捕获 env；staleWrap 追加
 // [stale] 标注——Q243 新鲜度显式化；mcpRepo 支持 #232 多仓库）。
@@ -51,10 +43,3 @@ func registerMCPTools(server *mcp.Server, env *mcpEnv, r *sqlite.Repo, repoAbs s
 	registerAdminTools(server, env, r, repoAbs)
 	registerWikiTools(server, env, r, repoAbs) // R77：wiki 特性工具（packages/architecture/er/processes/module）
 }
-
-
-
-
-
-
-

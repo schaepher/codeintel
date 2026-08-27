@@ -20,20 +20,20 @@ import (
 
 // ormStruct 一个与表关联的结构体。
 type ormStruct struct {
-	Name	string		`json:"name"`
-	File	string		`json:"file"`
-	Line	int		`json:"line"`
-	Code	string		`json:"code"`	// 结构体定义源码片段
-	Fields	[]ormField	`json:"fields,omitempty"`
+	Name   string     `json:"name"`
+	File   string     `json:"file"`
+	Line   int        `json:"line"`
+	Code   string     `json:"code"` // 结构体定义源码片段
+	Fields []ormField `json:"fields,omitempty"`
 }
 
 // ormField 结构体字段（R21：Go 类型 → 表列类型 fallback；R22：字段
 // 顺序 + 自增识别）。
 type ormField struct {
-	Name		string	// 字段名
-	GoType		string	// Go 类型（int64/string/time.Time…）
-	Column		string	// 列名（gorm column tag 优先，无 tag snake_case）
-	IsAutoInc	bool	// gorm tag 含 autoIncrement
+	Name      string // 字段名
+	GoType    string // Go 类型（int64/string/time.Time…）
+	Column    string // 列名（gorm column tag 优先，无 tag snake_case）
+	IsAutoInc bool   // gorm tag 含 autoIncrement
 }
 
 // scanORMStructs 扫描仓库源码：func (T) TableName() string { return
@@ -67,13 +67,13 @@ func scanORMFile(repoAbs, path string, out map[string][]ormStruct) {
 		return
 	}
 	type structDef struct {
-		name	string
-		pos	token.Pos
-		end	token.Pos
-		fields	[]ormField
+		name   string
+		pos    token.Pos
+		end    token.Pos
+		fields []ormField
 	}
 	var defs []structDef
-	tableOf := map[string]string{}	// 类型名 → 表名
+	tableOf := map[string]string{} // 类型名 → 表名
 	ast.Inspect(f, func(n ast.Node) bool {
 		switch t := n.(type) {
 		case *ast.FuncDecl:
@@ -105,14 +105,14 @@ func scanORMFile(repoAbs, path string, out map[string][]ormStruct) {
 				d := structDef{name: t.Name.Name, pos: st.Pos(), end: st.End()}
 				for _, f := range st.Fields.List {
 					if len(f.Names) == 0 {
-						continue	// 嵌入字段（匿名字段）跳过
+						continue // 嵌入字段（匿名字段）跳过
 					}
 					for _, fn := range f.Names {
 						d.fields = append(d.fields, ormField{
-							Name:		fn.Name,
-							GoType:		goTypeString(f.Type),
-							Column:		columnOf(fn.Name, f.Tag),
-							IsAutoInc:	f.Tag != nil && strings.Contains(f.Tag.Value, "autoIncrement"),
+							Name:      fn.Name,
+							GoType:    goTypeString(f.Type),
+							Column:    columnOf(fn.Name, f.Tag),
+							IsAutoInc: f.Tag != nil && strings.Contains(f.Tag.Value, "autoIncrement"),
 						})
 					}
 				}
@@ -141,11 +141,11 @@ func scanORMFile(repoAbs, path string, out map[string][]ormStruct) {
 			}
 			code := string(src[start:end])
 			out[tbl] = append(out[tbl], ormStruct{
-				Name:	typeName,
-				File:	relPath(repoAbs, path),
-				Line:	fset.Position(d.pos).Line,
-				Code:	code,
-				Fields:	d.fields,
+				Name:   typeName,
+				File:   relPath(repoAbs, path),
+				Line:   fset.Position(d.pos).Line,
+				Code:   code,
+				Fields: d.fields,
 			})
 		}
 	}

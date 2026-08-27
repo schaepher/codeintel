@@ -86,6 +86,7 @@ func mergeTableColumnsWithSchema(table string, cols []*domain.TableColumn, yamlC
 	})
 	return rows
 }
+
 // mergeTableColumns 表字段合并（#243 自动初稿 + yaml 覆盖）：
 // 自动列（ER 表列虚拟节点：列名 + gorm tag 类型）为底，yaml columns
 // 覆盖同名（type/default/comment 各自覆盖），自动列未列出的补全。

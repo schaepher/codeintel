@@ -59,7 +59,3 @@ tables:
 	fmt.Printf("wiki.yaml 骨架已生成: %s（按注释提示补充后运行 codeintel wiki）\n", path)
 	return 0
 }
-
-
-
-

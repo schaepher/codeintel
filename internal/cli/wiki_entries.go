@@ -22,12 +22,11 @@ type entrySymbol struct {
 	CalleeIDs []string // 完整 canonical ID（processes 展开用——短名无法按名解析）
 }
 
-
 // entrySymbols 目标仓库 main 入口。R39：过滤两类噪音（自身 wiki 实测——
 // 8 个 main 中 6 个无调用链）：
-// - tmp/ 前缀：仓库内临时工具/探针（约定 tmp/ 存临时脚本——非业务入口）
-// - 文件不存在：多模块仓库索引进的外部 fixture 残留（fixtureapp/bench/
-//   probe 等幽灵 main——relPath 对仓库外文件算出裸文件名）
+//   - tmp/ 前缀：仓库内临时工具/探针（约定 tmp/ 存临时脚本——非业务入口）
+//   - 文件不存在：多模块仓库索引进的外部 fixture 残留（fixtureapp/bench/
+//     probe 等幽灵 main——relPath 对仓库外文件算出裸文件名）
 func entrySymbols(acts *action.Actions, repoAbs string) []entrySymbol {
 	nodes, err := acts.Entries()
 	if err != nil || len(nodes) == 0 {
@@ -162,4 +161,3 @@ func renderCommandsHTML(acts *action.Actions, repo *sqlite.Repo, repoAbs string)
 	b.WriteString("</section>")
 	return b.String()
 }
-

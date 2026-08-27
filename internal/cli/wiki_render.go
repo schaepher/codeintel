@@ -14,6 +14,10 @@ import (
 // renderWiki 生成 index.md + 模块页 + tables.md + er.md + commands.md +
 // api.md（全量覆盖）。
 func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
+	// R99：plantuml 转换失败 → 立即中止（不渲染、不产出部分成功的 wiki）
+	if rc.renderErr != nil {
+		return rc.renderErr
+	}
 	acts, data, cfg, cols, rels, freshNote, pkgs, degradeStats := rc.acts, rc.data, rc.cfg, rc.cols, rc.rels, rc.freshNote, rc.pkgs, rc.degradeStats
 	logger := zap.L()
 	logger.Debug("enter renderWiki", zap.Int("modules", len(data)))
@@ -127,6 +131,10 @@ func renderWiki(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	for _, wm := range data {
 		keyFlows := wikiModuleKeyFlows(acts, wm) // R17 关键数据流
 		page := renderModulePage(wm, eg, keyFlows, meta[wm.Name].desc, tableAlias, hidden, cfg, rc)
+		// R99：plantuml 转换失败 → 中止（不产出部分成功的 wiki）
+		if rc.renderErr != nil {
+			return rc.renderErr
+		}
 		if err := os.WriteFile(filepath.Join(outDir, wm.ShortName+".md"), []byte(page), 0o644); err != nil {
 			return err
 		}
