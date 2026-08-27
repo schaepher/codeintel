@@ -1409,6 +1409,33 @@ domain 1 包 1 自环边。
   方法明显属于其他域时把服务名写入方法所属域"（AI 可细分归属）。
 - 测试：TestDomainFactsGrpcMethods（QueryService 带 Query/PagingShops）。
 
+### R99（2026-08-27）——时序图同行覆盖/链式 pos 根治 + wiki/时序 8 项需求 + 配置补缺
+
+用户连续实测驱动（同行覆盖 → 链式 pos → 架构图短名 → 8 项功能需求）。
+
+**pos 定位链根治**（用户实测 a().b() 同行 pos 相同）：
+- Go 1.26 CallExpr.Pos() = Fun.Pos()（递归到接收者最左）——x.a().b() 内外层
+  Pos 相同 → 边 pos 覆盖。改用 call.Lparen（各自独立）
+- 发射端 9 处 + 消费端 callNode（ExprStmt/Assign/Defer/Go/Return）统一 Lparen
+- 旧索引无 pos → 行号 fallback（旧行为仅兜底）；重新 update 后精确匹配
+- 链式/接口返回/变量对象链式调用边与展开验证（TestChained*）
+
+**架构图包归属短名覆盖**（map 检查发现第二处）：PkgCalls.From/To 完整路径化
+（原生成时截短名不可逆）+ pkgDomain 完整 key + mermaidID Unicode 保留
+（中文领域节点清洗成 D___ 指向不存在节点）+ 边 id 清洗。
+
+**S1-S7（用户 8 项需求）**：
+- S1 字段解析失败明细（函数: 路径: 行号，限量 50 条 stderr）
+- S2 时序图 return/continue 线 + 空 alt 清理（caller 贯穿递归）
+- S3 条件文本 tab→空格（多行条件合并 mermaid 可渲染；字符串 \t 转义不受影响）
+- S4 query sequence --format plantuml（PNG base64；失败写文本）+ plantuml.jar
+  配置化（配置 > env > /opt）
+- S5 时序图导出过滤（seq.filter_pkgs/files/fns/regex——命中不生成节点）
+- S6 if err := f(); err != nil 同行——IfStmt.Init 调用生成步骤
+- S7 codeintel config merge（模板递归对比补缺保注释）+ Makefile install 自动调用
+
+**待办更新**：新增推荐项见待办清单（R99 版）。
+
 ### R98（2026-08-27）——P0 三项（dispatch 增量/数据流扩展/参与者类型）+ 迁移收尾批次 4-6
 
 用户选定 P0-2/3/5 + cli 迁移收尾，四项全部完成（commit d450393→2c760bc）。
@@ -1478,6 +1505,41 @@ handler——领域展开 → 服务折叠 → 方法折叠三层，MD/HTML 双�
 作为调用方；无归属 → 「其他」最后；被调方跨领域节点保留）。
 
 落档 commit 835aedc；W1 独立 commit ad1015d。全仓测试绿。
+
+### 待办清单（R99 版——R97 版基础上更新：R98/R99 完成项剔除 + 新增推荐项）
+
+**P0——高优先级**：
+- 1. **真实业务系统端到端验证**（最高价值）：R90-R99 全部 grpc 识别
+  形态 + 时序图 pos/过滤/return 线——用户系统多次暴露测试盲区
+- 2. **--with-qa 实战验证**（交接遗留）：qa_history 已积累——
+  `wiki --ai --with-qa` 端到端确认
+- 3. **渲染基准告知设计**（R70 前置就绪）：prompt 告知 AI 渲染基准
+  （域内实体数/调用边 500 上限）
+- 4. **go2o domains.services 人工确认**：30 个服务归属维护者过目
+- 5. **动态 URL 出站调用识别盲区**（R45 实测暴露）：URL 变量拼接 →
+  httpURLString 只认字面量 → http_call 边漏检
+- 6. **术语表 24 条 / flows 5 条 review**（交接遗留）
+
+**P1——中优先级（补全/验证）**：
+- 7. **时序图 filter 扩展到 wiki 入口**（R99 推荐）：filter 现只在
+  query sequence --code——wiki grpc 方法时序图同源消费 CodeSequence，
+  入口统一后过滤自动生效（wiki 侧传 loadSeqFilter）
+- 8. **sequence plantuml 输出文件**（R99 推荐）：--format plantuml 现
+  输出 base64 一行——加 --out 保存 PNG 文件
+- 9. **fallback 明细去重**（R99 推荐）：相同字段路径多次失败重复打印
+  （限量已控刷屏——可加去重与按路径聚合统计）
+- 10. **表字段类型剩余 10 列 / 新人实测演练 / F2 非 DDD 效果**（交接
+  遗留）
+- 11. **external-interfaces http 请求对象判定缺失**（R45 已知局限）
+
+**P2——低优先级/候选**：
+- 12. **config merge 多层嵌套**（R99 推荐）：extractTemplateBlock 现
+  支持 2 层键——3 层以上配置项（如 ai.fill.xxx）需扩展
+- 13. **迁移收尾残余**：query_cli_routes/grpc_composites/precompute 直连
+  sqlite 收紧
+- 14. **流程页深度**（value-trace 串联）/ **服务归属静态兜底改进** /
+  **外部依赖识别形态扩展** / **ER 500 边细分** / **实体对 Top-N**（原
+  P2 候选保留）
 
 ### R97（2026-08-27）——时序图自环修复 + 接口调用数据流具体化
 
