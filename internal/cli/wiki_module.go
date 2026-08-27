@@ -2,8 +2,10 @@ package cli
 
 import (
 	"fmt"
-	"github.com/schaepher/codeintel/internal/action"
+	"sort"
 	"strings"
+
+	"github.com/schaepher/codeintel/internal/action"
 
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
@@ -125,9 +127,15 @@ func renderModulePage(wm *domain.WikiModule, eg *domain.EntityGraph, keyFlows []
 	}
 
 	b.WriteString("## 架构图（包间调用）\n\n")
-	arch := moduleArchMermaid(wm)
-	if arch != "" {
-		b.WriteString(rc.diagramMD(arch))
+	// W4：按领域拆分（每领域一张图——领域内包间调用；无归属 → 「其他」）
+	archs := moduleArchMermaids(wm, cfg.Domains)
+	if len(archs) > 0 {
+		for _, d := range sortedArchKeys(archs) {
+			if len(archs) > 1 {
+				b.WriteString("### 领域 " + d + "\n\n")
+			}
+			b.WriteString(rc.diagramMD(archs[d]))
+		}
 	} else {
 		b.WriteString("（单模块或无线索；整体架构见 index 架构图）\n\n")
 	}
@@ -189,6 +197,61 @@ func moduleArchMermaid(wm *domain.WikiModule) string {
 		b.WriteString(fmt.Sprintf("  %s -->|%d| %s\n", archNode(c.From), c.Count, archNode(c.To)))
 	}
 	return b.String()
+}
+
+// moduleArchMermaids W4：模块包间调用架构图按领域拆分——每领域一张
+// 图（该领域包作为调用方的包间调用边；调用方无领域归属 → 「其他」
+// 图；被调方跨领域节点保留——从 From 领域视角展示调用）。返回
+// 领域名 → mermaid（空 = 无内容）。
+func moduleArchMermaids(wm *domain.WikiModule, doms []wikiDomainCfg) map[string]string {
+	if len(wm.PkgCalls) == 0 {
+		return nil
+	}
+	// 包短名 → 领域名（末段匹配 domains.packages——archLayeredMermaid
+	// 同款映射）
+	pkgDomain := map[string]string{}
+	for _, d := range doms {
+		for _, p := range d.Packages {
+			short := p
+			if i := strings.LastIndex(p, "/"); i >= 0 {
+				short = p[i+1:]
+			}
+			pkgDomain[short] = d.Name
+		}
+	}
+	byDomain := map[string][]*domain.WikiPkgCall{}
+	for _, c := range wm.PkgCalls {
+		d := pkgDomain[c.From]
+		if d == "" {
+			d = "其他"
+		}
+		byDomain[d] = append(byDomain[d], c)
+	}
+	out := map[string]string{}
+	for d, calls := range byDomain {
+		var b strings.Builder
+		b.WriteString("graph LR\n")
+		for _, c := range calls {
+			b.WriteString(fmt.Sprintf("  %s -->|%d| %s\n", archNode(c.From), c.Count, archNode(c.To)))
+		}
+		out[d] = b.String()
+	}
+	return out
+}
+
+// sortedArchKeys 领域图 key 排序（确定性——「其他」最后）。
+func sortedArchKeys(m map[string]string) []string {
+	var keys []string
+	for k := range m {
+		if k != "其他" {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	if _, ok := m["其他"]; ok {
+		keys = append(keys, "其他")
+	}
+	return keys
 }
 
 // archNode mermaid 节点（Q251 补：`[cli]` 纯方括号是非法语法——

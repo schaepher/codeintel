@@ -32,17 +32,20 @@ func renderGrpcServiceMD(rc *wikiRenderCtx, svc action.GrpcRouteService, max int
 	}
 	b.WriteString("\n")
 	expanded, folded := procFold(max, methods)
+	// W2：具体方法折叠（details——展开才看调用链/时序图）
 	for _, p := range expanded {
-		b.WriteString("## " + p.Name + "\n\n")
+		summary := "方法 " + p.Name
 		if p.Handler != "" {
-			b.WriteString("handler：" + p.Handler + "\n\n")
+			summary += "（handler " + p.Handler + "）"
 		}
+		b.WriteString("<details><summary>" + summary + "</summary>\n\n")
 		// R83：代码级时序（源码 AST，depth=rc.SeqDepth）优先；fallback 索引链
 		entryID := ""
 		if svc.ImplID != "" {
 			entryID = action.GrpcMethodEntryID(svc.ImplID, p.Name)
 		}
 		b.WriteString(renderProcSeqMD(rc, entryID, p.Chain, grpcMethodMissNote(p)))
+		b.WriteString("</details>\n\n")
 	}
 	if len(folded) > 0 {
 		b.WriteString(fmt.Sprintf("其余 %d 个方法仅列清单（--max-entries 可调上限）：\n\n", len(folded)))
@@ -86,17 +89,21 @@ func renderGrpcServiceHTML(rc *wikiRenderCtx, svc action.GrpcRouteService, max i
 	}
 	b.WriteString("</tbody></table>")
 	expanded, folded := procFold(max, methods)
+	// W2：具体方法折叠（summary = 方法名 + handler——展开才看调用链/
+	// 时序图；服务名折叠 → 方法折叠两层）
 	for _, p := range expanded {
-		b.WriteString("<h4>" + htmlEsc(p.Name) + "</h4>")
+		summary := "方法 " + htmlEsc(p.Name)
 		if p.Handler != "" {
-			b.WriteString(`<p class="muted">handler：` + htmlEsc(p.Handler) + `</p>`)
+			summary += "——handler " + htmlEsc(p.Handler)
 		}
+		b.WriteString(`<details><summary>` + summary + `</summary>`)
 		// R83：代码级时序优先（fallback 索引链）
 		entryID := ""
 		if svc.ImplID != "" {
 			entryID = action.GrpcMethodEntryID(svc.ImplID, p.Name)
 		}
 		b.WriteString(renderProcSeqHTML(rc, entryID, p.Chain, grpcMethodMissNote(p)))
+		b.WriteString("</details>")
 	}
 	if len(folded) > 0 {
 		b.WriteString(fmt.Sprintf(`<details><summary>其余 %d 个方法仅列清单（--max-entries 可调上限）</summary><ul>`, len(folded)))

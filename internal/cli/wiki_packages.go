@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/schaepher/codeintel/internal/action"
@@ -29,11 +30,15 @@ func renderPackagesHTML(pkgs []*domain.CodeEntity, repo *sqlite.Repo) string {
 	if len(pkgs) == 0 {
 		return ""
 	}
+	// W3：按完整包名排序（同末尾名可区分——折叠点显示完整路径）
+	sort.Slice(pkgs, func(i, j int) bool {
+		return action.SymbolPkg(string(pkgs[i].ID)) < action.SymbolPkg(string(pkgs[j].ID))
+	})
 	var b strings.Builder
 	b.WriteString(`<section id="packages"><h2>包结构</h2><p class="muted">数据源：包节点 doc_comment（代码事实；无说明时展示包内结构体/方法/函数签名）。</p>`)
 	for i, p := range pkgs {
-		// R93：完整包名（同末尾名无法区分）
-		name := p.Name
+		// W3：折叠点显示完整包名（R93 同末尾名无法区分——完整路径）
+		name := action.SymbolPkg(string(p.ID))
 		id := fmt.Sprintf("pkg-%d", i)
 		// R82：每个包 fold-btn 折叠（默认折叠）
 		b.WriteString(fmt.Sprintf(`<h4 class="fold-btn" data-target="%s" data-label="1">▸ <code>%s</code></h4><div class="sec-body" id="%s" style="display:none">`,
@@ -78,11 +83,15 @@ func renderPackagesMD(pkgs []*domain.CodeEntity, repo *sqlite.Repo) string {
 	if len(pkgs) == 0 {
 		return ""
 	}
+	// W3：按完整包名排序
+	sort.Slice(pkgs, func(i, j int) bool {
+		return action.SymbolPkg(string(pkgs[i].ID)) < action.SymbolPkg(string(pkgs[j].ID))
+	})
 	var b strings.Builder
 	b.WriteString("## 包结构\n\n> 数据源：包节点 doc_comment（代码事实；无说明时展示包内结构体/方法/函数签名）。每个包可展开。\n\n")
 	for _, p := range pkgs {
-		// R93：完整包名（同末尾名无法区分）
-		name := p.Name
+		// W3：折叠点显示完整包名（R93 同末尾名无法区分——完整路径）
+		name := action.SymbolPkg(string(p.ID))
 		b.WriteString("<details><summary><code>" + name + "</code></summary>\n\n")
 		doc := action.PackageDoc(p)
 		if doc != "" {
