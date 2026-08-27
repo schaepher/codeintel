@@ -184,6 +184,14 @@ func wikiAIFill(yamlPath string, cfg *wikiConfig, data []*domain.WikiModule, col
 	// 每批累计 ≤ aiBatchMaxCols，go2o 1446 列防 prompt 爆炸；同会话
 	// resume——AI 保留前批上下文）
 	batches := splitGapBatches(mods, tbls, colGaps, aiBatchMaxCols)
+	// 命令执行界面展示：缺口统计 + 调用计划（zap 未初始化是 noop——
+	// 直接 stderr，用户实时可见）
+	totalCols := 0
+	for _, g := range colGaps {
+		totalCols += len(g.cols)
+	}
+	fmt.Fprintf(os.Stderr, "[wiki --ai] 缺口：模块 %d、表别名 %d、列说明 %d 组/%d 列——%d 次 AI 调用\n",
+		len(mods), len(tbls), len(colGaps), totalCols, len(batches))
 	// W3：--with-qa——从历史问答读取相关 Q&A 作参考资料（按缺口
 	// 表名/模块短名匹配，最多 5 条）
 	var qaRefs []string
@@ -192,15 +200,19 @@ func wikiAIFill(yamlPath string, cfg *wikiConfig, data []*domain.WikiModule, col
 	}
 	// R57：ai.fill.glossary=off → prompt 不带术语表段（AI 不生成）
 	withGlossary := aiEnabled("fill.glossary", *cfg)
-	for _, b := range batches {
+	for i, b := range batches {
+		desc := fmt.Sprintf("模块 %d、表别名 %d、列说明 %d 组", len(b.mods), len(b.tbls), len(b.colGaps))
+		fmt.Fprintf(os.Stderr, "[wiki --ai] AI 调用 %d/%d 开始：%s\n", i+1, len(batches), desc)
 		out, err := aiCallOnce(agent, wikiAIBatchPrompt(b.mods, b.tbls, b.colGaps, rels, qaRefs, withGlossary), timeout, repoAbs, parseWikiBatch)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: AI 批量补缺失败: %v\n", err)
+			fmt.Fprintf(os.Stderr, "[wiki --ai] AI 调用 %d/%d 失败：%v\n", i+1, len(batches), err)
 			fail += len(b.mods) + len(b.tbls) + len(b.colGaps)
 			continue
 		}
 		apply(out)
+		fmt.Fprintf(os.Stderr, "[wiki --ai] AI 调用 %d/%d 完成\n", i+1, len(batches))
 	}
+	fmt.Fprintf(os.Stderr, "[wiki --ai] 完成：补全 %d 条、跳过 %d、失败 %d\n", ok, skip, fail)
 	if ok > 0 {
 		if err := e.Save(yamlPath); err != nil {
 			fmt.Fprintf(os.Stderr, "error: 写回 %s: %v\n", yamlPath, err)
@@ -216,48 +228,17 @@ type aiBatchGaps struct {
 	colGaps []aiColGap
 }
 
-// splitGapBatches 缺口分批（方案 A——用户：预期一次 AI 调用）：
-//   - 小缺口（总量 ≤ aiBatchMax 且列名 ≤ maxCols）：全部合并一批——
-//     一次 AI 调用（原行为，测试基准）
-//   - 大缺口（go2o 实测 300+ 条 1446 列）：按类别各一批——模块描述/
-//     表别名各一批（短文本——合并该类全部缺口，一次 AI 请求；原按
-//     条数切 20/批——go2o 148 表别名被切成 8+ 批 → 8+ 次 AI 调用），
-//     列说明按列名数切批（长文本——每批累计 ≤ maxCols 防 prompt 爆
-//     炸；同会话 resume——AI 保留前批上下文）
+// splitGapBatches 缺口分批：全部合并一批——一次 AI 调用（用户明确
+// 预期；原按条数/列名切批——go2o 148 表别名 + 1446 列被切成 10+ 批
+// → 10+ 次 AI 调用）。prompt 过大风险由 AI 调用侧承担（失败最多重试
+// 一次，aiCallOnce 把上次失败结果带回重试 prompt）。
 func splitGapBatches(mods []aiModuleGap, tbls []aiTableGap, colGaps []aiColGap, maxCols int) []aiBatchGaps {
-	totalCols := 0
-	for _, g := range colGaps {
-		totalCols += len(g.cols)
-	}
-	if len(mods)+len(tbls)+len(colGaps) <= aiBatchMax && totalCols <= maxCols {
-		return []aiBatchGaps{{mods: mods, tbls: tbls, colGaps: colGaps}}
-	}
-	var out []aiBatchGaps
-	if len(mods) > 0 {
-		out = append(out, aiBatchGaps{mods: mods})
-	}
-	if len(tbls) > 0 {
-		out = append(out, aiBatchGaps{tbls: tbls})
-	}
-	var cur aiBatchGaps
-	colNames := 0
-	for _, g := range colGaps {
-		if colNames+len(g.cols) > maxCols && len(cur.colGaps) > 0 {
-			out = append(out, cur)
-			cur = aiBatchGaps{}
-			colNames = 0
-		}
-		cur.colGaps = append(cur.colGaps, g)
-		colNames += len(g.cols)
-	}
-	if len(cur.colGaps) > 0 {
-		out = append(out, cur)
-	}
-	return out
+	return []aiBatchGaps{{mods: mods, tbls: tbls, colGaps: colGaps}}
 }
 
-// aiCallOnce 调 AI 并解析：运行失败（CLI 缺失/超时）直接报错跳过；
-// 解析失败重试一次（泛型——desc/alias 返回 string，列说明返回 map）。
+// aiCallOnce 调 AI 并解析：失败最多重试一次（用户要求）——运行失败
+// （CLI 缺失/超时）直接报错跳过；解析失败重试一次，且把上次失败结果
+// （解析错误 + 输出摘要）带回重试 prompt，AI 据此修正格式。
 // dir：子进程 cwd（目标仓库根——agent 读仓库内文件免权限）。
 func aiCallOnce[T any](agent, prompt string, timeout time.Duration, dir string, parse func(string) (T, error)) (T, error) {
 	var zero T
@@ -269,7 +250,14 @@ func aiCallOnce[T any](agent, prompt string, timeout time.Duration, dir string, 
 	if err == nil {
 		return v, nil
 	}
-	resp2, err2 := agentRunner(agent, prompt, timeout, dir)
+	// 重试一次：记录上次失败结果（解析错误 + 输出摘要 ≤2000 字符）
+	failNote := err.Error()
+	prev := resp
+	if len(prev) > 2000 {
+		prev = prev[:2000] + "…（截断）"
+	}
+	retryPrompt := prompt + "\n\n上次输出解析失败：" + failNote + "。请检查 YAML 格式（缩进/引号/字段名）后重新输出完整结果。\n上次输出：\n" + prev
+	resp2, err2 := agentRunner(agent, retryPrompt, timeout, dir)
 	if err2 != nil {
 		return zero, err2
 	}

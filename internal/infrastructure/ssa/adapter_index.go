@@ -43,6 +43,9 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 		logger.Info("build stage",
 			zap.String("stage", name), zap.Duration("elapsed", time.Since(stageStart)),
 			zap.Int64("heap_mb", int64(ms.HeapAlloc>>20)))
+		// 命令执行界面展示（zap 未初始化是 noop——直接 stderr 实时可见）
+		fmt.Fprintf(os.Stderr, "[index] ssa 步骤 %s（%s, heap %dMB）\n",
+			name, time.Since(stageStart).Round(time.Millisecond), int64(ms.HeapAlloc>>20))
 		stageStart = time.Now()
 	}
 

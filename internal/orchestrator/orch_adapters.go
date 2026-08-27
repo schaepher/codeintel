@@ -123,6 +123,7 @@ func (o *Orchestrator) runAdapters(ctx context.Context, pkgs []*packages.Package
 	wg.Wait()
 	logger.Info("orchestrator stage", zap.String("stage", "adapters done"),
 		zap.Duration("elapsed", time.Since(runStart)))
+	fmt.Fprintf(os.Stderr, "[index] 步骤 adapters done（%s）\n", time.Since(runStart).Round(time.Millisecond))
 	close(ch)
 	<-flushed
 	flushWg.Wait()
@@ -130,5 +131,6 @@ func (o *Orchestrator) runAdapters(ctx context.Context, pkgs []*packages.Package
 	o.retryFailedFK(&skipped)
 	logger.Info("orchestrator stage", zap.String("stage", "flush done"),
 		zap.Duration("elapsed", time.Since(runStart)))
+	fmt.Fprintf(os.Stderr, "[index] 步骤 flush done（%s）\n", time.Since(runStart).Round(time.Millisecond))
 	return results, skipped, nil
 }

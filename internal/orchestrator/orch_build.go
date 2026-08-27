@@ -30,6 +30,8 @@ func (o *Orchestrator) FullBuild(ctx context.Context) (*BuildResult, error) {
 	orchStage := func(name string) {
 		logger.Info("orchestrator stage",
 			zap.String("stage", name), zap.Duration("elapsed", time.Since(orchestraStart)))
+		// 命令执行界面展示（zap 未初始化是 noop——直接 stderr 实时可见）
+		fmt.Fprintf(os.Stderr, "[index] 步骤 %s（%s）\n", name, time.Since(orchestraStart).Round(time.Millisecond))
 		orchestraStart = time.Now()
 	}
 	pkgs, err := o.loadPackages(ctx, nil)
