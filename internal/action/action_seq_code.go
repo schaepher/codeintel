@@ -203,9 +203,9 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 	case *ast.BlockStmt:
 		return walkStmts(a, req, fset, src, s.List, tgts, depth, recvType, recvDecl, f, curPkg)
 	case *ast.DeferStmt:
-		return []*CodeSeqNode{callNode(s.Call.Fun, fset.Position(s.Call.Pos()))}
+		return []*CodeSeqNode{callNode(s.Call.Fun, fset.Position(s.Call.Lparen))}
 	case *ast.GoStmt:
-		return []*CodeSeqNode{callNode(s.Call.Fun, fset.Position(s.Call.Pos()))}
+		return []*CodeSeqNode{callNode(s.Call.Fun, fset.Position(s.Call.Lparen))}
 	case *ast.ReturnStmt:
 		var out []*CodeSeqNode
 		for _, r := range s.Results {
