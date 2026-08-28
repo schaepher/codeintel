@@ -17,12 +17,13 @@ import (
 )
 
 // WikiSubdomainCfg 域内子域（R80：AI 归纳——域过大时语义拆分；
-// name/description + 归属包与表）。cli 渲染层经类型别名消费。
+// R100-2：按业务概念划分——不是按包/目录结构；包/表是承载业务概念
+// 的载体，按概念归属）。cli 渲染层经类型别名消费。
 type WikiSubdomainCfg struct {
 	Name        string   `yaml:"name"`
 	Description string   `yaml:"description"`
-	Packages    []string `yaml:"packages"` // 子域归属包（实体子域分组依据）
-	Tables      []string `yaml:"tables"`   // 子域归属表（ER 子域分组依据）
+	Packages    []string `yaml:"packages"` // 承载该业务概念的包（归属校验）
+	Tables      []string `yaml:"tables"`   // 承载该业务概念的表
 }
 
 // WikiDomainCfg 业务域（R34：AI 基于代码事实归纳——名称/描述/归属包与

@@ -119,8 +119,9 @@ func TestWikiFillGlossaryOff(t *testing.T) {
 	}
 }
 
-// TestWikiNoDomains：wiki.yaml 未配置 domains → cmdWiki 拒绝生成
-// （R57：不允许继续往下走——不再自动调 AI）。
+// TestWikiNoDomains：wiki.yaml 未配置 domains → 直接以纯自动模式生成
+// （R100-2：不再拒绝——ER 表前缀分组/服务投票归属/架构图包级模式
+// 全部降级；不自动调 AI）。
 func TestWikiNoDomains(t *testing.T) {
 	dir := seedRoutesProcRepo(t)
 	if err := os.Remove(filepath.Join(dir, "wiki.yaml")); err != nil {
@@ -135,13 +136,17 @@ func TestWikiNoDomains(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "wiki")
 	var code int
 	captureStdout(func() {
-		code = cmdWiki([]string{"--repo", dir, "--out", out})
+		code = cmdWiki([]string{"--repo", dir, "--out", out, "--diagram", "mermaid"})
 	})
-	if code == 0 {
-		t.Error("无 domains 时 cmdWiki 应拒绝生成（非 0）")
+	if code != 0 {
+		t.Errorf("无 domains 时 cmdWiki 应直接生成（纯自动模式）: code=%d", code)
 	}
 	if called {
 		t.Error("无 domains 时不应调用 agentRunner（不自动分析）")
+	}
+	// 产物应实际生成（index.md 存在——纯自动模式不是空跑）
+	if _, err := os.Stat(filepath.Join(out, "index.md")); err != nil {
+		t.Errorf("纯自动模式应产出 index.md: %v", err)
 	}
 }
 

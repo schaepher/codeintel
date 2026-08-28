@@ -116,6 +116,22 @@ func TestDomainPromptExtra(t *testing.T) {
 	}
 }
 
+// TestDomainPromptSubdomainConcept（R100-2）：子域划分按业务概念——
+// 不是按包/目录/调用密度划分（用户要求：domains 划分子域要有明确的
+// 业务概念域）。
+func TestDomainPromptSubdomainConcept(t *testing.T) {
+	p := DomainPrompt("facts.json", "")
+	if !strings.Contains(p, "业务概念") {
+		t.Errorf("prompt 应要求子域按业务概念划分:\n%s", p)
+	}
+	if strings.Contains(p, "调用密集的包组归同一子域") {
+		t.Error("prompt 不应指导按包调用密度划分子域")
+	}
+	if strings.Contains(p, "包间调用稀疏处是子域边界") {
+		t.Error("prompt 不应以包间调用稀疏处作为子域边界")
+	}
+}
+
 // TestDomainPromptRenderLimit：R71——prompt 告知渲染基准（域内实体数/
 // 调用边 500 上限——AI 输出 domains 时自带子域划分与过大判断）。
 func TestDomainPromptRenderLimit(t *testing.T) {

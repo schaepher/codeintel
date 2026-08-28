@@ -146,13 +146,12 @@ func cmdWiki(args []string) int {
 			return 1
 		}
 	}
-	// R57：业务域前置检查——wiki.yaml（或 --yaml）必须配置 domains，
-	// 否则不允许继续生成（不再自动调 AI 分析：domains 是 AI 初稿 →
-	// 人工确认的契约，未配置说明未完成确认）。生成手段：先跑
-	// `codeintel domains --prompt "<约束>"` 或手动在 wiki.yaml 配置
+	// R100-2：domains 可选——未配置时以纯自动模式生成（不再拒绝：
+	// ER 表前缀分组/服务投票归属/架构图包级模式全部降级）。配置手段：
+	// `codeintel domains --prompt "<约束>"` 生成 AI 初稿并确认，或手动
+	// 在 wiki.yaml 配置 domains 区块
 	if len(cfg.Domains) == 0 && !initOnly {
-		fmt.Fprintf(os.Stderr, "error: wiki.yaml 未配置 domains（业务域）——不允许生成。请先运行 `codeintel domains --prompt \"<用户约束>\"` 生成 AI 初稿并确认，或手动在 wiki.yaml 配置 domains 区块\n")
-		return 1
+		fmt.Fprintln(os.Stderr, "warning: wiki.yaml 未配置 domains（业务域）——以纯自动模式生成（无 AI 业务域分组；可运行 `codeintel domains --prompt \"<用户约束>\"` 后重新生成）")
 	}
 	// yaml 模块白名单：列出则只生成这些模块（fixture/子模块噪音过滤）
 	if len(cfg.Modules) > 0 {
