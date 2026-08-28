@@ -1531,6 +1531,23 @@ SendStmt/SelectStmt/LabeledStmt 新增 case（commExprText 处理 Comm
 的 ExprStmt/SendStmt/AssignStmt 三种包装形态）。return foo() 本身
 调用已显示（无 return 线——S2 return 线服务于分支内返回，行为不变）。
 
+### R100-3（2026-08-28）——domains 子域业务概念划分 + wiki 无 domains 直接生成
+
+用户两项要求：
+- **domains 划分子域不要按包划分**：prompt 第 8 条（pkg_calls 辅助）
+  与第 12 条（子域指导）从"调用密集包组同子域、稀疏处是边界"改为
+  "按业务概念划分（订单域的「订单核心」「结算」「库存」）——不是按
+  包/目录结构、不是按调用密度；包/表是承载业务概念的载体按概念归
+  属"。WikiSubdomainCfg 注释同步（归属校验结构不变——仍带
+  packages/tables，只是 AI 划分依据变了）。
+- **wiki 未跑 domains 直接执行不报错**：R57 前置检查（无 domains 拒绝
+  生成）改为 warning——纯自动模式生成（ER 表前缀分组/服务投票归属/
+  架构图包级模式全部降级路径已有），产物正常产出；不自动调 AI。
+
+测试：TestDomainPromptSubdomainConcept（prompt 含业务概念指导、不含
+调用密度划分措辞）；TestWikiNoDomains 反转（生成成功 + index.md 产物
+存在 + 不调 agentRunner）。
+
 **待办更新**：完成项剔除见待办清单（R100 版）。
 
 ### R98（2026-08-27）——P0 三项（dispatch 增量/数据流扩展/参与者类型）+ 迁移收尾批次 4-6
