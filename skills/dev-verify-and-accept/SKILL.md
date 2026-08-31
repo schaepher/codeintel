@@ -1,7 +1,7 @@
 ---
 name: dev-verify-and-accept
 license: 'MIT'
-description: 交付前真实验证产物，双向核对工具输出与源码真值，并用真实大仓库验收
+description: 交付验证门禁：真实渲染/测量、双向核对、真实仓库验收。功能完成待交付时自行验证
 ---
 
 # 交付验证与验收门禁

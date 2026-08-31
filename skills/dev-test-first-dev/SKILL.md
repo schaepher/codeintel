@@ -1,7 +1,7 @@
 ---
 name: dev-test-first-dev
 license: 'MIT'
-description: 测试先行开发：先写测试再实现，全量回归后 git push，复杂需求先设计树访谈
+description: 测试先行开发：先写测试再实现，全量回归后 git push。开始新功能或修 bug 时自行遵循
 ---
 
 # 测试先行开发工作流
