@@ -49,9 +49,10 @@ if [ "${1:-}" = "--changed" ]; then
   # 时回退全量（安全）。pre-commit hook 用；quick 全量兜底。
   echo "== go test（增量：变更包 + 依赖它们的包）=="
   changed_pkgs=$(
-    { git diff --name-only HEAD; git ls-files --others --exclude-standard; } 2>/dev/null \
+    { git diff --name-only --diff-filter=ACMR HEAD; git ls-files --others --exclude-standard; } 2>/dev/null \
       | grep '\.go$' \
       | while read -r f; do
+          [ -f "$f" ] || continue # 已删除文件无目录可 cd
           d=$(dirname "$f")
           [ -f "$d/go.mod" ] && continue # go.mod 所在目录是模块根非包
           (cd "$d" && go list . 2>/dev/null)
