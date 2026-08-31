@@ -1,14 +1,13 @@
 ---
 name: dev-crystallize-knowledge
 license: 'MIT'
-description: '知识固化仪式：坑/测试基建→AGENTS.md、设计决策→设计文档+memory、CLI 用法→skill 三同步；环境 workaround 同一轮改动内落档（否则必重踩）；每轮收尾固定输出状态四要素（HEAD/交付/未完成/下一步）；术语表一次性定稿锁定为引用物；文档更新带"必要性"护栏。当踩了新坑、完成功能、或跨会话交接时使用本 skill。沉淀自 codeintel 项目复盘（Bash/COALESCE 重踩教训、"当前状态"被问 5 次）。'
+description: '知识固化仪式：坑/测试基建→AGENTS.md、设计决策→设计文档+memory、CLI 用法→skill 三同步；环境 workaround 同一轮改动内落档（否则必重踩）；每轮收尾固定输出状态四要素（HEAD/交付/未完成/下一步）；术语表一次性定稿锁定为引用物；文档更新带"必要性"护栏。当踩了新坑、完成功能、或跨会话交接时使用本 skill。'
 ---
 
 # 知识固化仪式
 
-复盘结论：**实践/坑/契约随代码同步沉淀，跨会话知识不丢**。反之，
-workaround 未当场落档必然重踩（Bash workaround 重踩一次、COALESCE
-坑三次复发、/tmp 配额三次）。
+实践/坑/契约随代码同步沉淀，跨会话知识不丢；反之，workaround 未当场
+落档必然重踩。本 skill 规定固化路径与收尾汇报仪式。
 
 ## 一、三同步：AGENTS.md / skill / 文档
 
@@ -19,12 +18,11 @@ workaround 未当场落档必然重踩（Bash workaround 重踩一次、COALESCE
 | CLI 用法、重复流程 | skill（scripts 放 skill 内） | 附新增命令/参数 |
 
 **关键规则：环境 workaround 必须同一轮改动内落档**——"这个警告过的坑
-要积累到 AGENTS.md""加入 AGENTS.md，下次碰到就这样解决"。
+要积累到 AGENTS.md""下次碰到就这样解决"。
 
 ## 二、每轮收尾状态汇报（四要素）
 
-每轮结束固定输出，避免"当前状态"被反复追问（曾 5 次"当前状态"、
-8 次"继续"）：
+每轮结束固定输出，避免"当前状态"被反复追问：
 
 1. **HEAD/工作区状态**（`git status`、后台进程）
 2. **本轮交付**（commit 列表）
@@ -54,8 +52,8 @@ workaround 未当场落档必然重踩（Bash workaround 重踩一次、COALESCE
 ## 五、术语表一次性定稿
 
 - 术语表单独一轮定稿并锁定为"引用物"，后续只补充新术语
-- 防跨会话口径漂移（mch/sku 术语跨批重复、relation_* 译三种口径、
-  4/8 术语误收为列名——都源于无定稿术语表）
+- 防跨会话口径漂移（同一概念多轮译名不一、术语被误收为数据字段——
+  都源于无定稿术语表）
 
 ## 六、交接文档（配合 dev-handoff skill）
 
@@ -66,7 +64,5 @@ workaround 未当场落档必然重踩（Bash workaround 重踩一次、COALESCE
 
 ## 已知坑
 
-- 每次复盘结论（如"AI 为什么反复需要用户提醒 bug 位置"）也应写入
-  AGENTS.md，形成自我改进闭环
-- 批量任务数据源切换（如 wiki 数据源改为 action）要同步更新文档，
-  否则新会话按旧数据源继续
+- 每次复盘结论也应写入 AGENTS.md，形成自我改进闭环
+- 批量任务数据源切换要同步更新文档，否则新会话按旧数据源继续

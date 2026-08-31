@@ -6,14 +6,13 @@ description: 'Go 文件行数治理：把超过 300 行的文件拆分到 ≤300
 
 # Go 文件行数治理（≤300 行 + 孤立注释清理）
 
-流程沉淀自 Q231（拆分）与 Q232（孤立注释清理）。分四步：检测 → 拆分
-大文件 → 清理注释 → 验证。
+分四步：检测 → 拆分大文件 → 清理注释 → 验证。
 
 ## 1. 检测
 
 ```bash
-scripts/find-large-files.sh            # 列出 >300 行 Go 文件（默认 internal）
-scripts/find-misplaced.py              # 列出孤立/错位注释（默认 internal）
+scripts/find-large-files.sh            # 列出 >300 行 Go 文件（默认 internal .）
+scripts/find-misplaced.py              # 列出孤立/错位注释（默认 internal .）
 ```
 
 `find-misplaced.py` 输出判定：
@@ -76,13 +75,13 @@ go test ./...                             # 全量测试（或项目既有的 ma
 
 ## 已知坑
 
-- **跨包同名函数**（relPath/isInModule/findNode 等各包独立实现）注释相同
+- **跨包同名函数**（如 relPath/isInModule/findNode 等各包独立实现）注释相同
   是复制不是残留——find-misplaced 已限定同包定义，勿跨包处理
 - **行数收敛的副作用**：删注释只减行数；方法抽取的签名/日志开销可能使
-  行数不减反增（emitElementOp 初抽 312 > 310）——移到行数余量大的文件
-- **文件尾孤立注释**（方法拆走注释残留、与实现文件重复）——Q231 案例
-  repo.go 尾部 130 行；`find-misplaced.py` 全覆盖（不限文件尾）
-- 运行前 `git checkout -- internal/` 可回滚脚本误操作；脚本执行前先
+  行数不减反增——移到行数余量大的文件
+- **文件尾孤立注释**（方法拆走注释残留、与实现文件重复）——
+  `find-misplaced.py` 全覆盖（不限文件尾）
+- 运行前 `git checkout -- <目录>` 可回滚脚本误操作；脚本执行前先
   dry-run 预览
 
 ## 配套
