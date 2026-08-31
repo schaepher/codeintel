@@ -1,7 +1,7 @@
 ---
 name: dev-handoff
 license: 'MIT'
-description: '生成交接文档：把当前会话总结成一份新 agent 可续作的文档，保存到 OS 临时目录（非 workspace）。包含 Suggested Skills 部分；引用而非重复既有工件（specs/文档/commit）；脱敏敏感信息。当用户说「handoff」「写交接文档」「Write a handoff document」或要求会话交接时使用本 skill。'
+description: '生成交接文档：把当前会话总结成一份新 agent 可续作的文档，保存到 OS 临时目录（非 workspace）。包含 Suggested Skills 部分；引用而非重复既有工件（specs/文档/commit）；脱敏敏感信息。'
 ---
 
 # 交接文档（handoff）

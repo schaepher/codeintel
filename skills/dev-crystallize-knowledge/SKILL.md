@@ -1,7 +1,7 @@
 ---
 name: dev-crystallize-knowledge
 license: 'MIT'
-description: '知识固化仪式：坑/测试基建→AGENTS.md、设计决策→设计文档+memory、CLI 用法→skill 三同步；环境 workaround 同一轮改动内落档（否则必重踩）；每轮收尾固定输出状态四要素（HEAD/交付/未完成/下一步）；术语表一次性定稿锁定为引用物；文档更新带"必要性"护栏。当踩了新坑、完成功能、或跨会话交接时使用本 skill。'
+description: '知识固化仪式：坑/测试基建→AGENTS.md、设计决策→设计文档+memory、CLI 用法→skill 三同步；环境 workaround 同一轮改动内落档（否则必重踩）；每轮收尾固定输出状态四要素（HEAD/交付/未完成/下一步）；术语表一次性定稿锁定为引用物；文档更新带"必要性"护栏。'
 ---
 
 # 知识固化仪式
