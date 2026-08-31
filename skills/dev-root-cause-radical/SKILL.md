@@ -2,6 +2,8 @@
 name: dev-root-cause-radical
 license: 'MIT'
 description: 按根因链排查并根治反复出现的 bug，用结构化编辑代替正则盲改。同一类问题反复出现或发现 AI 在打补丁时自行启用
+argument-hint: "需要根治的反复 bug 是哪个？"
+disable-model-invocation: true
 ---
 
 # 根因链式排查与根治

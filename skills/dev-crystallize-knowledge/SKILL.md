@@ -2,6 +2,8 @@
 name: dev-crystallize-knowledge
 license: 'MIT'
 description: 把坑/决策/用法同步固化到 AGENTS.md、设计文档与 skill，并规范收尾汇报。踩新坑、完成功能或跨会话交接时自行固化
+argument-hint: "要固化的坑/决策/用法是什么？"
+disable-model-invocation: true
 ---
 
 # 知识固化仪式

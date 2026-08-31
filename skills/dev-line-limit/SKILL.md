@@ -2,6 +2,8 @@
 name: dev-line-limit
 license: 'MIT'
 description: 拆分超过 300 行的 Go 文件，并清理拆分残留的孤立/错位注释
+argument-hint: "需要拆分的文件是哪些？"
+disable-model-invocation: true
 ---
 
 # Go 文件行数治理（≤300 行 + 孤立注释清理）

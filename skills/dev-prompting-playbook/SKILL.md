@@ -2,6 +2,8 @@
 name: dev-prompting-playbook
 license: 'MIT'
 description: 为批量生成任务写封闭式提示词：六要素一次打包、只输出 YAML、防幻觉、分批重试。需要 AI 批量生成文档/注释/别名/描述时自行采用
+argument-hint: "本次批量生成任务是什么？"
+disable-model-invocation: true
 ---
 
 # 封闭式提示词打法（生成型批量任务）
