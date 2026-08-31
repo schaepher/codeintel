@@ -3,7 +3,7 @@ name: dev-handoff
 license: 'MIT'
 description: 把当前会话总结成一份新 agent 可续作的交接文档
 argument-hint: "What will the next session be used for?"
-disable-model-invocation: true
+disable-model-invocation: false
 ---
 
 把当前会话总结成交接文档，保存到 OS 临时目录（非 workspace），供新 agent 续作。

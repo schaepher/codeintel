@@ -3,7 +3,7 @@ name: dev-test-first-dev
 license: 'MIT'
 description: 测试先行开发：先写测试再实现，全量回归后 git push。开始新功能或修 bug 时自行遵循
 argument-hint: "要开发的功能或要修的 bug 是什么？"
-disable-model-invocation: true
+disable-model-invocation: false
 ---
 
 # 测试先行开发工作流

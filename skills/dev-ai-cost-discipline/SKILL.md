@@ -3,7 +3,7 @@ name: dev-ai-cost-discipline
 license: 'MIT'
 description: 为真实 AI 调用声明预算、单条验证、全量一次，并规范工具使用纪律。任务涉及多次真实 AI/工具调用时自行预算与降级
 argument-hint: "计划中的真实 AI 调用有哪些？"
-disable-model-invocation: true
+disable-model-invocation: false
 ---
 
 # AI 成本与工具纪律护栏

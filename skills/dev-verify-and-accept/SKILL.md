@@ -3,7 +3,7 @@ name: dev-verify-and-accept
 license: 'MIT'
 description: 交付验证门禁：真实渲染/测量、双向核对、真实仓库验收。功能完成待交付时自行验证
 argument-hint: "待交付验证的产物是什么？"
-disable-model-invocation: true
+disable-model-invocation: false
 ---
 
 # 交付验证与验收门禁
