@@ -11,8 +11,10 @@ REPO="${1:-.}"
 ROOT="$(cd "$REPO" && git rev-parse --show-toplevel)"
 cd "$ROOT" || exit 1
 
-# staged 的 .go 文件（新增/修改/复制；删除/改名不需检查）
-FILES="$(git diff --cached --name-only --diff-filter=ACM -- '*.go')"
+# staged 的 .go 文件（新增/修改/复制；删除/改名不需检查）。
+# skills/ 目录排除：随技能分发的工具源码（asttool 等）非项目自身代码，
+# 不受 300 行规则约束（行数治理针对项目代码）。
+FILES="$(git diff --cached --name-only --diff-filter=ACM -- '*.go' | grep -v '^skills/') "
 [ -z "$FILES" ] && exit 0
 
 BAD=""
