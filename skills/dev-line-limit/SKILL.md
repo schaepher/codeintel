@@ -1,94 +1,18 @@
 ---
 name: dev-line-limit
 license: 'MIT'
-description: '拆分超过 300 行的 Go 文件，并清理拆分残留的孤立/错位注释。'
+description: 拆分超过 300 行的 Go 文件，并清理拆分残留的孤立/错位注释。
 ---
 
 # Go 文件行数治理（≤300 行 + 孤立注释清理）
 
-分四步：检测 → 拆分大文件 → 清理注释 → 验证。
+1. **检测**
+   - `scripts/find-large-files.sh`：列出 >300 行 Go 文件
+   - `scripts/find-misplaced.py`：孤立/错位注释判定——`DUP-DEF` 删残留、`MOVE` 搬移、`SELF-DEF` 正常保留、`NO-SAME-PKG-DEF` 误报
+2. **拆分**（asttool 自带 go.mod，`cd <skill>/scripts/asttool && go run .` 或 `go run ./skills/dev-line-limit/scripts/asttool`）
+   - `funcsize <file>` 看函数/方法行数分布 → `analyze <file>` 看声明清单 → `split <src.go> <out.go>:Name1,Name2` 按主题搬移
+   - 拆后 `goimports -w` 清理 unused import
+3. **清理注释**：`fix-comments.py --apply` 删 DUP-DEF；`--move` 搬 MOVE 到定义前（带断言：源段落全为注释/空行，误伤即中断）
+4. **验证**：`scripts/verify.sh`（gofmt + build + 超行/孤立复查）+ `go test ./...`
 
-## 1. 检测
-
-```bash
-scripts/find-large-files.sh            # 列出 >300 行 Go 文件（默认 internal .）
-scripts/find-misplaced.py              # 列出孤立/错位注释（默认 internal .）
-```
-
-`find-misplaced.py` 输出判定：
-
-| 判定 | 含义 | 处理 |
-|---|---|---|
-| `DUP-DEF(文件:行)` | 同包定义在其他文件，定义处已有相同注释 | 删残留（`fix-comments.py --apply`） |
-| `MOVE(文件:行)` | 同包定义在其他文件，定义处无注释 | 搬移（`fix-comments.py --move`） |
-| `SELF-DEF` | 定义在本文件 | 正常文档，保留 |
-| `NO-SAME-PKG-DEF` | 同包无定义（const 块内字段注释等） | 误报，保留 |
-
-## 2. 拆分大文件（>300 行）
-
-asttool 随 skill 提供（scripts/asttool，自带 go.mod 自包含）。在
-目标仓库内用相对路径 `go run ./skills/dev-line-limit/scripts/asttool`
-（若项目 go.mod 已含 golang.org/x/tools）；也可直接
-`cd <skill 路径>/scripts/asttool && go run .`（不依赖目标仓库的
-依赖）。建议先 `cd <目标仓库>` 再运行（analyze/split 只读/写当前
-目录下的文件）：
-
-```bash
-# 1) 查看声明清单，规划按主题分组
-go run ./skills/dev-line-limit/scripts/asttool analyze <pkg>/<file>.go
-
-# 0) 先看函数/方法行数分布（哪个是大头——决定拆文件还是拆函数）
-go run ./skills/dev-line-limit/scripts/asttool funcsize <pkg>/<file.go...>
-# 输出：行数降序 | 名称（方法为 (Receiver).Name）| 起止行
-
-# 2) 按主题分组拆分（out 文件新建；保留原文件的声明）
-go run ./skills/dev-line-limit/scripts/asttool split <src.go> \
-  <out1.go>:Name1,Name2 <out2.go>:Name3,...
-
-# 3) import 清理（split 保留原文件 import 全集——unused import）
-goimports -w <改动文件>
-
-# 4) 跨主题方法手动移动（split 只新建文件；如进度方法并入已有文件）
-```
-
-## 3. 清理孤立注释
-
-```bash
-scripts/find-misplaced.py                # dry-run 预览
-scripts/fix-comments.py --apply          # 删 DUP-DEF 残留（安全：实现文件有副本）
-scripts/fix-comments.py --move           # 搬 MOVE 注释到同包定义文件定义前
-```
-
-`--move` 带断言：源段落必须全为注释/空行（误伤即中断不写文件）；目标
-定义前 3 行内有同名注释则只删源不插入（防重复）；同文件按行号从后往前
-处理（删除偏移）。
-
-搬移后复查：`find-misplaced.py` 可能报「搬移挤开的相邻注释」（插入点
-前已有其他方法注释）——把被挤开的注释移到各自定义前（内容匹配移动）。
-
-## 4. 验证
-
-```bash
-scripts/verify.sh                         # gofmt + build + 超行复查 + 孤立复查
-go test ./...                             # 全量测试（或项目既有的 make test，交付前）
-```
-
-## 已知坑
-
-- **跨包同名函数**（如 relPath/isInModule/findNode 等各包独立实现）注释相同
-  是复制不是残留——find-misplaced 已限定同包定义，勿跨包处理
-- **行数收敛的副作用**：删注释只减行数；方法抽取的签名/日志开销可能使
-  行数不减反增——移到行数余量大的文件
-- **文件尾孤立注释**（方法拆走注释残留、与实现文件重复）——
-  `find-misplaced.py` 全覆盖（不限文件尾）
-- 运行前 `git checkout -- <目录>` 可回滚脚本误操作；脚本执行前先
-  dry-run 预览
-
-## 配套
-
-- 本 skill 自带工具与脚本：scripts/asttool（analyze/funcsize/split/orphan/rename，
-  自带 go.mod 自包含）+ scripts/（find-large-files.sh / find-misplaced.py /
-  fix-comments.py / verify.sh）
-- 安装：把本目录拷入新项目 `skills/dev-line-limit/`（随仓库版本化），或软链到
-  `~/.claude/skills/dev-line-limit`（Claude Code）／`~/.agents/skills/dev-line-limit`
-  （pi）供全局发现；改动后无需重新软链
+坑：跨包同名函数注释相同是复制不是残留（勿跨包处理）；方法抽取的行数开销可能使行数不减反增——移到行数余量大的文件；脚本操作前先 dry-run 预览。
