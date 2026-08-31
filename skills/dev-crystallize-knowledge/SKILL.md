@@ -43,13 +43,21 @@ workaround 未当场落档必然重踩（Bash workaround 重踩一次、COALESCE
 - skill：相关 skill 落档新命令/参数
 - 待办：勾选/新增
 
-## 四、术语表一次性定稿
+## 四、临时脚本落盘（一次性脚本可复用）
+
+- 一次性分析/修补脚本（数据聚合、图表生成、代码修补）先写入
+  `<项目根>/tmp/<name>.py`（或 .sh）**再执行**，落盘可复用，避免每次
+  重写（内联 heredoc 会话结束即失）
+- tmp/ 已被 .gitignore 忽略，不影响仓库
+- 正式工具脚本（长期维护）才放 scripts/ 下
+
+## 五、术语表一次性定稿
 
 - 术语表单独一轮定稿并锁定为"引用物"，后续只补充新术语
 - 防跨会话口径漂移（mch/sku 术语跨批重复、relation_* 译三种口径、
   4/8 术语误收为列名——都源于无定稿术语表）
 
-## 五、交接文档（配合 dev-handoff skill）
+## 六、交接文档（配合 dev-handoff skill）
 
 - 用 dev-handoff skill 生成六节交接文档（交付/状态/遗留/约定/Suggested
   Skills/敏感信息）
