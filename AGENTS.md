@@ -70,7 +70,7 @@ internal/cli        internal/action            internal/infrastructure
    `scripts/verify.sh --quick`（build + vet + 非 race 全量单测）——
    本仓库已装 pre-commit hook（`scripts/install-precommit.sh`）自动
    执行，失败拒绝提交；hook 先跑 `scripts/check-file-size.sh`
-   （staged Go 文件 >300 行拒绝，提示用 line-limit skill 拆分——
+   （staged Go 文件 >300 行拒绝，提示用 dev-line-limit skill 拆分——
    §85）；全量基线（-race 逐包）手动跑 `scripts/verify.sh`。
    `scripts/dbdiag.sh`（sqlite 库健康诊断）、`scripts/assert_replace.py`
    （带断言替换，杜绝静默失败）详见事前树 prevention-tree.md。

@@ -18,7 +18,7 @@ cat > "$HOOK" << HOOK_EOF
 #!/bin/sh
 # codeintel 提交前快速验证（自动生成，scripts/install-precommit.sh）
 unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE # pre-commit 环境变量泄漏防护
-# 文件行数检查（>300 行拒绝，提示用 line-limit skill 拆分）
+# 文件行数检查（>300 行拒绝，提示用 dev-line-limit skill 拆分）
 if ! "$ROOT/scripts/check-file-size.sh" "$ROOT"; then
   exit 1
 fi

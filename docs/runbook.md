@@ -14,7 +14,7 @@
 | 4 | pgrep 误杀自己（进程自杀） | 用 `pgrep -x <名>` + kill，不用 `pgrep -f` | `-f` 匹配整条命令行，会匹配自身。预防：精确进程名 |
 | 5 | `schema version mismatch` | 加表类变更：新版本自动补建（Q235-3），直接打开；列变更：`codeintel clean --repo X --force` + init | schema 变更（Q235-3 后仅减法需 clean）。预防：见 field_trace.md Q235-3 |
 | 6 | `query relations --all` 返回进度而非数据 | 先 `codeintel precompute relations --repo X`（或 serve 兜底后台计算） | Q228 进度协议：全量不再现场算。预防：precompute 后查询 |
-| 7 | `go run ./skills/...` 报 `outside main module` | 用仓库真实路径 go run（软链路径仅 skill 发现用） | go module 从软链路径解析失败。预防：见 line-limit SKILL.md |
+| 7 | `go run ./skills/...` 报 `outside main module` | 用仓库真实路径 go run（软链路径仅 skill 发现用） | go module 从软链路径解析失败。预防：见 dev-line-limit SKILL.md |
 | 8 | 查询结果陈旧（改了代码没反映） | `codeintel update --repo X`（增量）或 reindex | 索引未更新。预防：改代码后 update |
 | 9 | `sqlite busy / locked` | 停冲突进程重试；确认无残留 serve/计算进程 | 单写者连接池（_busy_timeout=5000）。预防：不并发写 |
 | 10 | python 替换脚本静默不生效 | 替换前 `assert old in s` | `str.replace` 找不到串不报错。预防：脚本前置断言（Q225/Q226 教训） |
