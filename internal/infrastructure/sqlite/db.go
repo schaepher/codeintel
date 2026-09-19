@@ -37,7 +37,17 @@ func Open(repoPath string) (*DB, error) {
 	}
 	// 纯 Go 驱动（modernc.org/sqlite，driver 名 "sqlite"）：pragma 用
 	// _pragma=name(value) 形式（busy_timeout 单写者 + WAL + 外键）。
-	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)",
+	//
+	// Q246 调参（构建写多读少、库达数百 MB / 十余索引）：
+	//   - cache_size(-131072)：SQLite 默认 2000 页 = 8MB，对 300MB 库 +
+	//     12 个索引严重不足（b-tree 页反复换入换出）。128MB 按需分配
+	//     （不是启动即占），单点收益最高的一项。
+	//   - synchronous(NORMAL)：WAL 下提交不再逐次 fsync，仅 checkpoint
+	//     时同步——应用层崩溃（进程被杀）不会损坏库，仅掉电/OS 崩溃可能
+	//     丢最后几个事务（SQLite 官方推荐 WAL+ NORMAL 组合）。
+	//      不用 OFF（丧失崩境保护，本仓库已有 WAL 损坏的 runbook 教训）。
+	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"+
+		"&_pragma=cache_size(-131072)&_pragma=synchronous(NORMAL)",
 		filepath.Join(dir, "codeintel.db"))
 	raw, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -108,6 +118,11 @@ func (db *DB) init() error {
 	// Q220c：配置表幂等补建（旧库自动获得 relation_rules，不要求 clean）
 	if _, err := db.Exec(configSchema); err != nil {
 		return fmt.Errorf("create config schema: %w", err)
+	}
+	// Q246：删除无用索引（幂等）——CREATE INDEX 无法表达减法，旧库须显式
+	// DROP（schema.go 已不再建它；新库上为 no-op）。索引名可继续存在。
+	if _, err := db.Exec(`DROP INDEX IF EXISTS idx_nodes_signature`); err != nil {
+		return fmt.Errorf("drop unused index: %w", err)
 	}
 	// 结构齐全性检查：期望列 ⊆ 实际列（缺表已补建；缺列=破坏性变更
 	// 幂等 DDL 无法表达 → 报错提示 clean）

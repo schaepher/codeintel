@@ -92,13 +92,16 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 
 	a.fd = map[domain.CanonicalID]*funcData{}
 	fallbackAgg := newFallbackAgg()
-	// 接口动态派发候选枚举用（⑮：模块内类型池）
+	// 接口动态派发候选枚举用（⑮：模块内类型池）——Q246：池与结果 memo
+	// Index 级构建一次（旧的 implMethodsFor 每个调用点重扫全部包 scope）
 	var typePkgs []*types.Package
 	for _, p := range pkgs {
 		if p.Types != nil {
 			typePkgs = append(typePkgs, p.Types)
 		}
 	}
+	implPool := newImplTypePool(typePkgs, repo.Modules)
+	logger.Info("impl type pool", zap.Int("types", implPool.Len()))
 
 	// Q211：orm.Mapping 实体类型→表名收集（发射前全量扫描——Mapping
 	// 可能在包 A 注册、包 B 使用；emitFunction 按包并发期间只读）
@@ -199,30 +202,33 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	// 阶段 B（并行）：未命中包拆块 → 全局 worker 池
 	type fnBlock struct {
 		pkgPath string
+		idx     int // 包内块序号（块产物按序拼接写入缓存——并发完成顺序不定）
 		fns     []*ssa.Function
 	}
 	var blocks []fnBlock
+	pkgBlockCount := map[string]int{}
 	for _, pkgPath := range pkgOrder {
 		if cachedPkgs[pkgPath] {
 			continue
 		}
 		fns := byPkg[pkgPath]
+		n := 0
 		for start := 0; start < len(fns); start += blockSize {
 			end := start + blockSize
 			if end > len(fns) {
 				end = len(fns)
 			}
-			blocks = append(blocks, fnBlock{pkgPath: pkgPath, fns: fns[start:end]})
+			blocks = append(blocks, fnBlock{pkgPath: pkgPath, idx: n, fns: fns[start:end]})
+			n++
 		}
+		pkgBlockCount[pkgPath] = n
 	}
-	// 包级产物收集（写缓存用）：map[pkgPath] → 该包全部块产物
-	type pkgCollect struct {
-		nodes []*domain.CodeEntity
-		facts []*domain.Fact
-		fd    map[domain.CanonicalID]*funcData
-	}
+	// 包级产物收集（写缓存用）：map[pkgPath] → 该包全部块产物。Q246：
+	// 每个包**最后一块**完成即落盘写缓存并释放（原实现把全量产物留到
+	// wg.Wait() 后统一写——go2o 实测占了峰值堆的近 1GB，3GB 机器上直接
+	// 换页/OOM）。落盘在锁外（写文件不阻塞其他块）。
 	var collectMu sync.Mutex
-	pkgCols := map[string]*pkgCollect{}
+	colSet := newPkgCollectSet(repo.Path, pkgBlockCount, pkgHashes)
 	blockStart := time.Now()
 	for _, blk := range blocks {
 		wg.Add(1)
@@ -244,7 +250,7 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 				return emit(item)
 			}
 			for _, fn := range blk.fns {
-				owner, fd, err := emitFunction(repo, prog, fn, idents, assignTargets, specs, fallbackAgg, pkgEmit, typePkgs, &a.dispatchRegs, a.regHits, a.typeMapping)
+				owner, fd, err := emitFunction(repo, prog, fn, idents, assignTargets, specs, fallbackAgg, pkgEmit, implPool, &a.dispatchRegs, a.regHits, a.typeMapping)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "emitFunction %s: %v\n", fn.Name(), err)
 					return
@@ -254,19 +260,21 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 					mergeFuncData(&fdMu, a.fd, owner, fd)
 				}
 			}
-			// 块产物并入包级收集
+			// 块产物按块序号存入包收集器；该包最后一块到达 → 整包写缓存
 			collectMu.Lock()
-			pc := pkgCols[blk.pkgPath]
-			if pc == nil {
-				pc = &pkgCollect{fd: map[domain.CanonicalID]*funcData{}}
-				pkgCols[blk.pkgPath] = pc
-			}
-			pc.nodes = append(pc.nodes, blkNodes...)
-			pc.facts = append(pc.facts, blkFacts...)
-			for id, cfd := range blkFD {
-				pc.fd[id] = cfd
+			pc := colSet.get(blk.pkgPath)
+			pc.blocks[blk.idx] = blkNodes
+			pc.facts[blk.idx] = blkFacts
+			pc.fd[blk.idx] = blkFD
+			pc.done++
+			ready := pc.done == pc.total
+			if ready {
+				colSet.release(blk.pkgPath) // 释放：后续块不会再引用
 			}
 			collectMu.Unlock()
+			if ready {
+				pc.save()
+			}
 			doneMu.Lock()
 			doneFuncs += len(blk.fns)
 			done := doneFuncs
@@ -280,17 +288,11 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 		}(blk)
 	}
 	wg.Wait()
-	// 阶段 C（串行）：保存各包缓存
-	for pkgPath, pc := range pkgCols {
-		if hash := pkgHashes[pkgPath]; hash != "" {
-			savePkgCache(pkgCachePath(repo.Path, pkgPath), hash, pc.nodes, pc.facts, pc.fd)
-		}
-	}
 	logger.Info("pkg cache", zap.Int("hits", cacheHits), zap.Int("total", len(pkgOrder)))
 	stage("emitFunction 循环（全库函数块池 + 缓存）")
 
 	// Q231：构建收尾（alias/摘要/全局/动态派发）抽到 adapter_finish.go
-	if err := finishIndex(repo, prog, idents, a, typePkgs, fallbackAgg, emit); err != nil {
+	if err := finishIndex(repo, prog, idents, a, implPool, fallbackAgg, emit); err != nil {
 		return err
 	}
 	stage("finishIndex")

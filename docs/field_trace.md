@@ -3608,3 +3608,96 @@ renderHoverMarkdown 纯函数（静态断言验证）。
   Hover/跳到定义/查询命令/自动更新，LSP 价值低，暂缓。
 - **P3 SQL 解析器持续观察**：子查询作用域已补（§86），启发式降级
   路径有测试锚定——无已知残余，出 bug 再处理（分支 G）。
+
+## §87 构建性能整改（Q246，2026-09-19）——接口候选池化 + 包产物增量落盘 + 写库侧优化
+
+**背景**：有人在 3GB 内存机器上分析 `codeintel init` 卡一个多小时，结论是
+内存耗尽 + SQLite 单写者 + SSA 算法问题，给了一份 P1/P2 清单（接口候选
+枚举无缓存、全量产物驻留内存、无用索引、SQLite 未调参、单写者解耦…）。
+本次按「先验证数字、再改代码」落实 P1 + 零风险 P2，清单里其余项有明确
+理由不做或留待决策（见文末）。
+
+### 改动
+
+**① 接口动态派发候选池化 + memo（`impl_pool.go`）**：原
+`implMethodsFor` 在**每个接口调用点**重扫全部模块内包 `scope.Names()`
+（每次分配整个 []string）+ 每类型 `types.Implements`（每类型再分配
+`types.NewPointer`）——`cf_call.go` 是**按调用点**调它，是 SSA 阶段最大
+分配源之一。改为 `implTypePool`：Index 级扫一遍各包 scope（顺带预计算
+指针类型），结果按 (接口, 方法名) memo（RWMutex）。测试
+`TestImplTypePoolMatchesLegacyScan` 把旧实现作为 golden 留在测试里逐条
+比对（值/指针方法集、接口自反排除、非模块内包跳过），并做了变异验证
+（去掉指针方法集分支 → 测试失败）。
+
+**② 包产物增量落盘（`pkgCollectSet`）**：原实现把整轮构建的全部 node/fact
+留在 `pkgCols`，只为最后统一写包缓存。改为按块序号收集、**该包最后一块
+到达即落盘并释放**（写文件在锁外）。单测锁定三个不变量：块乱序完成仍按
+序号拼接（确定性）、最后一块后从集合释放、hash 为空不写文件。
+
+**③ schema/DSN 写库侧优化**：
+- 删 `idx_nodes_signature`（生成列索引，全仓库无查询用它；`init` 里
+  `DROP INDEX IF EXISTS` 迁移旧库）
+- `edges.id` 去 `AUTOINCREMENT`（无任何查询/外键用过 edges.id 值；每行
+  插入都要读写 sqlite_sequence b-tree + 额外 WAL）
+- `idx_nodes_field_path` 改**部分索引**（`WHERE kind='field_access'`）——
+  所有等值使用都带该谓词；`idx_nodes_func_id` 不动（`repo_trace.go`
+  的 ssa_value/parameter 起点查询不带 kind 过滤，改部分索引会退化为全表扫）
+- DSN 加 `cache_size(-131072)`（默认 8MB → 128MB，300MB 库 + 十余索引
+  严重不足）与 `synchronous(NORMAL)`（WAL 下提交不逐次 fsync；进程被杀
+  不会损坏库）。**未采纳**：`synchronous(OFF)`（丧失崩境保护，本仓库已有
+  WAL 损坏教训）、`temp_store(MEMORY)`（小内存机器风险）、构建期关外键
+  （会静默留下悬挂边，且现有 retryFailedFK 语义依赖 FK 报错）
+
+### 实测（go2o 副本，冷缓存，同机顺序执行）
+
+进程内 benchmark（`make bench`，含 VmHWM 峰值 RSS 采样）：
+
+| 指标 | 优化前 | 优化后 |
+|---|---|---|
+| 总耗时 | 123.8s | 91.1s（-26%） |
+| ssa 适配器 | 114.7s | 72.2s（-37%；第三次重跑 60.7s） |
+| 峰值 HeapAlloc | 3407MB | 3085MB |
+| 峰值 RSS（VmHWM） | 2489MB | 2218MB |
+| 节点/边 | 119215 / 135502 | 119215 / 135501（差异见「确定性」） |
+
+CLI `init` A/B（`/usr/bin/time -v`，父进程含 scip-go 子进程）：
+
+| 指标 | 优化前 | 优化后 |
+|---|---|---|
+| wall | 1:24.3 | 1:15.7 |
+| 次要页错误 | 5570116 | 1366609（-75%） |
+| 非自愿上下文切换 | 216152 | 12271（-94%） |
+| 文件系统写出 | 5557360 块 | 3758008 块（少写 ~1.8GB） |
+| Max RSS | 2455852KB | 2432588KB（该项被 scip 子进程主导） |
+
+写库微基准（`BenchmarkSaveBatchInsert`，8000 行/轮，同机 -count=3）：
+143/150/144ms → 98/109/112ms（**约 1.4x**，allocs 相同——纯 I/O 与索引维护）
+
+### 顺带查清的三件事（与本次改动无关，baseline worktree 对照）
+
+1. **基准工具本身是坏的**（"基准数字不可信"的真凶之一）：`bench_test.go`
+   构造 Repository 时没设 `ModuleDirs`，`loadPackages` 按 ModuleDirs
+   遍历 → 一个包都不 Load → AST/SSA 适配器空跑（0-1ms）而 `scip`/`git`
+   正常，"构建"其实只产出了 scip+git 的产物；另有 `Status` 类型不匹配
+   导致的编译错误（`-tags benchmark` 不在 `go build ./...` 覆盖内，坏了
+   没被发现）。修复：`DiscoverModules` 同 CLI 构造 + `string(res.Status)`。
+2. **同一仓库两次全量构建图不一致**（违反 #218 确定性目标）：baseline 两次
+   构建边数 135502 / 135503，diff 567 行——`#tN` 与 `#tN@line` 槽位名
+   二选一（AGENTS.md 已知的 SSA 临时名不稳定），另有 `init` 里
+   `data_flows_to` 指向 `var.X` / `var.Y` 漂移。本次未动这些逻辑。
+3. **`make it` 在 HEAD 上就是红的**（6 个用例）：`go/packages` 加载 0 包
+   （依赖解析失败），而 `loadPackages` 不看 `pkg.Errors`，
+   三个适配器都报 "ok"、状态 success、产物只剩 scip——**静默降级**类
+   问题（Q221 同源教训）。与本次改动无关（baseline 同款 6 失败）。
+
+### 留待决策（P2/未做）
+
+- **内存峰值位置**：RSS 峰值出现在 **go/packages 类型检查 + SSA 构建**
+  阶段（t≈11-14s 已达 2.2-2.5GB，之后 100 秒都在峰值以下）——不是 emit
+  阶段。下一步降内存要针对依赖加载（`NeedDeps`/export data）或分模块
+  流式构建，而不是继续动产物收集。
+- **单写者解耦**（多 worker 各写各库后合并 / 两阶段：中间文件 → drop
+  索引批量导入 → 重建索引）：改动面大，收益需先证明写库是瓶颈（当前
+  flush 尾部 10-27s，占 91s 的 12-30%）。
+- **构建期关外键**：需配套 `PRAGMA foreign_key_check` 收尾校验，且要
+  保留"悬挂边被丢弃"的语义，风险高于收益。

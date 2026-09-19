@@ -80,6 +80,33 @@ internal/cli        internal/action            internal/infrastructure
 （PostToolUse 非阻断提醒，改 Go 文件后提示跑 verify.sh——未装
 pre-commit 场景的兜底）。
 
+## Q246 构建性能整改教训（2026-09-19）
+
+- **基准工具自身要验证**：`benchmarks/bench_test.go` 曾因 Repository 少了
+  `ModuleDirs`，`loadPackages` 一个包都不 Load —— AST/SSA 适配器 0-1ms
+  空跑、只有 scip/git 出产物，却一直输出"N 节点/耗时"看着正常（
+  `-tags benchmark` 不在 `go build ./...` 覆盖内，编译错误也没暴露）。
+  **看到"某适配器耗时 ≈0ms"先怀疑它没干活**，用产物数/日志交叉验证
+- **峰值内存要采样式量**：`stage()` 里 `runtime.ReadMemStats.HeapAlloc`
+  是**未 GC 的含垃圾值**，会高估；判定 OOM/换页用 `/proc/self/status`
+  的 `VmHWM`（进程峰值 RSS）或 `/usr/bin/time -v` 的 Max RSS（父+子进程）。
+  另注意后者被 scip-go 子进程主导，进程内 bench 才能反映本进程
+- **换页/卡死的信号看上下文切换**：`/usr/bin/time -v` 的 minor page
+  faults 与 involuntary context switches 数量级（本次整改：556 万 → 137 万、
+  21.6 万 → 1.2 万）比 wall time 更能暴露内存压力
+- **接口候选枚举按调用点重复全量扫描是隐性大头**：`implMethodsFor` 被
+  `cf_call.go` 按**调用点**调用（不是按接口去重），每次重扫全部模块内包
+  scope + `types.NewPointer`。**"每调用点重算全量枚举"模式一律池化 + memo**
+  （同 Q221 的 dispatchRegs/regHits；池化版本的正确性用"旧实现留测试做
+  golden"的方式锁定）
+- **只为写盘而留在内存的全量产物是峰值来源**：包级缓存产物按包增量落盘
+  （最后一块到达即写并释放），别等到构建尾部统一写
+- **SQLite 写路径小改动收益可观且零语义风险**：删无用生成列索引、
+  去 `AUTOINCREMENT`、表达式索引改部分索引、`cache_size` 上调——
+  8000 行插入 143ms → 109ms（约 1.4x，allocs 不变）。但
+  `synchronous(OFF)` / 构建期关外键 / `temp_store(MEMORY)` 是**语义/安全
+  取舍**，不随手加（悬挂边语义、WAL 损坏风险）
+
 ## 常用命令
 
 ```shell

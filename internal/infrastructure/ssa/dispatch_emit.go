@@ -17,7 +17,7 @@ import (
 //
 // P0-2：返回 dispatch 相关模块内包路径（注册点包 ∪ 动态调用包）——
 // 增量构建补 Load 用（这些包未 Load 时 dispatch_to 边整体丢失）。
-func emitDispatches(repo *domain.Repository, prog *ssa.Program, pkgs []*types.Package, emit domain.EmitFunc) ([]string, error) {
+func emitDispatches(repo *domain.Repository, prog *ssa.Program, pool *implTypePool, emit domain.EmitFunc) ([]string, error) {
 	logger := zap.L()
 	logger.Debug("enter emitDispatches")
 	defer logger.Debug("exit emitDispatches")
@@ -85,7 +85,7 @@ func emitDispatches(repo *domain.Repository, prog *ssa.Program, pkgs []*types.Pa
 				candidates[candidateKey(fn)] = dispatchCandidate{fn: fn, origin: "register", confidence: 0.9, site: site}
 			}
 		}
-		for _, fn := range implMethodsFor(pkgs, repo.Modules, ck.iface, ck.method) {
+		for _, fn := range pool.methodsFor(ck.iface, ck.method) {
 			key := candidateKey(fn)
 			if _, ok := candidates[key]; ok {
 				continue
@@ -118,38 +118,4 @@ func emitDispatches(repo *domain.Repository, prog *ssa.Program, pkgs []*types.Pa
 		}
 	}
 	return dispatchPkgs, nil
-}
-
-// implMethodsFor 枚举模块内实现接口方法的具名类型方法（值与指针方法集
-// 都查）；接口自身（Implements 自反）排除。⑮ 动态派发追踪复用。
-func implMethodsFor(pkgs []*types.Package, modules []string, iface *types.Named, method string) []*types.Func {
-	var out []*types.Func
-	for _, pkg := range pkgs {
-		if !isInModule(pkg.Path(), modules) {
-			continue
-		}
-		scope := pkg.Scope()
-		for _, name := range scope.Names() {
-			tn, ok := scope.Lookup(name).(*types.TypeName)
-			if !ok {
-				continue
-			}
-			named, ok := tn.Type().(*types.Named)
-			if !ok {
-				continue
-			}
-			if named == iface {
-				continue
-			}
-
-			if !types.Implements(named, iface.Underlying().(*types.Interface)) &&
-				!types.Implements(types.NewPointer(named), iface.Underlying().(*types.Interface)) {
-				continue
-			}
-			if fn := findMethod(named, method); fn != nil {
-				out = append(out, fn)
-			}
-		}
-	}
-	return out
 }

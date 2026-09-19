@@ -13,7 +13,7 @@ import (
 func emitFunctionFields(repo *domain.Repository, prog *ssa.Program, fn *ssa.Function,
 	funcID domain.CanonicalID, idents map[token.Pos]string, assignTargets []assignTarget,
 	funcData *funcData, specs map[string]summarySpec, fallbackAgg *fallbackAgg, emit domain.EmitFunc,
-	pkgs []*types.Package, dispatchRegs *dispatchReg, regHits regHits, typeMapping map[*types.Named]string,
+	pool *implTypePool, dispatchRegs *dispatchReg, regHits regHits, typeMapping map[*types.Named]string,
 	sigEmitted bool) error {
 	logger := zap.L()
 	logger.Debug("enter emitFunctionFields")
@@ -24,7 +24,7 @@ func emitFunctionFields(repo *domain.Repository, prog *ssa.Program, fn *ssa.Func
 	ext := &fieldExtractor{
 		repo:       repo,
 		prog:       prog,
-		pkgs:       pkgs,
+		implPool:   pool,
 		fn:         fn,
 		funcID:     funcID,
 		sigEmitted: sigEmitted,

@@ -3,7 +3,6 @@ package ssa
 import (
 	"fmt"
 	"go/token"
-	"go/types"
 	"io"
 	"os"
 
@@ -17,7 +16,7 @@ var stderr io.Writer = os.Stderr
 // finishIndex 构建收尾（Q231 拆分自 Adapter.Index 尾部）：alias 分析 +
 // 摘要/全局初始化/动态派发发射 + 内存释放。
 func finishIndex(repo *domain.Repository, prog *ssa.Program, idents map[token.Pos]string,
-	a *Adapter, typePkgs []*types.Package, fallbackAgg *fallbackAgg, emit domain.EmitFunc) error {
+	a *Adapter, pool *implTypePool, fallbackAgg *fallbackAgg, emit domain.EmitFunc) error {
 	logger := zap.L()
 	logger.Debug("enter finishIndex")
 	defer logger.Debug("exit finishIndex")
@@ -47,7 +46,7 @@ func finishIndex(repo *domain.Repository, prog *ssa.Program, idents map[token.Po
 	}
 	// P0-2：dispatch 相关包（注册点 ∪ 动态调用，emitDispatches 内合并
 	// 去重）——增量补 Load 持久化
-	dispatchPkgs, err := emitDispatches(repo, prog, typePkgs, emit)
+	dispatchPkgs, err := emitDispatches(repo, prog, pool, emit)
 	if err != nil {
 		return err
 	}

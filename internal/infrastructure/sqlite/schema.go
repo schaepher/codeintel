@@ -13,17 +13,23 @@ CREATE TABLE IF NOT EXISTS nodes (
     line_start INTEGER,
     line_end INTEGER,
     properties JSON,
-    -- 生成列：供签名搜索
+    -- 生成列：供签名搜索（预留，无索引；见下方 idx_nodes_signature 说明）
     signature_text TEXT GENERATED ALWAYS AS (json_extract(properties, '$.signature')) VIRTUAL,
     created_at INTEGER DEFAULT (strftime('%s', 'now'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_nodes_file_kind ON nodes(file_path, kind) WHERE file_path IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_nodes_name ON nodes(name);
-CREATE INDEX IF NOT EXISTS idx_nodes_signature ON nodes(signature_text);
+-- Q246：原 idx_nodes_signature(signature_text) 删除——全仓库无任何查询
+-- 用过它（signature 只在 SELECT 里 json_extract 出来；唯一的 WHERE 使用
+-- 是 id 主键查）。保留的是**每次节点插入**都要重算的写负担（生成列
+-- 索引）。旧库由 init 里 DROP INDEX IF EXISTS 清掉。
 
 CREATE TABLE IF NOT EXISTS edges (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- Q246：id 去掉 AUTOINCREMENT（无任何查询/外键用过 edges.id 值；
+    -- AUTOINCREMENT 每插一行都要读改 sqlite_sequence b-tree + 额外 WAL
+    -- 写入，百万级边构建实测是可观开销）
+    id INTEGER PRIMARY KEY,
     source_id TEXT NOT NULL,
     target_id TEXT NOT NULL,
     kind TEXT NOT NULL,
@@ -89,7 +95,14 @@ CREATE TABLE IF NOT EXISTS summary_origins (
 CREATE INDEX IF NOT EXISTS idx_summary_origins_func ON summary_origins(function_id, access_kind);
 
 -- 表达式索引：field_access 定位（S2/S3 起点），字段追溯，field_trace.md §5.2
-CREATE INDEX IF NOT EXISTS idx_nodes_field_path ON nodes(json_extract(properties, '$.full_path'));
+-- Q246：full_path 改**部分索引**——所有等值使用（repo_trace.go 锚点、
+-- repo_dispatch.go FindFieldReads）都带 kind='field_access'（SQLite 用
+-- 部分索引要求该谓词在查询 WHERE 顶层合取式中出现，已用 EXPLAIN QUERY
+-- PLAN 断言）；索引只维护 field_access 行，每次节点插入的 json_extract
+-- 求值次数减半。idx_nodes_func_id 不动：repo_trace.go 的 ssa_value/
+-- parameter 起点查询不带 kind 过滤（改部分索引会退化成全表扫）。
+CREATE INDEX IF NOT EXISTS idx_nodes_field_path ON nodes(json_extract(properties, '$.full_path'))
+    WHERE kind = 'field_access';
 CREATE INDEX IF NOT EXISTS idx_nodes_func_id ON nodes(json_extract(properties, '$.func_id'));
 
 -- 表关联候选缓存（P0③）：relations 结果按 build_id 持久化（--all 全量

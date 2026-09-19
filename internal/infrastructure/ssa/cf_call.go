@@ -19,7 +19,7 @@ func (ext *fieldExtractor) emitCall(cc *ssa.CallCommon, callVal ssa.Value) error
 
 		if cc.Method != nil {
 			if iface := interfaceNamedOf(cc.Value.Type()); iface != nil {
-				impls := implMethodsFor(ext.pkgs, ext.repo.Modules, iface, cc.Method.Name())
+				impls := ext.implPool.methodsFor(iface, cc.Method.Name())
 				for _, implFn := range impls {
 					implSSA := ext.prog.FuncValue(implFn)
 					if implSSA == nil {

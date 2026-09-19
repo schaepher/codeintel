@@ -144,7 +144,7 @@ func (ext *fieldExtractor) recoverVarName(v ssa.Value) string {
 type fieldExtractor struct {
 	repo          *domain.Repository
 	prog          *ssa.Program
-	pkgs          []*types.Package // ⑮ 接口动态派发候选枚举用
+	implPool      *implTypePool // ⑮ 接口动态派发候选枚举（Q246 池/memo——Index 级共享）
 	fn            *ssa.Function
 	funcID        domain.CanonicalID
 	idents        map[token.Pos]string // 源码标识符索引（Alloc 反查变量名）

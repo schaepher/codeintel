@@ -118,6 +118,70 @@ func loadPkgCache(path, wantHash string) *pkgCacheFile {
 	return &c
 }
 
+// pkgCollect 单包产物收集器（Q246：块产物按块序号收集，最后一块到达
+// 即整包写缓存并释放——原实现把全量包产物留到构建尾部统一写，go2o
+// 实测占了峰值堆近 1GB）。
+type pkgCollect struct {
+	path   string // 缓存文件路径（hash 为空时仍写出但不会被命中）
+	hash   string // 包缓存键（空 = 不做缓存）
+	blocks [][]*domain.CodeEntity
+	facts  [][]*domain.Fact
+	fd     []map[domain.CanonicalID]*funcData
+	total  int
+	done   int
+}
+
+// pkgCollectSet 包产物收集器集合（并发访问由调用方持 collectMu）。
+type pkgCollectSet struct {
+	repoPath   string
+	blockCount map[string]int    // 包 → 块数（最后一块到达判定）
+	hashes     map[string]string // 包 → 缓存键（空 = 不缓存）
+	cols       map[string]*pkgCollect
+}
+
+func newPkgCollectSet(repoPath string, blockCount map[string]int, hashes map[string]string) *pkgCollectSet {
+	return &pkgCollectSet{repoPath: repoPath, blockCount: blockCount, hashes: hashes,
+		cols: map[string]*pkgCollect{}}
+}
+
+// get 取包收集器（首次懒建，按块数预分配槽位）。
+func (s *pkgCollectSet) get(pkgPath string) *pkgCollect {
+	pc := s.cols[pkgPath]
+	if pc == nil {
+		n := s.blockCount[pkgPath]
+		pc = &pkgCollect{path: pkgCachePath(s.repoPath, pkgPath), hash: s.hashes[pkgPath],
+			blocks: make([][]*domain.CodeEntity, n), facts: make([][]*domain.Fact, n),
+			fd: make([]map[domain.CanonicalID]*funcData, n), total: n}
+		s.cols[pkgPath] = pc
+	}
+	return pc
+}
+
+// release 删出集合（整包已写完——释放引用）。
+func (s *pkgCollectSet) release(pkgPath string) { delete(s.cols, pkgPath) }
+
+// save 按块序号拼接产物并落盘缓存（并发下写文件不持收集锁）。
+func (pc *pkgCollect) save() {
+	if pc == nil || pc.hash == "" {
+		return
+	}
+	var nodes []*domain.CodeEntity
+	for _, b := range pc.blocks {
+		nodes = append(nodes, b...)
+	}
+	var facts []*domain.Fact
+	for _, f := range pc.facts {
+		facts = append(facts, f...)
+	}
+	fd := map[domain.CanonicalID]*funcData{}
+	for _, m := range pc.fd {
+		for id, d := range m {
+			fd[id] = d
+		}
+	}
+	savePkgCache(pc.path, pc.hash, nodes, facts, fd)
+}
+
 // savePkgCache 写缓存（目录自动创建；写失败不阻塞构建——缓存是加速非必需）。
 func savePkgCache(path, hash string, nodes []*domain.CodeEntity, facts []*domain.Fact,
 	fd map[domain.CanonicalID]*funcData) {
