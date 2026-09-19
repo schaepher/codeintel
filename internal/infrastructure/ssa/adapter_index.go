@@ -41,10 +41,15 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 		runtime.ReadMemStats(&ms)
 		logger.Info("build stage",
 			zap.String("stage", name), zap.Duration("elapsed", time.Since(stageStart)),
-			zap.Int64("heap_mb", int64(ms.HeapAlloc>>20)))
-		// 命令执行界面展示（zap 未初始化是 noop——直接 stderr 实时可见）
-		fmt.Fprintf(os.Stderr, "[index] ssa 步骤 %s（%s, heap %dMB）\n",
-			name, time.Since(stageStart).Round(time.Millisecond), int64(ms.HeapAlloc>>20))
+			zap.Int64("heap_mb", int64(ms.HeapAlloc>>20)),
+			zap.Int64("heap_inuse_mb", int64(ms.HeapInuse>>20)))
+		// 命令执行界面展示（zap 未初始化是 noop——直接 stderr 实时可见）。
+		// Q247：HeapAlloc 含**未回收垃圾**（阶段边界未 GC）只当趋势看，
+		// 真实 live 构成用 CODEINTEL_MEM_PROFILE 的 heap profile 归因。
+		fmt.Fprintf(os.Stderr, "[index] ssa 步骤 %s（%s, heap %dMB/%dMB inuse）\n",
+			name, time.Since(stageStart).Round(time.Millisecond),
+			int64(ms.HeapAlloc>>20), int64(ms.HeapInuse>>20))
+		dumpPeakHeapProfile(ms.HeapAlloc)
 		stageStart = time.Now()
 	}
 
@@ -63,13 +68,7 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 		}
 	}
 
-	for i, p := range pkgs {
-		if !isInModule(p.PkgPath, repo.Modules) {
-			pkgs[i].Syntax = nil
-			pkgs[i].TypesInfo = nil
-		}
-	}
-	stage("释放依赖 AST")
+	// Q247：原「释放依赖 AST」循环已删（NeedDeps 关闭后依赖无 AST；返回切片全是模块包——恒空操作）。
 	// Q221：dispatchRegs 必须在 Index 级初始化一次（sp.Build 之后——
 	// MakeInterface 指令已构建）——零值 nil map 经 extractor 解引用
 	// 复制后 `ext.dispatchRegs == nil` 永远成立，cf_call.go 懒初始化

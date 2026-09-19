@@ -3701,3 +3701,114 @@ CLI `init` A/B（`/usr/bin/time -v`，父进程含 scip-go 子进程）：
   flush 尾部 10-27s，占 91s 的 12-30%）。
 - **构建期关外键**：需配套 `PRAGMA foreign_key_check` 收尾校验，且要
   保留"悬挂边被丢弃"的语义，风险高于收益。
+
+## §88 构建期内存整改第二轮（Q247，2026-09-19）——load 阶段去 NeedDeps + 内存兜底
+
+设计稿 `docs/design-q247.md`（本次实施后归档）。**目标**：小内存机器上
+大仓构建不换页/不被 OOM 杀，产物质量不降。
+
+### 根因（设计阶段实测，探针代码未入库）
+
+`loadPackages` 的 `packages.Config.Mode` 含 `packages.NeedDeps` → go/packages
+把**整个传递依赖图的 AST/TypesInfo 也解析并常驻**。go2o（136 模块包 /
+774 reachable）：带 NeedDeps 时 774 个包全带 AST（3718 个语法文件）/ load
+后存活堆 955MB；去掉后 137 包 / 526 文件 / 148MB。本仓库 1095MB → 55MB。
+
+代码注释本来就写着"依赖包走 fast 模式（NeedTypes 从 export data 加载）"
+——**注释与实现不符**；紧随其后那行 `释放依赖 AST` 只对**返回切片里**的
+非模块包置 nil，而返回切片全是模块包（每个 module 各自 `./...`）→
+**恒为空操作的假动作**，这也是早先"释放依赖 AST 一步只降几十 MB"的原因。
+
+### 改动
+
+1. **`loadPackages` 去掉 `NeedDeps` + 契约测试**（`orch_build.go`）：
+   Mode 不含 NeedDeps；文档注释升级为**契约**——"模块内包给
+   Syntax+TypesInfo+Types；依赖包只保证 Types，任何适配器不得读非模块包
+   的 Syntax/TypesInfo"，并列出全部现有消费者的用法。
+   `TestLoadPackagesDependencyContract`（orchestrator，用**本仓库自身**
+   作 fixture：真实 module + 真实外部依赖，无需网络）断言三条：
+   ① 返回包全是模块包且 Syntax/TypesInfo/Types 齐全；② reachable 外部包
+   Types 必须可达（保护 `ast_grpc_collect` 的 R90 外部注册识别——它按
+   types 设计）；③ 外部包不得带 Syntax（防有人把 NeedDeps 加回来；
+   无 CompiledGoFiles 的编译器伪包 `unsafe` 除外）。这条测试同时是
+   **18 倍提速的回归护栏**：改前 36.3s（要解析全部依赖 AST），改后 1.3s。
+2. **删掉 `释放依赖 AST` 空循环**（`ssa/adapter_index.go`）。
+3. **小内存内存上限兜底**（`cmd/codeintel/memlimit.go` + main.go，仅
+   init/reindex/update，与 `CODEINTEL_GOGC` 同处）：优先级
+   `GOMEMLIMIT`（Go 原生已生效，不覆盖）> `CODEINTEL_MEMLIMIT`
+   （`1500MiB`/`2GiB`/纯字节，非法则警告忽略）> 自动
+   （`MemTotal < 4GiB` → `min(1.5GiB, 55%)`）> 不设；生效值 zap + **stderr
+   双通道**打印（zap 在 logging.Setup 之前是 noop，只打 zap 用户看不到）。
+   判定/解析是纯函数（`decideMemLimit`/`parseMemLimit`），8 个单测覆盖。
+4. **峰值堆 profile 工具**（`ssa/memprofile.go`）：`CODEINTEL_MEM_PROFILE=<file>`
+   在**每个构建阶段边界检查 HeapAlloc，只在刷新峰值时**落盘（GC 后写，
+   拿到真实 live）。设计稿原写"退出时 dump"——实测那样拿到的是"产物已
+   释放后"的堆，看不到峰值构成。
+5. 阶段日志加 `HeapInuse`（`[index] ssa 步骤 … heap 1060MB/1167MB inuse`），
+   并注明 HeapAlloc 含未回收垃圾、只当趋势看。
+6. **顺带修复**：`DiscoverModules` 排除 `.tmp`——契约测试在并发跑测试时
+   真的把 `.tmp/` 下别人的临时 module 当成了待索引 module（实测报
+   `chdir … no such file or directory`）。`.tmp` 是本项目 TMPDIR
+   （R67），不是索引目标。
+
+### 实测（go2o 副本，冷缓存，同机顺序 A/B；基线 = Q246 提交 abeee54）
+
+进程内 bench（`make bench`，VmHWM 采样）：
+
+| 指标 | Q246 | Q247 | Δ |
+|---|---|---|---|
+| 总耗时（GOGC 默认） | 87.1s | **26.6s** | -69% |
+| ssa 适配器（GOGC 默认） | 73.7s | **18.6s** | -75% |
+| 峰值 HeapAlloc | 3298MB | **1471MB** | -55% |
+| **峰值 RSS（VmHWM）** | 2472MB | **1464MB** | **-41%（-1008MB）** |
+| 总耗时（GOGC=40） | 45.3s | 25.7s | -43% |
+| 峰值 RSS（GOGC=40，3 次） | 2514MB | 1513 / 1788 / 1805MB | -28%…-40% |
+
+CLI `init`（`/usr/bin/time -v`，冷启动，Max RSS 含 scip-go 子进程）：
+
+| 指标 | Q246 | Q247 | Δ |
+|---|---|---|---|
+| wall | 51.37s | **32.69s** | -36% |
+| Max RSS | 2428512KB | **1908644KB** | -21%（-507MB） |
+| 次要页错误 | 1178582 | **777719** | -34% |
+| 非自愿上下文切换 | 18565 | **9419** | -49% |
+| 节点/边 | 119215 / 135503 | 119215 / 135501 | 一致 |
+
+阶段差（CLI stderr）：`ssautil.Packages` 时 heap **1282MB → 189MB**；
+emitFunction 循环 **27.7s → 9.0s**；adapters done 30.4s → **11.8s**；
+flush done 45.2s → **20.1s**。
+
+**产物等价性**：codegraph（AST）边集 30817 行 **逐字节相同**；全图边集
+归一化（去 `@行号` 槽位后缀）后 128665 vs 128663 行，**仅 2 行差**——
+`(serverSelector).loadNodes/Watch → GetVal` 的 `indirect_write`，同一对
+边在 Q246 自身两次构建之间也出现过同样漂移（既有不确定度，见 §87）。
+
+### 验收结论（设计稿指标对照）
+
+- 达成：CLI wall ≤83s（实测 32.7s）、页错误/被动切换不劣化（各降 34%/49%）、
+  AST 产物 md5 相同、全图差异在既有不确定度内。
+- **未严格达成**：in-process VmHWM 目标 ≤1400MB——最好 1464MB（超 4.6%），
+  GOGC=40 下 1513–1805MB。降幅本身超过预估（1008MB > 预估 808MB），但
+  基线当日也更高（2472MB vs 设计时 2218MB）。（另记一个反直觉观察：
+  GOGC=40 的 RSS 峰值高于 GOGC=100，且抖动大——未深究。）
+
+### 顺带发现：第三轮 SSA 内存的**头号热点已经定位**
+
+用本次新做的峰值 profile（`CODEINTEL_MEM_PROFILE`）跑一次 go2o：
+
+```
+inuse_space（峰值时刻，GC 后）: (*fieldExtractor).sourceLine  412MB = 66%
+alloc_space:                   sourceLine 415MB flat / 1084MB cum = 25% 全部分配
+```
+
+原因：`fe_nodes.go` 的 `sourceLine` 行缓存是**每函数一个 extractor 一份**，
+每个函数都把整份源文件重新 `os.ReadFile` + `strings.Split`（go2o 1.2 万
+函数 × 各自文件；源码才 41MB）。这是纯 churn：改成 Index 级共享行缓存
+（全部模块源码行 ≈ 30MB）预计能把峰值压到 ~1.1GB 量级。**留待第三轮**
+（设计稿 §5 的前置条件"先归因"已完成）。
+
+### 验证
+
+`verify.sh --quick` 全绿；改动包 `-race`（orchestrator/ssa/ast/cmd）全绿；
+`make it` 失败集合与 HEAD 完全一致（6 个既有失败，见 §87）；
+`make e2e-fixture` 38 passed / 0 failed。commit：见提交记录。

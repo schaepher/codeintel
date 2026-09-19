@@ -59,9 +59,22 @@ func (o *Orchestrator) FullBuild(ctx context.Context) (*BuildResult, error) {
 // 一次类型检查，避免各自 Load 翻倍）。返回共享结果供适配器复用。
 // R84：patterns 非 nil 时按包增量——只 Load 变更包（pattern 相对各
 // module 目录；该 module 无变更则跳过 Load，数据复用库中已有索引）；
-// patterns 为 nil 时全量 "./..."。依赖包走 go/packages fast 模式
-// （NeedTypes 从 export data 加载——AST 跨包调用用 types 信息构造
-// target，不依赖被调包 AST 主体）。
+// patterns 为 nil 时全量 "./..."。
+//
+// Q247 依赖信息契约（**改 Mode 前必读**）：Mode 不含 `NeedDeps`——
+//   - 模块内包：Syntax + TypesInfo + Types 齐全（适配器全量分析前提）
+//   - 依赖包：**只保证 Types**（export data），不保证 Syntax/TypesInfo
+//     任何适配器不得读非模块包的 Syntax/TypesInfo（现有消费者均只用
+//     Types：ast_index 取 Imports 键、ast_emit 查 net/http.Handler 的
+//     Types.Scope、ast_grpc_collect 递归 walk 只用 Types（R90 外部注册
+//     识别即按 types 设计）、ssa 缓存键取 CompiledGoFiles）。
+//     带 NeedDeps 会让 go/packages 把**整个传递依赖图的 AST/TypesInfo
+//     也解析并常驻**：go2o 实测 774 个 reachable 包全部带 AST（3718 个
+//     语法文件）/ load 后存活堆 955MB → 137 包 526 文件 / 148MB；本仓库
+//     1095MB → 55MB（3GB 机器换页的主因，docs/design-q247.md §1）。
+//     契约由 TestLoadPackagesDependencyContract 锁定（含外部包 Types
+//     可达性回归护栏）。
+//
 // P2-3 多 go.mod：每个 module 单独 Load（go/packages 不能跨 module），
 // 按 PkgPath 去重合并（同一包路径只属于一个 module，Go 语义保证）。
 func (o *Orchestrator) loadPackages(ctx context.Context, patterns pkgPatterns) ([]*packages.Package, error) {
@@ -82,7 +95,7 @@ func (o *Orchestrator) loadPackages(ctx context.Context, patterns pkgPatterns) (
 		}
 		cfg := &packages.Config{
 			Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedSyntax |
-				packages.NeedTypes | packages.NeedTypesInfo | packages.NeedImports | packages.NeedDeps,
+				packages.NeedTypes | packages.NeedTypesInfo | packages.NeedImports,
 			Dir: dir,
 		}
 		pkgs, err := packages.Load(cfg, pat...)
@@ -121,7 +134,10 @@ func DiscoverModules(repoPath string) (modules []string, dirs []string, err erro
 				continue
 			}
 			switch e.Name() {
-			case ".git", ".codeintel", "vendor", "node_modules":
+			case ".git", ".codeintel", "vendor", "node_modules", ".tmp":
+				// .tmp：本项目临时目录（R67：TMPDIR=$PWD/.tmp）——
+				// 测试/脚本会在里面建临时 Go module，不是待索引目标
+				// （否则并发跑测试时 init 会把临时 module 当目标 module）
 				continue
 			}
 			sub := filepath.Join(dir, e.Name())

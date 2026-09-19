@@ -107,6 +107,33 @@ pre-commit 场景的兜底）。
   `synchronous(OFF)` / 构建期关外键 / `temp_store(MEMORY)` 是**语义/安全
   取舍**，不随手加（悬挂边语义、WAL 损坏风险）
 
+## Q247 构建期内存整改教训（2026-09-19）
+
+- **Mode/契约与注释不符是隐形内存黑洞**：`loadPackages` 注释写"依赖走
+  fast 模式"，Mode 里却带 `packages.NeedDeps` → go/packages 把**整个传递
+  依赖图的 AST 也解析并常驻**（go2o：774 reachable 包全带 AST / 3718
+  语法文件 / 存活堆 955MB；去掉后 137 包 / 148MB）。**改 Mode 前先读
+  依赖信息契约，并把契约写成测试**（`TestLoadPackagesDependencyContract`：
+  模块包必须有 Syntax/TypesInfo，依赖必须有 Types、不得有 Syntax）
+- **"释放 XX"这类清理要验证是不是空操作**：紧随其后的"释放依赖 AST"
+  只对**返回切片里**的非模块包置 nil，而返回切片全是模块包 → 恒空操作，
+  却让日志看着像"已做内存治理"。**删掉假动作，把约束写进契约**
+- **内存热点用峰值 profile，不用退出时 profile**：进程退出时产物已释放，
+  看不到峰值构成。`CODEINTEL_MEM_PROFILE=<file>`（ssa/memprofile.go）
+  在阶段边界只在刷新峰值时落盘（GC 后写）。它一次就抓出 `sourceLine`
+  占 25% 分配 / 66% 峰值 live（每函数重读重切整个源文件）——第三轮的
+  头号目标
+- **小内存机器自动兜底**：`CODEINTEL_MEMLIMIT` / 自动
+  （`MemTotal<4GiB` → `min(1.5GiB,55%)`）；`GOMEMLIMIT` 已设则不覆盖。
+  构建命令早期日志用 zap 会是 noop（logging.Setup 之前）——**关键信息
+  要同时写 stderr**
+- **`.tmp` 是本项目 TMPDIR，扫描仓库时必须排除**（`DiscoverModules`）：
+  并发跑测试时临时 module 会被当成待索引 module（实测 `chdir … no such
+  file or directory`）
+- **bench 数字要看 RSS 峰值**：`make bench` 现在同时给 20ms 采样
+  HeapAlloc 与 VmHWM；`/usr/bin/time -v` 的 Max RSS 含 scip-go 子进程
+  （进程内 bench 才反映本进程）
+
 ## 常用命令
 
 ```shell

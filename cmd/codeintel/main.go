@@ -37,6 +37,9 @@ func main() {
 			}
 		}
 		debug.SetGCPercent(gogc)
+		// Q247：小内存机器内存上限兜底（GOMEMLIMIT 已设则不覆盖）——
+		// 详情见 memlimit.go
+		applyMemLimit(zap.L())
 		// 诊断：CODEINTEL_CPU_PROFILE=<file> 输出 CPU profile（Q221
 		// 构建期热点定位；os.Exit 前 Stop）
 		if prof := os.Getenv("CODEINTEL_CPU_PROFILE"); prof != "" {

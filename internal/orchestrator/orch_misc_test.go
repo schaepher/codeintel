@@ -22,6 +22,10 @@ func TestDiscoverModules(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "lib", "sub", "go.mod"), "module example.com/lib\n\ngo 1.21\n")
 
 	writeFile(t, filepath.Join(dir, "app", "inner", "go.mod"), "module example.com/appinner\n")
+	// Q247：.tmp 是项目临时目录（TMPDIR=$PWD/.tmp）——测试/脚本会在里面
+	// 建临时 module，不能被当成待索引目标（否则并发跑测试时 init 会把
+	// 临时 module 当目标 module）
+	writeFile(t, filepath.Join(dir, ".tmp", "probe", "go.mod"), "module example.com/tmptest\n")
 
 	modules, dirs, err := DiscoverModules(dir)
 	if err != nil {
