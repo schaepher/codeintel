@@ -165,7 +165,7 @@ type fieldExtractor struct {
 	funcIDs          map[*ssa.Function]domain.CanonicalID   // 函数 → canonical ID 缓存
 	slotsFor         map[domain.CanonicalID]map[string]bool // 每函数 slot 占用（shadowing 消歧）
 	rets             map[*ssa.Function][][]ssa.Value        // 被调函数 Return 指令缓存（returns 边复用）
-	lines            map[string][]string                    // 源码行缓存（filePath → 行数组）
+	lines            *lineCache                             // Q248：Index 级共享源码行缓存（原每函数一份）
 	funcData         *funcData                              // 摘要收集（direct 读写 + 静态调用）
 	specs            map[string]summarySpec                 // 外部函数摘要（内置 + 用户）
 	extSummaries     map[domain.CanonicalID]bool            // 已创建 external_summary 节点

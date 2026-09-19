@@ -90,6 +90,7 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	}
 
 	a.fd = map[domain.CanonicalID]*funcData{}
+	a.lines = newLineCache(repo.Path) // Q248：全构建共享一份源码行缓存
 	fallbackAgg := newFallbackAgg()
 	// 接口动态派发候选枚举用（⑮：模块内类型池）——Q246：池与结果 memo
 	// Index 级构建一次（旧的 implMethodsFor 每个调用点重扫全部包 scope）
@@ -249,7 +250,7 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 				return emit(item)
 			}
 			for _, fn := range blk.fns {
-				owner, fd, err := emitFunction(repo, prog, fn, idents, assignTargets, specs, fallbackAgg, pkgEmit, implPool, &a.dispatchRegs, a.regHits, a.typeMapping)
+				owner, fd, err := emitFunction(repo, prog, fn, idents, assignTargets, specs, fallbackAgg, pkgEmit, implPool, a.lines, &a.dispatchRegs, a.regHits, a.typeMapping)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "emitFunction %s: %v\n", fn.Name(), err)
 					return

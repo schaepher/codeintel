@@ -33,6 +33,9 @@ type Adapter struct {
 	// workers 按包并发数（Q169/Q170）：默认 1=串行；命令行 --workers N
 	// 指定（orchestrator SetWorkers 注入）
 	workers int
+	// lines Q248：Index 级共享源码行缓存（extractor 与 aliasPass 共用，
+	// 每轮 Index 新建——原实现每函数一份，占全部分配 25%）
+	lines *lineCache
 	// dispatchPkgs P0-2：dispatch 相关模块内包（注册点包 ∪ 动态调用
 	// 包）——本轮 Index 运行收集，构建后供 orchestrator 持久化到
 	// build_metadata（增量补 Load 用）

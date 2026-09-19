@@ -107,7 +107,7 @@ pre-commit 场景的兜底）。
   `synchronous(OFF)` / 构建期关外键 / `temp_store(MEMORY)` 是**语义/安全
   取舍**，不随手加（悬挂边语义、WAL 损坏风险）
 
-## Q247 构建期内存整改教训（2026-09-19）
+## Q247/Q248 构建期内存整改教训（2026-09-19）
 
 - **Mode/契约与注释不符是隐形内存黑洞**：`loadPackages` 注释写"依赖走
   fast 模式"，Mode 里却带 `packages.NeedDeps` → go/packages 把**整个传递
@@ -133,6 +133,18 @@ pre-commit 场景的兜底）。
 - **bench 数字要看 RSS 峰值**：`make bench` 现在同时给 20ms 采样
   HeapAlloc 与 VmHWM；`/usr/bin/time -v` 的 Max RSS 含 scip-go 子进程
   （进程内 bench 才反映本进程）
+- **Q248：每函数/每节点一份的缓存 = 千份重复 I/O**：`sourceLine` 行缓存
+  建在 per-function 的 extractor 上 → go2o 1.2 万函数各自 `os.ReadFile` +
+  `strings.Split` 整份源文件（占全部分配 25% / 峰值 live 66%，全仓源码才
+  41MB）。**"每函数新建对象里带 I/O/解析缓存"一律提到 Index/构建级共享**
+  （RWMutex + 读盘在锁外 + 负缓存），语义等价用"与直接读逐字比对"测试锁定。
+  修后 in-process 峰值 RSS 中位 1961MB → 1271MB、CLI wall -56%
+- **产物差异必须与"同二进制两次运行"对照才能定性**：Q248 跨版本 nodes
+  归一化差异 1954 行、摘要 124 行，对照（同二进制两次）1890 / 122 行
+  ——同量级才是"既有不确定度"；此前只比边集合（2 行）会低估噪声
+- **验收数字要多次交错测量取中位**：Q247 单次 1464MB 是幸运样本，实际
+  1464–2091MB；单点数字容易把"未达标"记成"差 4.6%"
+
 
 ## 常用命令
 

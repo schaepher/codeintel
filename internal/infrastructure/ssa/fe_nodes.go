@@ -4,9 +4,6 @@ import (
 	"fmt"
 	"go/token"
 	"go/types"
-	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/schaepher/codeintel/internal/domain"
 	"go.uber.org/zap"
@@ -104,28 +101,10 @@ func (ext *fieldExtractor) fieldInfo(baseType types.Type, fieldIdx int, pos toke
 }
 
 // sourceLine 读取仓库文件指定行的源码（去掉缩进，供 code_snippet 展示）。
-// 文件内容按路径缓存，避免每个字段访问重复读盘。
+// Q248：委托 Index 级共享缓存（ext.lines）——原实现是每函数一份缓存，
+// 每个函数都把整份源文件重读重切（占全部分配 25% / 峰值 live 66%）。
 func (ext *fieldExtractor) sourceLine(filePath string, line int) string {
-	logger := zap.L()
-	logger.Debug("enter (fieldExtractor).sourceLine")
-	defer logger.Debug("exit (fieldExtractor).sourceLine")
-	if ext.lines == nil {
-		ext.lines = map[string][]string{}
-	}
-	lines, ok := ext.lines[filePath]
-	if !ok {
-		data, err := os.ReadFile(filepath.Join(ext.repo.Path, filepath.FromSlash(filePath)))
-		if err != nil {
-			ext.lines[filePath] = nil
-			return ""
-		}
-		lines = strings.Split(string(data), "\n")
-		ext.lines[filePath] = lines
-	}
-	if line < 1 || line > len(lines) {
-		return ""
-	}
-	return strings.TrimSpace(lines[line-1])
+	return ext.lines.line(filePath, line)
 }
 
 // accessID 生成字段访问节点的 canonical ID：symbol:go:<pkg>:<func>#<instance>.<access>@<line>。

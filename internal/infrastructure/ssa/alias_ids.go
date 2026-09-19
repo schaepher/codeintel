@@ -4,9 +4,6 @@ import (
 	"fmt"
 	"go/token"
 	"go/types"
-	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/schaepher/codeintel/internal/domain"
 	"golang.org/x/tools/go/ssa"
@@ -172,24 +169,9 @@ func (p *aliasPass) fieldInfoFor(fa *ssa.FieldAddr) (fieldInfo, bool) {
 	return fi, true
 }
 
+// sourceLine Q248：与 extractor 共用 Index 级行缓存（原先各自一份）。
 func (p *aliasPass) sourceLine(filePath string, line int) string {
-	if line <= 0 || filePath == "" {
-		return ""
-	}
-	lines, ok := p.lines[filePath]
-	if !ok {
-		data, err := os.ReadFile(filepath.Join(p.repo.Path, filepath.FromSlash(filePath)))
-		if err != nil {
-			p.lines[filePath] = nil
-			return ""
-		}
-		lines = strings.Split(string(data), "\n")
-		p.lines[filePath] = lines
-	}
-	if line > len(lines) {
-		return ""
-	}
-	return strings.TrimSpace(lines[line-1])
+	return p.lines.line(filePath, line)
 }
 
 func (p *aliasPass) funcIDOf(fn *ssa.Function) (domain.CanonicalID, bool) {

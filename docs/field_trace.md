@@ -3812,3 +3812,98 @@ alloc_space:                   sourceLine 415MB flat / 1084MB cum = 25% 全部�
 `verify.sh --quick` 全绿；改动包 `-race`（orchestrator/ssa/ast/cmd）全绿；
 `make it` 失败集合与 HEAD 完全一致（6 个既有失败，见 §87）；
 `make e2e-fixture` 38 passed / 0 failed。commit：见提交记录。
+
+## §89 SSA 源码行缓存共享（Q248，2026-09-19）——补上 Q247 未达成的内存指标
+
+**目标**（Q247 欠账）：go2o 冷构建 in-process VmHWM ≤ 1400MB。
+
+### 根因（Q247 的峰值 profile 定位）
+
+`ssa.(*fieldExtractor).sourceLine` 的行缓存是**每函数一份**（`fieldExtractor`
+每函数新建），`aliasPass` 另有一份同样缓存：go2o 1.2 万函数，每个函数
+都把**整份源文件**重新 `os.ReadFile` + `strings.Split`——而全仓源码才 41MB。
+
+```
+峰值 inuse_space: sourceLine 412MB（占 66%）
+alloc_space:      sourceLine 415MB flat / 1084MB cum（占 25%；含 os.readFileContents 462MB + genSplit 255MB）
+```
+
+### 改动
+
+- 新增 `ssa/line_cache.go`：**Index 级共享行缓存**（`Adapter.lines` 每轮
+  Index 新建）——`map[filePath][]string` + `sync.RWMutex`（多 worker 并发读），
+  读盘在锁外（重复读无害，不持锁 I/O），读失败**负缓存**，`reads` 计数供
+  测试/诊断。
+- `fieldExtractor.lines` 与 `aliasPass.lines` 都改为指向它（原先各自一份）；
+  `sourceLine` 退化为一行委托，语义逐字不变（同一份 `strings.Split` +
+  `TrimSpace(lines[n-1])`，越界/缺失返回空串）。
+- 签名透传：`Adapter.Index → emitFunction → emitFunctionFields` 与
+  `finishIndex → computeAliases` 各加一个 `*lineCache` 参数。
+- 测试 `line_cache_test.go`（4 个）：与"直接读文件"逐字等价（含 0/负数/
+  越界/缺失文件）、同文件只读一次盘（含负缓存只读一次）、16 协程并发
+  （`-race` 基线）、共享命中不再读盘。
+
+### 实测（go2o 副本冷构建，基线 = Q247 11e26f7）
+
+CLI `init`（`/usr/bin/time -v`，Max RSS 含 scip 子进程）：
+
+| 指标 | Q247 | Q248 | Δ |
+|---|---|---|---|
+| wall | 39.10s | **17.39s** | -56% |
+| Max RSS | 1903052KB (1.82GB) | **1366744KB (1.30GB)** | -28%（-536MB） |
+| 次要页错误 | 773827 | 624298 | -19% |
+| 非自愿上下文切换 | 11581 | 7835 | -32% |
+| emitFunction 阶段 heap | 1047MB | **700MB** | -33% |
+| finishIndex | 2.58s / 1258MB | **0.86s / 728MB** | 时间 -67% |
+
+进程内 bench（`make bench`，交错 A/B 三组，GOGC 默认）：
+
+| | Q247 | Q248 |
+|---|---|---|
+| 峰值 RSS（VmHWM） | 1861 / 1961 / 2091 MB | **1243 / 1271 / 1494 MB** |
+| 总耗时 | 23.6 / 24.2 / 31.5 s | **15.1 / 17.9 / 19.9 s** |
+| 峰值 HeapAlloc | 1583 / 1640 / 1625 MB | **909 / 942 / 1159 MB** |
+
+**验收：达成**（中位 1271MB；三组里一组 1494MB 略超，记录备查）。
+
+### 产物等价性（三重 dump + 同二进制对照）
+
+| 集合 | 规模 | 归一化 diff | **同二进制两次运行对照** |
+|---|---|---|---|
+| nodes（含 properties） | 119215 | 1954 行 | **1890 行** |
+| edges | 135501/135503 | 2 行 | 2 行 |
+| function_field_summary（含 code_snippet） | 21164 | 124 行 | **122 行** |
+
+跨版本差异与同二进制噪声同量级 → 判为**既有不确定度**，本次改动未改变
+产物。差异来源是并发写库的 last-write-wins（同一 `external_summary` 节点
+的 `func_id`、同一 (函数, 字段) 摘要行的 `instance_path`/`line_start`/
+`code_snippet` 取决于哪个 worker 最后写入）。
+
+### 两处对 §87/§88 记录的修正
+
+1. **Q247 的验收判定偏乐观**：§88 记的 VmHWM 1464MB 是单次幸运样本；
+   多次交错测量 Q247 实际落在 **1464–2091MB**（中位约 1.9GB）。Q248 的
+   达标是在同一测量方式下、以中位数为准判定的。
+2. **图不确定性的量级比 §87 记载的更大**：§87 只统计了边集合（567→2 行）；
+   本次实测同二进制两次运行的 **nodes 归一化差异 1890 行 / 摘要 122 行**。
+   将来做"图确定性"立项时以这个量级为准。
+
+### 复测 profile：剩余构成（未动，留作下一轮的输入）
+
+修复后峰值 inuse 总量 **621MB → 192MB**（sourceLine 项消失），剩余
+live 是设计内的 `go/types` 类型信息 + SSA。alloc 4284MB → 3175MB，top：
+
+| 分配点 | alloc flat | 占比 | 风险评估 |
+|---|---|---|---|
+| `go/types.(*Selection).Type` | 467MB | 14.7% | 中（类型身份语义，需先确认调用点可否按 selector 缓存） |
+| `slices.Grow` | 270MB | 8.5% | 未定位来源 |
+| `ssautil.AllFunctions.func1` | 213MB | 6.7% | 低（纯函数，Index 级缓存一次调用即可） |
+| `encoding/json/v2.makeStructArshaler` | 418MB cum | 13.2% | 包缓存写盘附带（Q246 已改增量） |
+
+按本轮约定（>10% 且低风险才附带），以上均未动——`Selection.Type` 超 10%
+但不低风险，`AllFunctions` 低风险但未超 10%。
+
+### 验证
+
+`verify.sh --quick` 全绿；ssa/orchestrator `-race` 全绿；`make it` 失败集合
+与 HEAD 一致（既有 6 个）；`make e2e-fixture` 38 passed / 0 failed。
