@@ -107,7 +107,7 @@ pre-commit 场景的兜底）。
   `synchronous(OFF)` / 构建期关外键 / `temp_store(MEMORY)` 是**语义/安全
   取舍**，不随手加（悬挂边语义、WAL 损坏风险）
 
-## Q247–Q252 构建期整改教训（2026-09-19）
+## Q247–Q252b 构建期整改 + make it 修复教训（2026-09-19）
 
 - **Mode/契约与注释不符是隐形内存黑洞**：`loadPackages` 注释写"依赖走
   fast 模式"，Mode 里却带 `packages.NeedDeps` → go/packages 把**整个传递
@@ -206,6 +206,27 @@ pre-commit 场景的兜底）。
 - **序列化格式换型先量分配**：JSON→gob 实测 CPU -24~30%、体积 -16%，但
   **分配 +60%**（gob 更快但更费内存）——"换格式必然三降"是错的，用
   `BenchmarkPkgCacheSerialization` 这类对照基准决定，别凭直觉
+
+- **Q252b 长期红灯的集成套件必须尽快修**：`make it` 6 个失败挂了近一个月，
+  每轮改动只能"人肉比对失败集合"，本轮一查**其中 3 个是真 bug**（跨函数值流
+  链断、渲染静默截断）——"失败集合一致"最终会掩盖真回归
+- **同一语义的多条发射路径必须共用命名/合并口径**（本类问题已两次命中）：
+  Q252 是缓存收集用覆盖而全局 map 用追加；Q252b 是同一 SSA 值在 alias pass
+  （`v.Name()` → `#t0`）与 fe（`instancePath`/Q235-7 → `#*pp.T`）下**两个节点**，
+  alias 边与 argument/returns 边分裂 → `query path`/`value-trace` 跨函数链断。
+  修法：抽 `aliasSlot()` 单一口径两侧共用 + 回归测试断言"alias 端点 ==
+  argument 端点"。**排查手法**：同一函数内同类型值节点数 > 期望即分裂
+- **测试 fixture 必须与识别规则同步演进**：R29 把 grpc 注册识别改成按签名
+  （`grpc.ServiceRegistrar`/`*grpc.Server`/调用 `RegisterService`）后，用
+  `func RegisterX(s any, impl XServer)` 简化形态的 fixture 变成**不可能通过**
+  ——fixture 要贴近真实形态（protoc 生成代码）；自包含靠**本地 stub module +
+  `replace`**（grpc 也能这么造，不联网），别为了省依赖写假形态
+- **渲染层"分组/优化"改动要覆盖全部深度**：分层渲染把 `depth>=3` 丢进未渲染
+  桶 = 跨函数链在用户可见输出里静默消失；集成测试要断言"链上应出现的节点名
+  + 边类型"，不能只断言首尾
+- **按 commit 二分旧回归很便宜**：`runCLI` 是进程内调 `cli.Main`，`git worktree
+  add <commit>` 后在该 worktree 直接 `go test -tags integration` 即可——把"哪个
+  改动弄红的"从猜测变成二分
 
 
 ## 常用命令

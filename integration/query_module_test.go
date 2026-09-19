@@ -16,43 +16,19 @@ func TestModuleCallsSelfContained(t *testing.T) {
 		t.Skip("scip-go not found")
 	}
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "go.mod"), "module example.com/mono\n\ngo 1.21\n")
-	writeFile(t, filepath.Join(dir, "pb/greet.pb.go"), `package pb
+	writeGrpcMonoFixture(t, dir, `package svc_a
 
-type GreeterServer interface{ SayHello(string) string }
+import (
+	"context"
 
-func RegisterGreeterServer(s any, impl GreeterServer) {}
+	"example.com/mono/pb"
+	"google.golang.org/grpc"
+)
 
-type GreeterClient interface{ SayHello(string) string }
-
-func NewGreeterClient(conn any) GreeterClient { return nil }
-`)
-	writeFile(t, filepath.Join(dir, "svc_a/client.go"), `package svc_a
-
-import "example.com/mono/pb"
-
-func callGreeter(conn any) {
+func callGreeter(conn grpc.ClientConnInterface) {
 	c := pb.NewGreeterClient(conn)
-	c.SayHello("hi")
+	_, _ = c.SayHello(context.Background(), &pb.HelloRequest{Name: "hi"})
 }
-`)
-	writeFile(t, filepath.Join(dir, "svc_b/server.go"), `package svc_b
-
-import "example.com/mono/pb"
-
-type greeterImpl struct{}
-
-func (g *greeterImpl) SayHello(s string) string { return s }
-
-func register(s any) {
-	pb.RegisterGreeterServer(s, &greeterImpl{})
-}
-`)
-	writeFile(t, filepath.Join(dir, "modules.yaml"), `modules:
-  - prefix: "svc_a"
-    name: "svc_a"
-  - prefix: "svc_b"
-    name: "svc_b"
 `)
 	if code := runCLI(t, "init", "--repo", dir); code != 0 {
 		t.Fatalf("init exit = %d", code)
@@ -89,44 +65,19 @@ func TestModuleCallsDirectSelfContained(t *testing.T) {
 		t.Skip("scip-go not found")
 	}
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "go.mod"), "module example.com/mono\n\ngo 1.21\n")
-	writeFile(t, filepath.Join(dir, "grpc/conn.go"), `package grpc
+	writeGrpcMonoFixture(t, dir, `package svc_a
 
-type ClientConn struct{}
+import (
+	"context"
 
-func (c *ClientConn) Invoke(ctx any, method string, args ...any) {}
-`)
-	writeFile(t, filepath.Join(dir, "pb/greet.pb.go"), `package pb
+	"example.com/mono/pb"
+	"google.golang.org/grpc"
+)
 
-type GreeterServer interface{ SayHello(string) string }
-
-func RegisterGreeterServer(s any, impl GreeterServer) {}
-`)
-	writeFile(t, filepath.Join(dir, "svc_a/client.go"), `package svc_a
-
-import "example.com/mono/grpc"
-
+// 手写 client：Invoke + gRPC 方法路径（服务名从路径解析）
 func callGreeter(conn *grpc.ClientConn) {
-	conn.Invoke(nil, "/example.com.pb.Greeter/SayHello", nil)
+	conn.Invoke(context.Background(), "/example.com.pb.Greeter/SayHello", &pb.HelloRequest{Name: "hi"})
 }
-`)
-	writeFile(t, filepath.Join(dir, "svc_b/server.go"), `package svc_b
-
-import "example.com/mono/pb"
-
-type greeterImpl struct{}
-
-func (g *greeterImpl) SayHello(s string) string { return s }
-
-func register(s any) {
-	pb.RegisterGreeterServer(s, &greeterImpl{})
-}
-`)
-	writeFile(t, filepath.Join(dir, "modules.yaml"), `modules:
-  - prefix: "svc_a"
-    name: "svc_a"
-  - prefix: "svc_b"
-    name: "svc_b"
 `)
 	if code := runCLI(t, "init", "--repo", dir); code != 0 {
 		t.Fatalf("init exit = %d", code)

@@ -156,7 +156,11 @@ func TestFixtureAppRealForms(t *testing.T) {
 	}
 
 	// 4. 键关联（Q177 验收标准）：orders.user_id → users.id（外键→主键，
-	//    变参值链：对象字段读 → filter）
+	//    变参值链：对象字段读 → filter）。Q228：全量 relations 需先
+	//    precompute（否则 GetAllTableRelations 返回 in progress）
+	if code := runCLI(t, "precompute", "relations", "--repo", repoDir); code != 0 {
+		t.Fatalf("precompute relations exit = %d", code)
+	}
 	allRels, err := repo.GetAllTableRelations("")
 	if err != nil {
 		t.Fatal(err)

@@ -203,9 +203,15 @@ func TestCLIFullFlowPart1(t *testing.T) {
 			t.Errorf("expand 函数节点不应返回 alias 边（B1 后 alias 挂值节点）: %+v", f)
 		}
 	}
-	valFacts, _, err := repo.Expand("symbol:go:example.com/app/svc:aliasLocal#t0")
+	// 匿名分配（a := &Cfg{}）的值节点 ID 从库查——槽位命名 Q235-7 起
+	// 由 tN 回退类型短名（Q252b 修好 alias/argument 分裂后两路同节点）
+	aliasAlloc := allocValueID(t, repo, "symbol:go:example.com/app/svc:aliasLocal")
+	if aliasAlloc == "" {
+		t.Fatal("aliasLocal 匿名分配节点缺失")
+	}
+	valFacts, _, err := repo.Expand(domain.CanonicalID(aliasAlloc))
 	if err != nil {
-		t.Fatalf("expand aliasLocal#t0: %v", err)
+		t.Fatalf("expand %s: %v", aliasAlloc, err)
 	}
 	aliasHit := false
 	for _, f := range valFacts {

@@ -4210,3 +4210,88 @@ go2o 双跑（workers=1/8）四类产物全 0 差异。
 集合与 HEAD 一致（既有 6 个）；`make e2e-fixture` 38/38；
 `scripts/detcheck.sh .`（冷1 vs 冷2 确定性 + 冷2 vs 暖3 保真度）**全等**；
 go2o 冷/暖计数一致。
+
+## §94 `make it` 六个长红失败：三条独立病因（Q252b，2026-09-19）
+
+### 背景
+
+`make it`（integration 套件）在 HEAD 上长期 6 个失败，且"各轮改动后失败集合
+完全一致"——这种**长期红灯**本身是验证矩阵失效：每次改动都要人肉比对失败
+集合，且真回归会被"反正有 6 个红的"掩盖。逐个查下来，**其中 3 个是真 bug**
+（数据流跨函数链断、渲染静默截断），另 3 个是测试与设计演进脱节。
+
+定位手法（便宜好用）：`runCLI` 是**进程内**调 `cli.Main`，所以 `git worktree
+add <commit>` + 在该 worktree 里 `go test -tags integration` 即可按 commit
+二分旧回归——二分到 `f7ef7dd~1`（module-calls 两例此前通过）与更早（另四例
+早已红），把 6 个失败拆成两条时间线。
+
+### 病因 A：module-calls fixture 与识别规则脱节（2 例）
+
+`f7ef7dd`（R29 补遗）把 grpc 注册函数识别改为**按签名**（首参
+`grpc.ServiceRegistrar` / `*grpc.Server`，或函数体调用 `RegisterService`）——
+fixture 里的 `func RegisterGreeterServer(s any, impl GreeterServer)` 是**假
+形态**（为省依赖而简化），改动后不再识别 → 无 `registerServers` 条目 →
+`emitGrpcServiceEntry` 不触发 → **`grpc_impl` 边缺失** → `ModuleCalls` 的
+`ToModule` 空（输出 `[外部服务]`）。
+
+修复：fixture 改成**真实形态**（protoc 生成代码 + 本地 stub module
+`google.golang.org/grpc` + `replace`，与 fixtureapp 的 gorm/xorm 同法；不联网）。
+抽成 `writeGrpcMonoFixture(t, dir, clientCode)` 供两例共用（生成代码形态
+`pb.NewGreeterClient` / 手写形态 `conn.Invoke`）。实测 `grpc_impl` 边 0 → 1，
+`module-calls` 输出 `svc_a → svc_b [grpc]: example.com/mono/pb.Greeter.SayHello`。
+
+### 病因 B：Q228 relations 进度协议（2 例）
+
+`query relations --all` / `Repo.GetAllTableRelations` 自 Q228 起**不再现场
+计算**（未 precompute 时返回 `relation compute in progress`，runbook #6 已记录）。
+两例测试补上 `precompute relations`（标准用法）。
+
+### 病因 C（真 bug）：同一 SSA 值分裂成两个节点（2 例）
+
+`TestQueryPathSelfContained`（`path` 不可达）与 `TestCLIFullFlowPart2`
+（value-trace 停在参数）：
+
+```
+main#t0         ← alias pass 发（只有 alias 边）
+main#*pp.T      ← fe 发（只有 argument/returns 边，Q235-7 起匿名分配槽位
+                  回退类型短名）
+```
+
+同一 SSA 值（`t := &T{}`）**两条发射路径命名口径不同**——`alias_ids.go`
+用 `v.Name()`（`t0`），`fe_emitvalue.go` 用 `instancePath`（Q235-7 回退类型
+短名）。于是 alias 边与 argument/returns 边落在两个节点上，
+`query path` / `value-trace` 的跨函数链在匿名分配处断开（go2o 实测 1218 个
+重复 `ssa_value` 节点）。
+
+修复：抽 `aliasSlot(v)` 单一口径（源码变量名不变；匿名 `Alloc` 回退类型
+短名），`aliasPass.valueNodeID` / `objectIDOf` 与 `fieldExtractor.instancePath`
+共用。回归测试 `TestAnonAllocSingleValueNode`（断言 alias 端点 == argument
+端点；回退该改动即红）。集成侧锚点改为**从库查**（`allocValueID`）而非硬编码
+`#t0`——命名规则演进不该让测试变红。
+
+go2o 量化（同仓库双版本对照）：
+
+| 指标 | 修复前 | 修复后 |
+|---|---|---|
+| 节点总数 | 119215 | **117997（-1218 重复节点合并）** |
+| 边 / 摘要 | 135503 / 21164 | 135503 / 21164（**不变**——无数据丢失） |
+| alias 边落点同时挂数据流/传参边的条数 | 24 | **328（13.7×）** |
+| "只有 alias 边"的分裂孤儿节点 | 2057 | 1958 |
+
+### 病因 D（真 bug）：渲染层静默截断跨函数链
+
+Q235-10 的 value-trace 文本渲染只渲染 `depth=1` 顶层 + `parent` 命中的
+`depth=2` 子层；`depth>=3` 的行被归入 `"W"` 桶后**无人渲染**，且改版后不再
+输出边类型标注（`argument`/`returns` 从输出里消失，Aug-14 的旧渲染器有）。
+于是"跨两跳以上函数边界"的值流在用户可见输出里凭空消失（数据层其实是完整的）。
+
+修复 `renderText`：来源树**任意深度**递归渲染 + 每行标注边类型
+（`[argument]`）+ 跨函数行补 `(funcName)`（与 mermaid 渲染一致）。
+
+### 验证
+
+`make it` **全绿**（本轮第一个全绿基线，7.6s）；`e2e-fixture` 38/38；
+`verify.sh --quick` 全绿；`-race`（ssa/cli/action）全绿；
+`scripts/detcheck.sh .`（冷1/冷2 确定性 + 冷2/暖3 缓存保真度）四类产物全等；
+本仓库 reindex 52754 节点 / 59280 边 / 10038 摘要（较修复前少 1193 个重复
+`ssa_value` 节点）。

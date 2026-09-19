@@ -180,7 +180,9 @@ func main() {
 	repo := sqlite.NewRepo(db)
 
 	readID := fieldAccessID(t, repo, "symbol:go:example.com/pp:use", "t.Key", "read")
-	allocID := "symbol:go:example.com/pp:main#t0"
+	// 匿名分配锚点从库查（Q235-7 起 ID 槽位由 tN 回退类型短名——Q252b
+	// 修好 alias/argument 边分裂后链路恢复；命名规则不该被测试硬编码）
+	allocID := allocValueID(t, repo, "symbol:go:example.com/pp:main")
 	if readID == "" {
 		t.Fatalf("read 锚点缺失")
 	}

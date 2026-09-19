@@ -101,7 +101,9 @@ func (ext *fieldExtractor) instancePathDepth(v ssa.Value, depth int) string {
 	// 恢复（idents 命中 / assignTargets）优先级不变，仅失败时兜底
 	if isSSAName(name) {
 		if _, isAlloc := v.(*ssa.Alloc); isAlloc {
-			if tn := allocTypeShort(v.Type().String()); tn != "" {
+			// Q252b：与 alias pass 共用 aliasSlot（单一命名口径——两侧
+			// 不一致会让同一 SSA 值分裂成两个节点）
+			if tn := aliasSlot(v); tn != name {
 				return tn
 			}
 		}

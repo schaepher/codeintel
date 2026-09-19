@@ -9,6 +9,29 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
+// aliasSlot 值节点槽位名（**唯一口径**，Q252b）：fe 发射端（instancePath
+// 的 Alloc 回退，Q235-7）与 alias 端必须对**同一 ssa.Value** 落同一 ID——
+// 否则 alias 边（alias pass 发射）与 argument/returns 边（fe 发射）分裂到
+// 两个节点：实测 pp fixture 的 `t := &T{}` 同时存在 `main#t0`（只有 alias
+// 边）与 `main#*pp.T`（只有 argument 边），query path / value-trace 的跨
+// 函数链在匿名分配处断开。
+// 规则：源码变量名（SSA 名非 tN）保持不变；匿名 Alloc（tN）回退类型短名。
+// 非 Alloc 值保持 v.Name()——fe 公共分支同样用 v.Name()（回退类型短名只
+// 影响展示名 Name，不影响 ID）。
+func aliasSlot(v ssa.Value) string {
+	slot := v.Name()
+	if !isSSAName(slot) {
+		return slot
+	}
+	if _, isAlloc := v.(*ssa.Alloc); !isAlloc {
+		return slot
+	}
+	if tn := allocTypeShort(v.Type().String()); tn != "" {
+		return tn
+	}
+	return slot
+}
+
 // valueNodeID 生成并发射值节点的 canonical ID（funcID#slot，与 emitValue
 // 一致：shadowing 同名附加 @行号）。alias 边 source 用（B1：此前
 // funcIDOfValue 返回函数 ID，alias 边全部错挂在函数节点上——值节点
@@ -62,7 +85,7 @@ func (p *aliasPass) valueNodeID(v ssa.Value) (domain.CanonicalID, bool) {
 		slots = map[string]bool{}
 		p.slotSeen[funcID] = slots
 	}
-	slot := v.Name()
+	slot := aliasSlot(v)
 	if slots[slot] {
 		line := p.prog.Fset.PositionFor(v.Pos(), false).Line
 		slot = fmt.Sprintf("%s@%d", slot, line)
@@ -113,7 +136,7 @@ func (p *aliasPass) objectIDOf(obj ssa.Value) (domain.CanonicalID, bool) {
 		slots = map[string]bool{}
 		p.slotSeen[funcID] = slots
 	}
-	slot := obj.Name()
+	slot := aliasSlot(obj)
 	if slots[slot] {
 		line := p.prog.Fset.PositionFor(obj.Pos(), false).Line
 		slot = fmt.Sprintf("%s@%d", slot, line)

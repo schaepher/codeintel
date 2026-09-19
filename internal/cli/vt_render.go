@@ -73,7 +73,7 @@ func vtRender(rows []*domain.TraceRow, repoDir, format string) string {
 	case "mermaid":
 		return renderMermaid(head, anchor, sources, usages, leftBase, rightVar)
 	default:
-		return renderText(head, sources, usages, leftBase, rightVar, repoDir)
+		return renderText(head, anchor, sources, usages, leftBase, rightVar, repoDir)
 	}
 }
 
@@ -91,73 +91,62 @@ func sortTraceRows(rs []*domain.TraceRow) {
 	}
 }
 
-// renderText 文本格式（缩进分组）。
-// Q235-12 来源树：depth=1 写入值/对象为顶层组；depth>=2 按 ParentID
-// 归入对应顶层组的子来源层；方法调用赋值（u := svc.GetOrm()）的
-// 接收者 svc 补充进子来源。
-func renderText(head string, sources, usages []*domain.TraceRow,
+// renderText 文本格式（缩进分组 + 来源树）。
+//
+// Q252b：来源树改为**任意深度**渲染——Q235-12 只渲染 depth=1 顶层与
+// parent 命中的 depth=2 子层，depth>=3 的行（param ← argument ← caller
+// ← returns ← producer 这类跨函数链的第三跳起）被归入 "W" 桶后无人渲染，
+// 链条静默截断（集成 TestCLIFullFlowPart2 实测：newLLM.m 之后 runNested /
+// NewManager 全部丢失）。每行同时恢复边类型标注（lastEdgeKind）与跨函数
+// 标注（(funcName)）——否则输出看不出这一跳是 argument 还是 returns。
+func renderText(head string, anchor *domain.TraceRow, sources, usages []*domain.TraceRow,
 	leftBase, rightVar, repoDir string) string {
 	cache := newSourceLineCache(repoDir)
 	var sb strings.Builder
 	sb.WriteString(head + "\n")
-	// 顶层组（depth=1）：写入值/对象；子来源（depth>=2 + receiver）按 parent 归组
+	anchorFunc := anchor.FuncID // 跨函数标注：与锚点函数比对
+	// 顶层组（depth=1）+ 任意深度子来源（按 ParentID 建树）
 	top := []*domain.TraceRow{}
-	child := map[string][]string{} // parentID → 子来源行文本
-	// 先收集 depth=1（顶层）
+	childRows := map[string][]*domain.TraceRow{}
 	for _, r := range sources {
 		if r.Depth == 1 {
 			top = append(top, r)
-		}
-	}
-	// parent key：id|dir（与 mermaid 一致）
-	pkey := func(r *domain.TraceRow) string { return string(r.ID) + "|" + fmt.Sprint(r.Dir) }
-	// depth>=2 归组：parent 若是 depth=1 顶层 → 其子组；否则归到最近顶层
-	childLines := func(r *domain.TraceRow) string {
-		return fmt.Sprintf("%s:%d   %s", r.Name, r.Line, cache.line(r.FilePath, r.Line))
-	}
-	_ = childLines
-	for _, r := range sources {
-		if r.Depth <= 1 {
 			continue
 		}
-		// 顶层节点 id（不含 dir）→ 找对应的顶层
-		topKey := string(r.ParentID)
-		belong := ""
-		for _, t := range top {
-			if string(t.ID) == topKey {
-				belong = pkey(t)
-				break
+		childRows[string(r.ParentID)] = append(childRows[string(r.ParentID)], r)
+	}
+	rowLine := func(r *domain.TraceRow) string {
+		label := fmt.Sprintf("%s:%d", r.Name, r.Line)
+		if r.FuncID != "" && r.FuncID != anchorFunc {
+			if fn := shortFuncName(r.FuncID); fn != "" {
+				label += " (" + fn + ")"
 			}
 		}
-		if belong == "" {
-			belong = "W"
+		edge := lastEdgeKind(r.EdgeKinds)
+		if edge == "" {
+			edge = "-"
 		}
-		child[belong] = append(child[belong], childLines(r))
+		return fmt.Sprintf("%s   [%s]   %s", label, edge, cache.line(r.FilePath, r.Line))
 	}
-	// 渲染顶层组
-	_ = pkey
+	var renderSub func(r *domain.TraceRow, depth int)
+	renderSub = func(r *domain.TraceRow, depth int) {
+		sb.WriteString(strings.Repeat("  ", depth+1) + rowLine(r) + "\n")
+		for _, c := range childRows[string(r.ID)] {
+			renderSub(c, depth+1)
+		}
+	}
 	for _, t := range top {
 		g := classifySource(t, leftBase, rightVar)
 		sb.WriteString("  " + string(g) + " ←\n")
-		sb.WriteString(fmt.Sprintf("    %s:%d   %s\n", t.Name, t.Line, cache.line(t.FilePath, t.Line)))
-		// 子来源层：receiver + depth>=2 按 parent
-		sub := []string{}
-		if recv, defLine, defSrc := receiverSource(cache, t.FilePath, t.Line); recv != "" && defSrc != "" {
-			sub = append(sub, fmt.Sprintf("%s:%d   %s", recv, defLine, defSrc))
-		}
-		sub = append(sub, child[pkey(t)]...)
-		if len(sub) > 0 {
-			sb.WriteString("      来源 ←\n")
-			for _, line := range sub {
-				sb.WriteString("        " + line + "\n")
-			}
+		sb.WriteString("    " + rowLine(t) + "\n")
+		for _, c := range childRows[string(t.ID)] {
+			renderSub(c, 2)
 		}
 	}
 	if len(usages) > 0 {
 		sb.WriteString("  去向 →\n")
 		for _, r := range usages {
-			sb.WriteString(fmt.Sprintf("    %s:%d   %s\n", r.Name, r.Line,
-				cache.line(r.FilePath, r.Line)))
+			sb.WriteString("    " + rowLine(r) + "\n")
 		}
 	}
 	return sb.String()

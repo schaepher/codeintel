@@ -150,6 +150,11 @@ func main() {
 	if code := runCLI(t, "init", "--repo", dir); code != 0 {
 		t.Fatalf("init exit = %d", code)
 	}
+	// Q228：全量 relations 不再现场计算（返回 relation compute in progress）——
+	// 先 precompute 落缓存，再查询（runbook #6 的标准用法）
+	if code := runCLI(t, "precompute", "relations", "--repo", dir); code != 0 {
+		t.Fatalf("precompute relations exit = %d", code)
+	}
 
 	code, out := runCLIOut(t, "query", "relations", "--all", "--repo", dir, "--json")
 	if code != 0 {
