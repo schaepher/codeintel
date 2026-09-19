@@ -34,7 +34,7 @@ func (h *Handler) PageChatSend(ctx context.Context, msg string) string {
 // 上下文分组）。value-trace 全链锚点 = 画布读节点。
 func (m *Manager) Run(ctx context.Context, sessionID string, userMessage string) (reply string, newSessionID string, err error) {
 	m.cfg = Config{APIKey: userMessage} // [写] m.cfg
-	if userMessage != "" {              // [条件: userMessage != ""]
+	if userMessage != "" {             // [条件: userMessage != ""]
 		reply = m.cfg.APIKey // 读 m.cfg.APIKey（if 内）
 		h := &Handler{}
 		reply = h.PageChatSend(ctx, reply) // 跨函数

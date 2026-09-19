@@ -25,6 +25,7 @@ import (
 //
 // tbl 为递归目标节点别名（反向 n_prev / 正向 n_next）。
 
+
 func (r *Repo) GetValueTrace(nodeID domain.CanonicalID, maxDepth int, minConf float64, includeContainer bool) ([]*domain.TraceRow, error) {
 	logger := zap.L()
 	logger.Debug("enter (Repo).GetValueTrace")
@@ -201,6 +202,7 @@ ORDER BY dp.dir, MIN(dp.depth), dp.id`,
 	}
 	return out, nil
 }
+
 
 func anySlice(ids []string) []any {
 	out := make([]any, len(ids))

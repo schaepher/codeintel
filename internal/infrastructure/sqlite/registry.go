@@ -86,6 +86,9 @@ func OpenRegistry(dir string) (*Registry, error) {
 	return r, nil
 }
 
+
+
+
 // RegisterRepo 注册（UPSERT：已存在则整体刷新，含 registered_at 保持——
 // 用 INSERT ... ON CONFLICT(path) DO UPDATE 且 registered_at 取原值）。
 func (r *Registry) RegisterRepo(repo RegistryRepo) error {

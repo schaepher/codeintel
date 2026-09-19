@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"go.uber.org/zap"
 	_ "modernc.org/sqlite"
+	"go.uber.org/zap"
 )
 
 // SchemaVersion 数据库 schema 版本（PRAGMA user_version）。
@@ -136,15 +136,15 @@ func (db *DB) init() error {
 // 同步更新本清单；列变更（含加列——CREATE IF NOT EXISTS 不动已存在
 // 表）触发报错 clean，由清单与 DDL 不一致暴露。
 var schemaCols = map[string][]string{
-	"nodes":                  {"id", "kind", "name", "file_path", "line_start", "line_end", "properties", "signature_text", "created_at"},
-	"edges":                  {"id", "source_id", "target_id", "kind", "tool_source", "confidence", "metadata"},
-	"build_metadata":         {"build_id", "commit_sha", "tool_name", "status", "duration_ms", "error_message", "nodes_count", "edges_count", "timestamp"},
+	"nodes":                 {"id", "kind", "name", "file_path", "line_start", "line_end", "properties", "signature_text", "created_at"},
+	"edges":                 {"id", "source_id", "target_id", "kind", "tool_source", "confidence", "metadata"},
+	"build_metadata":        {"build_id", "commit_sha", "tool_name", "status", "duration_ms", "error_message", "nodes_count", "edges_count", "timestamp"},
 	"function_field_summary": {"function_id", "access_kind", "field_path", "instance_path", "line_start", "code_snippet"},
-	"summary_origins":        {"function_id", "access_kind", "field_path", "call_line", "callee_id"},
-	"relation_candidates":    {"build_id", "from_table", "from_col", "to_table", "to_col", "hops", "type"},
-	"relation_rules":         {"id", "from_table", "from_col", "to_table", "to_col", "created_at"},
-	"relation_progress":      {"build_id", "status", "done_count", "total_count", "updated_at"},
-	"qa_history":             {"id", "question", "answer", "context", "agent", "created_at"},
+	"summary_origins":       {"function_id", "access_kind", "field_path", "call_line", "callee_id"},
+	"relation_candidates":   {"build_id", "from_table", "from_col", "to_table", "to_col", "hops", "type"},
+	"relation_rules":        {"id", "from_table", "from_col", "to_table", "to_col", "created_at"},
+	"relation_progress":     {"build_id", "status", "done_count", "total_count", "updated_at"},
+	"qa_history":            {"id", "question", "answer", "context", "agent", "created_at"},
 }
 
 // verifySchema 结构齐全性检查：每个核心表期望列全部存在。旧二进制
