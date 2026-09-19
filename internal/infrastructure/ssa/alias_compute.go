@@ -9,13 +9,12 @@ import (
 	"github.com/schaepher/codeintel/internal/domain"
 	"go.uber.org/zap"
 	"golang.org/x/tools/go/ssa"
-	"golang.org/x/tools/go/ssa/ssautil"
 )
 
 // computeAliases 执行轻量别名分析，返回间接写排除集（emitSummaries 消费）。
 func computeAliases(repo *domain.Repository, prog *ssa.Program,
 	idents map[token.Pos]string, funcData map[domain.CanonicalID]*funcData,
-	lines *lineCache, emit domain.EmitFunc) (*aliasResult, error) {
+	lines *lineCache, modFuncs []*ssa.Function, emit domain.EmitFunc) (*aliasResult, error) {
 	logger := zap.L()
 	logger.Debug("enter computeAliases")
 	defer logger.Debug("exit computeAliases")
@@ -39,10 +38,7 @@ func computeAliases(repo *domain.Repository, prog *ssa.Program,
 	}
 	// 项目内函数（FuncDecl 过滤，与 emitFunction 一致）
 	var funcs []*ssa.Function
-	for fn := range ssautil.AllFunctions(prog) {
-		if !isModuleFunction(fn, repo.Modules) {
-			continue
-		}
+	for _, fn := range modFuncs { // Q249：共享快照（不再 AllFunctions）
 		if _, ok := fn.Syntax().(*ast.FuncDecl); !ok {
 			continue
 		}

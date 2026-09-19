@@ -3907,3 +3907,77 @@ live 是设计内的 `go/types` 类型信息 + SSA。alloc 4284MB → 3175MB，t
 
 `verify.sh --quick` 全绿；ssa/orchestrator `-race` 全绿；`make it` 失败集合
 与 HEAD 一致（既有 6 个）；`make e2e-fixture` 38 passed / 0 failed。
+
+## §90 函数全集快照共享（Q249，2026-09-19）——AllFunctions 6 处 → 1 处
+
+**依据**（Q248 后的峰值 profile）：`ssautil.AllFunctions(prog)` 在构建期被
+调用 **6 处**（`collectDispatchRegistrations` / `emitDispatches` /
+`emitGlobalInit` / `collectOrmMappings` / `computeAliases` / `byPkg` 建索引），
+每次都全程序遍历所有函数体 + 指令操作数并建 map——累计分配 213MB（6.7%）；
+另有 `summary_dynsql.allFunctions()` 把结果**按函数**物化成
+`[]*ssa.Function`（`ext.funcCache`，每个用到的 extractor 各一份）。
+
+### 改动
+
+- 新增 `ssa/func_snapshot.go`：`Adapter.funcs` 在 Index 级采集一次
+  （`newFuncSnapshot`），提供两个视图——`all()`（全程序，含合成包装，
+  summary_dynsql 找静态调用点用）与 `moduleFuncs(modules)`（模块内函数，
+  集中过滤一次供其余 5 处消费者共享）。
+- 6 处消费者改为接收共享切片（不再各自 `AllFunctions` + `isModuleFunction`
+  过滤）；`summary_dynsql` 删除 per-extractor `funcCache` 字段与物化逻辑。
+- 快照一次的安全性依据（写在文件头注释里）：模块内函数在 `sp.Build()`
+  循环后已全部存在；`AllFunctions` 自身通过 `prog.MethodValue` 物化的包装
+  函数在**第一次调用**即被创建并纳入结果；我们的代码不调用 MethodValue。
+
+### 实测（go2o 副本冷构建，基线 = Q248 9de9dcf）
+
+CLI `init`（`/usr/bin/time -v`，Max RSS 含 scip 子进程）：
+
+| 指标 | Q248 | Q249 | Δ |
+|---|---|---|---|
+| wall | 28.35s | **16.40s** | -42% |
+| Max RSS | 1421876KB | **1085284KB（1.09GB）** | -24%（-337MB） |
+| 次要页错误 | 635101 | 592392 | -7% |
+| 非自愿上下文切换 | 8479 | 5125 | -40% |
+| emitFunction 阶段 heap | 665MB | **519MB** | -22% |
+
+进程内 bench（交错 2 组，GOGC 默认）：
+
+| | Q248 | Q249 |
+|---|---|---|
+| 峰值 RSS（VmHWM） | 1462 / 1447 MB | **1155 / 1147 MB** |
+| 峰值 HeapAlloc | 1129 / 1036 MB | **747 / 795 MB** |
+| 总耗时 | 19.5 / 18.3 s | **12.7 / 12.2 s** |
+
+**产物等价性**：nodes 归一化差异 1898 行（同二进制对照 1890）、edges 2 行
+（既有那对）、摘要 142 行（对照 122）→ 同量级，判为既有不确定度。
+计数一致（119215 节点 / 21164 摘要）。
+
+### 复测 profile（剩余构成，未动）
+
+alloc 总量 **3175MB → 2027MB**；峰值 inuse 最高的单项已降到 32MB
+（9.7%，`go/types` 类型检查记录）——**没有超过 10% 的"病态"单项**了。
+剩余 alloc top：
+
+| 分配点 | flat | 占比 | 来源/风险 |
+|---|---|---|---|
+| `slices.Grow`（`jsonwire.AppendQuote`） | 316MB | 15.6% | **包缓存 JSON 序列化**（Q246 已改增量写）；换格式属中等风险，留待单独一轮 |
+| `reflect.unsafe_New` | 100MB | 5.0% | json v2 结构体 arshaler（同上） |
+| `bytes.Clone` | 100MB | 4.9% | 未定位 |
+| `go/types.lookupFieldOrMethodImpl` | 136MB cum | 6.7% | 类型方法查找（设计内） |
+
+### 三轮累计（go2o 冷构建，同一口径）
+
+| 口径 | Q246 基线 | Q249 | 降幅 |
+|---|---|---|---|
+| CLI wall | 51.4s | **16.4s** | -68% |
+| CLI Max RSS | 2.32GB | **1.09GB** | -53% |
+| bench 峰值 RSS（VmHWM） | 2472MB | **1155MB** | -53% |
+| bench 总耗时 | 87.1s | **12.2s** | -86% |
+| CLI 次要页错误 / 非自愿切换 | 1178582 / 18565 | 592392 / 5125 | -50% / -72% |
+| 产物 | 119215 节点 / 135502 边 | 119215 / 135503 | 不变（差异在既有不确定度内） |
+
+### 验证
+
+`verify.sh --quick` 全绿；ssa/orchestrator `-race` 全绿；`make it` 失败集合
+与 HEAD 一致（既有 6 个）；`make e2e-fixture` 38 passed / 0 failed。

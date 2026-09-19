@@ -69,6 +69,9 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	}
 
 	// Q247：原「释放依赖 AST」循环已删（NeedDeps 关闭后依赖无 AST；返回切片全是模块包——恒空操作）。
+	// Q249：函数全集快照（AllFunctions 一次；6 处消费者共享）
+	a.funcs = newFuncSnapshot(prog)
+	modFuncs := a.funcs.moduleFuncs(repo.Modules)
 	// Q221：dispatchRegs 必须在 Index 级初始化一次（sp.Build 之后——
 	// MakeInterface 指令已构建）——零值 nil map 经 extractor 解引用
 	// 复制后 `ext.dispatchRegs == nil` 永远成立，cf_call.go 懒初始化
@@ -76,7 +79,7 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	// 全图遍历 ≈ 305s CPU，pprof 46% 热点）。初始化后各 extractor
 	// 共享只读 map。
 	a.dispatchPkgs = nil
-	a.dispatchRegs, a.dispatchPkgs = collectDispatchRegistrations(prog, repo.Modules)
+	a.dispatchRegs, a.dispatchPkgs = collectDispatchRegistrations(prog, modFuncs, repo.Modules)
 	a.regHits = buildRegHits(a.dispatchRegs, prog)
 
 	idents := buildIdentIndex(pkgs, repo.Modules)
@@ -105,13 +108,10 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 
 	// Q211：orm.Mapping 实体类型→表名收集（发射前全量扫描——Mapping
 	// 可能在包 A 注册、包 B 使用；emitFunction 按包并发期间只读）
-	a.typeMapping = collectOrmMappings(prog, repo.Modules)
+	a.typeMapping = collectOrmMappings(prog, modFuncs, repo.Modules)
 
 	byPkg := map[string][]*ssa.Function{}
-	for fn := range ssautil.AllFunctions(prog) {
-		if !isModuleFunction(fn, repo.Modules) {
-			continue
-		}
+	for _, fn := range modFuncs { // Q249：共享快照（不再 AllFunctions）
 		byPkg[fn.Pkg.Pkg.Path()] = append(byPkg[fn.Pkg.Pkg.Path()], fn)
 	}
 	totalFuncs := 0
@@ -250,7 +250,7 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 				return emit(item)
 			}
 			for _, fn := range blk.fns {
-				owner, fd, err := emitFunction(repo, prog, fn, idents, assignTargets, specs, fallbackAgg, pkgEmit, implPool, a.lines, &a.dispatchRegs, a.regHits, a.typeMapping)
+				owner, fd, err := emitFunction(repo, prog, fn, idents, assignTargets, specs, fallbackAgg, pkgEmit, implPool, a.lines, a.funcs, &a.dispatchRegs, a.regHits, a.typeMapping)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "emitFunction %s: %v\n", fn.Name(), err)
 					return

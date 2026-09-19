@@ -166,6 +166,7 @@ type fieldExtractor struct {
 	slotsFor         map[domain.CanonicalID]map[string]bool // 每函数 slot 占用（shadowing 消歧）
 	rets             map[*ssa.Function][][]ssa.Value        // 被调函数 Return 指令缓存（returns 边复用）
 	lines            *lineCache                             // Q248：Index 级共享源码行缓存（原每函数一份）
+	funcs            *funcSnapshot                          // Q249：Index 级函数全集快照（原每函数一份 funcCache）
 	funcData         *funcData                              // 摘要收集（direct 读写 + 静态调用）
 	specs            map[string]summarySpec                 // 外部函数摘要（内置 + 用户）
 	extSummaries     map[domain.CanonicalID]bool            // 已创建 external_summary 节点
@@ -177,5 +178,4 @@ type fieldExtractor struct {
 	tableNames       map[*types.Named]string                // Q205：tableNameOf 结果缓存（无 spec 接口调用兜底高频触发）
 	typeMapping      map[*types.Named]string                // Q211：orm.Mapping 实体类型→表名（Index 级收集共享）
 	paramCallerCache map[*ssa.Function]*paramCalls          // Q239：参数→静态调用点缓存（动态 SQL 还原）
-	funcCache        []*ssa.Function                        // Q239：prog 全函数缓存
 }

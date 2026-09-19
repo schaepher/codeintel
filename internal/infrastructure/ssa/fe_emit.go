@@ -13,8 +13,8 @@ import (
 func emitFunctionFields(repo *domain.Repository, prog *ssa.Program, fn *ssa.Function,
 	funcID domain.CanonicalID, idents map[token.Pos]string, assignTargets []assignTarget,
 	funcData *funcData, specs map[string]summarySpec, fallbackAgg *fallbackAgg, emit domain.EmitFunc,
-	pool *implTypePool, lines *lineCache, dispatchRegs *dispatchReg, regHits regHits,
-	typeMapping map[*types.Named]string, sigEmitted bool) error {
+	pool *implTypePool, lines *lineCache, funcs *funcSnapshot, dispatchRegs *dispatchReg,
+	regHits regHits, typeMapping map[*types.Named]string, sigEmitted bool) error {
 	logger := zap.L()
 	logger.Debug("enter emitFunctionFields")
 	defer logger.Debug("exit emitFunctionFields")
@@ -26,6 +26,7 @@ func emitFunctionFields(repo *domain.Repository, prog *ssa.Program, fn *ssa.Func
 		prog:       prog,
 		implPool:   pool,
 		lines:      lines, // Q248：Index 级共享行缓存（原每函数一份，惰性建）
+		funcs:      funcs, // Q249：Index 级函数全集快照
 		fn:         fn,
 		funcID:     funcID,
 		sigEmitted: sigEmitted,

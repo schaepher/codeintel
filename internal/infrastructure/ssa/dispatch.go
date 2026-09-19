@@ -15,7 +15,6 @@ import (
 	"github.com/schaepher/codeintel/internal/domain"
 	"go.uber.org/zap"
 	"golang.org/x/tools/go/ssa"
-	"golang.org/x/tools/go/ssa/ssautil"
 )
 
 // dispatchReg 注册点：接口类型 → 动态类型 String → 注册行号。
@@ -63,7 +62,7 @@ type dispatchCandidate struct {
 // 具体值 → 接口值的转换指令（SSA 中注册/注入点的标准形态）。
 // P0-2：同时返回注册点所在模块内包路径（增量构建补 Load 用——注册
 // 点包未 Load 时 dispatch_to 边整体丢失）。
-func collectDispatchRegistrations(prog *ssa.Program, modules []string) (dispatchReg, []string) {
+func collectDispatchRegistrations(prog *ssa.Program, modFuncs []*ssa.Function, modules []string) (dispatchReg, []string) {
 	logger := zap.L()
 	logger.Debug("enter collectDispatchRegistrations")
 	defer logger.Debug("exit collectDispatchRegistrations")
@@ -77,10 +76,7 @@ func collectDispatchRegistrations(prog *ssa.Program, modules []string) (dispatch
 		seenPkg[pkgPath] = true
 		pkgs = append(pkgs, pkgPath)
 	}
-	for fn := range ssautil.AllFunctions(prog) {
-		if !isModuleFunction(fn, modules) {
-			continue
-		}
+	for _, fn := range modFuncs { // Q249：共享快照（不再 AllFunctions）
 		for _, b := range fn.Blocks {
 			for _, instr := range b.Instrs {
 				mi, ok := instr.(*ssa.MakeInterface)

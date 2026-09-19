@@ -30,7 +30,7 @@ func finishIndex(repo *domain.Repository, prog *ssa.Program, idents map[token.Po
 			fmt.Fprintf(stderr, "warning: 字段访问静态类型解析失败（回退源码字面量）: %s\n", d)
 		}
 	}
-	aliasRes, err := computeAliases(repo, prog, idents, a.fd, a.lines, emit)
+	aliasRes, err := computeAliases(repo, prog, idents, a.fd, a.lines, a.funcs.moduleFuncs(repo.Modules), emit)
 	if err != nil {
 		return fmt.Errorf("alias analysis: %w", err)
 	}
@@ -41,12 +41,12 @@ func finishIndex(repo *domain.Repository, prog *ssa.Program, idents map[token.Po
 	}
 	a.fd, aliasRes = nil, nil
 
-	if err := emitGlobalInit(repo, prog, emit); err != nil {
+	if err := emitGlobalInit(repo, prog, a.funcs.moduleFuncs(repo.Modules), emit); err != nil {
 		return err
 	}
 	// P0-2：dispatch 相关包（注册点 ∪ 动态调用，emitDispatches 内合并
 	// 去重）——增量补 Load 持久化
-	dispatchPkgs, err := emitDispatches(repo, prog, pool, emit)
+	dispatchPkgs, err := emitDispatches(repo, prog, pool, a.funcs, emit)
 	if err != nil {
 		return err
 	}

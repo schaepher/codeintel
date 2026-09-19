@@ -36,6 +36,9 @@ type Adapter struct {
 	// lines Q248：Index 级共享源码行缓存（extractor 与 aliasPass 共用，
 	// 每轮 Index 新建——原实现每函数一份，占全部分配 25%）
 	lines *lineCache
+	// funcs Q249：程序函数全集快照（Index 级一次；原实现 6 处各自
+	// ssautil.AllFunctions 全程序扫描）
+	funcs *funcSnapshot
 	// dispatchPkgs P0-2：dispatch 相关模块内包（注册点包 ∪ 动态调用
 	// 包）——本轮 Index 运行收集，构建后供 orchestrator 持久化到
 	// build_metadata（增量补 Load 用）

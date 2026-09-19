@@ -6,7 +6,6 @@ import (
 	"github.com/schaepher/codeintel/internal/domain"
 	"go.uber.org/zap"
 	"golang.org/x/tools/go/ssa"
-	"golang.org/x/tools/go/ssa/ssautil"
 )
 
 // emitDispatches 发射全部 dispatch_to 边：
@@ -17,11 +16,11 @@ import (
 //
 // P0-2：返回 dispatch 相关模块内包路径（注册点包 ∪ 动态调用包）——
 // 增量构建补 Load 用（这些包未 Load 时 dispatch_to 边整体丢失）。
-func emitDispatches(repo *domain.Repository, prog *ssa.Program, pool *implTypePool, emit domain.EmitFunc) ([]string, error) {
+func emitDispatches(repo *domain.Repository, prog *ssa.Program, pool *implTypePool, funcs *funcSnapshot, emit domain.EmitFunc) ([]string, error) {
 	logger := zap.L()
 	logger.Debug("enter emitDispatches")
 	defer logger.Debug("exit emitDispatches")
-	regs, regPkgs := collectDispatchRegistrations(prog, repo.Modules)
+	regs, regPkgs := collectDispatchRegistrations(prog, funcs.moduleFuncs(repo.Modules), repo.Modules)
 
 	// 接口方法调用集合：接口类型 → 方法名（map 去重；UNIQUE 边合并）
 	type callKey struct {
@@ -33,10 +32,7 @@ func emitDispatches(repo *domain.Repository, prog *ssa.Program, pool *implTypePo
 	for _, p := range regPkgs {
 		callPkgSet[p] = true
 	}
-	for fn := range ssautil.AllFunctions(prog) {
-		if !isModuleFunction(fn, repo.Modules) {
-			continue
-		}
+	for _, fn := range funcs.moduleFuncs(repo.Modules) { // Q249：共享快照
 		for _, b := range fn.Blocks {
 			for _, instr := range b.Instrs {
 				var cc *ssa.CallCommon

@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"golang.org/x/tools/go/ssa"
-	"golang.org/x/tools/go/ssa/ssautil"
 )
 
 // Q239 动态 SQL 拼接还原（design-q239.md §3.4）：fmt.Sprintf 模板 +
@@ -237,15 +236,8 @@ func (ext *fieldExtractor) resolveParamCandidates(p *ssa.Parameter, depth int) [
 	return out
 }
 
-// allFunctions 全部 SSA 函数（prog 缓存）。
+// allFunctions 全部 SSA 函数（Q249：Index 级共享快照；原先每个用到的
+// extractor 各自物化一份全程序函数列表）。
 func (ext *fieldExtractor) allFunctions() []*ssa.Function {
-	if ext.funcCache != nil {
-		return ext.funcCache
-	}
-	var out []*ssa.Function
-	for f := range ssautil.AllFunctions(ext.prog) {
-		out = append(out, f)
-	}
-	ext.funcCache = out
-	return out
+	return ext.funcs.all()
 }

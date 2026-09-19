@@ -6,7 +6,6 @@ import (
 
 	"go.uber.org/zap"
 	"golang.org/x/tools/go/ssa"
-	"golang.org/x/tools/go/ssa/ssautil"
 )
 
 // gofOrmIfacePath gof（github.com/ixre/gof）db/orm.Orm 接口全路径——
@@ -18,15 +17,12 @@ const gofOrmIfacePath = "github.com/ixre/gof/db/orm.Orm"
 // repo_v1.go OrmMapping 形态——orm 是 orm.Orm 接口值，动态派发）。
 // 收集独立于发射（Index 开头一次，emitFunction 按包并发期间只读）：
 // Mapping 可能在包 A 注册、包 B 使用，按包顺序发射会漏。
-func collectOrmMappings(prog *ssa.Program, modules []string) map[*types.Named]string {
+func collectOrmMappings(prog *ssa.Program, modFuncs []*ssa.Function, modules []string) map[*types.Named]string {
 	logger := zap.L()
 	logger.Debug("enter collectOrmMappings")
 	defer logger.Debug("exit collectOrmMappings")
 	m := map[*types.Named]string{}
-	for fn := range ssautil.AllFunctions(prog) {
-		if !isModuleFunction(fn, modules) {
-			continue
-		}
+	for _, fn := range modFuncs { // Q249：共享快照（不再 AllFunctions）
 		for _, b := range fn.Blocks {
 			for _, instr := range b.Instrs {
 				call, ok := instr.(*ssa.Call)
