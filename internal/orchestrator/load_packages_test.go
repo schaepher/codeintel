@@ -133,3 +133,61 @@ func TestLoadPackagesDependencyContract(t *testing.T) {
 	t.Logf("契约通过：模块包 %d 个（全量）；reachable 外部包 %d 个（Types 齐全、无 Syntax）",
 		modulePkgs, extTotal)
 }
+
+// Q251：多 module 必须共用**一个** token.FileSet——原先每个 module 各一次
+// packages.Load（各自新建 Fset），而 ssautil.Packages 的 SSA Program 只用
+// initial[0].Fset：非首模块的 token.Pos 在错误 Fset 里解析（461 行文件报
+// 498 行），relPath 失败导致 file_path 丢失（增量按文件删除匹配不到）。
+//
+// 断言：① 返回包两两 Fset 同一实例；② 嵌套 module 的文件位置能用该 Fset
+// 解析出正确文件（路径含嵌套目录、行号 ≤ 文件行数）。
+func TestLoadPackagesSharedFileSet(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "go.mod"), "module example.com/root\n\ngo 1.21\n")
+	writeFile(t, filepath.Join(dir, "main.go"), "package main\n\nfunc main() {}\n")
+	// 嵌套 module（第二个 Load）
+	writeFile(t, filepath.Join(dir, "sub", "go.mod"), "module example.com/sub\n\ngo 1.21\n")
+	writeFile(t, filepath.Join(dir, "sub", "sub.go"),
+		"package sub\n\nimport \"fmt\"\n\nfunc Hello() string {\n\tfmt.Println(\"x\")\n\treturn \"hi\"\n}\n")
+
+	modules, dirs, err := DiscoverModules(dir)
+	if err != nil {
+		t.Fatalf("DiscoverModules: %v", err)
+	}
+	o := &Orchestrator{Repo: &domain.Repository{
+		Path: dir, Module: modules[0], Modules: modules, ModuleDirs: dirs,
+	}}
+	pkgs, err := o.loadPackages(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("loadPackages: %v", err)
+	}
+	if len(pkgs) < 2 {
+		t.Fatalf("应加载到根 module + 嵌套 module 的包，got %d", len(pkgs))
+	}
+	fset := pkgs[0].Fset
+	if fset == nil {
+		t.Fatal("包的 Fset 不应为空")
+	}
+	for _, p := range pkgs {
+		if p.Fset != fset {
+			t.Fatalf("包 %s 的 Fset 与其他包不同实例（Q251：必须共享一个）", p.PkgPath)
+		}
+	}
+	// 嵌套 module 的文件位置可正确解析
+	for _, p := range pkgs {
+		if p.PkgPath != "example.com/sub" {
+			continue
+		}
+		obj := p.Types.Scope().Lookup("Hello")
+		if obj == nil {
+			t.Fatal("sub.Hello 未找到")
+		}
+		pos := fset.PositionFor(obj.Pos(), false)
+		if !strings.HasSuffix(pos.Filename, filepath.Join("sub", "sub.go")) {
+			t.Errorf("Hello 的位置 = %s，应落在 sub/sub.go", pos.Filename)
+		}
+		if pos.Line < 5 || pos.Line > 8 {
+			t.Errorf("Hello 行号 = %d，应在 5-8（位置解析错乱）", pos.Line)
+		}
+	}
+}

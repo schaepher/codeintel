@@ -107,7 +107,7 @@ pre-commit 场景的兜底）。
   `synchronous(OFF)` / 构建期关外键 / `temp_store(MEMORY)` 是**语义/安全
   取舍**，不随手加（悬挂边语义、WAL 损坏风险）
 
-## Q247–Q250 构建期整改教训（2026-09-19）
+## Q247–Q251 构建期整改教训（2026-09-19）
 
 - **Mode/契约与注释不符是隐形内存黑洞**：`loadPackages` 注释写"依赖走
   fast 模式"，Mode 里却带 `packages.NeedDeps` → go/packages 把**整个传递
@@ -173,12 +173,27 @@ pre-commit 场景的兜底）。
   但**别动 `function_field_summary` 的 REPLACE**（Q215：新分析覆盖陈旧行）
   ——确定性要放在**发射端**选代表，改 SQL 层会破坏增量重建语义
   （既有测试 `TestSummaryReplace` 会红）
-- **多 module 仓库的 SSA 位置是错的（Q251 待修）**：每个 module 各一次
+- **多 module 仓库的 SSA 位置曾经是错的（Q251 已修）**：每个 module 各一次
   `packages.Load` → 各自 `token.FileSet`，而 SSA Program 只有第一个包的
-  Fset → 非首模块的 `token.Pos` 解析出行号错乱（实测 461 行的文件报 498 行）
-  且 `file_path` 为空（增量按文件删除会漏）。单 module 仓库不受影响
+  Fset → 非首模块 `token.Pos` 解析出行号错乱（实测 461 行文件报 498 行）、
+  `file_path` 为空（增量按文件删除会漏）。修法见下条（共享 Fset）
 - **`gofmt -w <目录>` 会改到无关文件**：本仓库并非全局 gofmt-clean，整目录
   格式化会把别人的文件带进提交——只格式化自己改动的文件
+
+- **Q251 多 module 必须共享一个 `token.FileSet`**：`packages.Config.Fset`
+  可跨多次 `packages.Load` 传入同一个——否则各 module 一个 Fset，而 SSA
+  Program 只用 `initial[0].Fset`（`ssautil/load.go`），非首模块的
+  `token.Pos` 解析出行号错乱（461 行文件报 498 行）、`relPath` 失败导致
+  `file_path` 为空（增量按文件删除匹配不到 → 陈旧节点残留）。SCIP 侧同理：
+  scip-go 在 module 目录下跑，`document.RelativePath` 是**模块相对**路径，
+  必须 `path.Join(moduleDir, rel)` 归一到仓库根（否则 `file:` 节点 ID
+  跨模块碰撞）
+- **缓存键覆盖不到的地方用版本号兜底**：`analyzerVersionHash` 只哈希
+  `ssa/*.go`——改 orchestrator/scip 里影响产物内容（位置/路径）的语义时，
+  必须递增 `pkgCacheFormat`，否则旧缓存把旧语义重放回来（Q251 实测：
+  改完 reindex 无效，清 `.codeintel/cache` 才生效）
+- **事实变了就改推荐**：Q251 设计时我推荐"28 处调用点按包 Fset 解析"，
+  核查 x/tools 源码后发现 `Config.Fset` 存在 → 改成 3 行的共享 Fset 方案
 
 
 ## 常用命令
@@ -513,7 +528,9 @@ defer logger.Debug("exit <name>")
 - **工作流约定**（用户明确）：每个功能先写测试再实现（测试先行）；开发中的
   疑问必须先向用户确认（设计树访谈模式）；改完验证后必须 git push。
 - **验证形态矩阵**（2026-08-17 XORM 教训）：框架适配/查询类功能，测试必须覆盖
-  **真实调用形态**——具体类型静态调用（如 *xorm.Session，用 replace 本地模块
+  **真实调用形态**；涉及位置/路径产出的改动必须覆盖**多 module 仓库**
+  （嵌套 go.mod 的 file:line 与 file_path，Q251 教训——单 module 仓库
+  完全不暴露）——具体类型静态调用（如 *xorm.Session，用 replace 本地模块
   模拟真实包路径）+ 接口动态调用，自建 fixture 只算第一层；缓存/优化必须测
   **读命中闭环**（写入→读取→命中→失效），不只测写入；性能改动带优化前后
   实测对比（数字验收）。integration/fixtureapp 提供固定真实形态代码库，

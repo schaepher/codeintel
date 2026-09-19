@@ -28,7 +28,7 @@ func processFixture(t *testing.T, doc *scip.Document) ([]*domain.CodeEntity, []*
 	var facts []*domain.Fact
 	adapter := &Adapter{}
 	repo := &domain.Repository{Module: "example.com/m", Modules: []string{"example.com/m"}}
-	err := adapter.processDocument(repo, doc, func(item domain.Item) error {
+	err := adapter.processDocument(repo, doc, ".", func(item domain.Item) error {
 		if item.Node != nil {
 			nodes = append(nodes, item.Node)
 		}
@@ -265,5 +265,26 @@ func TestResolveBin(t *testing.T) {
 	a2.BinPath = ""
 	if p, err := a2.resolveBin(); err == nil && p == "" {
 		t.Errorf("resolveBin empty path without error")
+	}
+}
+
+// Q251：SCIP document 的 RelativePath 是**模块相对**路径（scip-go 在
+// module 目录下运行）——必须归一到仓库相对路径，否则嵌套 module 的
+// file_path 缺前缀（rename.go 而非 skills/.../rename.go）、file: 节点 ID
+// 跨模块碰撞、DeleteByFile 匹配不到（增量残留）。
+func TestRepoRelPath(t *testing.T) {
+	cases := []struct {
+		moduleRel, docRel, want string
+	}{
+		{".", "internal/cli/init.go", "internal/cli/init.go"},
+		{"", "internal/cli/init.go", "internal/cli/init.go"},
+		{"skills/dev-line-limit/scripts/asttool", "rename.go", "skills/dev-line-limit/scripts/asttool/rename.go"},
+		{"examples/repro-order-id-fk/xorm", "main.go", "examples/repro-order-id-fk/xorm/main.go"},
+		{"skills/asttool", "", ""},
+	}
+	for _, c := range cases {
+		if got := repoRelPath(c.moduleRel, c.docRel); got != c.want {
+			t.Errorf("repoRelPath(%q, %q) = %q, want %q", c.moduleRel, c.docRel, got, c.want)
+		}
 	}
 }

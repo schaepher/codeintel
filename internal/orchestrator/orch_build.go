@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,6 +81,13 @@ func (o *Orchestrator) FullBuild(ctx context.Context) (*BuildResult, error) {
 func (o *Orchestrator) loadPackages(ctx context.Context, patterns pkgPatterns) ([]*packages.Package, error) {
 	seen := map[string]bool{}
 	var out []*packages.Package
+	// Q251：多 module 共用**一个** token.FileSet——原先每个 module 各一次
+	// packages.Load（各自新建 Fset），而 ssautil.Packages 的 Program 只用
+	// initial[0].Fset（x/tools/go/ssa/ssautil/load.go）：非首模块的 token.Pos
+	// 在错误 Fset 里解析出行号错乱（461 行的文件报 498 行）、relPath 失败
+	// 返回空（file_path 丢失 → 增量按文件删除匹配不到）。共享 Fset 后所有
+	// 包的位置都在同一坐标系，SSA/AST 两适配器同时受益。
+	fset := token.NewFileSet()
 	for i, d := range o.Repo.ModuleDirs {
 		dir := o.Repo.Path
 		if i > 0 {
@@ -96,7 +104,8 @@ func (o *Orchestrator) loadPackages(ctx context.Context, patterns pkgPatterns) (
 		cfg := &packages.Config{
 			Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedSyntax |
 				packages.NeedTypes | packages.NeedTypesInfo | packages.NeedImports,
-			Dir: dir,
+			Dir:  dir,
+			Fset: fset, // Q251：跨 module 共享
 		}
 		pkgs, err := packages.Load(cfg, pat...)
 		if err != nil {

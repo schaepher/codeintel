@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -54,15 +55,22 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, _ []*packa
 	if err := os.MkdirAll(filepath.Join(repo.Path, ".codeintel"), 0o755); err != nil {
 		return fmt.Errorf("create .codeintel: %w", err)
 	}
-	dirs := []string{repo.Path}
+	// Q251：每个 module 带着"相对仓库根的目录"一起处理——scip-go 在
+	// module 目录下运行，document 的 RelativePath 是**模块相对**路径，
+	// 直接用会让嵌套 module 的 file_path 缺前缀（rename.go 而不是
+	// skills/.../rename.go），file: 节点 ID 还会跨模块碰撞、
+	// DeleteByFile 也匹配不到（增量陈旧节点删不掉）。
+	type moduleDir struct{ abs, rel string }
+	dirs := []moduleDir{{abs: repo.Path, rel: "."}}
 	for i, d := range repo.ModuleDirs {
 		if i == 0 {
 			continue
 		}
-		dirs = append(dirs, filepath.Join(repo.Path, d))
+		dirs = append(dirs, moduleDir{abs: filepath.Join(repo.Path, d), rel: filepath.ToSlash(d)})
 	}
 
-	for i, dir := range dirs {
+	for i, md := range dirs {
+		dir := md.abs
 		indexPath := filepath.Join(repo.Path, ".codeintel", fmt.Sprintf("index-%d.scip", i))
 		// --skip-tests：不索引 _test.go 测试文件（测试符号不入图）
 		cmd := exec.CommandContext(ctx, bin, "index", "-o", indexPath, "-q", "--skip-tests")
@@ -80,7 +88,7 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, _ []*packa
 			return fmt.Errorf("parse scip index: %w", err)
 		}
 		for _, doc := range idx.Documents {
-			if err := a.processDocument(repo, doc, emit); err != nil {
+			if err := a.processDocument(repo, doc, md.rel, emit); err != nil {
 				return err
 			}
 		}
@@ -120,11 +128,11 @@ func (a *Adapter) resolveBin() (string, error) {
 }
 
 // processDocument 处理单个 SCIP document：符号节点（含定义行范围）+ IMPLEMENTS 边。
-func (a *Adapter) processDocument(repo *domain.Repository, doc *scip.Document, emit domain.EmitFunc) error {
+func (a *Adapter) processDocument(repo *domain.Repository, doc *scip.Document, moduleRel string, emit domain.EmitFunc) error {
 	logger := zap.L()
 	logger.Debug("enter (Adapter).processDocument")
 	defer logger.Debug("exit (Adapter).processDocument")
-	filePath := doc.RelativePath
+	filePath := repoRelPath(moduleRel, doc.RelativePath)
 
 	// FILE 节点：ID 为 file:<relpath>
 	if err := emit(domain.Item{Node: &domain.CodeEntity{
@@ -247,4 +255,17 @@ func isInModule(importPath string, modules []string) bool {
 		}
 	}
 	return false
+}
+
+// repoRelPath 把"模块相对路径"归一到"仓库相对路径"（Q251）。
+// moduleRel 为 "." 表示根 module（原样返回）；空 docRel 返回空。
+func repoRelPath(moduleRel, docRel string) string {
+	if docRel == "" {
+		return ""
+	}
+	rel := filepath.ToSlash(docRel)
+	if moduleRel == "" || moduleRel == "." {
+		return rel
+	}
+	return path.Join(filepath.ToSlash(moduleRel), rel)
 }

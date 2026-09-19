@@ -16,6 +16,8 @@ package integration
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -143,4 +145,56 @@ func firstN(s []string, n int) []string {
 		return s[:n]
 	}
 	return s
+}
+
+// TestFixtureAppPathsResolve（Q251）：构建含嵌套 module 的 fixtureapp 后，
+// 所有非空 file_path 必须能在磁盘上找到——原先两处多 module 缺陷会让它们
+// 变成模块相对路径（rename.go）或空串（SSA 位置在错误 Fset 里解析）：
+//   - scip：document.RelativePath 是模块相对路径，未加 module 前缀
+//   - ssa：每个 module 各一次 packages.Load（各自 Fset），Program 只用
+//     initial[0].Fset → 非首模块位置错乱、relPath 失败返回空
+func TestFixtureAppPathsResolve(t *testing.T) {
+	if !scipGoAvailable() {
+		t.Skip("scip-go not found")
+	}
+	dir := t.TempDir()
+	copyDir(t, "fixtureapp", dir+"/fixtureapp")
+	repoDir := dir + "/fixtureapp"
+	if code := runCLI(t, "init", "--repo", repoDir); code != 0 {
+		t.Fatalf("init exit = %d", code)
+	}
+	db, err := sqlite.Open(repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	repo := sqlite.NewRepo(db)
+	rows, err := repo.Query(`SELECT id, kind, coalesce(file_path,'') FROM nodes
+		WHERE coalesce(file_path,'') <> ''`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	bad := 0
+	checked := 0
+	for rows.Next() {
+		var id, kind, fp string
+		if err := rows.Scan(&id, &kind, &fp); err != nil {
+			t.Fatal(err)
+		}
+		checked++
+		if _, err := os.Stat(filepath.Join(repoDir, filepath.FromSlash(fp))); err != nil {
+			bad++
+			if bad <= 3 {
+				t.Errorf("节点 %s（kind=%s）file_path=%q 在仓库内不存在", id, kind, fp)
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if checked == 0 {
+		t.Fatal("没有带 file_path 的节点（用例失效）")
+	}
+	t.Logf("路径完整性：检查 %d 个节点，非法 %d 个", checked, bad)
 }

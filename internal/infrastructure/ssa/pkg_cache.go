@@ -34,7 +34,10 @@ import (
 )
 
 // pkgCacheFormat 缓存文件格式版本（结构变更时递增，旧缓存全部失效）。
-const pkgCacheFormat = 1
+// v2（Q251）：loadPackages 改为跨 module 共享 token.FileSet——缓存里的
+// 节点行号/路径语义随之变化，但 analyzer hash 只覆盖 ssa 包源码（改动在
+// orchestrator），故用版本号强制失效。
+const pkgCacheFormat = 2
 
 // pkgCacheFile 单包缓存文件。
 type pkgCacheFile struct {

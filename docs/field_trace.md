@@ -4075,3 +4075,64 @@ integration/fixtureapp、tmp/*）跑出 1052 行差异，根因不是顺序而�
 `verify.sh --quick` 全绿；`-race`（sqlite/ssa/orchestrator）全绿；
 `make it` 失败集合与 HEAD 一致（既有 6 个）；`make e2e-fixture` 38/38；
 go2o 双跑（workers=1/8）四类产物全 0 差异。
+
+## §92 多 module 仓库位置/路径修复（Q251，2026-09-19）
+
+由 §91 顺带发现（`scripts/detcheck.sh .` 在本仓库红 1052 行）。两个缺陷
+同一个根因：**每个 module 独立处理，未归一到仓库根**。
+
+### 事实（本仓库，含 13 个嵌套 module）
+
+| 现象 | 改前 | 来源 |
+|---|---|---|
+| `file_path` 在磁盘上不存在的节点 | **105**（`main.go`×27、`rename.go`×14、`bizid_same_source.go`×8…） | **SCIP**：scip-go 以 `cmd.Dir=<module 目录>` 运行，`document.RelativePath` 是**模块相对**路径，适配器原样使用 |
+| 嵌套 module 的 `field_access` 节点 `file_path` 为空 + 行号越界 | **51**（例：92 行的文件报 `@1430`） | **SSA**：`loadPackages` 每个 module 一次 `packages.Load`（各自 `token.FileSet`），而 `ssautil.Packages` 的 Program 只用 `initial[0].Fset`（`ssautil/load.go:82`） |
+
+连带后果：`file:<模块相对路径>` 节点 ID 跨模块碰撞（两个 `main.go` 合成
+一个）；增量构建 `DeleteByFile` 用仓库相对路径 → 嵌套 module 的 SCIP 节点
+**永远删不掉**；错误行号本身每次运行还不同（Q250 detcheck 红的直接原因）。
+
+### 改动
+
+1. **共享一个 `token.FileSet`**（`orch_build.go loadPackages`）：`packages.Config`
+   有 `Fset` 字段（事实核查后确认）——给每个 module 的 Config 传同一个
+   Fset，所有包的位置回到同一坐标系。
+   *设计时我推荐的是"28 处调用点改成按包 Fset 解析"，事实核查后发现
+   `Config.Fset` 存在，改成 3 行且同时修好 SSA/AST 两侧——事实变了就改推荐。*
+2. **SCIP 路径归一**（`scip/adapter.go`）：新增 `repoRelPath(moduleRel, docRel)`
+   （根 module `.` 原样，嵌套模块 `path.Join(moduleRel, docRel)`），
+   `Index` 的 module 列表改为带"相对仓库根的目录"，`file:` 节点 ID 与
+   `file_path` 都变成仓库相对路径。
+3. **缓存版本 v1 → v2**（`ssa/pkg_cache.go`）：包缓存里存的是带位置语义的
+   节点，而 `analyzerVersionHash` 只覆盖 `ssa/*.go` 源码（本次改动在
+   orchestrator/scip）——不递增版本号，旧缓存会把错误路径重放回来
+   （实测踩到：改完 reindex 无效，清 `.codeintel/cache` 才生效）。
+4. **测试**：`TestRepoRelPath`（纯函数）、`TestLoadPackagesSharedFileSet`
+   （嵌套 module fixture：所有包同一 Fset 实例 + 嵌套模块位置可解析）、
+   `integration TestFixtureAppPathsResolve`（构建 fixtureapp 后所有非空
+   `file_path` 必须在仓库内存在）。
+
+### 验收
+
+| 门槛 | 改前 | 改后 |
+|---|---|---|
+| 本仓库 `scripts/detcheck.sh .`（双跑四类产物） | 1052 行差异 | **全等**（53881 节点 / 59231 边 / 10023 摘要） |
+| 磁盘上不存在的 `file_path` | 105 | **0** |
+| 嵌套 module `field_access` 空路径 | 51 | **0** |
+| `file:` 节点 ID | 模块相对（碰撞） | 仓库相对（`file:skills/…/asttool/main.go`） |
+| go2o（单 module）计数 | 119215 / 135503 / 21164 | **不变**，双跑仍全 0 差异 |
+
+其余：`verify.sh --quick` 全绿、`-race`（orchestrator/scip/ssa）全绿、
+`make it` 失败集合与 HEAD 一致（既有 6 个）、`make e2e-fixture` 38/38。
+**旧库需 `reindex`**（路径/行号语义变了，schema 未变不需 clean）；
+包缓存已由 `pkgCacheFormat=2` 自动失效。
+
+### 经验
+
+- `go/packages` 的 `Config.Fset` 可用于**跨多次 Load 共享文件集**——多 module
+  场景必须共享，否则 `token.Pos` 不可比（SSA Program 只认第一个 Fset）。
+- **验证矩阵要补"多 module"一维**：此前多 module 只测过"模块划分/模块图"
+  本身，没测过**位置正确性**（file:line 落在哪个文件、路径是否可解析）——
+  这类缺陷在单 module 仓库（如 go2o）完全不暴露。
+- 缓存键覆盖范围要跟着改动走：`analyzerVersionHash` 只哈希 `ssa/*.go`，
+  改 orchestrator/scip 的语义必须靠 `pkgCacheFormat` 兜底。
