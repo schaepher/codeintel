@@ -28,29 +28,14 @@ func (r *Repo) GetPath(from, to domain.CanonicalID, maxDepth int, viaCalls bool)
 		}
 		return []*domain.TraceRow{{ID: from, Name: n.Name, Kind: n.Kind, Line: n.LineStart}}, nil
 	}
-	kinds := `'data_flows_to','argument','returns','phi_operand','summary_io'`
+	// Q252d：邻接表来自进程内缓存（按 build_id 复用，全表扫边只做一次），
+	// 按 kind 集合切视图——原先每次调用都全表扫边 + 建 map（77-110ms/次）
+	view := edgeViewDataFlow
 	if viaCalls {
-		kinds = `'calls','passes_to','passes_result'`
+		view = edgeViewCalls
 	}
-	rows, err := r.Query(`SELECT source_id, target_id, kind FROM edges WHERE kind IN (` + kinds + `)`)
+	adj, err := r.adjacencyView(view)
 	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	// 邻接表 + 边类型
-	type edge struct {
-		to   domain.CanonicalID
-		kind string
-	}
-	adj := map[domain.CanonicalID][]edge{}
-	for rows.Next() {
-		var s, t, k string
-		if err := rows.Scan(&s, &t, &k); err != nil {
-			return nil, err
-		}
-		adj[domain.CanonicalID(s)] = append(adj[domain.CanonicalID(s)], edge{domain.CanonicalID(t), k})
-	}
-	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 

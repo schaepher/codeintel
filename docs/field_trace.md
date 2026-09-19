@@ -4328,8 +4328,8 @@ scripts/chaincheck.sh --repo /path/to/repo --update       # 写/更新基线
 
 - 基线文件：`scripts/baselines/chain-<label>.json`（本仓库存 go2o 基线）
 - 退出码 0 通过 / 1 不达标或回归 / 2 环境问题（未索引）
-- 规模：go2o（117997 节点）一跳 200 + 多跳 100 ≈ **27-36s**（`action.Path`
-  每次调用重建全图邻接表，约 110ms/次——N 调大前先优化这里）
+- 规模：go2o（117997 节点）一跳 500 + 多跳 400 ≈ **1.7s**（Q252d 邻接表
+  进程内缓存后；缓存前同规模要 35.7s——见 §96）
 - 不建索引：度量 = "当前库 + 当前查询实现"。改图构建后要**先 reindex 再跑**
 
 ### 落地形态
@@ -4348,3 +4348,51 @@ BFS 提前停止，**可达的两点被静默报成"无路径"**（go2o 实测 4
 里 6 对假阴性）。修法：按 BFS 深度限制扩展（`depth[e.to] < maxDepth`），
 另设独立常量 `maxPathVisited`（20 万）做病态图内存兜底。回归测试
 `TestGetPathDepthNotNodeBudget`（3 跳链 + 起点扇出 6 个宽邻居；回退即红）。
+
+## §96 邻接表进程内缓存：链完整性门槛提速 20×（Q252d，2026-09-19）
+
+### 事实（先量再改）
+
+`GetPath`（`query path` / value-trace 的底层）每次调用都要**扫边集 + 建邻接
+map**：ana（45478 条数据流边）实测 **77ms/次**，其中原始 SQL 扫描 84ms 量级
+——**BFS 本身只占很小一部分**。§95 的链完整性门槛要跑上千次查询，2 万对
+抽样下 **35.7s**，成本几乎全在这里。
+
+### 设计
+
+`edge_graph.go`：`Repo` 增加 `edgeGraphCache`（`edgeGraphMu RWMutex` 只保护
+缓存槽），语义：
+
+| 维度 | 取法 | 理由 |
+|---|---|---|
+| 缓存对象 | **视图**（一组 kind 的邻接表：`dataflow` / `calls`）**按需惰性加载** | 单条 CLI 查询仍只扫它需要的那批边——不做"全边集缓存"（那会让单查询从 77ms 涨到 114ms） |
+| 失效键 | **只用 `build_id`**，不引入版本常量 | 缓存的是**原始边**而非推断结果；边语义变化必然伴随 reindex（build_id 变）。与 `relationsAlgoVersion` 不同，改本文件/边发射逻辑**无需**手动递增 |
+| 并发 | 只读共享（建好不再改）；构建在锁外、写锁内二次检查（并发首访可能重复建一次，用先到者） | 与 `cachedRelationGraph` 同款；Go map 并发读安全 |
+| 内存护栏 | 单视图边数 > 200 万不缓存（`maxCachedEdgeCount`） | 小内存机器不叠大图；go2o 数据流视图 6.5 万条，留 30× 余量 |
+| 无 `build_metadata` | 不缓存，每次现算 | 与 `relation_candidates` 同语义 |
+
+### 实测（go2o 117997 节点 / 135503 边）
+
+| 指标 | 改前 | 改后 |
+|---|---|---|
+| `GetPath` 首次调用（建邻接表） | 77ms（每次） | 106ms（仅一次） |
+| `GetPath` 后续调用 | 77ms | **81µs（≈950×）** |
+| 链完整性门槛（抽样从 200/100 提到 **500/400**） | 35.7s | **1.7s（≈20×）** |
+| CLI 单查询端到端（`query path`，每次新进程） | 0.13s | 0.13s（**无回归**——按视图惰性加载） |
+| 门槛进程 Max RSS | 442MB | 442MB（**无可见增长**，在噪声内） |
+
+门槛抽样同时提高到一跳 500 / 多跳 400（多跳生成器给出 405 对 ≥2 跳），
+0 容忍项与基线项全绿：一跳 500/500=1.0000、多跳 405/405=1.0000、
+alias 连通 328、分裂候选 892（基线已按新抽样更新）。
+
+### 测试
+
+`internal/infrastructure/sqlite/edge_graph_test.go`：
+`TestEdgeGraphCacheHitAndInvalidation`（同 build_id 命中——库里直插新边不可见；
+build_id 变化 → 失效重读）、`TestEdgeGraphKindViews`（数据流/调用视图不串味）、
+`TestShouldCacheEdgeGraph`（阈值）、`TestEdgeGraphConcurrentPaths`（`-race`）。
+
+**坑**：测试里手工插 `build_metadata` 必须给 `duration_ms` **与
+`error_message`**（`GetLatest` 直接 Scan 这两列，不 COALESCE）——NULL 会让
+`currentBuildID()` 返回空串，于是缓存静默退化为"每次现算"（本测试第一次就是
+这么红的）。

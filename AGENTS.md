@@ -237,6 +237,19 @@ pre-commit 场景的兜底）。
   `len(parent) <= maxDepth` 让 BFS 在发现面变宽时提前停止 → 可达的两点报
   "无路径"。写有界搜索时**限制扩展的必须是与语义相符的量**（深度），
   规模兜底另设常量（`maxPathVisited`）
+- **Q252d "每调用全量扫表建 map"要按（build_id × 视图）惰性缓存**：
+  `GetPath` 每次调用都扫边集建邻接表（ana 4.5 万边 77ms/次、go2o ~110ms，
+  BFS 本身占比很小）——链完整性门槛 2 万对抽样因此要 35.7s。
+  修法：`edge_graph.go` 按 **build_id + 视图**（`dataflow`/`calls`）缓存
+  邻接表、**按视图惰性加载**（不做全边集缓存——否则单条 CLI 查询从 77ms
+  涨到 114ms）、构建在锁外写锁内二次检查。命中后 81µs/次（≈950×），
+  门槛 35.7s → **1.7s**（抽样还翻了 2.7 倍），Max RSS 无可见增长。
+  **要点**：缓存原始产物（边）只依赖 build_id，**不要**引入版本常量
+  （那是缓存"推断结果"才需要的，如 relationsAlgoVersion）
+- **手工插 `build_metadata` 的测试要给全列**：`GetLatest` 直接 Scan
+  `duration_ms` / `error_message`（不 COALESCE），NULL → `currentBuildID()`
+  返回空 → 依赖 build_id 的缓存（relations 图、邻接表）**静默退化为每次
+  现算**（Q252d 测试第一版就是这么红的）
 - **按 commit 二分旧回归很便宜**：`runCLI` 是进程内调 `cli.Main`，`git worktree
   add <commit>` 后在该 worktree 直接 `go test -tags integration` 即可——把"哪个
   改动弄红的"从猜测变成二分

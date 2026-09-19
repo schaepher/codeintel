@@ -62,7 +62,7 @@ func TestChainIntegrityBaseline(t *testing.T) {
 	if label == "" {
 		label = filepath.Base(repoDir)
 	}
-	oneHop, multi, hops := 200, 100, 4
+	oneHop, multi, hops := 500, 400, 4
 	if v := os.Getenv("CHAIN_ONE_HOP"); v != "" {
 		oneHop, _ = strconv.Atoi(v)
 	}

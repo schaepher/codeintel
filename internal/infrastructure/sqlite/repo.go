@@ -28,6 +28,11 @@ type Repo struct {
 	graphMu       sync.RWMutex
 	graphCacheKey string // 缓存键；空串 = 不缓存（无 build_metadata）
 	graphCache    *relationGraph
+
+	// Q252d：全边集邻接表进程内缓存（edge_graph.go）——GetPath 等每次
+	// 全表扫边建 map（77-110ms/次）改为按 build_id 复用；锁只保护槽位
+	edgeGraphMu    sync.RWMutex
+	edgeGraphCache *edgeGraph
 }
 
 // SetRelationHops 配置三类关系的跳数上限（--query-max-hops 等，Q197）：

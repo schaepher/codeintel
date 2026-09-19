@@ -210,6 +210,7 @@ func TestDeleteByFileCascade(t *testing.T) {
 		t.Errorf("node b should remain: %v", err)
 	}
 }
+
 // TestOpenSchemaVersionMismatch 已由 Q235-3 替代：user_version 不再做
 // 严格相等校验——结构齐全即可用（TestOpenSchemaUnknownVersionSelfHeal
 // 覆盖）；缺列才报错 clean（TestOpenSchemaMissingColumnFails 覆盖）。
