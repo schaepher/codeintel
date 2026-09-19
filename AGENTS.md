@@ -224,6 +224,19 @@ pre-commit 场景的兜底）。
 - **渲染层"分组/优化"改动要覆盖全部深度**：分层渲染把 `depth>=3` 丢进未渲染
   桶 = 跨函数链在用户可见输出里静默消失；集成测试要断言"链上应出现的节点名
   + 边类型"，不能只断言首尾
+- **Q252c 静默断链需要专门门槛**：Q252b 的两个真 bug（同一 SSA 值分裂成
+  两个节点、`GetPath` 把 `maxDepth` 当节点预算）都**不会让既有断言变红**，
+  只在用户查询时表现为"链断了"。`scripts/chaincheck.sh --repo <已索引仓库>`
+  （= `integration/chain_gate_test.go`）把"图上存在的路径查询端找不找得到"
+  变成数字：**一跳对（argument/returns）0 容忍必须 100%**，多跳抽样
+  （**只取 ≥2 跳**——浅对测不出 BFS 扩展预算类 bug）/alias 连通数/分裂候选
+  作基线项（`scripts/baselines/chain-<label>.json`）。改动图构建后须**先
+  reindex 再跑**（脚本不建索引）。门槛自身用变异验证过会咬人（回退修复 →
+  多跳 96/100 → FAIL）
+- **`GetPath` 的 maxDepth 是路径深度不是节点预算**（Q252c 修的坑）：原
+  `len(parent) <= maxDepth` 让 BFS 在发现面变宽时提前停止 → 可达的两点报
+  "无路径"。写有界搜索时**限制扩展的必须是与语义相符的量**（深度），
+  规模兜底另设常量（`maxPathVisited`）
 - **按 commit 二分旧回归很便宜**：`runCLI` 是进程内调 `cli.Main`，`git worktree
   add <commit>` 后在该 worktree 直接 `go test -tags integration` 即可——把"哪个
   改动弄红的"从猜测变成二分
@@ -247,6 +260,9 @@ go build -o codeintel ./cmd/codeintel
 #                                          # domains 区块含 services——重跑整体替换）
 #   codeintel ask "<问题>"                # 项目上下文问答（无参数进入 REPL 多轮追问）
 #   codeintel mcp --repo <path>           # stdio MCP server（Agent 接入）
+# scripts/detcheck.sh <repo> [workers]     # 确定性 + 缓存保真度双（三）跑比对
+# scripts/chaincheck.sh --repo <已索引仓库> --label go2o
+#                                          # 跨函数链完整性（0 容忍 + 基线，§95）
 # 完整命令清单见 codeintel-cli skill（~/.claude/skills/codeintel-cli/SKILL.md）
 ```
 

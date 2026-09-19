@@ -4295,3 +4295,56 @@ Q235-10 的 value-trace 文本渲染只渲染 `depth=1` 顶层 + `parent` 命中
 `scripts/detcheck.sh .`（冷1/冷2 确定性 + 冷2/暖3 缓存保真度）四类产物全等；
 本仓库 reindex 52754 节点 / 59280 边 / 10038 摘要（较修复前少 1193 个重复
 `ssa_value` 节点）。
+
+## §95 跨函数链完整性门槛：`scripts/chaincheck.sh`（Q252c，2026-09-19）
+
+### 动机
+
+Q252b 一轮里抓到**两个"静默断链"真 bug**（同一 SSA 值分裂成两个节点、
+`GetPath` 把 `maxDepth` 当节点预算）——它们**不会让任何既有断言变红**，
+只在用户查询时表现为"链断了"。所以需要一个常驻门槛，量化的问题不是
+"图里有没有边"，而是**"图上存在的路径，查询端找不找得到"**。
+
+### 检查项
+
+| 项 | 口径 | 性质 |
+|---|---|---|
+| 一跳对可达率 | `argument`/`returns` 边两端（跨函数值流最小单元）经 `action.Path` 必须可达 | **0 容忍**（= 100%） |
+| 多跳对可达率 | 沿查询端同一批边集走 4 跳、**只取 ≥2 跳**的对（原始图内必有路径） | 基线（容差 2%） |
+| alias 连通数 | alias 边落点同时挂数据流/传参边的条数（Q252b 前 24 → 后 328） | 基线（降即失败） |
+| 分裂候选数 | 同 `(func_id, type_string, lower(ssa_op))` 且行号存在性互补的 `ssa_value`（Q252b 前 3101 → 后 892，**不是** 0 容忍项——fe 的 load/alloc 分支与 alias pass 合法共存也有命中） | 基线（涨即失败） |
+
+抽样确定性：按 id 排序后等步长取（不依赖 map 迭代顺序，可复现）。
+**只取 ≥2 跳**是多跳项能咬人的关键——1 跳/浅对在主实现有 bug 时照样通过
+（实测：把 `GetPath` 的深度修复回退后，1 跳 200/200 依旧全过，多跳 96/100
+才暴露）。
+
+### 用法
+
+```shell
+scripts/chaincheck.sh --repo /path/to/repo --label go2o   # 比较基线（需已建索引）
+scripts/chaincheck.sh --repo /path/to/repo --update       # 写/更新基线
+```
+
+- 基线文件：`scripts/baselines/chain-<label>.json`（本仓库存 go2o 基线）
+- 退出码 0 通过 / 1 不达标或回归 / 2 环境问题（未索引）
+- 规模：go2o（117997 节点）一跳 200 + 多跳 100 ≈ **27-36s**（`action.Path`
+  每次调用重建全图邻接表，约 110ms/次——N 调大前先优化这里）
+- 不建索引：度量 = "当前库 + 当前查询实现"。改图构建后要**先 reindex 再跑**
+
+### 落地形态
+
+- `integration/chain_check_test.go`：度量 + 比较（`chainProblems` 纯函数）
+- `integration/chain_gate_test.go`：`TestChainIntegritySmoke`（fixtureapp，
+  in-process 0.4s，**进 make it**）+ `TestChainIntegrityBaseline`（大仓，
+  `CHAIN_REPO` 驱动）+ `TestCompareChainMetrics`（比较规则 7 用例）
+- 门槛自身也做了变异验证：回退 `GetPath` 深度修复 → 多跳 96/100 → FAIL ✓
+
+### 顺手修掉的第三个真 bug（Q252c）
+
+`GetPath` 的 BFS 用 `len(parent) <= maxDepth` 决定是否继续扩展——把
+`maxDepth` 当成了**已发现节点数预算**。起点扇出稍宽或目标在若干跳之后时
+BFS 提前停止，**可达的两点被静默报成"无路径"**（go2o 实测 4 跳抽样 113 对
+里 6 对假阴性）。修法：按 BFS 深度限制扩展（`depth[e.to] < maxDepth`），
+另设独立常量 `maxPathVisited`（20 万）做病态图内存兜底。回归测试
+`TestGetPathDepthNotNodeBudget`（3 跳链 + 起点扇出 6 个宽邻居；回退即红）。

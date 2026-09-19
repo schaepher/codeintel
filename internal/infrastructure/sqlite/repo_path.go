@@ -8,6 +8,9 @@ import (
 	"go.uber.org/zap"
 )
 
+// maxPathVisited BFS 访问上限（病态图内存兜底；与 maxDepth 语义无关）。
+const maxPathVisited = 200000
+
 // GetPath 节点间最短路径（field_trace.md §17.3）：
 // BFS（有向 from→to，visited 防环），返回路径节点序列（TraceRow，
 // EdgeKinds = 进入该节点的边类型）。viaCalls=true 用函数调用边集
@@ -55,10 +58,15 @@ func (r *Repo) GetPath(from, to domain.CanonicalID, maxDepth int, viaCalls bool)
 		prev domain.CanonicalID
 		kind string
 	}{}
+	// Q252c：按**深度**限制扩展——原实现用 `len(parent) <= maxDepth`
+	// （已发现节点数当预算），起点扇出稍宽或目标在若干跳之后时 BFS 提前
+	// 停止扩展，**可达的两点被静默报成"无路径"**（go2o 实测 4 跳内抽样
+	// 113 对里 6 对假阴性）。长度上限另用独立常量兜底（防病态图内存）。
+	depth := map[domain.CanonicalID]int{from: 0}
 	queue := []domain.CanonicalID{from}
 	visited := map[domain.CanonicalID]bool{from: true}
 	found := false
-	for len(queue) > 0 && !found {
+	for len(queue) > 0 && !found && len(visited) < maxPathVisited {
 		cur := queue[0]
 		queue = queue[1:]
 		for _, e := range adj[cur] {
@@ -70,11 +78,12 @@ func (r *Repo) GetPath(from, to domain.CanonicalID, maxDepth int, viaCalls bool)
 				prev domain.CanonicalID
 				kind string
 			}{cur, e.kind}
+			depth[e.to] = depth[cur] + 1
 			if e.to == to {
 				found = true
 				break
 			}
-			if len(parent) <= maxDepth {
+			if depth[e.to] < maxDepth {
 				queue = append(queue, e.to)
 			}
 		}

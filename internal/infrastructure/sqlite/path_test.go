@@ -125,3 +125,61 @@ func TestGetPathCalls(t *testing.T) {
 		t.Errorf("数据流边集下 calls 链不应可达: %+v", path2)
 	}
 }
+
+// TestGetPathDepthNotNodeBudget（Q252c 回归）：maxDepth 是**路径深度**上限，
+// 不是 BFS 已发现节点数上限。
+//
+// 修复前 BFS 的入队条件是 `len(parent) <= maxDepth`——搜索面比 maxDepth 宽时
+// （起点扇出多个邻居、或目标在若干跳之后）BFS 提前停止扩展，**可达的两点被
+// 静默报成"无路径"**（go2o 实测：4 跳内抽样的 113 对里 6 对假阴性）。
+func TestGetPathDepthNotNodeBudget(t *testing.T) {
+	r := newTestRepo(t)
+	const p = "symbol:go:example.com/m:"
+	nodes := []*domain.CodeEntity{pathNode(p+"start", "start", "a.go", 1)}
+	var edges []*domain.Fact
+	// 起点先扇出 6 个宽邻居（拉宽 BFS 的发现面），再串一条 3 跳链到 target
+	for i := 0; i < 6; i++ {
+		id := p + "wide" + string(rune('a'+i))
+		nodes = append(nodes, pathNode(id, "wide", "a.go", i+2))
+		edges = append(edges, &domain.Fact{SourceID: domain.CanonicalID(p + "start"),
+			TargetID: domain.CanonicalID(id), Kind: domain.FactDataFlowsTo,
+			ToolSource: domain.ToolSSA, Confidence: 1})
+	}
+	for i, id := range []string{"h1", "h2", "target"} {
+		nodes = append(nodes, pathNode(p+id, id, "b.go", i+10))
+	}
+	edges = append(edges,
+		&domain.Fact{SourceID: domain.CanonicalID(p + "start"), TargetID: domain.CanonicalID(p + "h1"),
+			Kind: domain.FactDataFlowsTo, ToolSource: domain.ToolSSA, Confidence: 1},
+		&domain.Fact{SourceID: domain.CanonicalID(p + "h1"), TargetID: domain.CanonicalID(p + "h2"),
+			Kind: domain.FactDataFlowsTo, ToolSource: domain.ToolSSA, Confidence: 1},
+		&domain.Fact{SourceID: domain.CanonicalID(p + "h2"), TargetID: domain.CanonicalID(p + "target"),
+			Kind: domain.FactDataFlowsTo, ToolSource: domain.ToolSSA, Confidence: 1},
+	)
+	save(t, r, nodes, edges)
+
+	// 深度 3 的链，maxDepth=3 必须找得到（修复前：发现面 >3 个节点即停止扩展）
+	path, err := r.GetPath(p+"start", p+"target", 3, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(path) == 0 {
+		t.Fatalf("maxDepth=3 应找到 3 跳链（start→h1→h2→target），实际报无路径")
+	}
+	// 反向仍是不可达（有向图）
+	back, err := r.GetPath(p+"target", p+"start", 3, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(back) != 0 {
+		t.Errorf("反向应不可达，实际返回 %d 行", len(back))
+	}
+	// 深度超限仍不可达（maxDepth=2 找不到 3 跳）
+	short, err := r.GetPath(p+"start", p+"target", 2, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(short) != 0 {
+		t.Errorf("maxDepth=2 不应找到 3 跳链，实际返回 %d 行", len(short))
+	}
+}

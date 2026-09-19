@@ -1,0 +1,13 @@
+{
+  "repo": "go2o",
+  "nodes": 117997,
+  "edges": 135503,
+  "ssa_values": 43040,
+  "ssa_values_no_line": 15266,
+  "one_hop_sampled": 200,
+  "one_hop_ok": 200,
+  "multi_hop_sampled": 100,
+  "multi_hop_ok": 100,
+  "alias_connected": 328,
+  "split_candidates": 892
+}

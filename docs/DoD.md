@@ -29,6 +29,12 @@
    skill/AGENTS.md/runbook 同步更新
 10. **推送**：验证全绿后 `git push`（不留未推提交）
 
+改动图构建/查询层（ssa/scip/ast 适配器、`repo_path`/`repo_trace` 等）
+的轮次，额外跑两件（Q252c）：
+- `make it`（fixtureapp 链完整性冒烟已内含）
+- 大仓重建索引后 `scripts/chaincheck.sh --repo <go2o 副本> --label go2o`
+  （0 容忍项 + 基线比较；见 field_trace.md §95）
+
 ## 五轴自检（变更完成后快速过一遍）
 
 - **正确性**：真实验证过，不靠「应该没问题」
