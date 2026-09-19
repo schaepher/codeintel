@@ -107,7 +107,7 @@ pre-commit 场景的兜底）。
   `synchronous(OFF)` / 构建期关外键 / `temp_store(MEMORY)` 是**语义/安全
   取舍**，不随手加（悬挂边语义、WAL 损坏风险）
 
-## Q247/Q248/Q249 构建期内存整改教训（2026-09-19）
+## Q247–Q250 构建期整改教训（2026-09-19）
 
 - **Mode/契约与注释不符是隐形内存黑洞**：`loadPackages` 注释写"依赖走
   fast 模式"，Mode 里却带 `packages.NeedDeps` → go/packages 把**整个传递
@@ -155,6 +155,30 @@ pre-commit 场景的兜底）。
 - **profile 是"下一步做什么"的唯一依据**：每轮修完复测——alloc 4284 →
   3175 → 2027MB 逐轮下降；当前峰值 inuse 最高单项仅 9.7%（类型检查），
   剩余最大项是包缓存 JSON 序列化（15.6%，换格式属中等风险，需单独一轮）
+
+- **Q250 图确定性：先用"同二进制双跑"分层定位**——① `workers=1` 双跑
+  仍差 → **与并发写序无关，是 map 迭代顺序**（Go 按 map 实例随机）；
+  ② ID 集合差异 vs **内容**差异要分开统计（本轮：ID 集合 0 差异，内容
+  差异来自 kind/行号/属性）；③ properties 的 **JSON 键序**必须归一化后比
+  再判定（sqlite json_patch / json v2 序列化顺序，无查询语义）。
+  权威口径 `scripts/detcheck.sh <repo> [workers]`（大仓双跑四类产物比对）；
+  CI 里的 fixture 双构建门槛**敏感度有限**（实测对某些回归不报红）
+- **"先到先得"逻辑一律要查 map 迭代**：槽位名认领（`#t0` vs `#t0@行号`）、
+  间接写传播工作列表（`indirect[caller][key]` 存在即跳过）——凡"谁先来谁
+  占位/谁先来谁生效"的地方，迭代顺序就是输出的一部分。修法：按内容确定键
+  排序（`ssa/order.go`）或改成**内容决定**（最早行号/字典序最小）
+- **多写者属性/列的合并要"确定赢家"**：`nodes` 的 `func_id`/`ssa_op`/
+  `type_string`/`origin_kind` 取字典序最小、`kind` 取更具体者、
+  `file_path`/`line_start` 取非空且更小者（原先是首个/末个写者赢）。
+  但**别动 `function_field_summary` 的 REPLACE**（Q215：新分析覆盖陈旧行）
+  ——确定性要放在**发射端**选代表，改 SQL 层会破坏增量重建语义
+  （既有测试 `TestSummaryReplace` 会红）
+- **多 module 仓库的 SSA 位置是错的（Q251 待修）**：每个 module 各一次
+  `packages.Load` → 各自 `token.FileSet`，而 SSA Program 只有第一个包的
+  Fset → 非首模块的 `token.Pos` 解析出行号错乱（实测 461 行的文件报 498 行）
+  且 `file_path` 为空（增量按文件删除会漏）。单 module 仓库不受影响
+- **`gofmt -w <目录>` 会改到无关文件**：本仓库并非全局 gofmt-clean，整目录
+  格式化会把别人的文件带进提交——只格式化自己改动的文件
 
 
 ## 常用命令

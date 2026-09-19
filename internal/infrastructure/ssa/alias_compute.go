@@ -139,7 +139,8 @@ func computeAliases(repo *domain.Repository, prog *ssa.Program,
 		if !p.underLimit(fn) {
 			continue
 		}
-		for v := range p.fieldValues[p.funcIDs[fn]] {
+		// Q250：按确定键遍历（map 顺序随机会让"谁先认领裸槽位名"翻转）
+		for _, v := range sortedValueKeys(p.fieldValues[p.funcIDs[fn]]) {
 			p.emitAliasEdges(fn, v)
 		}
 	}

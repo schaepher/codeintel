@@ -3981,3 +3981,97 @@ alloc 总量 **3175MB → 2027MB**；峰值 inuse 最高的单项已降到 32MB
 
 `verify.sh --quick` 全绿；ssa/orchestrator `-race` 全绿；`make it` 失败集合
 与 HEAD 一致（既有 6 个）；`make e2e-fixture` 38 passed / 0 failed。
+
+## §91 图构建确定性（Q250，2026-09-19）——同仓双跑四类产物全等
+
+**目标**：#218「输出确定性」——同一次构建两次运行必须产出同一张图
+（对 Agent 是契约：diff/缓存/回归都依赖它）。
+
+### 事实（go2o 副本，同二进制双跑对照）
+
+| 变体 | nodes（归一化） | 摘要 | 边 |
+|---|---|---|---|
+| 改动前 workers=8 | 1890 | 122 | 2 |
+| 改动前 **workers=1** | **1670** | **136** | 1 |
+| + 函数全集排序（F1） | 114（JSON 键序归一后 47） | 90 | 492（含 count） |
+| + 本轮全部修复 | **0** | **0** | **0** |
+
+**关键判断**：串行（workers=1）双跑照样差 1670 行 → **与并发写序无关**，
+根因是 **map 迭代顺序**（Go 按 map 实例随机播种）决定"谁先认领裸槽位名"
+与"先到先得"的间接写传播先后。
+
+### 改动
+
+1. **F1 函数全集排序**（`func_snapshot.go`）：`ssautil.AllFunctions` 的
+   结果按 `String()` 排序后再遍历——跨函数处理顺序不再随 map 变。单这一项
+   把 nodes 差异 1670 → 114。
+2. **F5 认领顺序确定**（`order.go` + `alias_pass.go` / `alias_compute.go`）：
+   两处"遍历 map → 认领槽位名/发射 alias 边"的循环改为按确定键
+   （Name + Pos + String）排序后遍历——原先 `#t0` 与 `#t0@行号` 谁的裸名
+   随运行翻转（492 行 alias 边差异）。
+3. **F3' 摘要代表由内容决定**（`summary.go emitSummaryRows`）：同一字段
+   路径多条候选时取**最早行号**（行号相同取 instance_path 字典序最小），
+   而非"切片首条"（切片由指令序 + 若干 map 补录路径构成）。
+4. **F3'' 间接写传播种子排序**（`summary.go sortedFuncIDs`）：传播是
+   "先到先得"（`indirect[caller][key]` 前检查已存在），map 顺序会决定最终
+   条目集合 → 摘要行与 `indirect_write` 边的**存在性**都随顺序变。
+5. **F2 写库侧确定赢家**（`repo.go`）：`nodes` UPSERT 的
+   `properties`（`func_id`/`ssa_op`/`type_string`/`origin_kind` 取字典序
+   最小，由 `buildInsertNodeSQL` 生成 SQL）、`kind`（更具体者优先——
+   `parameter`/`receiver` 胜过泛化的 `ssa_value`）、`file_path`/`line_start`/
+   `line_end`（非空优先、更小者优先）不再"首个/末个写者赢"。
+   **注意**：`function_field_summary` 保持 `INSERT OR REPLACE`（Q215
+   语义：新分析覆盖陈旧行）——确定性放在发射端（第 3 条），若在 SQL 层
+   改成"最早行号赢"会让行号下移的新分析被旧行挡住（本轮的既有测试
+   `TestSummaryReplace` 正是这么抓到的）。
+
+### 验收（go2o 副本冷构建，同二进制双跑）
+
+| workers | 节点 ID 集合 | 节点内容 | 边（含 count） | 摘要 |
+|---|---|---|---|---|
+| 1 | 0 | **0** | **0** | **0** |
+| 8 | 0 | **0** | **0** | **0** |
+
+（节点内容比较时 properties 的 **JSON 键序归一化**——它由 sqlite `json_patch`
+与 json v2 的序列化顺序决定，无查询语义，明确排除在"确定性"定义之外。）
+
+**与上一版（Q249）的差异**：节点 ID 集合**完全相同**（0 差异）；
+`kind` 变 745 个（ssa_value → parameter/receiver 这类更具体的赢家）、
+`line_start/line_end` 变 3864 个（min 规则）、属性取 min 若干、边/摘要
+各数百行——即"原先每次运行随机的那一份被固定"，无 ID churn。
+
+### 顺带发现（Q251 候选）：多 module 仓库的 SSA 位置是错的
+
+`scripts/detcheck.sh .` 在本仓库（嵌套 module：skills/asttool、examples/*、
+integration/fixtureapp、tmp/*）跑出 1052 行差异，根因不是顺序而是**位置**：
+
+| 证据 | 值 |
+|---|---|
+| asttool 模块的 `ssa_value`/`field_access` 节点 | **file_path 全为空**（256/50 个） |
+| 这些节点的行号 | 出现 **498**，而 `rename.go` 只有 **461 行** |
+| SCIP 产出的 function/method 节点 | 路径行号**正确** |
+
+机制：`loadPackages` 对**每个 module 各调一次 `packages.Load`**（各自一个
+`token.FileSet`），而 `ssautil.Packages` 建的 SSA Program 只有
+**第一个包的 Fset**——非首模块的 `token.Pos` 在那个 Fset 里解析出的是
+别的文件/错误行号，`relPath` 也因此失败返回空 → 嵌套 module 的节点
+文件路径丢失（顺带影响增量构建的按文件删除：`DeleteByFile` 匹配不到）。
+影响面：多 module 仓库的 file:line 展示、增量刷新、以及本次的确定性
+（同一现象在不同运行下取到不同的错误行号）。**单 module 仓库（如 go2o）
+不受影响**。
+
+### 新增工具与门槛
+
+- `scripts/detcheck.sh <repo> [workers]`：权威口径——连续构建两次，比对
+  四类产物，全等退出 0。大仓（go2o）约 40s/轮。
+- `ssa/determinism_test.go`：同进程双构建（Go 的 map 顺序每次随机）+
+  摘要代表选择单测；`integration/determinism_gate_test.go`：fixtureapp
+  双构建门槛（`-tags integration`）。
+  **诚实说明**：这两个 CI 门槛的**敏感度有限**（fixture 规模小，实测对
+  某些顺序回归不报红）——权威判定用 `detcheck.sh`（大仓）。
+
+### 验证
+
+`verify.sh --quick` 全绿；`-race`（sqlite/ssa/orchestrator）全绿；
+`make it` 失败集合与 HEAD 一致（既有 6 个）；`make e2e-fixture` 38/38；
+go2o 双跑（workers=1/8）四类产物全 0 差异。

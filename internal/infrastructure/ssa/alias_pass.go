@@ -246,7 +246,8 @@ func (p *aliasPass) emitAliasEdges(fn *ssa.Function, v ssa.Value) {
 	if !ok {
 		return
 	}
-	for obj := range p.mayOf(fn, v) {
+	// Q250：对象集按确定键排序（objectIDOf 会认领槽位名——顺序决定 ID）
+	for _, obj := range sortedValueKeys(p.mayOf(fn, v)) {
 		allocID, ok := p.objectIDOf(obj)
 		if !ok {
 			continue

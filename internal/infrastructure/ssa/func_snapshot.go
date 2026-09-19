@@ -23,6 +23,8 @@ package ssa
 //     调用），故不存在"晚些调用能看到更多函数"的情况
 
 import (
+	"sort"
+
 	"golang.org/x/tools/go/ssa"
 	"golang.org/x/tools/go/ssa/ssautil"
 )
@@ -39,6 +41,8 @@ func newFuncSnapshot(prog *ssa.Program) *funcSnapshot {
 	for fn := range set {
 		list = append(list, fn)
 	}
+	// 实验：排序消除 map 迭代顺序依赖（跨函数处理顺序影响 slot 归属）
+	sort.Slice(list, func(i, j int) bool { return list[i].String() < list[j].String() })
 	return &funcSnapshot{list: list}
 }
 

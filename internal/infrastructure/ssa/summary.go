@@ -6,12 +6,27 @@
 package ssa
 
 import (
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/schaepher/codeintel/internal/domain"
 	"go.uber.org/zap"
 )
+
+// sortedFuncIDs 按 canonical ID 升序返回 data 的键（Q250：间接写传播是
+// "先到先得"（`indirect[caller][key] = e` 前检查已存在），map 迭代顺序会
+// 决定最终条目集合 → 摘要行与 INDIRECT_WRITE 边的**存在性**都随顺序变
+// （go2o 双跑实测 8 行摘要 + 1 条边差异）。全部种子/发射循环统一按
+// 排序后的键遍历。
+func sortedFuncIDs(data map[domain.CanonicalID]*funcData) []domain.CanonicalID {
+	out := make([]domain.CanonicalID, 0, len(data))
+	for id := range data {
+		out = append(out, id)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
+}
 
 // emitSummaries 计算并发射全部函数的 function_field_summary 行与 INDIRECT_WRITE 边。
 // indirectKey 间接写条目键（Q157）：字段 × 调用点粒度——同字段多处
@@ -40,7 +55,8 @@ func emitSummaries(data map[domain.CanonicalID]*funcData, alias *aliasResult, em
 	}
 	// 反向调用索引：calleeID → 调用点（caller + callInfo）
 	callers := map[domain.CanonicalID][]indirectSite{}
-	for fID, fd := range data {
+	for _, fID := range sortedFuncIDs(data) {
+		fd := data[fID]
 		for _, c := range fd.calls {
 			callers[c.calleeID] = append(callers[c.calleeID], indirectSite{fID, c})
 		}
@@ -48,7 +64,8 @@ func emitSummaries(data map[domain.CanonicalID]*funcData, alias *aliasResult, em
 	// pending[g] = g 的新增写条目（direct 初始 + 后续 indirect 增量）
 	pending := map[domain.CanonicalID][]fieldEntry{}
 	var queue []domain.CanonicalID
-	for id, fd := range data {
+	for _, id := range sortedFuncIDs(data) {
+		fd := data[id]
 		if len(fd.directWrites) > 0 {
 			pending[id] = append(pending[id], fd.directWrites...)
 			queue = append(queue, id)
@@ -98,7 +115,8 @@ func emitSummaries(data map[domain.CanonicalID]*funcData, alias *aliasResult, em
 	logger.Debug("indirect settled", zap.Int("total", addedTotal))
 
 	// 发射摘要行与 INDIRECT_WRITE 边
-	for fID, fd := range data {
+	for _, fID := range sortedFuncIDs(data) {
+		fd := data[fID]
 		if err := emitSummaryRows(fID, domain.SummaryDirectRead, fd.directReads, emit); err != nil {
 			return err
 		}
@@ -183,18 +201,31 @@ type indirectSite struct {
 	c      callInfo
 }
 
-// emitSummaryRows 发射单个 access_kind 的摘要行（同字段路径去重，取首条）。
+// emitSummaryRows 发射单个 access_kind 的摘要行（同字段路径去重）。
+// Q250：赢家按**内容**决定而非切片顺序——取最早行号，行号相同取
+// instance_path 字典序最小。原先"取首条"依赖 entries 的构造顺序（指令序
+// + 若干 map 驱动的补录路径），同一次构建两次运行会给出不同的
+// instance_path/行号/片段（go2o 双跑实测 90-136 行差异）。
 func emitSummaryRows(funcID domain.CanonicalID, accessKind domain.SummaryAccessKind, entries []fieldEntry,
 	emit domain.EmitFunc) error {
 	logger := zap.L()
 	logger.Debug("enter emitSummaryRows")
 	defer logger.Debug("exit emitSummaryRows")
-	seen := map[string]bool{}
+	best := map[string]fieldEntry{}
+	order := make([]string, 0, len(entries))
 	for _, e := range entries {
-		if seen[e.fieldPath] {
+		prev, ok := best[e.fieldPath]
+		if !ok {
+			best[e.fieldPath] = e
+			order = append(order, e.fieldPath)
 			continue
 		}
-		seen[e.fieldPath] = true
+		if earlierEntry(e, prev) {
+			best[e.fieldPath] = e
+		}
+	}
+	for _, path := range order {
+		e := best[path]
 		if err := emit(domain.Item{Summary: &domain.FunctionFieldSummary{
 			FunctionID:   funcID,
 			AccessKind:   accessKind,
@@ -207,6 +238,19 @@ func emitSummaryRows(funcID domain.CanonicalID, accessKind domain.SummaryAccessK
 		}
 	}
 	return nil
+}
+
+// earlierEntry 判断 a 是否比 b 更适合作为该字段路径的摘要代表：
+// 行号小者优先（行号相同或无行号时比 instance_path 字典序）。
+func earlierEntry(a, b fieldEntry) bool {
+	al, bl := a.line, b.line
+	switch {
+	case al > 0 && (bl == 0 || al < bl):
+		return true
+	case bl > 0 && (al == 0 || bl < al):
+		return false
+	}
+	return a.instancePath < b.instancePath
 }
 
 // calleeWrites 返回被调函数的全部写条目（direct + indirect）。

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/schaepher/codeintel/internal/domain"
@@ -43,11 +44,61 @@ func NewRepo(db *DB) *Repo {
 	return &Repo{DB: db, relationHops: DefaultRelationHops}
 }
 
-const insertNodeSQL = `
+// Q250：多写者属性（`func_id` / `ssa_op` / `type_string` / `origin_kind`）
+// 冲突时取**字典序最小**——原先 json_patch 是"最后写者赢"，构建内并发/
+// 遍历顺序一变图内容就变（go2o 双跑残余：func_id 47 行、ssa_op+type_string
+// 18 行——同一 #实际名 节点被 alloc 与 load 两个发射点写入不同值）。
+// 其余属性仍按 json_patch 合并（"新写者赢"语义不变）。键不存在时原样
+// 透传（不引入 JSON null）。
+var nodeDeterministicPropKeys = []string{"origin_kind", "ssa_op", "type_string", "func_id"}
+
+// buildInsertNodeSQL 生成 nodes UPSERT：properties 用 json_patch 合并，但
+// nodeDeterministicPropKeys 中的键取 min(旧行, 新行)。
+func buildInsertNodeSQL() string {
+	props := "excluded.properties"
+	for _, k := range nodeDeterministicPropKeys {
+		path := "'$." + k + "'"
+		props = fmt.Sprintf(`CASE WHEN json_extract(excluded.properties, %[1]s) IS NULL THEN %[2]s
+             ELSE json_set(%[2]s, %[1]s,
+                 CASE WHEN json_extract(properties, %[1]s) IS NOT NULL
+                       AND json_extract(properties, %[1]s) < json_extract(excluded.properties, %[1]s)
+                      THEN json_extract(properties, %[1]s)
+                      ELSE json_extract(excluded.properties, %[1]s) END) END`,
+			path, props)
+	}
+	return `
 INSERT INTO nodes (id, kind, name, file_path, line_start, line_end, properties)
 VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
-    properties = json_patch(COALESCE(properties, '{}'), excluded.properties)`
+    -- kind 取"更具体者"（parameter/receiver/... 优先于泛化的 ssa_value；
+    -- 同具体度取字典序最小），否则两个 emitter 的插入顺序决定 kind
+    -- （go2o 双跑残余 108 行：同一 #param.x 一次是 parameter 一次是 ssa_value）
+    kind = CASE
+        WHEN kind = 'ssa_value' AND excluded.kind <> 'ssa_value' THEN excluded.kind
+        WHEN excluded.kind = 'ssa_value' THEN kind
+        WHEN excluded.kind < kind THEN excluded.kind
+        ELSE kind END,
+    -- 同一 ID 可能被多个发射点写入不同位置（如实例路径节点在两次访问处
+    -- 行号不同）——列取确定赢家（非空优先、更小者优先），否则"首个写者赢"
+    file_path = CASE
+        WHEN file_path IS NULL OR file_path = '' THEN excluded.file_path
+        WHEN excluded.file_path IS NULL OR excluded.file_path = '' THEN file_path
+        WHEN excluded.file_path < file_path THEN excluded.file_path
+        ELSE file_path END,
+    line_start = CASE
+        WHEN line_start IS NULL THEN excluded.line_start
+        WHEN excluded.line_start IS NULL THEN line_start
+        WHEN excluded.line_start < line_start THEN excluded.line_start
+        ELSE line_start END,
+    line_end = CASE
+        WHEN line_end IS NULL THEN excluded.line_end
+        WHEN excluded.line_end IS NULL THEN line_end
+        WHEN excluded.line_end < line_end THEN excluded.line_end
+        ELSE line_end END,
+    properties = json_patch(COALESCE(properties, '{}'), ` + props + `)`
+}
+
+var insertNodeSQL = buildInsertNodeSQL()
 
 // R69：count 累加（同义边合并保留真实调用次数——每次插入 +1，
 // 与置信度无关）；confidence/tool/metadata 仍只在高置信度时覆盖。
@@ -60,11 +111,13 @@ ON CONFLICT(source_id, target_id, kind) DO UPDATE SET
     tool_source = CASE WHEN excluded.confidence > edges.confidence THEN excluded.tool_source ELSE edges.tool_source END,
     metadata = CASE WHEN excluded.confidence > edges.confidence THEN excluded.metadata ELSE edges.metadata END`
 
-// insertSummarySQL Q215：OR REPLACE 覆盖（原 OR IGNORE——UNIQUE 冲突
-// 保留旧行，函数修改后行号/代码片段陈旧，fields 展示旧数据）。行残留
-// （函数删除）由 FK ON DELETE CASCADE 保证（nodes 删除级联）。REPLACE
-// 语义：DELETE 旧行 + INSERT 新行——同 UNIQUE 键内容覆盖；origins 无
-// 子表依赖不受影响。
+// insertSummarySQL Q215/Q250：REPLACE 覆盖（原 OR IGNORE——UNIQUE 冲突
+// 保留旧行，函数修改后行号/代码片段陈旧）。**确定性不在此层做**：同一
+// (function_id, access_kind, field_path) 在一次分析内的多个候选（同一字段
+// 路径多次访问）由发射端 `emitSummaryRows` 按确定规则选赢家（Q250：最早
+// 行号，同行取 instance_path 字典序最小）——若在这里改成"取最早行号赢"
+// 会破坏 Q215（增量重建时行号下移的新分析反而被旧行挡住）。
+// 行残留（函数删除）由 FK ON DELETE CASCADE 保证。
 const insertSummarySQL = `
 INSERT OR REPLACE INTO function_field_summary
     (function_id, access_kind, field_path, instance_path, line_start, code_snippet)
