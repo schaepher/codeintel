@@ -5,7 +5,7 @@
 //
 // 缓存键：包源码内容 hash（CompiledGoFiles sha256）+ 分析器版本（Q181）。
 // 文件位置：<repo>/.codeintel/cache/<sha256(pkgPath)>.json（clean 随
-// .codeintel 删除）。
+// .codeintel 删除；Q252 起内容为 gob，扩展名保留以原位覆盖旧缓存）。
 //
 // 失效条件（确定机制）：
 //   - 包源码变化 → pkg_hash 不符 → 自动失效
@@ -37,7 +37,9 @@ import (
 // v2（Q251）：loadPackages 改为跨 module 共享 token.FileSet——缓存里的
 // 节点行号/路径语义随之变化，但 analyzer hash 只覆盖 ssa 包源码（改动在
 // orchestrator），故用版本号强制失效。
-const pkgCacheFormat = 2
+// v3（Q252）：缓存编码 JSON → gob（体积/CPU/分配三降；头先读，hash 不符
+// 直接拒绝不做大载荷反序列化）——格式不兼容，旧缓存自动失效。
+const pkgCacheFormat = 3
 
 // pkgCacheFile 单包缓存文件。
 type pkgCacheFile struct {

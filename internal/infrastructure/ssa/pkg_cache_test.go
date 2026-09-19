@@ -2,7 +2,6 @@ package ssa
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -32,19 +31,14 @@ func TestLoadPkgCacheAnalyzerMismatch(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cache.json")
 	hash := "abc"
-	c := pkgCacheFile{
+	// Q252：缓存放 gob 编码——用写路径伪造"旧分析器版本"的缓存（不能用
+	// json.Marshal，那是更旧的格式，解码失败会掩盖 analyzer 校验本身）
+	writePkgCacheFile(path, &pkgCacheFile{
 		Version:  pkgCacheFormat,
 		Analyzer: "stale-analyzer",
 		PkgHash:  hash,
-	}
-	data, err := json.Marshal(c)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// 版本不符：旧分析逻辑生成的缓存必须被拒绝
+	})
+	// analyzer 不符：旧分析逻辑生成的缓存必须被拒绝
 	if got := loadPkgCache(path, hash); got != nil {
 		t.Errorf("analyzer 不匹配的缓存应返回 nil（自动失效），got %+v", got)
 	}

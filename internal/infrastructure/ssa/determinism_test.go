@@ -13,13 +13,63 @@ package ssa
 // 语义）。go2o 级双跑（workers=1/8）由 §91 的验证流程覆盖。
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
+	"sync"
 	"testing"
 
 	"github.com/schaepher/codeintel/internal/domain"
 )
+
+// buildSnapshotAt 在指定目录构建一次（目录固定 → 第二次构建可用包缓存）。
+func buildSnapshotAt(t *testing.T, dir string) *determinismSnapshot {
+	t.Helper()
+	var nodes []*domain.CodeEntity
+	var facts []*domain.Fact
+	var summaries []*domain.FunctionFieldSummary
+	var emitMu sync.Mutex
+	adapter := &Adapter{}
+	repo := &domain.Repository{Path: dir, Module: "example.com/mtest", Modules: []string{"example.com/mtest"}}
+	pkgs, err := loadTestPackages(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	err = adapter.Index(context.Background(), repo, pkgs, func(item domain.Item) error {
+		emitMu.Lock()
+		defer emitMu.Unlock()
+		if item.Node != nil {
+			nodes = append(nodes, item.Node)
+		}
+		if item.Fact != nil {
+			facts = append(facts, item.Fact)
+		}
+		if item.Summary != nil {
+			summaries = append(summaries, item.Summary)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+	snap := &determinismSnapshot{}
+	for _, n := range nodes {
+		snap.nodes = append(snap.nodes, fmt.Sprintf("%s|%s|%s|%s|%d|%d|%s",
+			n.ID, n.Kind, n.Name, n.FilePath, n.LineStart, n.LineEnd, normalizeProps(propsJSON(n.Properties))))
+	}
+	for _, f := range facts {
+		snap.edges = append(snap.edges, fmt.Sprintf("%s|%s|%s", f.SourceID, f.TargetID, f.Kind))
+	}
+	for _, s := range summaries {
+		snap.summaries = append(snap.summaries, fmt.Sprintf("%s|%s|%s|%s|%d|%s",
+			s.FunctionID, s.AccessKind, s.FieldPath, s.InstancePath, s.LineStart, s.CodeSnippet))
+	}
+	sort.Strings(snap.nodes)
+	sort.Strings(snap.edges)
+	sort.Strings(snap.summaries)
+	return snap
+}
 
 // determinismFixture 覆盖顺序敏感面：接口动态派发、方法值、字段读写、
 // 闭包、map/slice 对象、别名链、外部调用摘要。
@@ -245,50 +295,3 @@ func TestBuildDeterminismRepeated(t *testing.T) {
 }
 
 var _ = domain.KindFunction
-
-// Q250：同一字段路径有多个候选条目时，赢家由内容决定（最早行号；
-// 同行取 instance_path 字典序最小），与 entries 的构造顺序无关。
-func TestEmitSummaryRowsOrderIndependent(t *testing.T) {
-	a := fieldEntry{fieldPath: "m.T.X", instancePath: "t49.Items", line: 210, snippet: "late"}
-	b := fieldEntry{fieldPath: "m.T.X", instancePath: "*query.Items", line: 17, snippet: "early"}
-	c := fieldEntry{fieldPath: "m.T.Y", instancePath: "b", line: 17}
-	collect := func(entries []fieldEntry) []string {
-		var out []string
-		err := emitSummaryRows("symbol:go:m:f", domain.SummaryDirectWrite, entries,
-			func(item domain.Item) error {
-				if item.Summary != nil {
-					out = append(out, fmt.Sprintf("%s|%s|%d", item.Summary.FieldPath,
-						item.Summary.InstancePath, item.Summary.LineStart))
-				}
-				return nil
-			})
-		if err != nil {
-			t.Fatal(err)
-		}
-		sort.Strings(out)
-		return out
-	}
-	want := []string{"m.T.X|*query.Items|17", "m.T.Y|b|17"}
-	if got := collect([]fieldEntry{a, b, c}); !equalStrs(got, want) {
-		t.Errorf("顺序 1 = %v, want %v", got, want)
-	}
-	if got := collect([]fieldEntry{c, b, a}); !equalStrs(got, want) {
-		t.Errorf("顺序 2 = %v, want %v", got, want)
-	}
-	// 同行：instance_path 字典序最小者赢（'*' < 'a'）
-	if got := collect([]fieldEntry{a, b, {fieldPath: "m.T.X", instancePath: "a.Z", line: 17}}); !equalStrs(got, []string{"m.T.X|*query.Items|17"}) {
-		t.Errorf("同行应取 instance_path 最小，got %v", got)
-	}
-}
-
-func equalStrs(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}

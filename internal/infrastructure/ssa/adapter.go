@@ -45,6 +45,16 @@ type Adapter struct {
 	dispatchPkgs []string
 }
 
+// SetWorkers 设置按包并发数（Q170：--workers 参数；≤1 退串行）。
+func (a *Adapter) SetWorkers(n int) {
+	a.workers = n
+}
+
+// Name 实现 IndexerPort。
+func (a *Adapter) Name() string {
+	return "ssa"
+}
+
 // DispatchPkgs 返回本轮 Index 收集的 dispatch 相关模块内包路径
 // （P0-2：增量构建补 Load 用）。
 func (a *Adapter) DispatchPkgs() []string {

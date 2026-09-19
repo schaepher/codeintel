@@ -18,16 +18,6 @@ import (
 	"golang.org/x/tools/go/ssa/ssautil"
 )
 
-// SetWorkers 设置按包并发数（Q170：--workers 参数；≤1 退串行）。
-func (a *Adapter) SetWorkers(n int) {
-	a.workers = n
-}
-
-// Name 实现 IndexerPort。
-func (a *Adapter) Name() string {
-	return "ssa"
-}
-
 // Index 加载仓库全部包、构建 SSA，并发射字段追溯数据。
 func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*packages.Package, emit domain.EmitFunc) error {
 	logger := logging.FromContext(ctx)
@@ -239,6 +229,7 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 			var blkNodes []*domain.CodeEntity
 			var blkFacts []*domain.Fact
 			blkFD := map[domain.CanonicalID]*funcData{}
+			var blkFDMu sync.Mutex // Q252：块内合并（闭包归外层 → 同 owner 多次）
 			pkgEmit := func(item domain.Item) error {
 				// 块内单 goroutine 顺序收集（无锁）
 				if item.Node != nil {
@@ -256,7 +247,12 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 					return
 				}
 				if owner != "" && fd != nil {
-					blkFD[owner] = fd
+					// Q252：缓存收集必须与全局 a.fd **同一合并语义**（追加）——
+					// 原先 `blkFD[owner] = fd` 是覆盖：闭包归到外层函数时同一
+					// owner 被 emitFunction 返回多次，缓存只留最后一份 →
+					// 缓存文件缺条目（go2o 暖构建实测少 1100 条 direct_write、
+					// 660 条 calls、1313 行摘要）
+					mergeFuncData(&blkFDMu, blkFD, owner, fd)
 					mergeFuncData(&fdMu, a.fd, owner, fd)
 				}
 			}

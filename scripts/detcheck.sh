@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
-# Q250 图构建确定性自检：同一仓库连续构建两次（同样 workers），四类产物
-# 必须完全一致——节点 ID 集合、节点内容（properties 键序归一化）、边集合
-# （含 count）、function_field_summary。
+# 图构建确定性 + 包缓存保真度自检：同一仓库连续构建**三次**（同样
+# workers），四类产物必须完全一致——节点 ID 集合、节点内容（properties
+# 键序归一化）、边集合（含 count）、function_field_summary。
+#   构建 1（清库冷构建）vs 构建 2（清库冷构建）→ 确定性
+#   构建 2（冷）vs 构建 3（**不清库**，包缓存全命中）→ 缓存重放保真度
+# Q252：第 3 次对照抓到过"缓存收集用覆盖语义"导致的暖构建少 43 边 /
+# 1313 摘要（冷只算一次、暖从缓存重放，两者必须一致）。
 #
 # 为什么需要它：Go 的 map 迭代顺序每次随机，任何"遍历 map → 决定发射
 # 顺序 / 命名归属 / 先到先得传播"的代码路径都会让同一次构建两次运行
@@ -25,8 +29,9 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 go build -o "$TMP/codeintel" ./cmd/codeintel || { echo "build 失败"; exit 2; }
 
-for i in 1 2; do
-  rm -rf "$REPO/.codeintel"
+for i in 1 2 3; do
+  # 第 3 次不清库：走包缓存命中路径（保真度对照）
+  [ "$i" != "3" ] && rm -rf "$REPO/.codeintel"
   if ! "$TMP/codeintel" init --repo "$REPO" --workers "$WORKERS" >"$TMP/run$i.log" 2>&1; then
     echo "init #$i 失败（见 $TMP/run$i.log）"; exit 2
   fi
@@ -40,6 +45,7 @@ done
 python3 - "$TMP" <<'PY'
 import json, sys
 tmp = sys.argv[1]
+import collections
 def lines(p):
     return [l.rstrip("\n") for l in open(p)]
 def norm_nodes(p):
@@ -56,21 +62,23 @@ def norm_nodes(p):
     return out
 def diff(a, b):
     return sorted(set(a) ^ set(b))
-checks = [
-    ("节点 ID",  lines(f"{tmp}/ids1"), lines(f"{tmp}/ids2")),
-    ("节点内容", norm_nodes(f"{tmp}/nodes1"), norm_nodes(f"{tmp}/nodes2")),
-    ("边(含count)", lines(f"{tmp}/edges1"), lines(f"{tmp}/edges2")),
-    ("摘要", lines(f"{tmp}/summ1"), lines(f"{tmp}/summ2")),
-]
 bad = 0
-for name, a, b in checks:
-    d = diff(a, b)
-    status = "OK" if not d else f"差异 {len(d)}"
-    print(f"  {name}: {status}（共 {len(a)}/{len(b)}）")
-    if d:
-        bad += len(d)
-        for x in d[:3]:
-            print(f"      {x[:170]}")
-print("确定性自检：" + ("全等 ✓" if bad == 0 else f"不一致（{bad} 条）✗"))
+for label, ia, ib in (("确定性(冷1 vs 冷2)", 1, 2), ("缓存重放保真(冷2 vs 暖3)", 2, 3)):
+    checks = [
+        ("节点 ID", lines(f"{tmp}/ids{ia}"), lines(f"{tmp}/ids{ib}")),
+        ("节点内容", norm_nodes(f"{tmp}/nodes{ia}"), norm_nodes(f"{tmp}/nodes{ib}")),
+        ("边(含count)", lines(f"{tmp}/edges{ia}"), lines(f"{tmp}/edges{ib}")),
+        ("摘要", lines(f"{tmp}/summ{ia}"), lines(f"{tmp}/summ{ib}")),
+    ]
+    print(f"  [{label}]")
+    for name, a, b in checks:
+        d = diff(a, b)
+        status = "OK" if not d else f"差异 {len(d)}"
+        print(f"    {name}: {status}（共 {len(a)}/{len(b)}）")
+        if d:
+            bad += len(d)
+            for x in d[:3]:
+                print(f"        {x[:170]}")
+print("确定性 + 保真度自检：" + ("全等 ✓" if bad == 0 else f"不一致（{bad} 条）✗"))
 sys.exit(0 if bad == 0 else 1)
 PY

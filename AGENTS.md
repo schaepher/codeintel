@@ -107,7 +107,7 @@ pre-commit 场景的兜底）。
   `synchronous(OFF)` / 构建期关外键 / `temp_store(MEMORY)` 是**语义/安全
   取舍**，不随手加（悬挂边语义、WAL 损坏风险）
 
-## Q247–Q251 构建期整改教训（2026-09-19）
+## Q247–Q252 构建期整改教训（2026-09-19）
 
 - **Mode/契约与注释不符是隐形内存黑洞**：`loadPackages` 注释写"依赖走
   fast 模式"，Mode 里却带 `packages.NeedDeps` → go/packages 把**整个传递
@@ -194,6 +194,18 @@ pre-commit 场景的兜底）。
   改完 reindex 无效，清 `.codeintel/cache` 才生效）
 - **事实变了就改推荐**：Q251 设计时我推荐"28 处调用点按包 Fset 解析"，
   核查 x/tools 源码后发现 `Config.Fset` 存在 → 改成 3 行的共享 Fset 方案
+
+- **Q252 包缓存：真凶是"收集语义不一致"而非序列化格式**：暖构建（缓存全
+  命中）曾静默少 43 边 / 1313 摘要——埋点对比 `a.fd` 条目数即可定位：
+  缓存收集用**覆盖**（`blkFD[owner] = fd`）而全局 map 用**追加合并**
+  （`mergeFuncData`），闭包归外层函数时同一 owner 多次贡献 → 缓存只留最后
+  一份。**同一份数据的多条产出路径必须共用同一合并语义**
+- **缓存/重放类改动要加"冷 vs 暖"对照**：只测"两次冷构建一致"（确定性）
+  测不出重放丢内容——`scripts/detcheck.sh` 现跑三次（冷1/冷2/暖3），
+  分别验确定性与保真度；单测 `TestPkgCacheReplayFidelity` 同目录构建两次
+- **序列化格式换型先量分配**：JSON→gob 实测 CPU -24~30%、体积 -16%，但
+  **分配 +60%**（gob 更快但更费内存）——"换格式必然三降"是错的，用
+  `BenchmarkPkgCacheSerialization` 这类对照基准决定，别凭直觉
 
 
 ## 常用命令

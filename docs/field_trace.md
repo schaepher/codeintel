@@ -4136,3 +4136,77 @@ go2o 双跑（workers=1/8）四类产物全 0 差异。
   这类缺陷在单 module 仓库（如 go2o）完全不暴露。
 - 缓存键覆盖范围要跟着改动走：`analyzerVersionHash` 只哈希 `ssa/*.go`，
   改 orchestrator/scip 的语义必须靠 `pkgCacheFormat` 兜底。
+
+## §93 包缓存：gob 编码 + 保真度缺陷修复（Q252，2026-09-19）
+
+### 事实（先量再改）
+
+| 项 | 值 |
+|---|---|
+| 缓存稳态收益（go2o，交错 4 轮） | 冷中位 21.6s vs 暖中位 18.8s ≈ **13%**（噪声大） |
+| 写路径成本 | `savePkgCache` cum **7.2%** CPU（ana 全量）；`jsonwire.AppendQuote` 316MB flat = go2o 总分配 **15.6%** |
+| 读路径成本 | `loadPkgCache` cum 3.3% |
+| 缓存体积 | ana 42MB / go2o 88MB（最大单文件 12.9MB） |
+| 内容构成（最大文件） | nodes 57% / facts 39% / func_data 9% |
+
+### 改动
+
+1. **JSON → gob**（`pkg_cache_io.go`）：头（version/analyzer/pkg_hash）与载荷
+   分两段编码——读侧**先头后身**，hash 不符时不再白反序列化 88MB 载荷。
+2. **原子写**：写临时文件 + `os.Rename`（原先直接 WriteFile，进程被杀留截断
+   文件；解码失败虽按 miss 处理，但白读盘）。
+3. `pkgCacheFormat` v2 → **v3**（格式不兼容，旧缓存自动失效）。
+
+### 实测（ana 与 go2o 各交错 2 轮）
+
+| 指标 | JSON | gob |
+|---|---|---|
+| 缓存体积 | ana 42MB / go2o 88MB | **35MB / 74MB（-16~17%）** |
+| 写路径 CPU 占比 | 7.2% | **3.3%（-54%）** |
+| 读路径 CPU 占比 | 3.3% | **2.1%（-38%）** |
+| 冷构建 wall | ana 9.7s（中位）/ go2o 24.5s | 8.8s / 20.5s（**噪声内**） |
+| 暖构建 wall | 8.4s / 18.6s | 8.5s / 18.3s（噪声内） |
+
+编解码基准（`BenchmarkPkgCacheSerialization`，载荷 = 1.75 万节点 + 1.96 万边
++ 400 funcData，即真实最大缓存文件量级）：
+
+| 路径 | 耗时 | 分配 |
+|---|---|---|
+| gob encode | **41.2ms** | 52.8MB |
+| json encode（对照） | 54.3ms | 31.6MB |
+| gob decode | **56.3ms** | 40.7MB |
+| json decode（对照） | 80.4ms | 26.8MB |
+
+**诚实结论**：gob 达到"CPU ↓ / 体积 ↓"，但**分配反而上升 ~60%**——我原先
+推荐的"三降"只实现两降（15.6% 分配占比并未消失）。绝对量级上编解码路径只占
+构建 CPU 3-7%，所以 wall 变化落在噪声里；保留 gob 的理由是 CPU 与磁盘更稀缺，
+且它顺带支撑了下面的保真度修复与"先头后身"。若日后发现分配压力回升，
+回滚到 JSON 只需改回 `pkg_cache_io.go` 两端 + 版本递增。
+
+### 顺带修复：**缓存重放保真度缺陷**（暖构建静默少内容）
+
+验证时发现 go2o 暖构建（127/127 命中）产出与冷构建不同：**边 135503→135460
+（-43）、摘要 21164→19851（-1313，direct_write -1087）**。旧 JSON 二进制
+同样如此 → 与序列化无关。埋点定位：
+
+```
+冷：a.fd funcs=8922 reads=15532 writes=6656 calls=7056
+暖：a.fd funcs=8899 reads=15228 writes=5556 calls=6396   ← 缓存内容本身就少
+```
+
+根因：缓存收集用**覆盖**语义（`blkFD[owner] = fd`、`pkgCollect.save` 里
+`fd[id] = d`），而全局 `a.fd` 用 `mergeFuncData` 的**追加**语义——闭包归到
+外层函数时同一 owner 会被 `emitFunction` 返回多次，缓存只留最后一份。
+修复：两处都改成追加合并（复用 `mergeFuncData`）。修后**冷=暖**
+（135503 / 21164，127/127 命中）。
+
+新增门槛：`TestPkgCacheReplayFidelity`（同目录构建两次，第二次走缓存，
+产物必须一致；修前红：摘要 24→22）、`scripts/detcheck.sh` 增加
+**第三次不清库的暖构建**与冷构建对照（原先脚本每轮都清库，测不到重放）。
+
+### 验证
+
+`verify.sh --quick` 全绿；`-race`（ssa/orchestrator）全绿；`make it` 失败
+集合与 HEAD 一致（既有 6 个）；`make e2e-fixture` 38/38；
+`scripts/detcheck.sh .`（冷1 vs 冷2 确定性 + 冷2 vs 暖3 保真度）**全等**；
+go2o 冷/暖计数一致。
