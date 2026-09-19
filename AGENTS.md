@@ -14,6 +14,8 @@
   防错思路树（五层预防，怎么让问题不发生；由事后树反推）
 - `docs/design-q235.md` 已归档：Q235 六项借鉴设计已实施并落档
   field_trace.md §64–§66（设计文档已删除）
+- [`docs/self-analysis.md`](docs/self-analysis.md) 文末「待办与已知不足」：
+  **待办清单**（P0–P2 + 各轮新增，接手前先看）
 - [`docs/field_trace.md`](docs/field_trace.md)：逐 Q 实现记录（§63 起为
   Q234/Q235/Q238 系列；§77 = Q238 全局注册表 + worktree/workspace，
   design-q238.md 已归档；§81 = 排障树脚本化 + 防忘机制 Q245）
@@ -24,7 +26,8 @@
 产出 SQLite 代码图（`.codeintel/codeintel.db`），通过 CLI 提供符号与调用关系查询；
 **业务 wiki 生成（`codeintel wiki`，AI 增量补缺）是核心能力之一**——
 自举循环记录在 [`docs/self-analysis.md`](docs/self-analysis.md)（R23 起
-AI 补缺、R26 ask 问答、R27 对话界面与 Q&A 收集、R28 go2o 缺口清零）。
+AI 补缺、R26 ask 问答、R27 对话界面与 Q&A 收集、R28 go2o 缺口清零）；
+**待办清单在文末「待办与已知不足」**（P0–P2 + 各轮新增区，接手前先看）。
 设计权威是 [`docs/TD.md`](docs/TD.md)（v2.0，22 个决策点均已确认）；
 **图数据模型总表（节点/边/属性/置信度/表结构）见 [`docs/data-model.md`](docs/data-model.md)**——
 理解本项目优先读它，再读 field_trace.md 各功能 §。
