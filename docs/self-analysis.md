@@ -2561,7 +2561,13 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
 - 11. **真实库 6 项优化（Q254，按 Stage 推进）**：用户真实系统验证产出
   （7.46M 边 / 13GB 库）——
   **Stage 0 已完成**：`scripts/dbdiag.sh --size/--plans/--self-test`（§100）。
-  **Stage 1（低风险，待上）**：①索引裁剪——`idx_edges_source` /
+  **Stage 1 已完成（Q254 §101）**：①索引裁剪（source/source_kind/target/
+  confidence 四个，go2o 实测 used 305.9→254.9MB；连带修 3 处 `INDEXED BY`）
+  ②`VacuumIfWorthwhile` 守卫（freelist 阈值 + 磁盘预检 + 原因可见 +
+  `CODEINTEL_VACUUM_MIN_MB`）③全量构建期 `foreign_keys=0` + 末尾
+  `DropDanglingEdges` 清理并计数（FK-on/off 产物逐项一致）④WAL
+  `journal_size_limit(64MB)` + 每 50 批 PASSIVE + 末尾 TRUNCATE（go2o -wal=0）。
+  原始计划：①索引裁剪——`idx_edges_source` /
   `idx_edges_source_kind` / `idx_edges_target`（EXPLAIN 证明 UNIQUE 覆盖索引与
   `idx_edges_target_kind` 可顶替；预计 ≈3.5GB）+ 一次**有守卫的 VACUUM** 回收
   ②VACUUM 守卫（freelist×page_size 阈值 + 磁盘预检；init/update 共用；全量

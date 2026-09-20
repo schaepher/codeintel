@@ -4641,3 +4641,90 @@ target 侧由 `idx_edges_target_kind` 顶替）；`idx_edges_confidence` 待确�
   `journal_size_limit` 都是**连接级**（脚本会注明，否则会误判"构建期没开外键"）。
 - **同连接迭代 sqlite_master 中执行 DDL 会中断迭代**（内存副本构造第一版就
   因此静默丢表）——先 `fetchall()` 再执行（本项目 sqlite 坑清单同款）。
+
+## §101 Stage 1（Q254）：索引裁剪 + VACUUM 守卫 + 构建期关外键 + WAL 收尾
+
+依据：真实业务库（7.46M 边 / 13GB）实测 + §100 的诊断证据（`EXPLAIN QUERY PLAN`
+证明三个 edges 索引冗余、`dbstat` 给出体量）。逐项落地如下。
+
+### 1. 索引裁剪（DROP INDEX，幂等迁移，**不递增 SchemaVersion**）
+
+`schema.go` 不再创建 `idx_edges_source` / `idx_edges_source_kind` /
+`idx_edges_target` / `idx_edges_confidence`；旧库由
+`dropRedundantEdgeIndexes`（`maintenance.go`）在 `Open` 时幂等 DROP 并记日志。
+**不递增 SchemaVersion 是刻意的**：删索引不改表结构，不该逼用户重建 13GB 库。
+
+保留：`idx_edges_kind`（邻接加载器 `WHERE kind IN (...)` 走它）、
+`idx_edges_target_kind`（唯一以 target_id 打头）、UNIQUE 自动索引（合并语义 + 覆盖）。
+
+**连带修掉 3 处 `INDEXED BY`**（`repo_value_trace.go` ×2、
+`repo_value_trace_multi.go` ×1）：显式提示锁定了被删索引名 →
+`idx_edges_target` → `idx_edges_target_kind`；`idx_edges_source` →
+`sqlite_autoindex_edges_1`（隐式索引可被 INDEXED BY 引用，已实测）。
+
+**实测（go2o 129236 边/308MB 库）**：4 索引删除；`used`（page_count−freelist）
+**305.9MB → 254.9MB（-51MB，-16.7%）**，与 §100 预测的可回收 49.3MB 一致。
+
+### 2. VACUUM 守卫（原来无条件执行是纯浪费）
+
+`cmdInit` 原先无条件 `VACUUM`：而 `ResetGraphTables` 走 DROP TABLE+重建 → 建完
+`freelist≈0` → VACUUM 回收不到任何页却重写整库（真实库 13GB/7+ 分钟，且需 ≈13GB
+临时空间）。改为 `sqlite.VacuumIfWorthwhile(reason)`：
+
+- 触发条件：`freelist >= max(64MB, 5% × 库大小)` **且** 磁盘空闲 ≥ 1.2× 库大小
+- 不满足则跳过并把**原因**打给用户（`[index] 跳过 VACUUM：freelist 53MB < 阈值…`）
+- `init` 与 `update` 共用（update 按文件删数据才真正产生空洞）
+- `CODEINTEL_VACUUM_MIN_MB` 可覆盖下限（设 0 = 只要 freelist 非空就回收，
+  用于"删索引后一次性回收"）
+
+go2o 实测：`跳过 VACUUM：freelist 53MB < 阈值 64MB（库的 17.3%）`（无收益，
+跳过正确——那 53MB 是删索引留下的空页，真要回收只需设 `CODEINTEL_VACUUM_MIN_MB=1`）。
+
+### 3. 构建期关外键 + 末尾一次性清理悬挂边
+
+原来：`foreign_keys(1)` 全程生效 → 跨批依赖的边插入失败 → 进 `failedEdges`
+**全程驻留内存**（真实库 20.7 万条）→ 构建尾部一次大批重试，仍失败者才算跳过。
+
+现在（**仅全量构建路径**，`runAdapters(..., fkOff=true)`）：构建期
+`PRAGMA foreign_keys=0`（每行 2 次父表探测的开销也一并省掉）→ 末尾
+`DropDanglingEdges` 用 `pragma_foreign_key_check('edges')` 分批取违规 rowid 删除
+（无该 pragma 的老库回退 set-based `NOT IN`）→ 计数并入 `SkippedEdges` →
+恢复 `foreign_keys=1`。**语义不变**：悬挂边不进图、计数上报。
+
+`DropDanglingEdges` 的循环也要注意单连接坑：`rows` 必须 `Close()` 后再 `Exec`
+（第一版在这里死锁过一次，`checkpoint` 里也有同款——已在代码注释里标注）。
+
+**增量路径保持外键开启**：`DeleteByFile` 依赖 `ON DELETE CASCADE`，关外键会改变
+级联语义（另行评估，见待办）。
+
+**等价性实测（go2o）**：FK-on 与 FK-off 两次全量构建产物**完全一致**
+（117998 节点 / 136028 边 / 484 跳过边）——同一二进制只差一个开关，是最好的对照。
+
+### 4. WAL 收尾
+
+- DSN 加 `journal_size_limit(64MB)`（checkpoint 后截断目标；**注意 pragma 是
+  连接级**，库内不持久——诊断脚本会区分打印）
+- flusher 每 50 批做一次 `wal_checkpoint(PASSIVE)`（WAL 小时是廉价空操作；有
+  读者持快照时返回 busy，仅告警）
+- 构建末尾 `wal_checkpoint(TRUNCATE)`；go2o 实测构建后 `-wal` = **0MB**
+  （真实库此前收尾 1.33GB）
+
+### 5. 基线漂移的排查（顺带纠错）
+
+Q254 中途发现 go2o 产物比 §95 基线多 **+1 节点 / +525 边**。二分：用 Q252c
+（`4cbb419`）二进制在**有 .git** 的 go2o 目录上跑 → 同样 117998/136028；在
+**去 .git 的副本**（当年基线就是在这个 `.probe` 副本上量的）上跑 → 117997/135503。
+差额正是 git 适配器的 **1 个 COMMIT 节点 + 525 条 modified_by 边**。
+→ 基线本身量错了口径（少了 .git），**不是回归**；已用 `chaincheck --update`
+刷新基线。教训：**度量夹具要含 `.git`**，否则 git 相关产物系统性缺失。
+
+### 测试与验证
+
+- `maintenance_test.go`：`decideVacuum` 5 组阈值/磁盘预检、`VacuumIfWorthwhile`
+  真回收（阈值调小）、冗余索引迁移（幂等 + 数据不动 + 新库不建）、
+  `DropDanglingEdges`（增量插入悬挂边→清理计数→合法边保留）、
+  `CheckpointTruncate` 归零 + `journal_size_limit` 生效、`SetForeignKeys` 开关
+- `orchestrator/progress_fk_test.go`：`TestFullBuildDropsDanglingEdges`
+  （悬挂边计入 SkippedEdges、图中无悬挂、外键已恢复）
+- go2o：`detcheck` 三类全等（冷1/冷2/暖3）、`chaincheck` 通过、
+  `make test`（13 包 -race）、`make it`、`e2e-fixture` 38/38、`verify.sh --quick`

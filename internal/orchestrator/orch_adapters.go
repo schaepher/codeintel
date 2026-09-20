@@ -17,7 +17,10 @@ import (
 // runAdapters 并行执行适配器并写库（keep 为 nil 时全部写入；否则只保留
 // keep(item) 为 true 的条目）。pkgs 为共享加载的 go/packages 结果
 // （AST/SSA 复用，避免重复类型检查）。返回各适配器结果与跳过的 FK 冲突边数。
-func (o *Orchestrator) runAdapters(ctx context.Context, pkgs []*packages.Package, keep func(domain.Item) bool, changedFiles []string) ([]AdapterResult, int, error) {
+// fkOff（Q254 Stage 1）：构建期关闭外键校验——每行 2 次父表探测的开销去掉，
+// 且悬挂边不再走 retryFailedFK（实测 20.7 万条边全程驻留内存）。末尾用
+// DropDanglingEdges 一次性清理并计入 skipped，语义与之前一致（悬挂边不进图）。
+func (o *Orchestrator) runAdapters(ctx context.Context, pkgs []*packages.Package, keep func(domain.Item) bool, changedFiles []string, fkOff bool) ([]AdapterResult, int, error) {
 	ssa.ResetSQLStats()
 	logger := logging.FromContext(ctx)
 	runStart := time.Now()
@@ -28,6 +31,11 @@ func (o *Orchestrator) runAdapters(ctx context.Context, pkgs []*packages.Package
 		}
 	}
 	rep := o.prog()
+	if fkOff {
+		if err := o.RepoImpl.SetForeignKeys(false); err != nil {
+			logger.Warn("disable foreign keys for build", zap.Error(err))
+		}
+	}
 	// "adapters done" 聚合步骤：elapsed 覆盖整个并行适配器阶段（与 Q253 前
 	// 同一个数字），只是改由进度渲染器输出。
 	rep.Begin("adapters done", 0, 0)
@@ -59,6 +67,7 @@ func (o *Orchestrator) runAdapters(ctx context.Context, pkgs []*packages.Package
 
 	consumeStart := time.Now()
 	consumeCount := 0
+	batches := 0
 	go func() {
 		defer close(flushed)
 		batch := newBatch()
@@ -86,6 +95,14 @@ func (o *Orchestrator) runAdapters(ctx context.Context, pkgs []*packages.Package
 			if len(batch.nodes) >= BatchSize || len(batch.edges) >= BatchSize || len(batch.summaries) >= BatchSize || len(batch.origins) >= BatchSize {
 				flushCh <- batch
 				batch = newBatch()
+				batches++
+				// Q254：每 50 批做一次非阻塞 checkpoint（WAL 小时是廉价空操作，
+				// 防构建期 WAL 无限增长；有读者持快照时返回 busy 不报错）
+				if batches%50 == 0 {
+					if _, err := o.RepoImpl.CheckpointPassive(); err != nil {
+						logger.Debug("periodic wal checkpoint", zap.Error(err))
+					}
+				}
 			}
 		}
 		flushCh <- batch
@@ -137,6 +154,22 @@ func (o *Orchestrator) runAdapters(ctx context.Context, pkgs []*packages.Package
 	flushWg.Wait()
 
 	o.retryFailedFK(&skipped)
+	if fkOff {
+		if n, err := o.RepoImpl.DropDanglingEdges(5000); err != nil {
+			logger.Warn("drop dangling edges", zap.Error(err))
+		} else if n > 0 {
+			skipped += n
+			logger.Info("dropped dangling edges", zap.Int("edges", n))
+		}
+		if err := o.RepoImpl.SetForeignKeys(true); err != nil {
+			logger.Warn("restore foreign keys", zap.Error(err))
+		}
+	}
+	// Q254：WAL 收尾——真实库构建末尾 WAL 曾涨到 1.33GB（未设上限 +
+	// checkpoint 跟不上）；此处显式截断（有读者时 busy，仅告警不失败）。
+	if _, err := o.RepoImpl.CheckpointTruncate(); err != nil {
+		logger.Warn("wal checkpoint truncate", zap.Error(err))
+	}
 	rep.End("flush done", time.Since(flushStart), nil)
 	logger.Info("orchestrator stage", zap.String("stage", "flush done"),
 		zap.Duration("elapsed", time.Since(runStart)))

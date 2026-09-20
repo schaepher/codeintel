@@ -44,7 +44,7 @@ func (o *Orchestrator) FullBuild(ctx context.Context) (*BuildResult, error) {
 	}
 	orchStage("loadPackages")
 	rep.Begin("runAdapters", 0, 0)
-	results, skipped, err := o.runAdapters(ctx, pkgs, nil, nil)
+	results, skipped, err := o.runAdapters(ctx, pkgs, nil, nil, true)
 	if err != nil {
 		return nil, err
 	}

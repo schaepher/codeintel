@@ -43,13 +43,17 @@ CREATE TABLE IF NOT EXISTS edges (
     -- 同义边合并：同一 (source, target, kind) 保留最高置信度（TD.md 5.3）
     UNIQUE(source_id, target_id, kind)
 );
-CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
-CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
+-- Q254 Stage 1：删掉 4 个冗余 edges 索引（实测证据见 field_trace §100）：
+--   idx_edges_source / idx_edges_source_kind → UNIQUE(source_id,target_id,kind)
+--     自动索引提供最左前缀，且**覆盖** target_id+kind（EXPLAIN 实测：
+--     SEARCH edges USING COVERING INDEX sqlite_autoindex_edges_1）
+--   idx_edges_target → idx_edges_target_kind(target_id,kind) 最左前缀顶替
+--   idx_edges_confidence → 全仓库无任何查询按 confidence 过滤（仅 SELECT 列）
+-- 真实业务库（7.46M 边）实测这三条单列/复合索引 ≈3.5GB。旧库由
+-- dropRedundantEdgeIndexes（maintenance.go）在 Open 时幂等 DROP——**不递增
+-- SchemaVersion**：删索引不改表结构，不该逼用户重建整库。
 CREATE INDEX IF NOT EXISTS idx_edges_kind ON edges(kind);
-CREATE INDEX IF NOT EXISTS idx_edges_confidence ON edges(confidence) WHERE confidence >= 0.8;
--- 边复合索引（P0①）：邻接查询（source_id=? 或 target_id=?）按方向各走
--- 一个索引；kind 等值过滤在索引内完成（覆盖旧单列索引的查询形态）
-CREATE INDEX IF NOT EXISTS idx_edges_source_kind ON edges(source_id, kind);
+-- 唯一以 target_id 打头的索引（入边查询靠它，必须保留）
 CREATE INDEX IF NOT EXISTS idx_edges_target_kind ON edges(target_id, kind);
 
 CREATE TABLE IF NOT EXISTS build_metadata (

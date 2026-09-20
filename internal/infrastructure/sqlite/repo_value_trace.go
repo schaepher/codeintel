@@ -60,7 +60,7 @@ vt(id, dir, depth, parent, kind, seed, c_iface, c_origin, c_conf) AS (
                 THEN json_extract(e.metadata, '$.candidate_origin') ELSE d.c_origin END,
            CASE WHEN json_extract(e.metadata, '$.candidate_origin') IS NOT NULL
                 THEN COALESCE(json_extract(e.metadata, '$.confidence'), 0) ELSE d.c_conf END
-    FROM edges e INDEXED BY idx_edges_target
+    FROM edges e INDEXED BY idx_edges_target_kind
     JOIN vt d ON e.target_id = d.id
     JOIN nodes n_prev ON e.source_id = n_prev.id
     WHERE d.dir = 0 AND d.depth < ? AND e.kind IN ('data_flows_to','argument','returns','phi_operand','summary_io')
@@ -76,7 +76,7 @@ vt(id, dir, depth, parent, kind, seed, c_iface, c_origin, c_conf) AS (
                 THEN json_extract(e.metadata, '$.candidate_origin') ELSE d.c_origin END,
            CASE WHEN json_extract(e.metadata, '$.candidate_origin') IS NOT NULL
                 THEN COALESCE(json_extract(e.metadata, '$.confidence'), 0) ELSE d.c_conf END
-    FROM edges e INDEXED BY idx_edges_source
+    FROM edges e INDEXED BY sqlite_autoindex_edges_1
     JOIN vt d ON e.source_id = d.id
     JOIN nodes n_next ON e.target_id = n_next.id
     WHERE (d.dir = 1 OR d.seed = 1) AND d.depth < ? AND e.kind IN ('data_flows_to','argument','returns','phi_operand','summary_io')

@@ -84,6 +84,30 @@ internal/cli        internal/action            internal/infrastructure
 （PostToolUse 非阻断提醒，改 Go 文件后提示跑 verify.sh——未装
 pre-commit 场景的兜底）。
 
+## Q254 Stage 1 库维护教训（2026-09-20）
+
+- **删索引的迁移不要递增 SchemaVersion**：删索引不改表结构，用 Open 时幂等
+  `DROP INDEX`（`dropRedundantEdgeIndexes`）即可——递增版本会逼用户重建 13GB 库。
+- **`INDEXED BY <索引名>` 是硬依赖**：删索引前必须全局搜 `INDEXED BY`
+  （`repo_value_trace*.go` 三处锁定了被删索引名）；被删的显式索引可换成
+  等效索引，隐式自动索引也能被 INDEXED BY 引用（`INDEXED BY sqlite_autoindex_edges_1`
+  实测可行）。
+- **VACUUM 是无条件执行的反面教材**：`DROP TABLE`+重建后 `freelist≈0`，
+  VACUUM 回收不到任何页却重写整库（13GB/7 分钟 + 需同等临时空间）。
+  判定要**两个条件同时满足**（freelist 达阈值 + 磁盘够 1.2×库大小），并把
+  跳过原因打给用户；`CODEINTEL_VACUUM_MIN_MB` 留手动逃生口。
+- **构建期关外键要有等价性证据**：同一二进制 FK-on/FK-off 两次全量构建产物
+  必须完全一致（本次 go2o：117998 节点/136028 边/484 跳过边 逐项相同）——
+  这类"语义等价 + 省一次重试路径"的改动，对照实验比推理可靠。
+- **`pragma_foreign_key_check` 的返回行也要先 Close 再写**（同连接单写者死锁，
+  `DropDanglingEdges` 与 `wal_checkpoint` 各踩一次）。
+- **度量夹具必须含 `.git`**：§95 的链完整性基线是在去 `.git` 的副本上量的，
+  少 git 适配器的 1 个 COMMIT 节点 + 525 条 modified_by 边 → 被误判成回归。
+  基线口径要在记录时写清（本次已用 `chaincheck --update` 刷新）。
+- **pragma 分"库内持久"与"连接级"**：`journal_mode`/`auto_vacuum`/`page_size`
+  持久；`cache_size`/`synchronous`/`foreign_keys`/`journal_size_limit`/
+  `wal_autocheckpoint` 只在连接上生效（诊断脚本必须分开打印，否则误判）。
+
 ## Q253 构建进度条（2026-09-20）
 
 - **契约放 domain、渲染放 internal/progress**：`domain.Progress`

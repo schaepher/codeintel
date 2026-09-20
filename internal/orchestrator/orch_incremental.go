@@ -87,7 +87,9 @@ func (o *Orchestrator) IncrementalBuild(ctx context.Context, changedFiles []stri
 	if err != nil {
 		return nil, err
 	}
-	results, skipped, err := o.runAdapters(ctx, pkgs, keep, changedFiles)
+	// 增量路径保持外键开启：DeleteByFile 依赖 ON DELETE CASCADE（Q254 决定，
+	// 关外键会让级联语义变化，另行评估）
+	results, skipped, err := o.runAdapters(ctx, pkgs, keep, changedFiles, false)
 	if err != nil {
 		return nil, err
 	}

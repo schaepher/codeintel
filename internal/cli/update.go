@@ -151,6 +151,13 @@ func cmdUpdate(ctx context.Context, args []string) int {
 	orch.SetProgress(rep)
 	result, err := orch.IncrementalBuild(ctx, changed)
 	rep.Finish()
+	// Q254：增量更新会按文件删旧数据（产生空洞）——VACUUM 只在真有 freelist
+	// 且磁盘够时才做（全量构建路径同理，见 init.go）
+	if plan, verr := db.VacuumIfWorthwhile("incremental update"); verr != nil {
+		fmt.Fprintf(os.Stderr, "warning: VACUUM: %v\n", verr)
+	} else if plan.Run {
+		fmt.Fprintf(os.Stderr, "[index] VACUUM 已回收 %dMB\n", plan.FreeListBytes>>20)
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1

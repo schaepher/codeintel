@@ -1,7 +1,7 @@
 {
   "repo": "go2o",
-  "nodes": 117997,
-  "edges": 135503,
+  "nodes": 117998,
+  "edges": 136028,
   "ssa_values": 43040,
   "ssa_values_no_line": 15266,
   "one_hop_sampled": 500,

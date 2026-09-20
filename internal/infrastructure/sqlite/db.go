@@ -46,9 +46,13 @@ func Open(repoPath string) (*DB, error) {
 	//     时同步——应用层崩溃（进程被杀）不会损坏库，仅掉电/OS 崩溃可能
 	//     丢最后几个事务（SQLite 官方推荐 WAL+ NORMAL 组合）。
 	//      不用 OFF（丧失崩境保护，本仓库已有 WAL 损坏的 runbook 教训）。
+	//   - journal_size_limit(64MB)（Q254）：checkpoint 后把 WAL 文件截断到该
+	//     上限——真实业务库构建末尾 WAL 涨到 1.33GB（未设上限 + checkpoint
+	//     跟不上），收尾再显式 wal_checkpoint(TRUNCATE)。
 	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"+
-		"&_pragma=cache_size(-131072)&_pragma=synchronous(NORMAL)",
-		filepath.Join(dir, "codeintel.db"))
+		"&_pragma=cache_size(-131072)&_pragma=synchronous(NORMAL)"+
+		"&_pragma=journal_size_limit(%d)",
+		filepath.Join(dir, "codeintel.db"), journalSizeLimit)
 	raw, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
@@ -84,6 +88,7 @@ func (db *DB) init() error {
 		if _, err := db.Exec(schema); err != nil {
 			return fmt.Errorf("create schema: %w", err)
 		}
+		// Q254：老库（此处为新建）也可能带冗余索引——统一在末尾迁移
 		if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version = %d", SchemaVersion)); err != nil {
 			return fmt.Errorf("set user_version: %w", err)
 		}
@@ -123,6 +128,13 @@ func (db *DB) init() error {
 	// DROP（schema.go 已不再建它；新库上为 no-op）。索引名可继续存在。
 	if _, err := db.Exec(`DROP INDEX IF EXISTS idx_nodes_signature`); err != nil {
 		return fmt.Errorf("drop unused index: %w", err)
+	}
+	// Q254 Stage 1：删冗余 edges 索引（同上，幂等；不递增 SchemaVersion——
+	// 删索引不改表结构，不该逼用户重建 13GB 库）
+	if dropped, err := dropRedundantEdgeIndexes(db); err != nil {
+		return err
+	} else if len(dropped) > 0 {
+		zap.L().Info("drop redundant edge indexes", zap.Strings("indexes", dropped))
 	}
 	// 结构齐全性检查：期望列 ⊆ 实际列（缺表已补建；缺列=破坏性变更
 	// 幂等 DDL 无法表达 → 报错提示 clean）

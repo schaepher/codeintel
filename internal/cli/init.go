@@ -78,9 +78,18 @@ func cmdInit(ctx context.Context, args []string) int {
 		return 1
 	}
 
-	// 全量重建后 VACUUM 整理碎片（field_trace.md §9：定期执行 VACUUM）
-	if _, err := db.Exec("VACUUM"); err != nil {
+	// Q254：VACUUM 改为**按 freelist 判定**（原来无条件执行：而全量构建走
+	// DROP TABLE+重建，建完 freelist≈0 → VACUUM 回收不到任何页，却要重写整库
+	// ——真实业务库 13GB/7 分钟，且需 ≈13GB 临时空间）。判定依据与磁盘预检
+	// 在 sqlite.VacuumIfWorthwhile；跳过时把原因写给用户。
+	plan, err := db.VacuumIfWorthwhile("full build")
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: VACUUM: %v\n", err)
+	} else if !plan.Run {
+		fmt.Fprintf(os.Stderr, "[index] 跳过 VACUUM：%s\n", plan.Reason)
+	} else {
+		fmt.Fprintf(os.Stderr, "[index] VACUUM 已回收 %dMB（freelist %dMB）\n",
+			plan.FreeListBytes>>20, plan.FreeListBytes>>20)
 	}
 
 	// 构建报告（TD.md 6.1）

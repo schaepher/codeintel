@@ -99,6 +99,11 @@ def health(con: sqlite3.Connection, c: sqlite3.Cursor) -> None:
         pass
 
 
+def hasIndex(c: sqlite3.Cursor, name: str) -> bool:
+    return c.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=?",
+                     (name,)).fetchone()[0] > 0
+
+
 def dbstat_sizes(c: sqlite3.Cursor, db: str) -> dict[str, int] | None:
     """逐表/索引字节数；python 的 SQLite 未编译 dbstat 时回退系统 sqlite3 CLI。
 
@@ -149,8 +154,8 @@ def size_report(db: str, c: sqlite3.Cursor) -> None:
             print(f"      {pragma:<22} = (err {e})")
     print("  · 本诊断连接的默认值（**非持久**——构建期由 DSN 覆盖，见")
     print("    internal/infrastructure/sqlite/db.go：cache_size=-131072、")
-    print("    synchronous(NORMAL)、foreign_keys(1)；未设置 wal_autocheckpoint/")
-    print("    journal_size_limit → 默认 1000 页≈4MB / -1，这是 WAL 涨到 GB 级的背景）：")
+    print("    synchronous(NORMAL)、foreign_keys(1)、journal_size_limit(64MB)（Q254）；")
+    print("    wal_autocheckpoint 仍为默认 1000 页≈4MB——WAL 涨到 GB 级的背景）：")
     for pragma in ("synchronous", "cache_size", "foreign_keys", "wal_autocheckpoint",
                    "journal_size_limit", "temp_store", "busy_timeout"):
         try:
@@ -207,7 +212,8 @@ def size_report(db: str, c: sqlite3.Cursor) -> None:
         sz = (sizes or {}).get(idx)
         drop_total += sz or 0
         per = f"{sz / edge_rows:.0f}B/条" if (sz and edge_rows) else "—"
-        print(f"  {idx:<24} {mb(sz) if sz else '未知':>9} {per:>8}  ← {why}")
+        state = mb(sz) if sz else ("已删除 ✓" if not hasIndex(c, idx) else "未知")
+        print(f"  {idx:<24} {state:>9} {per:>8}  ← {why}")
     print(f"  → 预计可回收（需一次 VACUUM）: {mb(drop_total)}")
     if freelist:
         print(f"  → 当前 freelist 已有 {mb(page_size * freelist)} 可直接回收（DROP 后 VACUUM）")
