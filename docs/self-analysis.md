@@ -2513,6 +2513,26 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
 
 ## 待办与已知不足（按优先级，2026-08-27 统一整理，R97 更新——含 R84-R97 新暴露项）
 
+### 新功能待办 —— 2026-09-20
+
+- 1. **构建/长任务进度条（codegraph 风格）**：给所有步骤加进度条——参考
+  `/usr/local/bin/codegraph` 的形态（Node CLI，实测输出）：
+  ```
+  ┌  Indexing project
+  │  ◆ Scanning files — 7 found
+  │  · Parsing code  ██████████████████████░░░  86%
+  │  ◆ Resolving refs — done
+  ◆  Indexed 7 files
+  └  Done
+  ```
+  即步骤列表（`┌ │ ◆ · └`）+ 25 格 `█/░` 条 + 右对齐百分比 + `\r` 原地刷新。
+  **约束**：进度只能写 stderr（stdout 是查询结果/JSON 契约）。
+  现状：进度是 `[index] 步骤 X（1.2s）` 逐行（`orch_build.go:35`、
+  `orch_adapters.go:126/134`、SSA `stage()` 6 处）；SSA 发射循环已具备真实
+  分母（`doneFuncs/totalFuncs`，`adapter_index.go:182-189`）；scip 是子进程
+  （`-q` 关掉了它的输出）→ 只有开始/结束，无真实进度。
+  **范围与形态待 grilling 访谈确认后实施**（AGENTS「新功能先 interview」）。
+
 ### Q252 系列（构建性能 + 正确性整改）新增待办 —— 2026-09-19（Q252e/f 更新）
 
 **依据**：Q246–Q252f 九轮性能 + 四轮正确性整改（field_trace §87–§98）。
