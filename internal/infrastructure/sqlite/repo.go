@@ -154,10 +154,10 @@ func (r *Repo) Save(meta *domain.BuildMeta) error {
 		}
 	}
 	_, err := r.Exec(`INSERT OR REPLACE INTO build_metadata
-		(build_id, commit_sha, tool_name, status, duration_ms, error_message, nodes_count, edges_count, degrade_stats, dispatch_pkgs)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		(build_id, commit_sha, tool_name, status, duration_ms, error_message, nodes_count, edges_count, degrade_stats, dispatch_pkgs, worktree_fingerprint)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		meta.BuildID, meta.CommitSHA, meta.ToolName, meta.Status, meta.DurationMs, meta.ErrorMsg,
-		meta.Nodes, meta.Edges, meta.DegradeStats, dispatchJSON)
+		meta.Nodes, meta.Edges, meta.DegradeStats, dispatchJSON, meta.WorktreeFingerprint)
 	return err
 }
 
@@ -171,10 +171,10 @@ func (r *Repo) GetLatest() (*domain.BuildMeta, error) {
 	var dpJSON string
 	err := r.QueryRow(`SELECT build_id, commit_sha, tool_name, status, duration_ms, error_message,
 		COALESCE(nodes_count, 0), COALESCE(edges_count, 0), COALESCE(degrade_stats, ''),
-		COALESCE(dispatch_pkgs, '[]')
+		COALESCE(dispatch_pkgs, '[]'), COALESCE(worktree_fingerprint, '')
 		FROM build_metadata ORDER BY timestamp DESC, rowid DESC LIMIT 1`).
 		Scan(&m.BuildID, &m.CommitSHA, &m.ToolName, &m.Status, &m.DurationMs, &m.ErrorMsg,
-			&m.Nodes, &m.Edges, &m.DegradeStats, &dpJSON)
+			&m.Nodes, &m.Edges, &m.DegradeStats, &dpJSON, &m.WorktreeFingerprint)
 	if err == nil && len(dpJSON) > 2 {
 		if jerr := json.Unmarshal([]byte(dpJSON), &m.DispatchPkgs); jerr != nil {
 			m.DispatchPkgs = nil

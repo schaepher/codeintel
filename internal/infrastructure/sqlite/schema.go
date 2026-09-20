@@ -66,7 +66,9 @@ CREATE TABLE IF NOT EXISTS build_metadata (
     nodes_count INTEGER,      -- 构建产物规模（--memory auto 判断缓存，P0④）
     edges_count INTEGER,
     degrade_stats TEXT, -- R6：降级统计 JSON（AST 死代码类问题提前暴露）
-    dispatch_pkgs TEXT, -- P0-2：dispatch 相关包 JSON 数组（增量补 Load 用）
+    dispatch_pkgs TEXT,
+    -- Q254b：构建时工作区变更 Go 文件的内容指纹（stale 判定；空=老构建）
+    worktree_fingerprint TEXT, -- P0-2：dispatch 相关包 JSON 数组（增量补 Load 用）
     timestamp INTEGER DEFAULT (strftime('%s', 'now'))
 );
 CREATE INDEX IF NOT EXISTS idx_build_commit ON build_metadata(commit_sha);

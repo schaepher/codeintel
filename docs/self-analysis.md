@@ -2630,6 +2630,12 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
   msq/events 非 sarama）待真实 kafka 项目验证；redis 命令式已覆盖（R36），
   其他客户端库后置
 
+**其它体验**：
+
+- **`git status` 型"过期"提示要换成内容指纹（已完成 Q254b §102）**：原按
+  `git status --porcelain` 行数统计 → 文档/脚本等不进索引的文件也报"未索引"，
+  且"改文件→重索引"后仍误报；现按 `.go` 变更集合 + 构建期工作区内容指纹比对。
+
 **进度/长任务体验（Q253 后续）**：
 
 - 32. **`precompute relations` 的 10% 打印统一到 `domain.Progress` 契约**

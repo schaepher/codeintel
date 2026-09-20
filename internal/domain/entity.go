@@ -175,6 +175,11 @@ type BuildMeta struct {
 	// 方法调用的包）——增量构建补 Load 用：改 impl 包时注册点包未
 	// Load 会导致 dispatch_to 边丢失，持久化后增量补 Load 恢复扫描
 	DispatchPkgs []string `json:"dispatch_pkgs,omitempty"`
+	// WorktreeFingerprint 构建时**工作区变更 Go 文件的内容指纹**
+	// （Q254b：stale 判定用——原来只看 git status 行数，非 Go 文件会被
+	// 误算，且"改文件→重索引"之后仍误报，因为脏文件其实已进索引）。
+	// 空串 = 老构建记录，无指纹可比。
+	WorktreeFingerprint string `json:"worktree_fingerprint,omitempty"`
 }
 
 // Repository 描述被索引的代码仓库。

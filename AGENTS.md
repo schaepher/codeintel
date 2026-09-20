@@ -84,6 +84,27 @@ internal/cli        internal/action            internal/infrastructure
 （PostToolUse 非阻断提醒，改 Go 文件后提示跑 verify.sh——未装
 pre-commit 场景的兜底）。
 
+## Q254b stale 判定 + 两个操作纪律教训（2026-09-20）
+
+- **stale/新鲜度判定要看"内容指纹"，不要看 git 状态行数**：原 `staleInfo` 按
+  `git status --porcelain` 行数统计 → 文档/脚本等**不进索引**的文件也算"未
+  索引"；且"改文件→reindex（脏着建）"这个正常闭环被误判过期。
+  修法：①变更集合只取会进索引的（`.go`/`go.mod`/`go.work`）②构建前把工作区
+  脏文件的 `path→内容 sha256` 存进 `build_metadata.worktree_fingerprint`，
+  查询时比对（差异分类计数：已改/新增/删除）。
+- **指纹口径必须构建前后稳定**：第一版用 `detectChangedGoFiles`（含"索引
+  commit 落后 HEAD"的提交差异）→ 构建前多出提交差异文件、构建后索引追上只剩
+  工作区脏文件 → **集合漂移，指纹永不匹配**。故拆 `dirtyGoFiles`（只相对 HEAD）
+  做指纹口径，提交差异交给 SHA 比较（§102）。
+- **`write` 工具会静默覆盖同名文件**：本轮 `write internal/cli/stale_test.go`
+  覆盖了已存在的 157 行测试文件（含 `seedGitRepo` —— 三个测试文件引用它），
+  直接打挂包编译。**写文件前先 `ls`/`read` 确认路径不存在**；被覆盖的用
+  `git checkout HEAD -- <file>` 恢复，新内容另起文件名。
+- **绝不用 `git checkout <file>` / `git restore` 撤销小实验**：该命令恢复的是
+  **HEAD 版本**，会连带丢弃该文件全部未提交改动（本轮 `update_detect.go` 新增
+  的两个函数就是这么没的）。撤探针要用**针对性编辑**（精确删除自己加的那几
+  行），或先 `git stash`。
+
 ## Q254 Stage 1 库维护教训（2026-09-20）
 
 - **删索引的迁移不要递增 SchemaVersion**：删索引不改表结构，用 Open 时幂等

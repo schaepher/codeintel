@@ -100,6 +100,11 @@ func (db *DB) init() error {
 			!strings.Contains(err.Error(), "duplicate column") {
 			return fmt.Errorf("add degrade_stats column: %w", err)
 		}
+		// Q254b：worktree_fingerprint 列加法迁移（stale 判定用内容指纹）
+		if _, err := db.Exec(`ALTER TABLE build_metadata ADD COLUMN worktree_fingerprint TEXT`); err != nil &&
+			!strings.Contains(err.Error(), "duplicate column") {
+			return fmt.Errorf("add worktree_fingerprint column: %w", err)
+		}
 		// P0-2：dispatch_pkgs 列加法迁移（dispatch 相关包——增量补 Load）
 		if _, err := db.Exec(`ALTER TABLE build_metadata ADD COLUMN dispatch_pkgs TEXT`); err != nil &&
 			!strings.Contains(err.Error(), "duplicate column") {
@@ -150,7 +155,7 @@ func (db *DB) init() error {
 var schemaCols = map[string][]string{
 	"nodes":                 {"id", "kind", "name", "file_path", "line_start", "line_end", "properties", "signature_text", "created_at"},
 	"edges":                 {"id", "source_id", "target_id", "kind", "tool_source", "confidence", "metadata"},
-	"build_metadata":        {"build_id", "commit_sha", "tool_name", "status", "duration_ms", "error_message", "nodes_count", "edges_count", "timestamp"},
+	"build_metadata":        {"build_id", "commit_sha", "tool_name", "status", "duration_ms", "error_message", "nodes_count", "edges_count", "timestamp", "worktree_fingerprint"},
 	"function_field_summary": {"function_id", "access_kind", "field_path", "instance_path", "line_start", "code_snippet"},
 	"summary_origins":       {"function_id", "access_kind", "field_path", "call_line", "callee_id"},
 	"relation_candidates":   {"build_id", "from_table", "from_col", "to_table", "to_col", "hops", "type"},

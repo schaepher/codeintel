@@ -4728,3 +4728,74 @@ Q254 中途发现 go2o 产物比 §95 基线多 **+1 节点 / +525 边**。二�
   （悬挂边计入 SkippedEdges、图中无悬挂、外键已恢复）
 - go2o：`detcheck` 三类全等（冷1/冷2/暖3）、`chaincheck` 通过、
   `make test`（13 包 -race）、`make it`、`e2e-fixture` 38/38、`verify.sh --quick`
+
+## §102 stale 判定重写：只算会进索引的变更 + 工作区内容指纹（Q254b，2026-09-20）
+
+### 症状（用户报）
+
+```
+warning: 索引可能过期（工作区 15 个文件未索引）
+```
+
+即使那些文件**已经索引**（刚 `reindex` 过）也照报；而且 15 个里全是
+`docs/*.md`、`scripts/*.py`、`.gitignore` 之类**根本不进索引**的文件。
+
+### 两处误报的根因
+
+1. **按 `git status --porcelain` 行数统计**（`staleInfo` 原实现）：任何脏文件
+   ——文档、脚本、配置——都被算成"未索引"。**只有 `.go`/`go.mod`/`go.work`
+   会进索引**（`detectChangedGoFiles` 早就是这个口径，update 路径一直用它）。
+2. **不区分"这些脏文件是否已在构建时被索引"**：只要 HEAD SHA 一致 + 有脏
+   文件就报。而"改文件 → `reindex`（工作区脏着建）"是**正常闭环**——构建时
+   索引的就是这份内容，却被判过期。
+
+### 修法
+
+- 变更集合改用 `detectChangedGoFiles`（.go/go.mod/go.work）。
+- `build_metadata` 新增 `worktree_fingerprint` 列：构建**前**记录工作区脏
+  Go 文件的 **`path → 内容 sha256` JSON**（`dirtyGoFiles` + `worktreeFingerprint`）。
+- 查询时重算当前指纹并 `fingerprintDiff` 比对：
+  - 完全一致 → **不报**（这些变更构建时已进索引）
+  - 有差异 → 报精确条数：`构建后 N 个 Go 文件改动：X 已改/Y 新增/Z 删除；
+    工作区共 M 个未提交变更`
+  - 老构建记录（无该列/非 JSON）→ 保守提示并说明"构建记录无工作区指纹"
+
+### 关键坑：指纹口径必须**构建前后稳定**
+
+第一版指纹用 `detectChangedGoFiles`（含"索引 commit 落后于 HEAD"的提交差异）
+→ 构建前集合里多出提交差异文件，构建后索引追上、同一函数只返回工作区脏文件
+→ **集合漂移，指纹永不匹配**（实测：重索引后仍报"11 个 Go 文件在构建后被
+改动"）。故拆出 `dirtyGoFiles`（只相对 HEAD：已跟踪改动 + 未跟踪新文件）作为
+指纹口径；**提交差异交给 SHA 比较**，不进指纹。回归测试
+`TestStaleInfoFreshAfterReindexWhenIndexWasBehind` 锁死该口径。
+
+换 JSON 逐文件表（而非聚合哈希）还有一个好处：诊断能逐文件定位差异，提示也
+能给出"已改/新增/删除"的分类计数。
+
+### 真实仓库验证（本仓库，工作区常年脏）
+
+| 操作 | 改前 | 改后 |
+|---|---|---|
+| `reindex` 后（工作区 10 个脏 Go 文件） | `工作区 15 个文件未索引` | **无提示** ✓ |
+| 构建后再改 1 个 Go 文件 | `工作区 N 个文件未索引` | `构建后 1 个 Go 文件改动：1 已改/0 新增/0 删除；工作区共 11 个未提交变更` ✓ |
+| 只改 `docs/*.md` | 报（误报） | **无提示** ✓ |
+| 还原改动 | 仍按脏文件数报 | **无提示** ✓ |
+
+### 测试
+
+`stale_fingerprint_test.go`（新增）：非 Go 改动不报、脏 Go 文件已索引不报
+（用户报的场景）、构建后再改报"已改"、新增未跟踪 Go 文件报、索引落后时重索引
+后不报（口径回归）、指纹只随内容变（mtime 无关）/空集合为空指纹。
+`stale_test.go`（原有 4 例保留）：`TestStaleInfoDirty` 断言更新为新措辞（老记录
+无指纹 → 保守提示）。
+
+### 两个过程教训（本轮踩的，已进 AGENTS）
+
+- **`write` 会静默覆盖同名文件**：我直接 `write internal/cli/stale_test.go`
+  （以为是新文件），覆盖了已存在的 157 行测试（含被三个测试文件引用的
+  `seedGitRepo`）→ 包编译不过。恢复：`git checkout HEAD -- <file>`（原文在
+  git 里），新测试改放 `stale_fingerprint_test.go`。**写文件前先确认路径是否
+  已存在**。
+- **别用 `git checkout <file>` 撤销小实验**：验证时用它在 `update_detect.go`
+  里撤销一行探针，**连带丢弃了该文件全部未提交改动**（`dirtyGoFiles` 等）——
+  撤探针要用针对性编辑（本轮改用 python 精确删除）。

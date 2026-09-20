@@ -69,6 +69,11 @@ func cmdInit(ctx context.Context, args []string) int {
 
 	orch := orchestrator.New(repo, db)
 	orch.SetWorkers(*workers)
+	// Q254b：记录构建时的工作区变更指纹（stale 判定用——"改文件→重索引"
+	// 之后不该再报过期）
+	if dirtyGo, cerr := dirtyGoFiles(abs); cerr == nil {
+		orch.SetWorktreeFingerprint(worktreeFingerprint(abs, dirtyGo))
+	}
 	rep := progress.New(os.Stderr, progress.Config{Mode: *progressMode, Prefix: "[index] 步骤", Title: "构建索引"})
 	orch.SetProgress(rep)
 	result, err := orch.FullBuild(ctx)

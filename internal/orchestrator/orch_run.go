@@ -103,6 +103,8 @@ func (o *Orchestrator) finishBuild(start time.Time, results []AdapterResult, ski
 		Edges:        edges,
 		DegradeStats: string(statsJSON),
 		DispatchPkgs: dispatchPkgs,
+
+		WorktreeFingerprint: o.worktreeFP,
 	}
 	if err := o.RepoImpl.Save(meta); err != nil {
 		return build, fmt.Errorf("save build metadata: %w", err)

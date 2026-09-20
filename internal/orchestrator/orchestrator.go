@@ -63,6 +63,10 @@ type Orchestrator struct {
 	Progress  domain.Progress
 	plainProg *progress.Plain
 
+	// worktreeFP 构建前由 cli 计算的工作区变更 Go 文件内容指纹（Q254b：
+	// stale 判定——"改文件→重索引"之后不该再报过期）。
+	worktreeFP string
+
 	// P2 跨批 FK 收集：flush 时端点节点尚未落库的边/摘要/来源，构建尾部
 	// （全部节点落库后）统一重试——原实现静默跳过导致非确定性丢边。
 	// 仅 flush 协程写、finish 阶段读（flushCh 关闭 + flushWg.Wait 同步）。
@@ -80,6 +84,10 @@ func (o *Orchestrator) SetProgress(p domain.Progress) {
 		}
 	}
 }
+
+// SetWorktreeFingerprint 注入构建前的工作区内容指纹（cli 计算，写入
+// build_metadata，供后续 stale 判定比对）。
+func (o *Orchestrator) SetWorktreeFingerprint(fp string) { o.worktreeFP = fp }
 
 // prog 返回进度实现（注入优先；nil → 逐行 stderr，格式与 Q253 前一致）。
 func (o *Orchestrator) prog() domain.Progress {

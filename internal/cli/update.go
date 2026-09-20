@@ -5,10 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/schaepher/codeintel/internal/domain"
@@ -147,6 +144,11 @@ func cmdUpdate(ctx context.Context, args []string) int {
 
 	orch := orchestrator.New(repo, db)
 	orch.SetWorkers(*workers)
+	// Q254b：工作区指纹用 dirtyGoFiles（相对 HEAD 的脏文件）——与查询期同口径，
+	// 不受"索引 commit 落后"影响（那部分由 SHA 比较负责）
+	if dirtyGo, derr := dirtyGoFiles(abs); derr == nil {
+		orch.SetWorktreeFingerprint(worktreeFingerprint(abs, dirtyGo))
+	}
 	rep := progress.New(os.Stderr, progress.Config{Mode: *progressMode, Prefix: "[index] 步骤", Title: "增量更新"})
 	orch.SetProgress(rep)
 	result, err := orch.IncrementalBuild(ctx, changed)
@@ -215,72 +217,3 @@ func cmdUpdate(ctx context.Context, args []string) int {
 
 // indexCommitSHA 返回索引最新构建的 commit_sha（build_metadata 最新记录）。
 // 索引不存在 / 无构建记录 / 读取失败 → 空串（回退工作区检测）。
-
-// staleInfo 索引过期检测（field_trace.md §20.3，Q243 增强）：
-//  1. build_metadata 最新 commit_sha 与 git HEAD SHA 不同 → 过期
-//     （提示索引基于的 SHA + 工作区变更文件数）
-//  2. SHA 一致但工作区有未提交/未跟踪变更 → 过期（提示文件数）
-//  3. commit_sha 为空（历史构建）→ 回退 timestamp 比较
-//
-// 非 git 仓库 / 无构建记录 / 不过期 → 返回空。
-func staleInfo(repoAbs string, r *sqlite.Repo) string {
-	// 工作区变更文件数（未提交 + 未跟踪；排除 .codeintel/ 索引产物）
-	changed := 0
-	if out, err := exec.Command("git", "-C", repoAbs, "status", "--porcelain").Output(); err == nil {
-		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-			if line == "" || strings.Contains(line, ".codeintel/") {
-				continue
-			}
-			changed++
-		}
-	}
-	head, err := exec.Command("git", "-C", repoAbs, "rev-parse", "HEAD").Output()
-	if err != nil {
-		return "" // 非 git 仓库：无法比较
-	}
-	headSHA := strings.TrimSpace(string(head))
-	var buildSHA string
-	var buildTs int64
-	if err := r.QueryRow(`SELECT COALESCE(commit_sha,''), timestamp FROM build_metadata
-		ORDER BY timestamp DESC, rowid DESC LIMIT 1`).Scan(&buildSHA, &buildTs); err != nil {
-		return "" // 无构建记录
-	}
-	if buildSHA != "" && buildSHA != headSHA {
-		return fmt.Sprintf("索引可能过期（基于 commit %s，HEAD 为 %s，%d 个文件未索引）；运行 codeintel update",
-			shortSHA(buildSHA), shortSHA(headSHA), changed)
-	}
-	if changed > 0 {
-		return fmt.Sprintf("索引可能过期（工作区 %d 个文件未索引）；运行 codeintel update", changed)
-	}
-	if buildSHA != "" {
-		return "" // SHA 一致且无变更——新鲜
-	}
-	// commit_sha 为空：回退 timestamp 比较（历史构建）
-	headTs, err := strconv.ParseInt(strings.TrimSpace(string(execOut(repoAbs, "log", "-1", "--format=%ct"))), 10, 64)
-	if err != nil || headTs <= 0 {
-		return ""
-	}
-	if buildTs < headTs {
-		return fmt.Sprintf("索引可能过期（构建于 %s，HEAD 更新于 %s）；运行 codeintel update",
-			time.Unix(buildTs, 0).Format("01-02 15:04"), time.Unix(headTs, 0).Format("01-02 15:04"))
-	}
-	return ""
-}
-
-// shortSHA 压缩 commit SHA 显示（前 8 位）。
-func shortSHA(sha string) string {
-	if len(sha) > 8 {
-		return sha[:8]
-	}
-	return sha
-}
-
-// execOut 运行 git 命令返回 stdout（失败返回空）。
-func execOut(repoAbs string, args ...string) []byte {
-	full := append([]string{"-C", repoAbs}, args...)
-	out, err := exec.Command("git", full...).Output()
-	if err != nil {
-		return nil
-	}
-	return out
-}

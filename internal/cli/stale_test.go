@@ -108,7 +108,9 @@ func TestStaleInfoByCommit(t *testing.T) {
 	}
 }
 
-// TestStaleInfoDirty：SHA 相同但工作区有未提交变更 → 提示变更文件数。
+// TestStaleInfoDirty：SHA 相同但工作区有未提交变更、**且构建记录无工作区
+// 指纹**（老构建）→ 保守提示变更文件数（Q254b 后措辞明确为 Go 文件；
+// "已索引的脏文件"场景见 stale_fingerprint_test.go）。
 func TestStaleInfoDirty(t *testing.T) {
 	dir := seedGitRepo(t)
 	head, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").Output()
@@ -129,8 +131,8 @@ func TestStaleInfoDirty(t *testing.T) {
 		t.Fatal(err)
 	}
 	tip := staleInfo(dir, r)
-	if tip == "" || !strings.Contains(tip, "1 个文件") {
-		t.Fatalf("工作区变更应提示文件数: %q", tip)
+	if tip == "" || !strings.Contains(tip, "1 个 Go 文件") {
+		t.Fatalf("工作区变更应提示 Go 文件数: %q", tip)
 	}
 }
 
