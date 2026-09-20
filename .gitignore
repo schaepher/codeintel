@@ -13,3 +13,7 @@ e2e/integration/
 docs/wiki/
 node_modules/
 dist/
+
+# Python 字节码（scripts/dbdiag.py 等运行产物）
+__pycache__/
+*.pyc
