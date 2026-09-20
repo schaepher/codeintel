@@ -75,7 +75,8 @@ internal/cli        internal/action            internal/infrastructure
    执行，失败拒绝提交；hook 先跑 `scripts/check-file-size.sh`
    （staged Go 文件 >300 行拒绝，提示用 dev-line-limit skill 拆分——
    §85）；全量基线（-race 逐包）手动跑 `scripts/verify.sh`。
-   `scripts/dbdiag.sh`（sqlite 库健康诊断）、`scripts/assert_replace.py`
+   `scripts/dbdiag.sh`（sqlite 库健康诊断；Q254 起加 `--size` 体量/冗余索引
+   候选 + `--plans` 查询计划对比 + `--self-test`）、`scripts/assert_replace.py`
    （带断言替换，杜绝静默失败）详见事前树 prevention-tree.md。
 
 支撑：`.claude/hooks/impact-check.sh`（PreToolUse 非阻断提醒，只提示

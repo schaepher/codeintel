@@ -4582,3 +4582,62 @@ Advance（`-race`）。接线：`orchestrator.TestFullBuildReportsProgress`（�
 - **不显示 ETA/速率**：没有可靠依据。
 - `precompute relations` 仍用自己的 10% 打印（stdout）——后续统一到本契约。
 - 并行适配器共用一个活动行：非活动步骤的中间进度不可见（End 时给出耗时）。
+
+## §100 Stage 0 诊断脚本：DB 体量 / 索引冗余 / 查询计划 / pragma 现状（Q254，2026-09-20）
+
+### 背景
+
+真实业务系统验证（用户机器：**7.46M 边 / 13GB 库**）暴露 6 项优化：
+①两个单列索引冗余（≈2.26GB）②全量构建后 VACUUM 无收益却重写 13GB（7+ 分钟 +
+磁盘爆满风险）③edges 用 canonical ID（145B）做键、7 棵 B 树各存一份
+（13GB → 估 5-6GB）④单写者流水线重新成为瓶颈 ⑤构建期外键开销 + 20.7 万条
+重试边驻留内存 ⑥WAL 收尾涨到 1.33GB。
+
+**先量化再动手**：本轮只交付诊断脚本（零风险、只读），用它在自己库上产出
+决策输入；Stage 1（索引/VACUUM/FK/WAL）、Stage 2（整数代理键）、Stage 3
+（流水线解耦）随后按顺序上。
+
+### 交付
+
+`scripts/dbdiag.sh`（保持原健康检查为默认模式）+ `scripts/dbdiag.py`：
+
+| 模式 | 输出 |
+|---|---|
+| （默认） | 原健康检查：表行数 / build_metadata 最新 3 条 / 完整性 marker |
+| `--size` | 文件与页（page_size/page_count/freelist/WAL/空闲磁盘）+ **pragma 现状**（区分"库内持久"与"连接默认"，并列出构建期 DSN 实际值）+ dbstat 逐表逐索引字节数（含 %）+ canonical ID 平均/最长长度 + **结构占比**（edges 系/nodes 系/其余）+ **冗余索引候选**（逐条均摊 B/条、预计可回收、VACUUM 磁盘预检） |
+| `--plans` | 12 条热点 SQL 的 `EXPLAIN QUERY PLAN`：①真实库 ②**内存副本（去掉候选索引）**——两侧对比即"删除是否安全"的判据 |
+| `--all` | 以上全部（一次产出全部决策输入） |
+| `--self-test` | 临时小库自检脚本本身（无真实索引库也能跑，已进验证流程） |
+
+只读（`file:...?mode=ro`），可直接在生产库跑；dbstat 在 python 侧缺失时
+自动回退系统 `sqlite3` CLI。超大库 `--size` 需数十秒（dbstat 全页扫描）。
+
+### 本仓库实测证据（Q254 的判定依据）
+
+```
+== 查询计划（真实库 59280 边）==
+邻接-出边(source_id=?)      SEARCH edges USING COVERING INDEX sqlite_autoindex_edges_1 (source_id=?)
+邻接-入边(target_id=?)      SEARCH edges USING INDEX idx_edges_target_kind (target_id=?)
+== 查询计划（内存副本：去掉候选索引）==
+邻接-出边+kind              SEARCH edges USING INDEX sqlite_autoindex_edges_1 (source_id=?)
+邻接-入边+kind              SEARCH edges USING INDEX idx_edges_target_kind (target_id=? AND kind=?)
+邻接加载器(kind IN)         SEARCH edges USING INDEX idx_edges_kind (kind=?)
+```
+
+→ **`idx_edges_source` / `idx_edges_source_kind` / `idx_edges_target` 三个可删**
+（UNIQUE(source_id,target_id,kind) 提供最左前缀且**覆盖** target_id+kind；
+target 侧由 `idx_edges_target_kind` 顶替）；`idx_edges_confidence` 待确认
+（全仓库无查询按 confidence 过滤，仅 SELECT 列）；`idx_edges_kind` **必须保留**
+（邻接加载器等 3 处 `WHERE kind …` 走它）。
+
+体量与占比（本仓库，88.4MB）：edges 系 49.9MB(56.4%)、nodes 系 32.5MB(36.8%)、
+其余 6.1MB；三个候选索引 17.5MB ≈ 19.8%（每条 98-110B）。用户库按 ID 长度
+（145B vs 本仓库 87-90B）放大后 ≈**3.5GB**（比最初估的两个索引 2.26GB 更多）。
+
+### 坑
+
+- **pragma 读数要区分持久性**：只有 `journal_mode`/`auto_vacuum`/`page_size`
+  是库内持久；`cache_size`/`synchronous`/`foreign_keys`/`wal_autocheckpoint`/
+  `journal_size_limit` 都是**连接级**（脚本会注明，否则会误判"构建期没开外键"）。
+- **同连接迭代 sqlite_master 中执行 DDL 会中断迭代**（内存副本构造第一版就
+  因此静默丢表）——先 `fetchall()` 再执行（本项目 sqlite 坑清单同款）。

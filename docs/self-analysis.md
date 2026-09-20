@@ -2558,62 +2558,77 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
 
 **P1——补全/验证/性能**：
 
-- 11. **写库/流水线层单写者仍串行**（Q252 新增）：`orch_adapters.go`
+- 11. **真实库 6 项优化（Q254，按 Stage 推进）**：用户真实系统验证产出
+  （7.46M 边 / 13GB 库）——
+  **Stage 0 已完成**：`scripts/dbdiag.sh --size/--plans/--self-test`（§100）。
+  **Stage 1（低风险，待上）**：①索引裁剪——`idx_edges_source` /
+  `idx_edges_source_kind` / `idx_edges_target`（EXPLAIN 证明 UNIQUE 覆盖索引与
+  `idx_edges_target_kind` 可顶替；预计 ≈3.5GB）+ 一次**有守卫的 VACUUM** 回收
+  ②VACUUM 守卫（freelist×page_size 阈值 + 磁盘预检；init/update 共用；全量
+  构建路径不再无脑 VACUUM——今天那次纯重写 13GB/7 分钟）③构建期
+  `foreign_keys=0` + 末尾 set-based 清理悬挂边并计数（替换 20.7 万条边驻留
+  内存的 `retryFailedFK`）④WAL 收尾 `wal_checkpoint(TRUNCATE)` +
+  `journal_size_limit`（1.33GB → 百 MB 级）。
+  **Stage 2**：整数代理键（`nodes(id_int INTEGER PRIMARY KEY, id TEXT UNIQUE)`
+  + `edges(source_int,target_int)`，schema v5 + 强制重建；13GB → 5-6GB；顺带
+  page_size/auto_vacuum 评估）。
+  **Stage 3**：写库流水线解耦（两阶段导入优先——同时消灭 FK 重试与悬挂边）。
+- 12. **写库/流水线层单写者仍串行**（Q252 新增，与第 11 条 Stage 3 合并推进）：`orch_adapters.go`
   `ch(4096)` → 单 consume → `flushCh(2)` → 单 flusher → SQLite；4 个 SSA
   worker 共享一个 channel，flush 慢时全堵在 `ch <- item`（实测单批 flush
   2–68s 波动、中位 ~10s，源为机器 I/O）。方向：分片多 DB 文件再合并 / SSA
   计算与写库两阶段（中间文件 + 导入前 drop 索引）。验收：wall + flush p95
-- 12. **SCIP 重复加载依赖图 + 按包增量**（Q252 新增 + R84 遗留合并）：
+- 13. **SCIP 重复加载依赖图 + 按包增量**（Q252 新增 + R84 遗留合并）：
   scip-go 内部 `go list -deps=true -export=true` 完整加载并自行类型检查一遍
   （`--help` 无跳过依赖开关）；go2o `update` 40s 里 scip 仍全量扫描。方向：
   把 `scip-go index <patterns>` 限定到变更模块/包；或评估替换 scip-go
-- 13. **构建期内存线复测/收尾**（Q252 新增）：`CODEINTEL_MEM_PROFILE` 峰值
+- 14. **构建期内存线复测/收尾**（Q252 新增）：`CODEINTEL_MEM_PROFILE` 峰值
   live 复测；待评估 ①包缓存 gob 分配 +60%（§93）是否回退 ②SSA 剩余单项
   ≤9.7% 无病态。验收：go2o 冷构建 wall + in-process 峰值 RSS 双数字
-- 14. **邻接表缓存推广到剩余"每次全扫边集"消费者**（Q252 新增）：
+- 15. **邻接表缓存推广到剩余"每次全扫边集"消费者**（Q252 新增）：
   `repo_chain.go:18`、`repo_flows.go:200`、`repo_unused.go:165`、
   `rg_bfs.go:33`；基础设施 `edge_graph.go` `adjacencyView` 已就绪，逐个迁移
   各自带验证
-- 15. **cli → action 迁移收尾**（R89 起分批）：剩余命令（domains 事实包 /
+- 16. **cli → action 迁移收尾**（R89 起分批）：剩余命令（domains 事实包 /
   packages / architecture / er / processes / module / unused / relations /
   module-calls / export 等 ~100 文件）按 R89 模式批量迁移
-- 16. **新人实测演练**：挑一个陌生项目用 wiki 走通 onboarding，验证"新人
+- 17. **新人实测演练**：挑一个陌生项目用 wiki 走通 onboarding，验证"新人
   视角无死角"（覆盖度终极验证，需外部项目）
-- 17. **go2o 表别名 AI 补缺**（R93 后仍缺 148 表）：`wiki --ai` 重跑
+- 18. **go2o 表别名 AI 补缺**（R93 后仍缺 148 表）：`wiki --ai` 重跑
   （wiki.yaml 缺 tables 段——AI 从事实补全）
-- 18. **ext-chain 跨仓库**（M P1-7）：服务端实现在其他仓库的递归（当前只查
+- 19. **ext-chain 跨仓库**（M P1-7）：服务端实现在其他仓库的递归（当前只查
   本仓库 grpc-routes——多仓库注册表扩展）
-- 19. **表字段类型剩余 10 列**：repos 全局注册表 schema 在 `~/.codeintel`
+- 20. **表字段类型剩余 10 列**：repos 全局注册表 schema 在 `~/.codeintel`
   ——yaml 补或读全局 db
-- 20. **F2 实体分组对非 DDD 项目效果**：go2o 是 DDD 样例，普通项目待观察
-- 21. **wiki 流程页 HTTP 路由入口代码级时序**（M P1-8：grpc 已用，http 入口
+- 21. **F2 实体分组对非 DDD 项目效果**：go2o 是 DDD 样例，普通项目待观察
+- 22. **wiki 流程页 HTTP 路由入口代码级时序**（M P1-8：grpc 已用，http 入口
   同款）
 
 **P2——候选/边际收益**：
 
-- 22. **analyzer 版本粒度**（R92 后）：任何 ast 修改触发全量——按适配器/功能
+- 23. **analyzer 版本粒度**（R92 后）：任何 ast 修改触发全量——按适配器/功能
   细分哈希可减少不必要重建（复杂度高、收益边际）
-- 23. **ER 500 边细分复用 + 实体对级调用 Top-N**（R63 思路）：ER 域内图超限
+- 24. **ER 500 边细分复用 + 实体对级调用 Top-N**（R63 思路）：ER 域内图超限
   时自动按表前缀/域再细分；facts 输出调用最热的 N 对实体（主信号已由
   pkg_calls/热度覆盖）
-- 24. **系统平台域人工拆分**（100+ 包兜底）
-- 25. **测试基建：asttool split fixture 保护**（R95 教训：split 丢 fixture
+- 25. **系统平台域人工拆分**（100+ 包兜底）
+- 26. **测试基建：asttool split fixture 保护**（R95 教训：split 丢 fixture
   import——拆后自动检查/回滚）
-- 26. **性能 profile 分布**（go2o 全量 24s：SSA/SCIP/AST 各占比；pkg_cache
+- 27. **性能 profile 分布**（go2o 全量 24s：SSA/SCIP/AST 各占比；pkg_cache
   已生效，剩余热点定位）——与第 13 条合并做
-- 27. **R50 残留：4 个空 mermaid pre**（go2o 559 图中 4 个空块，极小影响）
-- 28. **流程页深度**（候选）：入口调用链 → 关键数据流（value-trace 串联）
-- 29. **服务归属静态兜底改进**（R38 可选）：投票被基础设施兜底域污染——可
+- 28. **R50 残留：4 个空 mermaid pre**（go2o 559 图中 4 个空块，极小影响）
+- 29. **流程页深度**（候选）：入口调用链 → 关键数据流（value-trace 串联）
+- 30. **服务归属静态兜底改进**（R38 可选）：投票被基础设施兜底域污染——可
   排除服务实现包再投票
-- 30. **外部依赖识别形态扩展**（候选）：kafka 对 go2o 无数据（其消息走
+- 31. **外部依赖识别形态扩展**（候选）：kafka 对 go2o 无数据（其消息走
   msq/events 非 sarama）待真实 kafka 项目验证；redis 命令式已覆盖（R36），
   其他客户端库后置
 
 **进度/长任务体验（Q253 后续）**：
 
-- 31. **`precompute relations` 的 10% 打印统一到 `domain.Progress` 契约**
+- 32. **`precompute relations` 的 10% 打印统一到 `domain.Progress` 契约**
   （现仍自打印，走 stdout）
-- 32. **NDJSON 进度事件流**（可选）：`--json`/MCP 目前用 `--progress plain`；
+- 33. **NDJSON 进度事件流**（可选）：`--json`/MCP 目前用 `--progress plain`；
   出现真实消费者（IDE 插件等）再加
 
 **已完成（本清单最近轮次，详见 field_trace）**：
