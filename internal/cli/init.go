@@ -15,6 +15,7 @@ import (
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 	"github.com/schaepher/codeintel/internal/logging"
 	"github.com/schaepher/codeintel/internal/orchestrator"
+	"github.com/schaepher/codeintel/internal/progress"
 	"go.uber.org/zap"
 )
 
@@ -27,6 +28,7 @@ func cmdInit(ctx context.Context, args []string) int {
 	// Q237：--repo 缺省当前工作目录（在目标仓库内直接 codeintel init）
 	repoPath := fs.String("repo", ".", "仓库根目录（含 go.mod；默认当前目录）")
 	workers := fs.Int("workers", defaultBuildWorkers(), "SSA 分析并发数（Q221/Q252e：默认 min(NumCPU, 8)——同时约束 ①模块包级 SSA 建图（Q252e 前逐包串行）②函数级发射；峰值内存与并发度正相关，小内存机器可调小，如 1）")
+	progressMode := fs.String("progress", progress.ModeAuto, "构建进度显示（Q253：只写 stderr，stdout 仍只承载结果）：auto=stderr 是终端时用进度条、否则逐行；plain=逐行（agent/日志抓取）；none=不显示")
 	fs.Parse(args)
 	*repoPath = ResolveRepoRef(*repoPath) // Q238：注册表短名/后缀/module
 
@@ -67,7 +69,10 @@ func cmdInit(ctx context.Context, args []string) int {
 
 	orch := orchestrator.New(repo, db)
 	orch.SetWorkers(*workers)
+	rep := progress.New(os.Stderr, progress.Config{Mode: *progressMode, Prefix: "[index] 步骤", Title: "构建索引"})
+	orch.SetProgress(rep)
 	result, err := orch.FullBuild(ctx)
+	rep.Finish() // 关闭进度活动行（无论成败）
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1

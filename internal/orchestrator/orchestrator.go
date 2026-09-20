@@ -17,6 +17,7 @@ import (
 
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
+	"github.com/schaepher/codeintel/internal/progress"
 	"go.uber.org/zap"
 )
 
@@ -57,12 +58,38 @@ type Orchestrator struct {
 	Adapters []domain.IndexerPort
 	RepoImpl *sqlite.Repo
 
+	// Progress 进度上报（Q253，cli 注入；nil → 逐行 stderr 保底）。
+	// 构建期各阶段与各适配器共用同一实例（TTY 模式单活动行）。
+	Progress  domain.Progress
+	plainProg *progress.Plain
+
 	// P2 跨批 FK 收集：flush 时端点节点尚未落库的边/摘要/来源，构建尾部
 	// （全部节点落库后）统一重试——原实现静默跳过导致非确定性丢边。
 	// 仅 flush 协程写、finish 阶段读（flushCh 关闭 + flushWg.Wait 同步）。
 	failedEdges     []*domain.Fact
 	failedSummaries []*domain.FunctionFieldSummary
 	failedOrigins   []*domain.SummaryOrigin
+}
+
+// SetProgress 注入进度上报，并转达给支持进度上报的适配器（ssa）。
+func (o *Orchestrator) SetProgress(p domain.Progress) {
+	o.Progress = p
+	for _, a := range o.Adapters {
+		if sp, ok := a.(interface{ SetProgress(domain.Progress) }); ok {
+			sp.SetProgress(p)
+		}
+	}
+}
+
+// prog 返回进度实现（注入优先；nil → 逐行 stderr，格式与 Q253 前一致）。
+func (o *Orchestrator) prog() domain.Progress {
+	if o.Progress != nil {
+		return o.Progress
+	}
+	if o.plainProg == nil {
+		o.plainProg = progress.NewPlain(os.Stderr, "[index] 步骤")
+	}
+	return o.plainProg
 }
 
 type batchT struct {

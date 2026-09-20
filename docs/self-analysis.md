@@ -2515,7 +2515,12 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
 
 ### 新功能待办 —— 2026-09-20
 
-- 1. **构建/长任务进度条（codegraph 风格）**：给所有步骤加进度条——参考
+- 1. ~~**构建/长任务进度条（codegraph 风格）**~~ —— **已完成（Q253，§99）**：
+  `domain.Progress` + `internal/progress`（TTY 列表/逐行/静默）+ `--progress
+  auto|plain|none`；覆盖顶层阶段 + 每适配器 + SSA 6 子步骤；发射循环真实分母；
+  plain 与改动前逐字一致。剩余：`precompute relations` 的 10% 打印待统一到
+  本契约、NDJSON 事件流待有消费者再加。原始需求记录：
+  参考
   `/usr/local/bin/codegraph` 的形态（Node CLI，实测输出）：
   ```
   ┌  Indexing project

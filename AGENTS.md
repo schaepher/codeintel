@@ -83,6 +83,24 @@ internal/cli        internal/action            internal/infrastructure
 （PostToolUse 非阻断提醒，改 Go 文件后提示跑 verify.sh——未装
 pre-commit 场景的兜底）。
 
+## Q253 构建进度条（2026-09-20）
+
+- **契约放 domain、渲染放 internal/progress**：`domain.Progress`
+  （`Begin/Advance/End/Finish`）由 orchestrator 与适配器调用；TTY/逐行/静默
+  是换实现。**耗时由调用方传入**（各调用方本来就算好了 `time.Since(start)`）
+  ——实现不必自记时钟，测试可传固定值。
+- **`--progress plain` 必须与改动前的逐行格式逐字一致**（`[index] 步骤 X（1.2s）`；
+  SSA 子步骤保 `[index] ssa 步骤 X（41ms, heap 170MB/189MB inuse）`）——heap
+  统计是 Q247/Q248 内存排查依据，所以 SSA 在 plain 注入时**换回自己的保底
+  实现**（`Adapter.SetProgress` 的类型判断），只有 TTY 才共用同一渲染器。
+- **单活动行 vs 并行适配器**：本仓库 scip/ast/git/ssa 并行，多行 live 区要
+  光标上移 + 逐行清理，且 `packages.PrintErrors`/警告也写 stderr 会打乱；
+  改成"最新步骤占活动行、其余按完成顺序打印静态行"最简单且诚实。
+- **无真实分母不画条**：scip/git/flush 只有"进行中 + 已用时"；SSA 发射循环
+  用模块函数总数（真实分母）。假进度比没进度更糟。
+- **进度只写 stderr**（stdout 是结果/`--json` 契约）；验收要分两部分看
+  （`2>stderr` 抓进度、stdout 只剩余结果）。
+
 ## Q252f 静默退化根治教训（2026-09-19）
 
 - **`ok` 不等于"跑了"**：`go test` 的 `ok` 不区分"执行通过"与"全部 skip"。
@@ -298,8 +316,9 @@ go build ./...                      # 编译
 go test ./...                       # 测试（需要 scip-go 在 PATH 或 go bin）
 go build -o codeintel ./cmd/codeintel
 # 对任意 Go 仓库构建索引并查询：
-#   codeintel init --repo <path>          # 全量构建
-#   codeintel update --repo <path>        # 增量更新
+#   codeintel init --repo <path>          # 全量构建（--progress auto|plain|none：
+#                                         #   Q253 进度条，只写 stderr；plain=逐行给 agent/日志）
+#   codeintel update --repo <path>        # 增量更新（同样支持 --progress）
 #   codeintel reindex --repo <path>       # 重建（删旧库绕过 schema 检查 + init）
 #   codeintel query symbol|callers|callees|impact|table|grpc-routes|http-routes|cli-routes|external-deps ...
 #   codeintel wiki --yaml wiki.yaml [--diagram plantuml|mermaid] [--max-entries N]

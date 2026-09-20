@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"go/types"
 	"os"
-	"runtime"
 	"sort"
 	"sync"
 	"time"
@@ -25,24 +24,13 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	defer logger.Debug("exit (Adapter).Index")
 	packages.PrintErrors(pkgs)
 
-	stageStart := time.Now()
-	stage := func(name string) {
-		var ms runtime.MemStats
-		runtime.ReadMemStats(&ms)
-		logger.Info("build stage",
-			zap.String("stage", name), zap.Duration("elapsed", time.Since(stageStart)),
-			zap.Int64("heap_mb", int64(ms.HeapAlloc>>20)),
-			zap.Int64("heap_inuse_mb", int64(ms.HeapInuse>>20)))
-		// 命令执行界面展示（zap 未初始化是 noop——直接 stderr 实时可见）。
-		// Q247：HeapAlloc 含**未回收垃圾**（阶段边界未 GC）只当趋势看，
-		// 真实 live 构成用 CODEINTEL_MEM_PROFILE 的 heap profile 归因。
-		fmt.Fprintf(os.Stderr, "[index] ssa 步骤 %s（%s, heap %dMB/%dMB inuse）\n",
-			name, time.Since(stageStart).Round(time.Millisecond),
-			int64(ms.HeapAlloc>>20), int64(ms.HeapInuse>>20))
-		dumpPeakHeapProfile(ms.HeapAlloc)
-		stageStart = time.Now()
-	}
+	// Q253：阶段上报（zap + 进度）抽到 stage_reporter.go；begin 在步骤前、
+	// stage 在步骤后调用（语义与抽出前一致）。
+	stages := newStageReporter(a.prog(), logger)
+	begin, stage := stages.begin, stages.stage
+	rep := a.prog()
 
+	begin("ssautil.Packages", 0)
 	prog, ssaPkgs := ssautil.Packages(pkgs, ssa.BuilderMode(0))
 	if prog == nil {
 		return fmt.Errorf("ssa build failed")
@@ -53,12 +41,14 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	// 8 核只用 1 核，且日志停在 ssautil.Packages 时无法区分卡在哪）。照抄
 	// go/ssa `Program.Build` 的信号量结构，但只对模块包生效、上界用
 	// --workers（理由见 ssa_build.go 注释）。
+	begin("ssaBuild", 0)
 	built := buildModuleSSA(pkgs, ssaPkgs, repo.Modules, a.workers)
 	logger.Info("ssa build", zap.Int("module_pkgs", built), zap.Int("workers", a.workers))
 	stage("ssaBuild")
 
 	// Q247：原「释放依赖 AST」循环已删（NeedDeps 关闭后依赖无 AST；返回切片全是模块包——恒空操作）。
 	// Q249：函数全集快照（AllFunctions 一次；6 处消费者共享）
+	begin("funcSnapshot+dispatchRegs", 0)
 	a.funcs = newFuncSnapshot(prog)
 	modFuncs := a.funcs.moduleFuncs(repo.Modules)
 	// Q221：dispatchRegs 必须在 Index 级初始化一次（sp.Build 之后——
@@ -74,6 +64,7 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	// ssautil.Packages 时无法区分卡在串行建图还是 AllFunctions（必须 sample）。
 	stage("funcSnapshot+dispatchRegs")
 
+	begin("buildIdentIndex", 0)
 	idents := buildIdentIndex(pkgs, repo.Modules)
 	stage("buildIdentIndex")
 
@@ -110,6 +101,9 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	for _, fns := range byPkg {
 		totalFuncs += len(fns)
 	}
+	// Q253：真实分母（模块函数总数）——发射阶段的进度条据此显示百分比。
+	const emitStep = "emitFunction 循环（全库函数块池 + 缓存）"
+	begin(emitStep, totalFuncs)
 
 	pkgOrder := make([]string, 0, len(byPkg))
 	for pkgPath := range byPkg {
@@ -188,6 +182,7 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 				zap.String("pkg", pkgPath), zap.Int("funcs", len(fns)),
 				zap.Int("done", done), zap.Int("total", totalFuncs),
 				zap.Int("percent", percent), zap.Bool("cached", true))
+			rep.Advance(emitStep, done)
 			cachedPkgs[pkgPath] = true
 		}
 	}
@@ -283,13 +278,15 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 				zap.Int("done", done), zap.Int("total", totalFuncs),
 				zap.Int("percent", percent),
 				zap.Duration("elapsed", time.Since(blockStart)))
+			rep.Advance(emitStep, done)
 		}(blk)
 	}
 	wg.Wait()
 	logger.Info("pkg cache", zap.Int("hits", cacheHits), zap.Int("total", len(pkgOrder)))
-	stage("emitFunction 循环（全库函数块池 + 缓存）")
+	stage(emitStep)
 
 	// Q231：构建收尾（alias/摘要/全局/动态派发）抽到 adapter_finish.go
+	begin("finishIndex", 0)
 	if err := finishIndex(repo, prog, idents, a, implPool, fallbackAgg, emit); err != nil {
 		return err
 	}

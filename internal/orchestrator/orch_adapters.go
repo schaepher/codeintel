@@ -27,6 +27,10 @@ func (o *Orchestrator) runAdapters(ctx context.Context, pkgs []*packages.Package
 			inc.SetChangedFiles(changedFiles)
 		}
 	}
+	rep := o.prog()
+	// "adapters done" 聚合步骤：elapsed 覆盖整个并行适配器阶段（与 Q253 前
+	// 同一个数字），只是改由进度渲染器输出。
+	rep.Begin("adapters done", 0, 0)
 	var (
 		results []AdapterResult
 		skipped int
@@ -98,6 +102,7 @@ func (o *Orchestrator) runAdapters(ctx context.Context, pkgs []*packages.Package
 			defer cancel()
 			r := AdapterResult{Name: adapter.Name()}
 			adapterStart := time.Now()
+			rep.Begin(r.Name, 1, 0)
 			r.Err = adapter.Index(adapterCtx, o.Repo, pkgs, func(item domain.Item) error {
 				select {
 				case ch <- item:
@@ -110,6 +115,7 @@ func (o *Orchestrator) runAdapters(ctx context.Context, pkgs []*packages.Package
 			if p, ok := adapter.(interface{ DispatchPkgs() []string }); ok {
 				r.DispatchPkgs = p.DispatchPkgs()
 			}
+			rep.End(r.Name, time.Since(adapterStart), r.Err)
 
 			bpMu.Lock()
 			bpTotal += time.Since(adapterStart)
@@ -121,16 +127,18 @@ func (o *Orchestrator) runAdapters(ctx context.Context, pkgs []*packages.Package
 		}(a)
 	}
 	wg.Wait()
+	rep.End("adapters done", time.Since(runStart), nil)
 	logger.Info("orchestrator stage", zap.String("stage", "adapters done"),
 		zap.Duration("elapsed", time.Since(runStart)))
-	fmt.Fprintf(os.Stderr, "[index] 步骤 adapters done（%s）\n", time.Since(runStart).Round(time.Millisecond))
+	flushStart := time.Now()
+	rep.Begin("flush done", 0, 0)
 	close(ch)
 	<-flushed
 	flushWg.Wait()
 
 	o.retryFailedFK(&skipped)
+	rep.End("flush done", time.Since(flushStart), nil)
 	logger.Info("orchestrator stage", zap.String("stage", "flush done"),
 		zap.Duration("elapsed", time.Since(runStart)))
-	fmt.Fprintf(os.Stderr, "[index] 步骤 flush done（%s）\n", time.Since(runStart).Round(time.Millisecond))
 	return results, skipped, nil
 }

@@ -28,18 +28,22 @@ func (o *Orchestrator) FullBuild(ctx context.Context) (*BuildResult, error) {
 	}
 
 	orchestraStart := time.Now()
+	rep := o.prog()
+	// orchStage(name)：报告**刚完成**的步骤耗时（语义与 Q253 前一致）。
 	orchStage := func(name string) {
+		elapsed := time.Since(orchestraStart)
 		logger.Info("orchestrator stage",
-			zap.String("stage", name), zap.Duration("elapsed", time.Since(orchestraStart)))
-		// 命令执行界面展示（zap 未初始化是 noop——直接 stderr 实时可见）
-		fmt.Fprintf(os.Stderr, "[index] 步骤 %s（%s）\n", name, time.Since(orchestraStart).Round(time.Millisecond))
+			zap.String("stage", name), zap.Duration("elapsed", elapsed))
+		rep.End(name, elapsed, nil)
 		orchestraStart = time.Now()
 	}
+	rep.Begin("loadPackages", 0, 0)
 	pkgs, err := o.loadPackages(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	orchStage("loadPackages")
+	rep.Begin("runAdapters", 0, 0)
 	results, skipped, err := o.runAdapters(ctx, pkgs, nil, nil)
 	if err != nil {
 		return nil, err

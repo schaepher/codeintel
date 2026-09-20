@@ -4520,3 +4520,65 @@ build progress 是逐包串行导致"的假设**不成立**（那是内存压力
   优于在每个调用方查字段。
 - **"偶发红/重跑即绿"的日志必须在第一次就落盘**（runbook #22）——本次三次红
   的详情全被 `| tail` 截断，多花了一轮才复现。
+
+## §99 构建进度条（Q253，2026-09-20）：codegraph 风格步骤列表
+
+### 形态（照 codegraph 的实测输出做）
+
+参考 `/usr/local/bin/codegraph index`（Node CLI，伪终端实测）：步骤列表
+`┌ │ ◆ · └` + 25 格 `█/░` 条 + 右对齐百分比 + `\r` 原地刷新；无分母的步骤
+只写静态文字（`Scanning files — 7 found`、`Resolving refs — done`）。
+
+本仓库实测（伪终端）：
+
+```
+┌  构建索引
+│  ◆ loadPackages — 51ms
+│     · emitFunction 循环（全库函数块池 + 缓存）  ░░░░░░░░░░░░░░░░░░░░░░░░░    0%
+│     ✗ git — 3ms（失败: git log failed: exit status 128）
+│     ◆ emitFunction 循环（全库函数块池 + 缓存） — 2ms（8/8）
+│     ◆ scip — 67ms
+│  ◆ adapters done — 67ms
+│  ◆ flush done — 2ms
+│  ◆ runAdapters — 69ms
+└  完成（总耗时 120ms）
+```
+
+### 设计
+
+| 维度 | 取法 | 理由 |
+|---|---|---|
+| 契约 | `domain.Progress`：`Begin(name, depth, total)` / `Advance(name, done)` / `End(name, elapsed, err)` / `Finish()` | 六边形内核只定义契约；**耗时由调用方传入**（各调用方本来就为日志算好了 `time.Since(start)`）——实现不必自记时钟，测试可传固定值 |
+| 实现 | `internal/progress`：`TTY`（列表 + 活动行）、`Plain`（逐行，保底）、`Nop` | 零新依赖（TTY 判定用 `os.Stderr.Stat().ModeCharDevice`），字形/节流全可控 |
+| 模式 | `--progress auto\|plain\|none`（默认 auto） | auto 按 stderr 是否字符设备；**agent/日志抓取用 plain**（无 ANSI、可解析）、只要结果用 none |
+| 并行 | **单活动行模型**：最新 Begin 的步骤占活动行，其余步骤在 End 时按完成顺序打印静态行 | 本仓库适配器并行（scip/ast/git/ssa），多行 live 区要光标上移 + 逐行清理且易被其它 stderr 写入（`packages.PrintErrors`/警告）打乱；单行模型诚实且稳 |
+| 分母 | 只有真实分母才画条（SSA 发射循环 = 模块函数总数）；scip/git/flush 无分母 → 只显示"进行中 + 已用时" | **不编假百分比**（假进度比没进度更糟） |
+| 输出流 | 只写 **stderr**；stdout 仍只承载结果/`--json` 契约 | 既有约定（Q88）；实测 plain 跑 init：stdout 仅"构建索引"头 + 构建报告 |
+| 兼容 | plain 逐行格式与改动前**逐字一致**：`[index] 步骤 X（1.2s）`；SSA 子步骤保持 `[index] ssa 步骤 X（41ms, heap 170MB/189MB inuse）` | 既有日志检索/runbook 不失效；heap 统计是 Q247/Q248 内存排查的依据（注入 plain 时 SSA 会换回自己的保底实现，见 `Adapter.SetProgress`） |
+
+覆盖的步骤：orchestrator 顶层（`loadPackages` / `runAdapters` / `adapters done`
+/ `flush done`）+ **每个适配器**（codegraph/git/ssa/scip，depth=1，失败显示 ✗）
++ SSA 内部 6 个子步骤（`ssautil.Packages`/`ssaBuild`/`funcSnapshot+dispatchRegs`/
+`buildIdentIndex`/`emitFunction 循环`/`finishIndex`，depth=1）。
+
+### 测试
+
+`internal/progress/progress_test.go`：plain 行格式（正则锁死）、Detail/失败
+渲染、`bar` 纯函数 7 组边界（含越界钳位与 total=0）、TTY 列表渲染（头/完成行/
+进度条/收尾符）、失败 ✗、并行步骤 End 后重夺活动行、节流（间隔内不重绘但满
+进度必重绘）、模式选择（none/plain/auto 非 TTY/未知模式回退/TTY）、并发
+Advance（`-race`）。接线：`orchestrator.TestFullBuildReportsProgress`（顶层 +
+每适配器都上报）、`ssa.TestAdapterProgressFallbackIsPlain` /
+`TestAdapterPlainInjectedKeepsSSAFormat` / `TestAdapterProgressInjected`。
+
+验证：`make test`（13 包 -race）绿、`make it` 绿、`e2e-fixture` 38/38、
+`verify.sh --quick` 绿；伪终端实测见上（复现：`script -qec "codeintel reindex
+--repo <repo> --progress auto" out.raw`，再按 `\r` 覆盖还原可见内容）。
+
+### 已知取舍（本轮未做）
+
+- **不做 NDJSON 事件流**：`--json`/MCP 场景用 `--progress plain`；出现真实
+  消费者（如 IDE 插件）再加。
+- **不显示 ETA/速率**：没有可靠依据。
+- `precompute relations` 仍用自己的 10% 打印（stdout）——后续统一到本契约。
+- 并行适配器共用一个活动行：非活动步骤的中间进度不可见（End 时给出耗时）。

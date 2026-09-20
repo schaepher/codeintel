@@ -7,10 +7,14 @@
 package ssa
 
 import (
+	"fmt"
 	"go/token"
 	"go/types"
+	"os"
+	"runtime"
 
 	"github.com/schaepher/codeintel/internal/domain"
+	"github.com/schaepher/codeintel/internal/progress"
 	"go.uber.org/zap"
 )
 
@@ -33,6 +37,9 @@ type Adapter struct {
 	// workers 按包并发数（Q169/Q170）：默认 1=串行；命令行 --workers N
 	// 指定（orchestrator SetWorkers 注入）
 	workers int
+	// progress 进度上报（Q253，orchestrator 注入）；nil = 逐行打到 stderr
+	progress      domain.Progress
+	plainProgress *progress.Plain // 逐行保底实现（懒建，复用）
 	// lines Q248：Index 级共享源码行缓存（extractor 与 aliasPass 共用，
 	// 每轮 Index 新建——原实现每函数一份，占全部分配 25%）
 	lines *lineCache
@@ -43,6 +50,38 @@ type Adapter struct {
 	// 包）——本轮 Index 运行收集，构建后供 orchestrator 持久化到
 	// build_metadata（增量补 Load 用）
 	dispatchPkgs []string
+}
+
+// SetProgress 注入进度上报（Q253：orchestrator/cli 传入）。
+//
+// 逐行（plain）模式下换用自己的保底实现：这样 SSA 子步骤保持改动前的
+// `[index] ssa 步骤 X（41ms, heap 170MB/189MB inuse）` 格式（前缀 + heap
+// 统计——Q247/Q248 的内存排查靠这行）；TTY 模式则共用同一个渲染器，
+// 子步骤以缩进层呈现。
+func (a *Adapter) SetProgress(p domain.Progress) {
+	if plain, ok := p.(*progress.Plain); ok {
+		a.progress = &progress.Plain{W: plain.W, Prefix: "[index] ssa 步骤", Detail: heapDetail}
+		return
+	}
+	a.progress = p
+}
+
+// prog 返回进度实现（注入优先，否则逐行 stderr，含 heap 统计）。
+func (a *Adapter) prog() domain.Progress {
+	if a.progress != nil {
+		return a.progress
+	}
+	if a.plainProgress == nil {
+		a.plainProgress = &progress.Plain{W: os.Stderr, Prefix: "[index] ssa 步骤", Detail: heapDetail}
+	}
+	return a.plainProgress
+}
+
+// heapDetail 逐行模式的附加信息（Q247/Q248 的内存排查靠这行）。
+func heapDetail() string {
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	return fmt.Sprintf("heap %dMB/%dMB inuse", int64(ms.HeapAlloc>>20), int64(ms.HeapInuse>>20))
 }
 
 // SetWorkers 设置按包并发数（Q170：--workers 参数；≤1 退串行）。

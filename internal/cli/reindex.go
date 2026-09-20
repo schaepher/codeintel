@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/schaepher/codeintel/internal/progress"
 )
 
 // cmdReindex 实现 `codeintel reindex --repo <path>`：一步重建索引——
@@ -16,6 +18,7 @@ func cmdReindex(ctx context.Context, args []string) int {
 	// Q237：--repo 缺省当前工作目录
 	repoPath := fs.String("repo", ".", "仓库根目录（含 go.mod；默认当前目录）")
 	fs.Int("workers", defaultBuildWorkers(), "SSA 分析并发数（Q221/Q252e：默认 min(NumCPU, 8)；透传给 init）")
+	fs.String("progress", progress.ModeAuto, "构建进度显示（Q253：auto|plain|none；透传给 init）")
 	fs.Parse(args)
 	*repoPath = ResolveRepoRef(*repoPath) // Q238：注册表短名/后缀/module
 
