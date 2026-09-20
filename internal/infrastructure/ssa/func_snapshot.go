@@ -37,13 +37,31 @@ type funcSnapshot struct {
 // newFuncSnapshot 采集一次（内部即 ssautil.AllFunctions）。
 func newFuncSnapshot(prog *ssa.Program) *funcSnapshot {
 	set := ssautil.AllFunctions(prog)
+	// 实验：排序消除 map 迭代顺序依赖（跨函数处理顺序影响 slot 归属）
+	// Q252e：比较器里现算 String()（内部 RelString 拼字符串）在
+	// AllFunctions 量级（含依赖，百万级）是 O(n log n) 次字符串构造——
+	// 预计算 key 后是 O(n)。只减分配，不是热点（采样仅 0.13% 栈顶）。
 	list := make([]*ssa.Function, 0, len(set))
+	keys := make([]string, 0, len(set))
 	for fn := range set {
 		list = append(list, fn)
+		keys = append(keys, fn.String())
 	}
-	// 实验：排序消除 map 迭代顺序依赖（跨函数处理顺序影响 slot 归属）
-	sort.Slice(list, func(i, j int) bool { return list[i].String() < list[j].String() })
+	sort.Sort(&funcKeySorter{list: list, keys: keys})
 	return &funcSnapshot{list: list}
+}
+
+// funcKeySorter 按预计算 key 排序（避免比较器内重复构造字符串）。
+type funcKeySorter struct {
+	list []*ssa.Function
+	keys []string
+}
+
+func (s *funcKeySorter) Len() int           { return len(s.list) }
+func (s *funcKeySorter) Less(i, j int) bool { return s.keys[i] < s.keys[j] }
+func (s *funcKeySorter) Swap(i, j int) {
+	s.list[i], s.list[j] = s.list[j], s.list[i]
+	s.keys[i], s.keys[j] = s.keys[j], s.keys[i]
 }
 
 // all 全程序函数列表（含合成包装；只读，调用方不得修改/排序）。

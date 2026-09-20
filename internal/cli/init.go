@@ -26,7 +26,7 @@ func cmdInit(ctx context.Context, args []string) int {
 	fs := flag.NewFlagSet("init", flag.ExitOnError)
 	// Q237：--repo 缺省当前工作目录（在目标仓库内直接 codeintel init）
 	repoPath := fs.String("repo", ".", "仓库根目录（含 go.mod；默认当前目录）")
-	workers := fs.Int("workers", defaultBuildWorkers(), "SSA 分析按包并发数（Q221：默认 min(NumCPU, 8)——8 核冷启动 5m16s→40s，峰值 RSS ~2.9G；小内存机器可调小，如 1）")
+	workers := fs.Int("workers", defaultBuildWorkers(), "SSA 分析并发数（Q221/Q252e：默认 min(NumCPU, 8)——同时约束 ①模块包级 SSA 建图（Q252e 前逐包串行）②函数级发射；峰值内存与并发度正相关，小内存机器可调小，如 1）")
 	fs.Parse(args)
 	*repoPath = ResolveRepoRef(*repoPath) // Q238：注册表短名/后缀/module
 

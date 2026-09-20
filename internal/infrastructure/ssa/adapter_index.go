@@ -49,14 +49,13 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	}
 	stage("ssautil.Packages")
 
-	for i, p := range pkgs {
-		if !isInModule(p.PkgPath, repo.Modules) {
-			continue
-		}
-		if sp := ssaPkgs[i]; sp != nil {
-			sp.Build()
-		}
-	}
+	// Q252e：模块包**并行**建图（原逐包串行——go/ssa 建图是 CPU 密集的，
+	// 8 核只用 1 核，且日志停在 ssautil.Packages 时无法区分卡在哪）。照抄
+	// go/ssa `Program.Build` 的信号量结构，但只对模块包生效、上界用
+	// --workers（理由见 ssa_build.go 注释）。
+	built := buildModuleSSA(pkgs, ssaPkgs, repo.Modules, a.workers)
+	logger.Info("ssa build", zap.Int("module_pkgs", built), zap.Int("workers", a.workers))
+	stage("ssaBuild")
 
 	// Q247：原「释放依赖 AST」循环已删（NeedDeps 关闭后依赖无 AST；返回切片全是模块包——恒空操作）。
 	// Q249：函数全集快照（AllFunctions 一次；6 处消费者共享）
@@ -71,6 +70,9 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	a.dispatchPkgs = nil
 	a.dispatchRegs, a.dispatchPkgs = collectDispatchRegistrations(prog, modFuncs, repo.Modules)
 	a.regHits = buildRegHits(a.dispatchRegs, prog)
+	// Q252e：此标记把「建图」与「函数全集/派发注册」分开——此前日志停在
+	// ssautil.Packages 时无法区分卡在串行建图还是 AllFunctions（必须 sample）。
+	stage("funcSnapshot+dispatchRegs")
 
 	idents := buildIdentIndex(pkgs, repo.Modules)
 	stage("buildIdentIndex")

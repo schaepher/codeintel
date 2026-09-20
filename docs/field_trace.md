@@ -4396,3 +4396,70 @@ build_id 变化 → 失效重读）、`TestEdgeGraphKindViews`（数据流/调�
 `error_message`**（`GetLatest` 直接 Scan 这两列，不 COALESCE）——NULL 会让
 `currentBuildID()` 返回空串，于是缓存静默退化为"每次现算"（本测试第一次就是
 这么红的）。
+
+## §97 SSA 阶段整改（Q252e，2026-09-19）：并行建图 + 排序 key 预计算 + 阶段标记
+
+### 事实（阶段拆分先量）
+
+`adapter_index.go` 原本只有 4 个 `stage()`，第 50→76 行之间塞了 5 个耗时步骤
+（串行 `sp.Build()`、`newFuncSnapshot`、`moduleFuncs`、
+`collectDispatchRegistrations`、`buildRegHits`）**没有任何标记**——日志停在
+`ssautil.Packages` 时人无法判断卡在哪，只能上 sample。先补两个标记把这段
+劈开，再逐个量：
+
+| 步骤 | 改前（go2o workers=8） | 改后 | 倍数 |
+|---|---|---|---|
+| 串行 `sp.Build()`（135 个模块包） | 429ms（workers=1 实测） | **318ms**（并行，8 workers） | 1.35× |
+| `newFuncSnapshot` 排序（`AllFunctions` 量级） | **1.77s** | **0.59s** | **3.0×** |
+| `buildIdentIndex`（原有标记） | 130ms | 130ms | — |
+| 该段合计 | **2.43-2.60s** | **1.04-1.07s** | **2.3×** |
+| go2o 端到端 `reindex --workers 8` wall | 23.6/33.3s（中位 28.4） | 24.2/24.4s（中位 24.3） | -14% |
+| 峰值 RSS（`/usr/bin/time -v`） | 1034-1077MB | 1016-1047MB | **无增长** |
+
+归因（改后二进制拆开量 + 只回退排序 key 的实验）：`ssaBuild` 318ms +
+`funcSnapshot+dispatchRegs` 588ms + `buildIdentIndex` 130ms ≈ 1.04s，与改后
+实测吻合；回退排序 key 后 `funcSnapshot+dispatchRegs` 回到 **1.768s** →
+**本段收益主要来自排序 key 预计算（-1.18s），并行建图只贡献 0.11s**。
+
+**反直觉（如实记录）**：go2o 的**串行**建图只占 429ms——此前"15 分钟不出
+build progress 是逐包串行导致"的假设**不成立**（那是内存压力/换页下所有
+阶段一起变慢；go2o 上真正的大头是 `AllFunctions` 排序）。并行建图的价值
+在更大的仓库（模块包更多、每包更大）与**日志可定位性**上，本轮实测收益
+有限但零风险（产物逐字节一致）。
+
+### 实现
+
+- **`ssa_build.go`**：`buildModuleSSA` 照抄 go/ssa `Program.Build` 的信号量
+  结构（x/tools@v0.47.0 builder.go：`cpuLimit <- unit{}` + 每包一 goroutine，
+  且**不按依赖排序**——跨包引用拿到声明节点、body 就地填充，故顺序无关），
+  但①**只对模块包生效**（`prog.Build()` 会连整个传递依赖图一起建，峰值内存
+  不可控）②**上界用 `--workers`**（并发度直接换内存，小内存机器可 `--workers 1`
+  退回串行）。并发原语抽成 `runBounded(workers, n, fn)` 以便单测。
+- **`func_snapshot.go`**：`sort.Slice` 比较器里现算 `fn.String()`（内部
+  `RelString` 拼字符串）→ 预计算 key 后 `O(n)`；`funcKeySorter` 同步交换
+  list/keys。
+- **阶段标记**：`ssaBuild`（建图）、`funcSnapshot+dispatchRegs`（函数全集 +
+  派发注册）——日志从此能区分卡点。
+- `--workers` 帮助文本改为"SSA 分析并发数"（同时约束建图与函数发射）。
+
+### 测试
+
+- `ssa_build_test.go`：`TestRunBoundedParallelismAndLimit`（**确定性**证明并行
+  ——3 个任务必须同时在跑才放行，串行实现会超时失败；并验证上界不被突破、
+  `workers=1` 退串行）、`TestBuildModuleSSAOnlyModulePackages`（**内存契约**：
+  依赖包不得被建 body——换 `prog.Build()` 即红）、
+  `TestBuildDeterminismAcrossWorkers`（workers=1 与 4 的节点/边/摘要逐条一致）。
+- fixture 收集器 `collectFixtureIndex(t, files, workers)` 抽出
+  （`fixture_index_test.go`，`adapter_test.go` 299→254 行、`determinism_test.go`
+  抽出 `determinism_snapshot_test.go`，全部 ≤300 行）。
+- 大仓：go2o `reindex` 产物 117997 节点 / 135503 边 / 21164 摘要——与 Q252b
+  基线**逐项一致**；`scripts/detcheck.sh` 四类（冷1/冷2 确定性 + 冷2/暖3 缓存
+  保真）全等。
+
+### 顺带抓到既有缺陷（下一步 Q252f）
+
+`TestFullBuildAndQuery` 长期只报"209 节点 / 1 边、status=success"：测试构造
+`domain.Repository` 时**没给 `ModuleDirs`** → `loadPackages` 循环体一次都不进
+→ AST/SSA 一个包都没加载（scip/git 兜出 209 节点 1 边）→ 断言"非空"被"看起来
+正常"骗过。与 Q246 benchmark 同款**静默退化**。且该测试**只在 scip-go 在 PATH
+时才真跑**（缺失即 skip）——我此前多轮"绿"其实是跳过（Q252f 修）。

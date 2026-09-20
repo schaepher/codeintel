@@ -83,6 +83,24 @@ internal/cli        internal/action            internal/infrastructure
 （PostToolUse 非阻断提醒，改 Go 文件后提示跑 verify.sh——未装
 pre-commit 场景的兜底）。
 
+## Q252e SSA 阶段整改教训（2026-09-19）
+
+- **"某阶段慢"的直觉要用阶段拆分先证伪**：go2o 的串行 `sp.Build()` 实测只占
+  **429ms**（"15 分钟不出 build progress 是逐包串行导致"的假设不成立——
+  那是内存压力/换页下所有阶段一起慢）。补 **2 个 stage 标记**后一眼看清：
+  该段 2.43s 里真正的大头是 `ssautil.AllFunctions` 的**排序**（比较器现算
+  `fn.String()` = O(n log n) 次字符串构造 → 1.77s；预计算 key 后 0.59s，
+  **3.0×**）。并行建图只贡献 0.11s（318ms vs 429ms）。
+- **"采样占比 0.13% 所以不用修"可能是采样阶段不对**：那次 profile 采的是
+  发射阶段，排序在更早的 `newFuncSnapshot`——**先补阶段标记再采样**。
+- **照抄上游并行结构但要收紧两个维度**：go/ssa `Program.Build` 的信号量模式
+  可直接用，但 ①只对**模块包**生效（`prog.Build()` 连传递依赖图一起建）
+  ②上界用 `--workers` 而非 `GOMAXPROCS`（并发度换内存）。并发原语抽成
+  `runBounded` 后能用**确定性单测**（3 个任务必须同时在跑才放行）锁住语义，
+  不靠计时断言。
+- **并发度只该影响速度**：`TestBuildDeterminismAcrossWorkers`（workers=1 与 4
+  产物逐条一致）是新增并发路径的必备门槛。
+
 ## Q246 构建性能整改教训（2026-09-19）
 
 - **基准工具自身要验证**：`benchmarks/bench_test.go` 曾因 Repository 少了

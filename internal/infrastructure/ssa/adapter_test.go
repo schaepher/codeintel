@@ -1,11 +1,9 @@
 package ssa
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/schaepher/codeintel/internal/domain"
@@ -35,49 +33,6 @@ func indexFixture(t *testing.T, files map[string]string) ([]*domain.CodeEntity, 
 func indexFixtureFull(t *testing.T, files map[string]string) ([]*domain.CodeEntity, []*domain.Fact, []*domain.FunctionFieldSummary) {
 	nodes, facts, summaries, _ := indexFixtureFullOrigins(t, files)
 	return nodes, facts, summaries
-}
-
-// indexFixtureFullOrigins 同 indexFixtureFull，额外收集 Q161 origins
-// （emitSummaries 发射的 Item.Origins）。
-func indexFixtureFullOrigins(t *testing.T, files map[string]string) ([]*domain.CodeEntity, []*domain.Fact, []*domain.FunctionFieldSummary, []*domain.SummaryOrigin) {
-	t.Helper()
-	dir := t.TempDir()
-	for path, content := range files {
-		writeFile(t, filepath.Join(dir, path), content)
-	}
-	var nodes []*domain.CodeEntity
-	var facts []*domain.Fact
-	var summaries []*domain.FunctionFieldSummary
-	var origins []*domain.SummaryOrigin
-	// Q169：emit 回调并发安全（按包并发后多 goroutine 同时调 emit）
-	var emitMu sync.Mutex
-	adapter := &Adapter{}
-	repo := &domain.Repository{Path: dir, Module: "example.com/mtest", Modules: []string{"example.com/mtest"}}
-	pkgs, err := loadTestPackages(dir)
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	err = adapter.Index(context.Background(), repo, pkgs, func(item domain.Item) error {
-		emitMu.Lock()
-		defer emitMu.Unlock()
-		if item.Node != nil {
-			nodes = append(nodes, item.Node)
-		}
-		if item.Fact != nil {
-			facts = append(facts, item.Fact)
-		}
-		if item.Summary != nil {
-			summaries = append(summaries, item.Summary)
-		}
-		if item.Origins != nil {
-			origins = append(origins, item.Origins...)
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("Index: %v", err)
-	}
-	return nodes, facts, summaries, origins
 }
 
 // findNode 按 ID 查找节点。

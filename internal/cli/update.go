@@ -31,7 +31,7 @@ func cmdUpdate(ctx context.Context, args []string) int {
 	fs := flag.NewFlagSet("update", flag.ExitOnError)
 	// Q237：--repo 缺省当前工作目录
 	repoPath := fs.String("repo", ".", "仓库根目录（须已运行 codeintel init 且为 git 仓库；默认当前目录）")
-	workers := fs.Int("workers", defaultBuildWorkers(), "SSA 分析按包并发数（Q221：默认 min(NumCPU, 8)）")
+	workers := fs.Int("workers", defaultBuildWorkers(), "SSA 分析并发数（Q221/Q252e：默认 min(NumCPU, 8)）")
 	// R85：--base 分层——base 目录（完整索引，只读共享）。变更基准 =
 	// base HEAD（diff base..当前），只分析变更包；base 数据物化到本地
 	baseDir := fs.String("base", "", "base 分支目录（其 .codeintel 为完整索引；变更检测基准 = base HEAD）")
