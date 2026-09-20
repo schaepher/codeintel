@@ -57,7 +57,7 @@ func (m *ManagerImpl) Handle() {}
 	repo := orch.GetRepo()
 
 	countDispatch := func() int {
-		rows, err := repo.Query(`SELECT count(*) FROM edges WHERE kind = 'dispatch_to'`)
+		rows, err := repo.Query(`SELECT count(*) FROM edges_v WHERE kind = 'dispatch_to'`)
 		if err != nil {
 			t.Fatalf("query dispatch_to: %v", err)
 		}
@@ -86,7 +86,7 @@ func (m *ManagerImpl) Handle() {}
 	// 注册点佐证（register 0.9）与 source/target 正确
 	// 注意：SetMaxOpenConns(1) 单连接——rows 必须用完立即 Close，
 	// 否则后续查询（GetLatest）死锁等连接
-	rows, err := repo.Query(`SELECT source_id, target_id, confidence FROM edges WHERE kind = 'dispatch_to'`)
+	rows, err := repo.Query(`SELECT source_id, target_id, confidence FROM edges_v WHERE kind = 'dispatch_to'`)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -207,7 +207,7 @@ func main() { Run() }
 	}
 	for _, impl := range []string{"(StdCalc).Calculate", "(ExpCalc).Calculate"} {
 		var n int
-		if err := repo.QueryRow(`SELECT COUNT(*) FROM edges
+		if err := repo.QueryRow(`SELECT COUNT(*) FROM edges_v
 				WHERE source_id = 'symbol:go:example.com/mtest:Process'
 				  AND target_id = ? AND kind = 'indirect_write'`,
 			"symbol:go:example.com/mtest:"+impl).Scan(&n); err != nil {
@@ -250,7 +250,7 @@ func run2() {
 func main() {}
 `,
 	})
-	rows, err := repo.Query(`SELECT source_id, target_id, metadata FROM edges
+	rows, err := repo.Query(`SELECT source_id, target_id, metadata FROM edges_v
 			WHERE kind = 'argument' AND json_extract(metadata, '$.candidate_origin') = 'register'`)
 	if err != nil {
 		t.Fatal(err)
@@ -271,7 +271,7 @@ func main() {}
 	}
 	rows.Close()
 	var anchor string
-	r2, err := repo.Query(`SELECT target_id FROM edges
+	r2, err := repo.Query(`SELECT target_id FROM edges_v
 			WHERE kind = 'argument' AND json_extract(metadata, '$.candidate_origin') = 'register' LIMIT 1`)
 	if err != nil {
 		t.Fatal(err)

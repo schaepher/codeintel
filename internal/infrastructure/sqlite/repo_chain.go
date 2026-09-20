@@ -15,7 +15,7 @@ func (r *Repo) GetImplementsEdges() ([]*domain.Fact, error) {
 	logger := zap.L()
 	logger.Debug("enter (Repo).GetImplementsEdges")
 	defer logger.Debug("exit (Repo).GetImplementsEdges")
-	rows, err := r.Query(`SELECT source_id, target_id FROM edges
+	rows, err := r.Query(`SELECT source_id, target_id FROM edges_v
 		WHERE kind = 'implements' AND target_id NOT LIKE '%Unimplemented%'`)
 	if err != nil {
 		return nil, err

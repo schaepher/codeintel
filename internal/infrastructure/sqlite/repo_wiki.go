@@ -18,7 +18,7 @@ func (r *Repo) TopCallersInModule(prefix string, limit int) ([]*domain.WikiSymbo
 		limit = 5
 	}
 	rows, err := r.Query(`SELECT n.id, n.name, n.kind, n.file_path, n.line_start, COUNT(e.target_id) AS c
-		FROM nodes n LEFT JOIN edges e ON e.kind = 'calls' AND e.target_id = n.id
+		FROM nodes n LEFT JOIN edges_v e ON e.kind = 'calls' AND e.target_id = n.id
 		WHERE (n.id LIKE ? OR n.id LIKE ?) AND n.kind IN ('function','method')
 		GROUP BY n.id ORDER BY c DESC, n.id LIMIT ?`, prefix+":%", prefix+"/%", limit)
 	if err != nil {

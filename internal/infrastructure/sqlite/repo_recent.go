@@ -67,7 +67,7 @@ func (r *Repo) changedFiles(commitID string) ([]domain.ChangeFile, error) {
 	logger.Debug("enter (Repo).changedFiles", zap.String("commit", commitID))
 	defer logger.Debug("exit (Repo).changedFiles")
 	rows, err := r.Query(
-		"SELECT source_id FROM edges WHERE kind = 'modified_by' AND target_id = ? ORDER BY source_id", commitID)
+		"SELECT source_id FROM edges_v WHERE kind = 'modified_by' AND target_id = ? ORDER BY source_id", commitID)
 	if err != nil {
 		return nil, err
 	}

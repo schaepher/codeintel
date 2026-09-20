@@ -30,11 +30,11 @@ func (r *Repo) GetEntityRaw() (*domain.EntityRaw, error) {
 		WHERE kind = 'method'`, &out.Methods); err != nil {
 		return nil, err
 	}
-	if err := r.queryEdges(`SELECT source_id, target_id, kind, tool_source, confidence, count FROM edges
+	if err := r.queryEdges(`SELECT source_id, target_id, kind, tool_source, confidence, count FROM edges_v
 		WHERE kind = 'has_method'`, &out.HasM); err != nil {
 		return nil, err
 	}
-	if err := r.queryEdges(`SELECT source_id, target_id, kind, tool_source, confidence, count FROM edges
+	if err := r.queryEdges(`SELECT source_id, target_id, kind, tool_source, confidence, count FROM edges_v
 		WHERE kind = 'calls'`, &out.Calls); err != nil {
 		return nil, err
 	}

@@ -136,7 +136,7 @@ func TestFlushFKRetry(t *testing.T) {
 		t.Errorf("skipped = %d, want 0（重试后无残留）", skipped)
 	}
 	var cnt int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE source_id = ? AND target_id = ?`,
+	if err := db.QueryRow(`SELECT COUNT(*) FROM edges_v WHERE source_id = ? AND target_id = ?`,
 		string(src), string(tgt)).Scan(&cnt); err != nil || cnt != 1 {
 		t.Fatalf("edge count = %d, %v; want 1（跨批 FK 边不丢）", cnt, err)
 	}

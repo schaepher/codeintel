@@ -4799,3 +4799,96 @@ warning: 索引可能过期（工作区 15 个文件未索引）
 - **别用 `git checkout <file>` 撤销小实验**：验证时用它在 `update_detect.go`
   里撤销一行探针，**连带丢弃了该文件全部未提交改动**（`dirtyGoFiles` 等）——
   撤探针要用针对性编辑（本轮改用 python 精确删除）。
+
+## §103 Stage 2：整数代理键（Q254c，2026-09-20）
+
+依据：真实业务库 7.46M 边实测——canonical ID 平均 145B，而它在 `edges` 的
+7 棵 B 树里各存一份（索引 ~7GB），edges 表本体再存两份（~2.1GB）。
+
+### 设计
+
+| 表 | 改动 |
+|---|---|
+| `nodes` | `id_int INTEGER PRIMARY KEY`（rowid 别名，不额外占索引）+ `id TEXT NOT NULL UNIQUE`（canonical 查询走它）。**与"id TEXT PRIMARY KEY"存储等价**，故 nodes 侧不涨 |
+| `edges` | `source_ref`/`target_ref INTEGER`（FK → `nodes(id_int)`，`ON DELETE CASCADE` 保留）+ `UNIQUE(source_ref, target_ref, kind)` |
+| `edges_v` | **兼容视图**：`JOIN nodes` 暴露 `source_id`/`target_id` —— 冷路径（点查/小结果集）SQL 一行不用改 |
+| 热路径 | 邻接表（`edge_graph.go`）、`GetPath`（BFS）、value-trace 递归 CTE 改走整数空间；canonical ID 只在**边界**解析（起点/终点 2 次点查 + 结果回填 1 次批量查询） |
+
+写入路径：`resolveNodeRefs` 按批（chunk 800）把本批边的端点 canonical ID 解析成
+`id_int`（走 `nodes.id` 唯一索引）；**解析不到 → 进 `FailedEdges` 延迟重试**
+（与原先"FK 冲突"同路径），构建尾部重试后仍失败 = 真悬挂边，计入跳过数。
+
+**顺带修掉一个既有计数缺陷**：`saveBatchResult.SkippedEdges` **从未被赋值**——
+Q254 之前报表里的"跳过边"数字实际来自 Stage 1 的 `DropDanglingEdges`，而
+失败重试丢掉的边从未计数。现改为在 `retryFailedFK` 里按 `len(res.FailedEdges)`
+统计（go2o：484 → **561**，差额正是此前静默未计的）。
+
+### 迁移（不做数据迁移）
+
+图是派生数据 → **clean/reindex 即迁移**。旧库打开时 `verifySchema` 报
+`schema mismatch: edges 缺列 "source_ref"`，并附加 Q254 Stage 2 说明。另修
+`codeintel reindex`：它在文档里就是"删旧库绕过 schema 检查"，但实现只调
+`init`——现改为检测到 schema 不兼容时**自动删除库文件后重建**（打印提示：
+`relation_rules` 配置表会一起丢）。
+
+### 实测（go2o 129236 边 / 本仓库 60762 边）
+
+| 指标 | Stage 1 | Stage 2 | 变化 |
+|---|---|---|---|
+| go2o DB 文件 | 308.3MB（used 254.9MB） | **114.5MB** | **-55%** |
+| 本仓库 DB 文件 | 92.7MB | **48.7MB** | -45% |
+| `sqlite_autoindex_edges_1`（UNIQUE） | 32.4MB | **3.8MB** | 8.5× |
+| `idx_edges_target_kind` | 17.5MB | **3.3MB** | 5.3× |
+| `edges` 表本体 | ~13MB（Stage 0 口径） | 6.8MB | — |
+| go2o 全量构建 | ~21s | **11–13s** | ~1.7× |
+| go2o flush 阶段 | 4.3s（Stage 0） | **0.5–1.5s** | — |
+
+节点/边数逐项不变（117998 / 136028），`detcheck` 四类全等（含缓存重放保真）、
+`chaincheck` 通过、`make test`（13 包 -race）、`make it`、`e2e-fixture` 38/38。
+
+### 坑
+
+- **外键不能引用 `rowid`**：第一版 `REFERENCES nodes(rowid)` → SQLite 报
+  `foreign key mismatch - "edges" referencing "nodes"`（父键必须是**命名列**且有
+  唯一索引）。故必须显式声明 `id_int INTEGER PRIMARY KEY`（原设计）。
+- **`INDEXED BY` 与视图不兼容**：value-trace 的递归 CTE 原本用
+  `INDEXED BY idx_edges_target_kind` 锁索引；切到 `edges_v` 后必须去掉提示
+  （视图不能加 hint）。
+- **门槛脚本会"静默假绿"**：`scripts/detcheck.sh` 的 dump SQL 用基表
+  `source_id`（列已删）→ `sqlite3` 报错但脚本没检查退出码，两侧都成空集、
+  报告"边(含count): OK（共 0/0）"。现 dump 全部走 `edges_v` + **检查退出码与
+  非空**（空集直接退出 2）。
+- **旧 schema 夹具**：`integration/fixtureapp` 等目录留有旧库 → 集成测试
+  `init` 全部失败。修法：`clearIndex(t, repoDir)` 在夹具 init 前清 `.codeintel`
+  （夹具是自包含测试，本应自己清）。
+
+## §104 Stage 3：写库流水线——实测后**否决**多行批量（Q254d，2026-09-20）
+
+### 结论
+
+**Stage 2 之后单写者已不是瓶颈**：go2o 全量构建 11–13s 里 flush 只占
+**0.5–1.5s（5–12%）**，剩余在计算（SSA `emitFunction` 3.5s + `finishIndex`
+3.3s + scip 2.3s）。原先设想的"两阶段导入（中间文件）/ 分片 DB / 导入期
+drop 全部索引"因此**收益不成立**——为 5% 的耗时引入一条独立写库通道
+（含序列化、离线导入、错误归属），风险远大于收益。该方向**降级为观察项**
+（触发条件：出现 flush 占构建 >30% 的仓库，例如超大边集 + 弱 I/O 机器）。
+
+### 做过并实测否决的优化：多行批量 INSERT
+
+实现 `INSERT ... VALUES (..),(..),.. ON CONFLICT DO UPDATE`（200 行/语句，
+失败逐行回退保留错误语义），A/B 交错各 3 次（go2o，workers=8）：
+
+| 配置 | flush | 总耗时 |
+|---|---|---|
+| 多行 200 行/语句（全部表） | 1.80 / 1.86 / 1.93s | 13.3 / 13.5 / 13.1s |
+| **预编译 + 逐行 Exec（原实现）** | 1.23 / 1.56s | 11.7 / 12.2s |
+| 仅 edges 多行 500 行/语句 | 1.16 / 0.60s | 11.9 / 11.6s |
+| 仅 edges 预编译逐行 | 0.47 / 1.14s | 10.8 / 11.6s |
+
+→ **多行批量没有收益**（节点 INSERT 的 `ON CONFLICT` 子句极大——Q250 的
+确定性合并要写 json_patch/CASE 链；长语句每 chunk 重新解析/计划的开销抵消了
+往返节省；driver+预编译下逐行 Exec 的往返成本本就低）。按 Q221 的对象池
+纪律**回滚该实现**（保留预编译逐行），实测数据留档于此。
+
+教训：**"批量一定更快"也是要先量的直觉**——与"换格式一定更省内存"（§93
+gob 分配 +60%）同类。

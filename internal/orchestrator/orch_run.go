@@ -138,7 +138,6 @@ func (o *Orchestrator) flush(b *batchT, mu *sync.Mutex, skipped *int) error {
 		return err
 	}
 	mu.Lock()
-	*skipped += res.SkippedEdges
 	mu.Unlock()
 
 	o.failedEdges = append(o.failedEdges, res.FailedEdges...)
@@ -171,7 +170,11 @@ func (o *Orchestrator) retryFailedFK(skipped *int) {
 		return
 	}
 
-	*skipped += res.SkippedEdges
+	// 重试后**仍**解析不到端点的边 = 真悬挂边（永久跳过）——按 len 计。
+	*skipped += len(res.FailedEdges)
+	if len(res.FailedEdges) > 0 {
+		logger.Info("drop unresolvable edges", zap.Int("edges", len(res.FailedEdges)))
+	}
 }
 
 // GetRepo 返回仓储（查询命令共用）。

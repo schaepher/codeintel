@@ -189,7 +189,7 @@ func main() {}
 	if !names["record.final_fee"] {
 		t.Errorf("Update(record, scope) 未生成 record.final_fee 表.列 节点: %v", names)
 	}
-	rows2, err := repo.Query(`SELECT count(*) FROM edges WHERE kind = 'summary_io' AND target_id = ?`,
+	rows2, err := repo.Query(`SELECT count(*) FROM edges_v WHERE kind = 'summary_io' AND target_id = ?`,
 		funcID+"#ext.gorm.record.final_fee.write@0")
 	if err != nil {
 		t.Fatal(err)
@@ -203,7 +203,7 @@ func main() {}
 
 		for id := range ids {
 			var cnt int
-			rows3, err := repo.Query(`SELECT count(*) FROM edges WHERE kind='summary_io' AND target_id = ?`, id)
+			rows3, err := repo.Query(`SELECT count(*) FROM edges_v WHERE kind='summary_io' AND target_id = ?`, id)
 			if err != nil {
 				t.Fatal(err)
 			}

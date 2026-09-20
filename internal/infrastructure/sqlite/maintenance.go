@@ -256,8 +256,8 @@ func (db *DB) DropDanglingEdges(batch int) (int, error) {
 
 // dropDanglingEdgesBySet 回退路径（无 pragma_foreign_key_check 时）。
 func (db *DB) dropDanglingEdgesBySet() (int, error) {
-	res, err := db.Exec(`DELETE FROM edges WHERE source_id NOT IN (SELECT id FROM nodes)
-		OR target_id NOT IN (SELECT id FROM nodes)`)
+	res, err := db.Exec(`DELETE FROM edges WHERE source_ref NOT IN (SELECT id_int FROM nodes)
+		OR target_ref NOT IN (SELECT id_int FROM nodes)`)
 	if err != nil {
 		return 0, fmt.Errorf("delete dangling edges (set): %w", err)
 	}

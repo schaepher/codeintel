@@ -30,7 +30,7 @@ func loadRelationGraph(r *Repo) (*relationGraph, error) {
 		readsByFunc: map[string][]*relNode{},
 		whereCols:   map[string]bool{}, // Q234：where 条件字段集
 	}
-	rows, err := r.Query(`SELECT source_id, target_id, kind FROM edges`)
+	rows, err := r.Query(`SELECT source_id, target_id, kind FROM edges_v`)
 	if err != nil {
 		return nil, err
 	}

@@ -249,7 +249,7 @@ func main() {}
 		t.Fatal("t_orders.order_id filter 节点缺失（跨包常量表名未解析）")
 	}
 	// orderID 参数值 → filter 的 summary_io 边（变参值链）
-	eRows, err := repo.Query(`SELECT e.source_id FROM edges e WHERE e.target_id = ? AND e.kind = 'summary_io'`,
+	eRows, err := repo.Query(`SELECT e.source_id FROM edges_v e WHERE e.target_id = ? AND e.kind = 'summary_io'`,
 		filterID)
 	if err != nil {
 		t.Fatal(err)

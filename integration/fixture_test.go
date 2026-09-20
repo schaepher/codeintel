@@ -202,6 +202,15 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
+// clearIndex 清掉夹具仓库里的 .codeintel 旧库（Q254c：edges 改整数代理键后
+// 旧 schema 库会让 init 报 schema mismatch——夹具是"自包含"测试，先清再建）。
+func clearIndex(t *testing.T, repoDir string) {
+	t.Helper()
+	if err := os.RemoveAll(filepath.Join(repoDir, ".codeintel")); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+}
+
 // runCLI 以完整命令行入口跑 CLI，返回退出码。
 func runCLI(t *testing.T, args ...string) int {
 	t.Helper()

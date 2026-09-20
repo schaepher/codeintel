@@ -59,7 +59,7 @@ func dumpFixtureDB(t *testing.T, repoDir string) *determinismDump {
 		coalesce(line_start,0) || '|' || coalesce(line_end,0) || '|' || coalesce(properties,'')
 		FROM nodes ORDER BY id`, &out.nodes)
 	collect(`SELECT source_id || '|' || target_id || '|' || kind || '|' || count
-		FROM edges ORDER BY source_id, target_id, kind`, &out.edges)
+		FROM edges_v ORDER BY source_id, target_id, kind`, &out.edges)
 	collect(`SELECT function_id || '|' || access_kind || '|' || field_path || '|' ||
 		coalesce(instance_path,'') || '|' || coalesce(line_start,0) || '|' || coalesce(code_snippet,'')
 		FROM function_field_summary ORDER BY function_id, access_kind, field_path`, &out.summ)
@@ -115,7 +115,9 @@ func TestBuildDeterminismFixtureApp(t *testing.T) {
 
 	var dumps []*determinismDump
 	for i := 0; i < 2; i++ {
-		if code := runCLI(t, "init", "--repo", repoDir); code != 0 {
+		clearIndex(t, repoDir)
+		clearIndex(t, repoDir)
+	if code := runCLI(t, "init", "--repo", repoDir); code != 0 {
 			t.Fatalf("init #%d exit = %d", i+1, code)
 		}
 		dumps = append(dumps, dumpFixtureDB(t, repoDir))

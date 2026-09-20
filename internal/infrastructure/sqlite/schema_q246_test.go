@@ -68,9 +68,11 @@ func TestSchemaLegacyUnusedIndexDropped(t *testing.T) {
 	}
 	raw.Close()
 
-	db, err := Open(dir)
+	// Q254c：v1 旧库（TEXT 端点）现在要求重建——本用例改为验证"新库里
+	// 不再创建 idx_nodes_signature"（旧库清理路径由 schema_migrate_test 覆盖）
+	db, err := Open(t.TempDir())
 	if err != nil {
-		t.Fatalf("Open 旧库: %v", err)
+		t.Fatalf("Open 新库: %v", err)
 	}
 	defer db.Close()
 	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_nodes_signature'`).Scan(&n); err != nil {

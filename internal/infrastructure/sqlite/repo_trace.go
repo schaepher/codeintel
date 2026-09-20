@@ -87,7 +87,7 @@ func (r *Repo) TraceBackwardIndirect(field string, funcID domain.CanonicalID, ma
            json_extract(n_prev.properties, '$.access_kind'),
            json_extract(n_prev.properties, '$.func_id'),
            json_extract(n_prev.properties, '$.full_path')
-    FROM edges e
+    FROM edges_v e
     JOIN back d ON e.target_id = d.id
     JOIN nodes n_prev ON e.source_id = n_prev.id
     WHERE e.kind = 'data_flows_to' AND d.depth < ?
@@ -165,7 +165,7 @@ func (r *Repo) trace(field string, funcID domain.CanonicalID, maxDepth int, forw
     SELECT e.source_id, d.depth + 1, n_prev.name,
            CASE WHEN d.edge_kinds = '' THEN e.kind
                  ELSE d.edge_kinds || ',' || e.kind END, n_prev.line_start
-    FROM edges e
+    FROM edges_v e
     JOIN def_trace d ON e.target_id = d.id
     JOIN nodes n_prev ON e.source_id = n_prev.id
     WHERE e.kind IN ('data_flows_to','argument','returns','alias','phi_operand')
@@ -210,7 +210,7 @@ SELECT id, depth, name, edge_kinds, line FROM def_trace ORDER BY depth, id`
            CASE WHEN n_next.kind = 'field_access'
                      AND json_extract(n_next.properties, '$.full_path') = ? THEN 1 ELSE 0 END,
            n_next.kind
-    FROM edges e
+    FROM edges_v e
     JOIN fwd_trace d ON e.source_id = d.id
     JOIN nodes n_next ON e.target_id = n_next.id
     WHERE e.kind IN ('data_flows_to','argument','returns','phi_operand','alias')

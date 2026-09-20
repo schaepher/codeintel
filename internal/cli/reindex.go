@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 	"github.com/schaepher/codeintel/internal/progress"
 )
 
@@ -28,5 +30,19 @@ func cmdReindex(ctx context.Context, args []string) int {
 		return 1
 	}
 	fmt.Printf("重建索引: %s\n", abs)
+	// Q254c：reindex 的语义是"重建"——检测到 schema 不兼容（如 edges 改整数
+	// 代理键）时删除旧库文件再走 init（图数据是派生数据，重建即迁移）。
+	// 配置文件关系表 relation_rules 会一并丢失 → 打印醒目提示。
+	if db, err := sqlite.Open(abs); err != nil {
+		if strings.Contains(err.Error(), "schema mismatch") {
+			fmt.Fprintf(os.Stderr,
+				"warning: 旧索引 schema 不兼容——删除旧库后重建（配置表 relation_rules 会丢失）\n  原因: %v\n", err)
+			for _, suf := range []string{"", "-wal", "-shm"} {
+				_ = os.Remove(filepath.Join(abs, ".codeintel", "codeintel.db"+suf))
+			}
+		}
+	} else {
+		db.Close()
+	}
 	return cmdInit(ctx, args)
 }

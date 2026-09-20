@@ -70,7 +70,7 @@ func (r *Repo) relationsForSQL(table string) ([]*domain.TableRelation, error) {
 				json_extract(ns.properties, '$.type_string'), ns.name,
 				nt.kind, json_extract(nt.properties, '$.access_kind'),
 				json_extract(nt.properties, '$.type_string'), nt.name
-			  FROM edges e
+			  FROM edges_v e
 			  JOIN nodes ns ON ns.id = e.source_id
 			  JOIN nodes nt ON nt.id = e.target_id
 			  WHERE e.kind IN (`+dataKinds+`) AND (e.source_id = ? OR e.target_id = ?)`, cur, cur)
@@ -136,8 +136,8 @@ func (r *Repo) relationsForSQL(table string) ([]*domain.TableRelation, error) {
 					  -- 精确桥：仅桥下游 2 跳内可达 filter 节点的字段读取
 					  -- （字段 → 值 → filter：真正进 Where 的字段；防同类型全字段扩散）
 					  AND EXISTS (
-						SELECT 1 FROM edges e1
-						JOIN edges e2 ON e2.source_id = e1.target_id
+						SELECT 1 FROM edges_v e1
+						JOIN edges_v e2 ON e2.source_id = e1.target_id
 						JOIN nodes n3 ON n3.id = e2.target_id
 						WHERE e1.source_id = n2.id
 						  AND n3.kind = 'field_access'

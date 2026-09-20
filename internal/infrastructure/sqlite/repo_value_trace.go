@@ -25,7 +25,6 @@ import (
 //
 // tbl 为递归目标节点别名（反向 n_prev / 正向 n_next）。
 
-
 func (r *Repo) GetValueTrace(nodeID domain.CanonicalID, maxDepth int, minConf float64, includeContainer bool) ([]*domain.TraceRow, error) {
 	logger := zap.L()
 	logger.Debug("enter (Repo).GetValueTrace")
@@ -60,7 +59,7 @@ vt(id, dir, depth, parent, kind, seed, c_iface, c_origin, c_conf) AS (
                 THEN json_extract(e.metadata, '$.candidate_origin') ELSE d.c_origin END,
            CASE WHEN json_extract(e.metadata, '$.candidate_origin') IS NOT NULL
                 THEN COALESCE(json_extract(e.metadata, '$.confidence'), 0) ELSE d.c_conf END
-    FROM edges e INDEXED BY idx_edges_target_kind
+    FROM edges_v e
     JOIN vt d ON e.target_id = d.id
     JOIN nodes n_prev ON e.source_id = n_prev.id
     WHERE d.dir = 0 AND d.depth < ? AND e.kind IN ('data_flows_to','argument','returns','phi_operand','summary_io')
@@ -76,7 +75,7 @@ vt(id, dir, depth, parent, kind, seed, c_iface, c_origin, c_conf) AS (
                 THEN json_extract(e.metadata, '$.candidate_origin') ELSE d.c_origin END,
            CASE WHEN json_extract(e.metadata, '$.candidate_origin') IS NOT NULL
                 THEN COALESCE(json_extract(e.metadata, '$.confidence'), 0) ELSE d.c_conf END
-    FROM edges e INDEXED BY sqlite_autoindex_edges_1
+    FROM edges_v e
     JOIN vt d ON e.source_id = d.id
     JOIN nodes n_next ON e.target_id = n_next.id
     WHERE (d.dir = 1 OR d.seed = 1) AND d.depth < ? AND e.kind IN ('data_flows_to','argument','returns','phi_operand','summary_io')
@@ -85,7 +84,7 @@ vt(id, dir, depth, parent, kind, seed, c_iface, c_origin, c_conf) AS (
            OR json_extract(e.metadata, '$.confidence') >= ?)
 )
 SELECT dp.id, MIN(dp.depth), n.name,
-       (SELECT COALESCE(GROUP_CONCAT(DISTINCT e2.kind), '') FROM edges e2
+       (SELECT COALESCE(GROUP_CONCAT(DISTINCT e2.kind), '') FROM edges_v e2
          WHERE ((dp.dir = 0 AND e2.target_id = dp.id) OR (dp.dir = 1 AND e2.source_id = dp.id))
            AND e2.kind IN ('data_flows_to','argument','returns','phi_operand','summary_io')),
        n.line_start, dp.dir, n.kind, n.file_path,
@@ -202,7 +201,6 @@ ORDER BY dp.dir, MIN(dp.depth), dp.id`,
 	}
 	return out, nil
 }
-
 
 func anySlice(ids []string) []any {
 	out := make([]any, len(ids))

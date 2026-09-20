@@ -38,18 +38,29 @@ func (r *Repo) GetPath(from, to domain.CanonicalID, maxDepth int, viaCalls bool)
 	if err != nil {
 		return nil, err
 	}
+	// Q254c Stage 2：邻接表在整数代理键空间 → 先把起点/终点解析成 id_int
+	// （两次唯一索引点查），BFS 只搬 int64；结果回填 canonical ID 供输出。
+	fromRef, ok, err := r.nodeRef(from)
+	if err != nil || !ok {
+		return nil, err
+	}
+	toRef, ok, err := r.nodeRef(to)
+	if err != nil || !ok {
+		return nil, err
+	}
 
-	parent := map[domain.CanonicalID]struct {
-		prev domain.CanonicalID
+	type hop struct {
+		prev int64
 		kind string
-	}{}
+	}
+	parent := map[int64]hop{}
 	// Q252c：按**深度**限制扩展——原实现用 `len(parent) <= maxDepth`
 	// （已发现节点数当预算），起点扇出稍宽或目标在若干跳之后时 BFS 提前
 	// 停止扩展，**可达的两点被静默报成"无路径"**（go2o 实测 4 跳内抽样
 	// 113 对里 6 对假阴性）。长度上限另用独立常量兜底（防病态图内存）。
-	depth := map[domain.CanonicalID]int{from: 0}
-	queue := []domain.CanonicalID{from}
-	visited := map[domain.CanonicalID]bool{from: true}
+	depth := map[int64]int{fromRef: 0}
+	queue := []int64{fromRef}
+	visited := map[int64]bool{fromRef: true}
 	found := false
 	for len(queue) > 0 && !found && len(visited) < maxPathVisited {
 		cur := queue[0]
@@ -59,12 +70,9 @@ func (r *Repo) GetPath(from, to domain.CanonicalID, maxDepth int, viaCalls bool)
 				continue
 			}
 			visited[e.to] = true
-			parent[e.to] = struct {
-				prev domain.CanonicalID
-				kind string
-			}{cur, e.kind}
+			parent[e.to] = hop{cur, e.kind}
 			depth[e.to] = depth[cur] + 1
-			if e.to == to {
+			if e.to == toRef {
 				found = true
 				break
 			}
@@ -76,26 +84,33 @@ func (r *Repo) GetPath(from, to domain.CanonicalID, maxDepth int, viaCalls bool)
 	if !found {
 		return nil, nil
 	}
-	// 回溯路径
-	var ids []domain.CanonicalID
+	// 回溯路径（整数 → canonical）
+	var refs []int64
 	var kindsPath []string
-	for cur := to; cur != from; {
-		ids = append(ids, cur)
+	for cur := toRef; cur != fromRef; {
+		refs = append(refs, cur)
 		p := parent[cur]
 		kindsPath = append(kindsPath, p.kind)
 		cur = p.prev
 	}
-	ids = append(ids, from)
-
-	for i, j := 0, len(ids)-1; i < j; i, j = i+1, j-1 {
-		ids[i], ids[j] = ids[j], ids[i]
+	refs = append(refs, fromRef)
+	for i, j := 0, len(refs)-1; i < j; i, j = i+1, j-1 {
+		refs[i], refs[j] = refs[j], refs[i]
 	}
 	for i, j := 0, len(kindsPath)-1; i < j; i, j = i+1, j-1 {
 		kindsPath[i], kindsPath[j] = kindsPath[j], kindsPath[i]
 	}
+	names, err := r.canonicalOfRefs(refs)
+	if err != nil {
+		return nil, err
+	}
 
-	out := make([]*domain.TraceRow, 0, len(ids))
-	for i, id := range ids {
+	out := make([]*domain.TraceRow, 0, len(refs))
+	for i, ref := range refs {
+		id, ok := names[ref]
+		if !ok {
+			continue
+		}
 		n, err := r.GetSymbol(id)
 		if err != nil {
 			continue
@@ -122,11 +137,11 @@ func (r *Repo) GetGrpcCalls() ([]*domain.GrpcCallRow, error) {
 		COALESCE(json_extract(e.metadata, '$.method'), json_extract(e.metadata, '$.path'), ''),
 		COALESCE(json_extract(e.metadata, '$.line_num'), 0),
 		CASE WHEN e.kind = 'grpc_call' THEN
-			(SELECT s.source_id FROM edges s JOIN nodes sn ON sn.id = s.target_id
+			(SELECT s.source_id FROM edges_v s JOIN nodes sn ON sn.id = s.target_id
 			 WHERE s.kind = 'grpc_impl' AND sn.name = n.name LIMIT 1)
 		ELSE json_extract(n.properties, '$.handler_id') END,
 		e.kind
-	FROM edges e JOIN nodes n ON n.id = e.target_id
+	FROM edges_v e JOIN nodes n ON n.id = e.target_id
 	WHERE e.kind IN ('grpc_call','http_call') ORDER BY e.source_id`)
 	if err != nil {
 		return nil, err

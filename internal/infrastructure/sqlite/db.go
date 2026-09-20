@@ -120,7 +120,11 @@ func (db *DB) init() error {
 			// 缺列（破坏性变更）：补建表达式索引/生成列引用缺失列 →
 			// 包装 clean 提示（verifySchema 覆盖不到的早期失败路径）
 			if strings.Contains(err.Error(), "no such column") {
-				return fmt.Errorf("schema mismatch: 列结构不兼容（%v）; run 'codeintel clean --repo <path> --force' and rebuild", err)
+				hint := ""
+				if strings.Contains(err.Error(), "source_ref") || strings.Contains(err.Error(), "target_ref") {
+					hint = "；Q254 Stage 2：edges 已改用整数代理键（source_ref/target_ref，真实库实测可省数 GB）——图数据是派生数据，重建即迁移"
+				}
+				return fmt.Errorf("schema mismatch: 列结构不兼容（%v）%s; run 'codeintel clean --repo <path> --force' and rebuild", err, hint)
 			}
 			return fmt.Errorf("migrate schema: %w", err)
 		}
@@ -153,8 +157,8 @@ func (db *DB) init() error {
 // 同步更新本清单；列变更（含加列——CREATE IF NOT EXISTS 不动已存在
 // 表）触发报错 clean，由清单与 DDL 不一致暴露。
 var schemaCols = map[string][]string{
-	"nodes":                 {"id", "kind", "name", "file_path", "line_start", "line_end", "properties", "signature_text", "created_at"},
-	"edges":                 {"id", "source_id", "target_id", "kind", "tool_source", "confidence", "metadata"},
+	"nodes":                 {"id_int", "id", "kind", "name", "file_path", "line_start", "line_end", "properties", "signature_text", "created_at"},
+	"edges":                 {"id", "source_ref", "target_ref", "kind", "tool_source", "confidence", "metadata"},
 	"build_metadata":        {"build_id", "commit_sha", "tool_name", "status", "duration_ms", "error_message", "nodes_count", "edges_count", "timestamp", "worktree_fingerprint"},
 	"function_field_summary": {"function_id", "access_kind", "field_path", "instance_path", "line_start", "code_snippet"},
 	"summary_origins":       {"function_id", "access_kind", "field_path", "call_line", "callee_id"},
@@ -192,7 +196,15 @@ func (db *DB) verifySchema() error {
 		}
 		for _, c := range want {
 			if !have[c] {
-				return fmt.Errorf("schema mismatch: %s 缺列 %q（列变更无法自动迁移）; run 'codeintel clean --repo <path> --force' and rebuild", tbl, c)
+				// Q254c Stage 2：edges 由 TEXT 端点改成整数代理键
+				// （source_ref/target_ref），列**类型**变更无法加法迁移——
+				// 图数据是派生数据，重建即迁移。
+				hint := ""
+				if tbl == "edges" && (c == "source_ref" || c == "target_ref") {
+					hint = "；Q254 Stage 2：edges 已改用整数代理键（真实库实测可省数 GB），" +
+						"旧库需重建（派生数据，重建即迁移）"
+				}
+				return fmt.Errorf("schema mismatch: %s 缺列 %q（列变更无法自动迁移）%s; run 'codeintel clean --repo <path> --force' and rebuild", tbl, c, hint)
 			}
 		}
 	}

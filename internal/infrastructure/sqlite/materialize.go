@@ -55,8 +55,8 @@ func (r *Repo) MaterializeBase(basePath string) (bool, error) {
 	// FK 顺序：nodes → edges/摘要（子表引用父表）。nodes 的
 	// signature_text 是生成列——显式列清单（不含生成列）
 	cols := map[string]string{
-		"nodes":                  "id, kind, name, file_path, line_start, line_end, properties",
-		"edges":                  "id, source_id, target_id, kind, tool_source, confidence, metadata, count",
+		"nodes":                  "id_int, id, kind, name, file_path, line_start, line_end, properties",
+		"edges":                  "id, source_ref, target_ref, kind, tool_source, confidence, metadata, count",
 		"function_field_summary": "function_id, access_kind, field_path, instance_path, line_start, code_snippet",
 		"summary_origins":        "function_id, access_kind, field_path, call_line, callee_id",
 	}

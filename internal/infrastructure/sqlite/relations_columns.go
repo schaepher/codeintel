@@ -62,7 +62,7 @@ func (r *Repo) GetTableColumns(table string) ([]*domain.TableColumn, error) {
 		}
 
 		ws, err := r.Query(`SELECT source_id, json_extract(metadata, '$.line_num')
-			FROM edges WHERE target_id = ? AND kind = 'summary_io'`, rt.id)
+			FROM edges_v WHERE target_id = ? AND kind = 'summary_io'`, rt.id)
 		if err != nil {
 			return nil, err
 		}
@@ -93,7 +93,7 @@ func (r *Repo) GetTableColumns(table string) ([]*domain.TableColumn, error) {
 
 		if rt.access == "read" {
 			rs, err := r.Query(`SELECT target_id, json_extract(metadata, '$.line_num')
-				FROM edges WHERE source_id = ? AND kind = 'summary_io'`, rt.id)
+				FROM edges_v WHERE source_id = ? AND kind = 'summary_io'`, rt.id)
 			if err != nil {
 				return nil, err
 			}

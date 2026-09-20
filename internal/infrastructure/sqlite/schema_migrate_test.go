@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/schaepher/codeintel/internal/domain"
 )
 
 // Q235-3 schema 加法自动迁移：打开时总是幂等执行 schema DDL
@@ -89,29 +87,22 @@ func TestOpenSchemaAutoMigrate(t *testing.T) {
 	db := openRaw(t, dir, v1Schema, 1)
 	db.Close()
 
+	// Q254c Stage 2：v1 的 edges 是 TEXT 端点，而现 schema 用整数代理键
+	// （source_ref/target_ref）——列**类型**变更无法加法迁移。图数据是派生
+	// 数据，约定"重建即迁移"：Open 必须**明确报错并指引 clean+init**
+	// （不能静默当作可用旧库）。
 	d, err := Open(dir)
-	if err != nil {
-		t.Fatalf("Open v1 旧库应自动补建，got %v", err)
+	if err == nil {
+		d.Close()
+		t.Fatal("v1（TEXT 端点）旧库应要求重建（Q254c schema 变更），却成功打开")
 	}
-	defer d.Close()
-	r := NewRepo(d)
-	for _, tbl := range []string{"function_field_summary", "summary_origins", "relation_candidates"} {
-		var name string
-		if err := r.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, tbl).Scan(&name); err != nil {
-			t.Errorf("v1 旧库应自动补建 %s 表，got %v", tbl, err)
-		}
+	if !strings.Contains(err.Error(), "source_ref") || !strings.Contains(err.Error(), "clean") {
+		t.Fatalf("错误信息应点明缺失列与重建指引，got %v", err)
 	}
-	// 新表可用：summary 落库 + relations 预计算
-	nodes := []*domain.CodeEntity{
-		{ID: domain.CanonicalID("symbol:go:m:f"), Kind: domain.KindFunction, Name: "f", FilePath: "a.go"},
+	if !strings.Contains(err.Error(), "Q254") {
+		t.Errorf("错误信息应说明这是 Q254 Stage 2 代理键变更，got %v", err)
 	}
-	if _, err := r.SaveBatchStats(nodes, nil, nil); err != nil {
-		t.Fatalf("save: %v", err)
-	}
-	// 索引存在（relations 查询不报错即可证明 schema 完整）
-	if _, err := r.GetTables(); err != nil {
-		t.Fatalf("GetTables: %v", err)
-	}
+	return
 }
 
 // TestOpenSchemaMissingColumnFails：核心表缺列（幂等 DDL 无法补列——
@@ -153,4 +144,26 @@ func TestOpenSchemaUnknownVersionSelfHeal(t *testing.T) {
 		t.Fatalf("结构齐全的未知版本库应可用，got %v", err)
 	}
 	d2.Close()
+}
+
+// TestOpenSchemaFreshBuild：新库（当前 schema）应可打开，且补建表/视图齐全
+// （Q235-3 加法演进仍然有效——只是 v1 的 edges 列类型变更需要重建）。
+func TestOpenSchemaFreshBuild(t *testing.T) {
+	dir := t.TempDir()
+	d, err := Open(dir)
+	if err != nil {
+		t.Fatalf("Open 新库: %v", err)
+	}
+	defer d.Close()
+	r := NewRepo(d)
+	for _, tbl := range []string{"function_field_summary", "summary_origins", "relation_candidates"} {
+		var name string
+		if err := r.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, tbl).Scan(&name); err != nil {
+			t.Errorf("新库应含表 %s: %v", tbl, err)
+		}
+	}
+	var view string
+	if err := r.QueryRow(`SELECT name FROM sqlite_master WHERE type='view' AND name='edges_v'`).Scan(&view); err != nil {
+		t.Errorf("新库应含兼容视图 edges_v（冷路径读 canonical ID）: %v", err)
+	}
 }

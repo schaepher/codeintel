@@ -21,8 +21,6 @@ package sqlite
 
 import (
 	"strings"
-
-	"github.com/schaepher/codeintel/internal/domain"
 )
 
 // maxCachedEdgeCount 单视图邻接表缓存上限（边数）——超过则不缓存。
@@ -44,14 +42,18 @@ var edgeViewKinds = map[string]map[string]bool{
 	edgeViewCalls: {"calls": true, "passes_to": true, "passes_result": true},
 }
 
-// edgeNeighbor 邻接表一项（目标 + 边类型）。
+// edgeNeighbor 邻接表一项（目标 **id_int** + 边类型）。
+//
+// Q254c Stage 2：邻接表在**整数代理键空间**构建（edges.source_ref/target_ref）
+// ——全表扫边不再携带 145B 的 canonical ID（真实库 7.46M 边），canonical ID
+// 只在查询边界（起点/终点解析、结果回填）做少量点查。
 type edgeNeighbor struct {
-	to   domain.CanonicalID
+	to   int64
 	kind string
 }
 
 // edgeAdjacency 某个视图的邻接表（构建后只读）。
-type edgeAdjacency map[domain.CanonicalID][]edgeNeighbor
+type edgeAdjacency map[int64][]edgeNeighbor
 
 // edgeGraph 一个 build_id 下的视图集合（按需填充）。
 type edgeGraph struct {
@@ -69,7 +71,7 @@ func loadEdgeAdjacency(r *Repo, label string) (edgeAdjacency, int, error) {
 	for k := range edgeViewKinds[label] {
 		kinds = append(kinds, "'"+k+"'")
 	}
-	rows, err := r.Query(`SELECT source_id, target_id, kind FROM edges WHERE kind IN (` +
+	rows, err := r.Query(`SELECT source_ref, target_ref, kind FROM edges WHERE kind IN (` +
 		strings.Join(kinds, ",") + `)`)
 	if err != nil {
 		return nil, 0, err
@@ -79,7 +81,8 @@ func loadEdgeAdjacency(r *Repo, label string) (edgeAdjacency, int, error) {
 	intern := map[string]string{}
 	n := 0
 	for rows.Next() {
-		var src, dst, kind string
+		var src, dst int64
+		var kind string
 		if err := rows.Scan(&src, &dst, &kind); err != nil {
 			return nil, 0, err
 		}
@@ -87,8 +90,7 @@ func loadEdgeAdjacency(r *Repo, label string) (edgeAdjacency, int, error) {
 		if !ok {
 			k, intern[kind] = kind, kind
 		}
-		s := domain.CanonicalID(src)
-		adj[s] = append(adj[s], edgeNeighbor{to: domain.CanonicalID(dst), kind: k})
+		adj[src] = append(adj[src], edgeNeighbor{to: dst, kind: k})
 		n++
 	}
 	return adj, n, rows.Err()

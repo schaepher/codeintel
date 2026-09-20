@@ -108,9 +108,9 @@ var insertNodeSQL = buildInsertNodeSQL()
 // R69：count 累加（同义边合并保留真实调用次数——每次插入 +1，
 // 与置信度无关）；confidence/tool/metadata 仍只在高置信度时覆盖。
 const insertEdgeSQL = `
-INSERT INTO edges (source_id, target_id, kind, tool_source, confidence, metadata, count)
+INSERT INTO edges (source_ref, target_ref, kind, tool_source, confidence, metadata, count)
 VALUES (?, ?, ?, ?, ?, ?, 1)
-ON CONFLICT(source_id, target_id, kind) DO UPDATE SET
+ON CONFLICT(source_ref, target_ref, kind) DO UPDATE SET
     count = edges.count + 1,
     confidence = CASE WHEN excluded.confidence > edges.confidence THEN excluded.confidence ELSE edges.confidence END,
     tool_source = CASE WHEN excluded.confidence > edges.confidence THEN excluded.tool_source ELSE edges.tool_source END,
@@ -130,9 +130,10 @@ VALUES (?, ?, ?, ?, ?, ?)`
 
 // saveBatchResult 记录批次写入的统计信息。
 type saveBatchResult struct {
-	// SkippedEdges 因外键冲突（端点节点不存在）被跳过的边数。
-	// 注：FK 失败先进入 Failed*（构建尾部重试），重试后仍失败才计入。
-	SkippedEdges int
+	// 注：Q254c 起端点解析不到的边同样进 Failed*（构建尾部重试）；重试后
+	// 仍解析不到 = 真悬挂边，**由调用方按 len(FailedEdges) 计入跳过数**
+	// （原 SkippedEdges 字段从未被赋值——Q254 前报表里的数字实际来自
+	// Stage 1 的 DropDanglingEdges，属既有计数缺陷，此处一并修正）。
 	// FailedEdges/FailedSummaries/FailedOrigins FK 冲突项（端点节点尚未
 	// 落库——并发构建跨批依赖）→ 调用方收集后于全部节点落库后重试
 	// （P2：原实现静默跳过导致非确定性丢边，go2o 三次重建 156217/

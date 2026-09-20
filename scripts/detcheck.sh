@@ -36,10 +36,19 @@ for i in 1 2 3; do
     echo "init #$i 失败（见 $TMP/run$i.log）"; exit 2
   fi
   DB="$REPO/.codeintel/codeintel.db"
-  sqlite3 "$DB" "select id from nodes order by id;" > "$TMP/ids$i"
-  sqlite3 "$DB" "select id||'|'||kind||'|'||name||'|'||coalesce(file_path,'')||'|'||coalesce(line_start,0)||'|'||coalesce(line_end,0)||'|'||coalesce(properties,'') from nodes order by id;" > "$TMP/nodes$i"
-  sqlite3 "$DB" "select source_id||'|'||target_id||'|'||kind||'|'||count from edges order by source_id,target_id,kind;" > "$TMP/edges$i"
-  sqlite3 "$DB" "select function_id||'|'||access_kind||'|'||field_path||'|'||coalesce(instance_path,'')||'|'||coalesce(line_start,0)||'|'||coalesce(code_snippet,'') from function_field_summary order by function_id,access_kind,field_path;" > "$TMP/summ$i"
+  # Q254c：edges 已改整数代理键（source_ref/target_ref）——dump 走兼容视图
+  # edges_v（暴露 canonical ID）。**每条 dump 都检查退出码与空集**：曾因列名
+  # 变更让 dump 静默失败 → 两侧都是 0 行、看着"全等通过"（假绿）。
+  dump() { # dump <out> <sql>
+    if ! sqlite3 "$DB" "$2" > "$1"; then
+      echo "dump 失败（SQL 与 schema 不一致?）：$2"; exit 2
+    fi
+    [ -s "$1" ] || { echo "dump 为空（schema/查询不匹配?）：$2"; exit 2; }
+  }
+  dump "$TMP/ids$i" "select id from nodes order by id;"
+  dump "$TMP/nodes$i" "select id||'|'||kind||'|'||name||'|'||coalesce(file_path,'')||'|'||coalesce(line_start,0)||'|'||coalesce(line_end,0)||'|'||coalesce(properties,'') from nodes order by id;"
+  dump "$TMP/edges$i" "select source_id||'|'||target_id||'|'||kind||'|'||count from edges_v order by source_id,target_id,kind;"
+  dump "$TMP/summ$i" "select function_id||'|'||access_kind||'|'||field_path||'|'||coalesce(instance_path,'')||'|'||coalesce(line_start,0)||'|'||coalesce(code_snippet,'') from function_field_summary order by function_id,access_kind,field_path;"
 done
 
 python3 - "$TMP" <<'PY'

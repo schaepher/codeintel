@@ -106,12 +106,12 @@ func TestDropRedundantEdgeIndexes(t *testing.T) {
 
 	// 模拟旧库：手工建回冗余索引 → 再跑迁移
 	for _, idx := range redundantEdgeIndexes {
-		stmt := "CREATE INDEX " + idx + " ON edges(source_id)"
+		stmt := "CREATE INDEX " + idx + " ON edges(source_ref)"
 		switch idx {
 		case "idx_edges_source_kind":
-			stmt = "CREATE INDEX " + idx + " ON edges(source_id, kind)"
+			stmt = "CREATE INDEX " + idx + " ON edges(source_ref, kind)"
 		case "idx_edges_target":
-			stmt = "CREATE INDEX " + idx + " ON edges(target_id)"
+			stmt = "CREATE INDEX " + idx + " ON edges(target_ref)"
 		case "idx_edges_confidence":
 			stmt = "CREATE INDEX " + idx + " ON edges(confidence) WHERE confidence >= 0.8"
 		}
@@ -159,9 +159,14 @@ func TestDropDanglingEdges(t *testing.T) {
 	if err := db.SetForeignKeys(false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO edges(source_id, target_id, kind, tool_source)
-		VALUES('symbol:go:x:a', 'symbol:go:x:ghost', 'calls', 'ssa'),
-		       ('symbol:go:x:ghost', 'symbol:go:x:b', 'calls', 'ssa')`); err != nil {
+	// Q254c：edges 用整数代理键——"悬挂边"= 引用不存在的 id_int（FK 关闭时
+	// 可插入，用于验证末尾清理；正常写路径由 Go 侧解析端点，不会产生）
+	var realRef int64
+	if err := db.QueryRow("SELECT id_int FROM nodes WHERE id = ?", "symbol:go:x:a").Scan(&realRef); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO edges(source_ref, target_ref, kind, tool_source)
+		VALUES(?, 999999, 'calls', 'ssa'), (999999, ?, 'calls', 'ssa')`, realRef, realRef); err != nil {
 		t.Fatalf("FK 关闭时应能插入悬挂边：%v", err)
 	}
 	n, err := db.CheckNoDanglingEdges()

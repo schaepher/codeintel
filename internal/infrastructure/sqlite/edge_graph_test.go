@@ -45,10 +45,7 @@ func TestEdgeGraphCacheHitAndInvalidation(t *testing.T) {
 		t.Fatalf("a→c 应可达，err=%v len=%d", err, len(path))
 	}
 	// 直接改库（绕过构建）：同 build_id 下缓存命中 → b→d 边不可见
-	if _, err := r.Exec(`INSERT INTO edges(source_id, target_id, kind, tool_source, confidence, count)
-		VALUES('symbol:go:example.com/m:b', 'symbol:go:example.com/m:d', 'data_flows_to', 'ssa', 1.0, 1)`); err != nil {
-		t.Fatal(err)
-	}
+	insertEdgeRawDirect(t, r, "symbol:go:example.com/m:b", "symbol:go:example.com/m:d", "data_flows_to")
 	if path, err := r.GetPath("symbol:go:example.com/m:b", "symbol:go:example.com/m:d", 8, false); err != nil || len(path) != 0 {
 		t.Errorf("同 build_id 应命中缓存（新边不可见），err=%v len=%d", err, len(path))
 	}
@@ -65,10 +62,7 @@ func TestEdgeGraphCacheHitAndInvalidation(t *testing.T) {
 func TestEdgeGraphKindViews(t *testing.T) {
 	r := seedEdgeGraphRepo(t)
 	// 再加一条 calls 边（a→d），它不应出现在数据流路径查询里
-	if _, err := r.Exec(`INSERT INTO edges(source_id, target_id, kind, tool_source, confidence, count)
-		VALUES('symbol:go:example.com/m:a', 'symbol:go:example.com/m:d', 'calls', 'codegraph', 0.8, 1)`); err != nil {
-		t.Fatal(err)
-	}
+	insertEdgeRawDirect(t, r, "symbol:go:example.com/m:a", "symbol:go:example.com/m:d", "calls")
 	if path, err := r.GetPath("symbol:go:example.com/m:a", "symbol:go:example.com/m:d", 8, false); err != nil || len(path) != 0 {
 		t.Errorf("calls 边不应出现在数据流路径查询，err=%v len=%d", err, len(path))
 	}
@@ -108,4 +102,21 @@ func TestEdgeGraphConcurrentPaths(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+// insertEdgeRawDirect 绕过写路径直插一条边（Q254c：整数代理键——端点
+// canonical ID 先解析成 id_int）。用于验证"库外改动 → 缓存命中不可见"。
+func insertEdgeRawDirect(t *testing.T, r *Repo, src, dst domain.CanonicalID, kind string) {
+	t.Helper()
+	var sRef, dRef int64
+	if err := r.QueryRow("SELECT id_int FROM nodes WHERE id = ?", string(src)).Scan(&sRef); err != nil {
+		t.Fatalf("resolve %s: %v", src, err)
+	}
+	if err := r.QueryRow("SELECT id_int FROM nodes WHERE id = ?", string(dst)).Scan(&dRef); err != nil {
+		t.Fatalf("resolve %s: %v", dst, err)
+	}
+	if _, err := r.Exec(`INSERT INTO edges(source_ref, target_ref, kind, tool_source, confidence, count)
+		VALUES(?, ?, ?, 'ssa', 1.0, 1)`, sRef, dRef, kind); err != nil {
+		t.Fatal(err)
+	}
 }

@@ -17,7 +17,7 @@ func (r *Repo) GetFrameworkStructs() ([]*domain.CodeEntity, error) {
 
 	rows, err := r.Query(`
 SELECT e.target_id, caller_n.file_path
-FROM edges e
+FROM edges_v e
 JOIN nodes caller_n ON caller_n.id = e.source_id
 JOIN nodes method_n ON method_n.id = e.target_id
 WHERE e.kind = 'calls'
@@ -140,7 +140,7 @@ func (r *Repo) Expand(id domain.CanonicalID) (facts []*domain.Fact, nodes []*dom
 	}
 	rows, err := r.Query(`
 SELECT e.source_id, e.target_id, e.kind, e.tool_source, e.confidence, e.metadata
-FROM edges e
+FROM edges_v e
 LEFT JOIN nodes n ON n.id = CASE WHEN e.source_id = ? THEN e.target_id ELSE e.source_id END
 WHERE (e.source_id = ? OR e.target_id = ?) AND e.kind IN ('calls', 'implements', 'imports', 'initializes', 'uses', 'passes_to', 'passes_result', 'of_type', 'has_method', 'has_param', 'has_result', 'data_flows_to', 'argument', 'returns', 'phi_operand', 'alias', 'dispatch_to')
 ORDER BY CASE WHEN e.kind = 'has_param' THEN 0

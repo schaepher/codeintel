@@ -67,14 +67,14 @@ func (r *Repo) GetValueTraceMulti(anchors []domain.CanonicalID, ctxField string,
 vt(id, dir, depth, kind) AS (
     SELECT n.id, 0, 0, n.kind FROM nodes n WHERE n.id IN (`+placeholders+`)
     UNION
-    SELECT e.target_id, 1, d.depth + 1, n_next.kind FROM edges e INDEXED BY sqlite_autoindex_edges_1
+    SELECT e.target_id, 1, d.depth + 1, n_next.kind FROM edges_v e
     JOIN vt d ON e.source_id = d.id
     JOIN nodes n_next ON e.target_id = n_next.id
     WHERE (d.dir = 1 OR d.depth = 0) AND d.depth < ? AND e.kind IN ('data_flows_to','argument','returns','phi_operand','summary_io')
       AND (n_next.kind != 'field_access' OR (`+fwdFilter+`))
 )
 SELECT dp.id, MIN(dp.depth), n.name,
-       (SELECT COALESCE(GROUP_CONCAT(DISTINCT e2.kind), '') FROM edges e2
+       (SELECT COALESCE(GROUP_CONCAT(DISTINCT e2.kind), '') FROM edges_v e2
          WHERE ((dp.dir = 0 AND e2.target_id = dp.id) OR (dp.dir = 1 AND e2.source_id = dp.id))
            AND e2.kind IN ('data_flows_to','argument','returns','phi_operand','summary_io')),
        n.line_start, dp.dir, n.kind, n.file_path,

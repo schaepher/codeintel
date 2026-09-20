@@ -34,7 +34,7 @@ func TestEdgeCountUpsert(t *testing.T) {
 		}
 	}
 	var count int
-	if err := db.QueryRow(`SELECT count FROM edges WHERE source_id = ? AND target_id = ? AND kind = 'calls'`,
+	if err := db.QueryRow(`SELECT count FROM edges_v WHERE source_id = ? AND target_id = ? AND kind = 'calls'`,
 		"symbol:go:m:a", "symbol:go:m:b").Scan(&count); err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestEdgeCountUpsert(t *testing.T) {
 	}
 	var count2 float64
 	var conf float64
-	if err := db.QueryRow(`SELECT count, confidence FROM edges WHERE source_id = ? AND target_id = ? AND kind = 'calls'`,
+	if err := db.QueryRow(`SELECT count, confidence FROM edges_v WHERE source_id = ? AND target_id = ? AND kind = 'calls'`,
 		"symbol:go:m:a", "symbol:go:m:b").Scan(&count2, &conf); err != nil {
 		t.Fatal(err)
 	}

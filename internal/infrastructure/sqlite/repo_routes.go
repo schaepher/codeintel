@@ -48,7 +48,7 @@ func (r *Repo) GetFirstCallTo(targetID domain.CanonicalID) (*domain.Fact, error)
 	logger.Debug("enter (Repo).GetFirstCallTo")
 	defer logger.Debug("exit (Repo).GetFirstCallTo")
 	rows, err := r.Query(`SELECT source_id, json_extract(metadata, '$.line_num')
-		FROM edges WHERE target_id = ? AND kind = 'calls' LIMIT 1`, string(targetID))
+		FROM edges_v WHERE target_id = ? AND kind = 'calls' LIMIT 1`, string(targetID))
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +75,7 @@ func (r *Repo) GetGrpcImplNode(svcID domain.CanonicalID) (*domain.CodeEntity, er
 	logger.Debug("enter (Repo).GetGrpcImplNode")
 	defer logger.Debug("exit (Repo).GetGrpcImplNode")
 	var src string
-	err := r.QueryRow(`SELECT source_id FROM edges WHERE target_id = ? AND kind = 'grpc_impl' LIMIT 1`,
+	err := r.QueryRow(`SELECT source_id FROM edges_v WHERE target_id = ? AND kind = 'grpc_impl' LIMIT 1`,
 		string(svcID)).Scan(&src)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -93,7 +93,7 @@ func (r *Repo) GetImplementsTarget(ifaceID domain.CanonicalID) (domain.Canonical
 	logger.Debug("enter (Repo).GetImplementsTarget")
 	defer logger.Debug("exit (Repo).GetImplementsTarget")
 	var id string
-	err := r.QueryRow(`SELECT e.target_id FROM edges e JOIN nodes n ON n.id = e.target_id
+	err := r.QueryRow(`SELECT e.target_id FROM edges_v e JOIN nodes n ON n.id = e.target_id
 		WHERE e.source_id = ? AND e.kind = 'implements' AND n.name NOT LIKE 'Unimplemented%' LIMIT 1`,
 		string(ifaceID)).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {

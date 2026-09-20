@@ -2575,10 +2575,18 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
   `foreign_keys=0` + 末尾 set-based 清理悬挂边并计数（替换 20.7 万条边驻留
   内存的 `retryFailedFK`）④WAL 收尾 `wal_checkpoint(TRUNCATE)` +
   `journal_size_limit`（1.33GB → 百 MB 级）。
-  **Stage 2**：整数代理键（`nodes(id_int INTEGER PRIMARY KEY, id TEXT UNIQUE)`
-  + `edges(source_int,target_int)`，schema v5 + 强制重建；13GB → 5-6GB；顺带
-  page_size/auto_vacuum 评估）。
-  **Stage 3**：写库流水线解耦（两阶段导入优先——同时消灭 FK 重试与悬挂边）。
+  **Stage 2 已完成（Q254c §103）**：整数代理键——`nodes(id_int PRIMARY KEY,
+  id TEXT UNIQUE)` + `edges(source_ref/target_ref → nodes(id_int))` + 兼容视图
+  `edges_v`（冷路径零改动）+ 热路径整数空间；旧库 clean/reindex 即迁移
+  （reindex 已自动删不兼容旧库）。实测 go2o **308→114MB（-55%）**、本仓库
+  92.7→48.7MB、构建 ~21s→11-13s、flush 4.3s→0.5-1.5s；detcheck 四类全等。
+  **Stage 3 已实测否决（Q254d §104）**：Stage 2 后 flush 仅占构建 5-12%
+  （计算占大头），且多行批量 INSERT A/B 无收益（1.8-2.3s vs 预编译逐行
+  0.5-1.6s）→ 回滚批量实现；"两阶段导入/分片 DB"降级为**观察项**：
+  触发条件 = 出现 flush 占构建 >30% 的仓库（超大边集 + 弱 I/O）。
+  **可选后续（Stage 2b）**：`idx_nodes_func_id` 表达式索引（go2o 10.6MB）与
+  `function_field_summary.function_id`/`summary_origins.*` 仍存 canonical ID
+  ——按同法 int 化可再省（节点侧占比已升至 40%）。
 - 12. **写库/流水线层单写者仍串行**（Q252 新增，与第 11 条 Stage 3 合并推进）：`orch_adapters.go`
   `ch(4096)` → 单 consume → `flushCh(2)` → 单 flusher → SQLite；4 个 SSA
   worker 共享一个 channel，flush 慢时全堵在 `ch <- item`（实测单批 flush

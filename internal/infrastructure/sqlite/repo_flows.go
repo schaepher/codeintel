@@ -125,7 +125,7 @@ func (r *Repo) GetFunctionFlows(funcID domain.CanonicalID, maxDepth int) ([]*dom
            json_extract(n_prev.properties, '$.func_id'),
            json_extract(n_prev.properties, '$.full_path'),
            d.ctx
-    FROM edges e
+    FROM edges_v e
     JOIN flows d ON e.target_id = d.id
     JOIN nodes n_prev ON e.source_id = n_prev.id
     WHERE e.kind IN ('data_flows_to','phi_operand')
@@ -142,7 +142,7 @@ func (r *Repo) GetFunctionFlows(funcID domain.CanonicalID, maxDepth int) ([]*dom
            json_extract(n_next.properties, '$.func_id'),
            json_extract(n_next.properties, '$.full_path'),
            d.ctx
-    FROM edges e
+    FROM edges_v e
     JOIN flows d ON e.source_id = d.id
     JOIN nodes n_next ON e.target_id = n_next.id
     WHERE e.kind IN ('data_flows_to','phi_operand')
@@ -197,7 +197,7 @@ func (r *Repo) GetAllCalls() ([]*domain.Fact, error) {
 	logger := zap.L()
 	logger.Debug("enter (Repo).GetAllCalls")
 	defer logger.Debug("exit (Repo).GetAllCalls")
-	rows, err := r.Query(`SELECT source_id, target_id FROM edges WHERE kind = 'calls'`)
+	rows, err := r.Query(`SELECT source_id, target_id FROM edges_v WHERE kind = 'calls'`)
 	if err != nil {
 		return nil, err
 	}

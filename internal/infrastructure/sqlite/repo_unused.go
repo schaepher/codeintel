@@ -72,7 +72,7 @@ func (r *Repo) edgeTargetKinds(kinds ...string) (map[domain.CanonicalID]bool, er
 	for i, k := range kinds {
 		args[i] = k
 	}
-	rows, err := r.Query(`SELECT target_id FROM edges WHERE kind IN (`+placeholders+`)`, args...)
+	rows, err := r.Query(`SELECT target_id FROM edges_v WHERE kind IN (`+placeholders+`)`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +92,7 @@ func (r *Repo) edgeTargetKinds(kinds ...string) (map[domain.CanonicalID]bool, er
 // → var.* 节点，source 的 func_id——Q108：包初始化调用的函数不算孤立）。
 func (r *Repo) varInitFuncs() (map[domain.CanonicalID]bool, error) {
 	rows, err := r.Query(`SELECT DISTINCT json_extract(s.properties, '$.func_id')
-	FROM edges e JOIN nodes s ON s.id = e.source_id
+	FROM edges_v e JOIN nodes s ON s.id = e.source_id
 	WHERE e.kind = 'data_flows_to' AND e.target_id LIKE 'symbol:go:%:var.%'`)
 	if err != nil {
 		return nil, err
@@ -162,7 +162,7 @@ func (r *Repo) GetIsolatedChains() ([][]*domain.UnusedFunc, error) {
 
 	callers := map[domain.CanonicalID][]domain.CanonicalID{}
 	callees := map[domain.CanonicalID][]domain.CanonicalID{}
-	edgeRows, err := r.Query(`SELECT source_id, target_id FROM edges WHERE kind = 'calls'`)
+	edgeRows, err := r.Query(`SELECT source_id, target_id FROM edges_v WHERE kind = 'calls'`)
 	if err != nil {
 		return nil, err
 	}

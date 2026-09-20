@@ -8,7 +8,7 @@ func (r *Repo) orderImplsByGrpc(implIDs []string) []string {
 		return implIDs
 	}
 	grpcImpls := map[string]bool{}
-	rows, err := r.Query(`SELECT DISTINCT source_id FROM edges WHERE kind = 'grpc_impl'`)
+	rows, err := r.Query(`SELECT DISTINCT source_id FROM edges_v WHERE kind = 'grpc_impl'`)
 	if err == nil {
 		for rows.Next() {
 			var id string

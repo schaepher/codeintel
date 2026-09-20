@@ -84,6 +84,31 @@ internal/cli        internal/action            internal/infrastructure
 （PostToolUse 非阻断提醒，改 Go 文件后提示跑 verify.sh——未装
 pre-commit 场景的兜底）。
 
+## Q254c/d 整数代理键 + 写库流水线教训（2026-09-20）
+
+- **外键不能引用 `rowid`**：`REFERENCES nodes(rowid)` → `foreign key mismatch`
+  （父键必须是**命名列**且有唯一索引）。要整数代理键就必须显式
+  `id_int INTEGER PRIMARY KEY`（rowid 别名，不额外占索引）+ `id TEXT UNIQUE`
+  ——存储与"id TEXT PRIMARY KEY"等价，故父表侧不涨体积。
+- **`edges_v` 兼容视图是"零改动冷路径"的关键**：物理表换整数列后，给
+  `source_id`/`target_id` 建 JOIN 视图，27 处 `FROM edges` 里 16 处冷路径
+  一行不用改；只有热路径（邻接表/路径/递归 CTE）必须改整数空间——canonical
+  ID 只在**边界**解析（起点/终点点查 + 结果回填），别在全表扫描里搬 145B 字符串。
+- **`INDEXED BY` 是视图的死结**：视图不能加索引提示——用
+  `INDEXED BY <idx>` 锁索引的查询（value-trace 递归 CTE）必须改整数列直查。
+- **门槛脚本必须断言 dump 非空**：`detcheck.sh` 的 dump 用基表 `source_id`
+  （列已删）→ sqlite3 报错但未检查退出码 → 两侧空集、报告"边 OK（共 0/0）"
+  ——**假绿**。`--size/--plans` 之外，任何"取数→比较"的门槛都要
+  `|| exit 2` + `[ -s file ]`。
+- **schema 类型变更的迁移路径要顺手**：`reindex` 在文档里是"删旧库绕过 schema
+  检查"，实现却只调 init → 旧库直接报错。检测到 schema 不匹配就删库重建
+  （图数据是派生数据；打印"配置表 relation_rules 会丢"）。
+- **"批量 INSERT 一定更快"要先量**：多行 VALUES(200) 实测 flush 1.8–2.3s vs
+  预编译逐行 0.5–1.6s（节点 ON CONFLICT 子句巨大 → 长语句每 chunk 重新
+  解析/计划）。按 Q221 纪律回滚，数据留档 §104。
+- **先量瓶颈再决定架构**：Stage 2 后 flush 只占构建 5–12%（计算占大头），
+  故"两阶段导入/drop 索引"不成立 → 降级为观察项（触发条件写进待办）。
+
 ## Q254b stale 判定 + 两个操作纪律教训（2026-09-20）
 
 - **stale/新鲜度判定要看"内容指纹"，不要看 git 状态行数**：原 `staleInfo` 按

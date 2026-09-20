@@ -6,7 +6,12 @@ package sqlite
 
 const schema = `
 CREATE TABLE IF NOT EXISTS nodes (
-    id TEXT PRIMARY KEY,  -- Canonical ID
+    -- Q254c Stage 2：整数代理键。canonical ID（平均 145B）此前在 edges 的
+    -- 7 棵 B 树里各存一份（真实业务库 7.46M 边实测索引 ~7GB）。
+    -- id_int 是 rowid 别名（不额外占索引），id 保留唯一索引供 canonical 查询——
+    -- 与"id TEXT PRIMARY KEY（自动索引）"的存储等价，故 nodes 侧不涨体积。
+    id_int INTEGER PRIMARY KEY,
+    id TEXT NOT NULL UNIQUE,  -- Canonical ID
     kind TEXT NOT NULL,
     name TEXT NOT NULL,
     file_path TEXT,
@@ -26,35 +31,45 @@ CREATE INDEX IF NOT EXISTS idx_nodes_name ON nodes(name);
 -- 索引）。旧库由 init 里 DROP INDEX IF EXISTS 清掉。
 
 CREATE TABLE IF NOT EXISTS edges (
-    -- Q246：id 去掉 AUTOINCREMENT（无任何查询/外键用过 edges.id 值；
-    -- AUTOINCREMENT 每插一行都要读改 sqlite_sequence b-tree + 额外 WAL
-    -- 写入，百万级边构建实测是可观开销）
     id INTEGER PRIMARY KEY,
-    source_id TEXT NOT NULL,
-    target_id TEXT NOT NULL,
+    -- Q254c Stage 2：**整数代理键**（canonical ID 平均 145B，它在 edges 的
+    -- 7 棵 B 树里各存一份；真实业务库 7.46M 边实测索引占 ~7GB）。
+    --   source_ref/target_ref = nodes.rowid（nodes 的隐式整数主键，
+    --   与 id_int INTEGER PRIMARY KEY 等价——省掉改 nodes 的全部波及面）。
+    --   旧库（TEXT 列）由 schema 校验拦下，要求 clean + reindex 重建。
+    -- 兼容：冷路径读 edges_v 视图（自带你熟悉的 source_id/target_id）。
+    source_ref INTEGER NOT NULL,
+    target_ref INTEGER NOT NULL,
     kind TEXT NOT NULL,
     tool_source TEXT NOT NULL,
     confidence REAL NOT NULL DEFAULT 0.5,
     metadata JSON,
     -- R69：同义边调用次数（UNIQUE 合并时累加——真实调用频率）
     count INTEGER NOT NULL DEFAULT 1,
-    FOREIGN KEY (source_id) REFERENCES nodes(id) ON DELETE CASCADE,
-    FOREIGN KEY (target_id) REFERENCES nodes(id) ON DELETE CASCADE,
+    FOREIGN KEY (source_ref) REFERENCES nodes(id_int) ON DELETE CASCADE,
+    FOREIGN KEY (target_ref) REFERENCES nodes(id_int) ON DELETE CASCADE,
     -- 同义边合并：同一 (source, target, kind) 保留最高置信度（TD.md 5.3）
-    UNIQUE(source_id, target_id, kind)
+    UNIQUE(source_ref, target_ref, kind)
 );
--- Q254 Stage 1：删掉 4 个冗余 edges 索引（实测证据见 field_trace §100）：
---   idx_edges_source / idx_edges_source_kind → UNIQUE(source_id,target_id,kind)
---     自动索引提供最左前缀，且**覆盖** target_id+kind（EXPLAIN 实测：
---     SEARCH edges USING COVERING INDEX sqlite_autoindex_edges_1）
---   idx_edges_target → idx_edges_target_kind(target_id,kind) 最左前缀顶替
+-- Q254c：删掉 4 个冗余 edges 索引（实测证据见 field_trace §100）：
+--   idx_edges_source / idx_edges_source_kind → UNIQUE(source_ref,target_ref,kind)
+--     提供最左前缀，且**覆盖** target_ref+kind
+--   idx_edges_target → idx_edges_target_kind(target_ref,kind) 最左前缀顶替
 --   idx_edges_confidence → 全仓库无任何查询按 confidence 过滤（仅 SELECT 列）
--- 真实业务库（7.46M 边）实测这三条单列/复合索引 ≈3.5GB。旧库由
--- dropRedundantEdgeIndexes（maintenance.go）在 Open 时幂等 DROP——**不递增
--- SchemaVersion**：删索引不改表结构，不该逼用户重建整库。
+-- 旧库由 dropRedundantEdgeIndexes（maintenance.go）在 Open 时幂等 DROP——
+-- **不递增 SchemaVersion**：删索引不改表结构，不该逼用户重建整库。
 CREATE INDEX IF NOT EXISTS idx_edges_kind ON edges(kind);
--- 唯一以 target_id 打头的索引（入边查询靠它，必须保留）
-CREATE INDEX IF NOT EXISTS idx_edges_target_kind ON edges(target_id, kind);
+-- 唯一以 target_ref 打头的索引（入边查询靠它，必须保留）
+CREATE INDEX IF NOT EXISTS idx_edges_target_kind ON edges(target_ref, kind);
+-- 兼容视图（Q254c）：冷路径查询继续按 canonical ID 读，无需改 SQL；
+-- 热路径（邻接/路径/value-trace）直接走 edges 的整数列。
+CREATE VIEW IF NOT EXISTS edges_v AS
+    SELECT e.id, e.source_ref, e.target_ref, e.kind, e.tool_source,
+           e.confidence, e.metadata, e.count,
+           s.id AS source_id, t.id AS target_id
+    FROM edges e
+    JOIN nodes s ON s.id_int = e.source_ref
+    JOIN nodes t ON t.id_int = e.target_ref;
 
 CREATE TABLE IF NOT EXISTS build_metadata (
     build_id TEXT PRIMARY KEY,

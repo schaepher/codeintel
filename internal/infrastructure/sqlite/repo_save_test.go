@@ -34,8 +34,8 @@ func TestSaveBatchEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SaveBatchStats(nil): %v", err)
 	}
-	if res.SkippedEdges != 0 {
-		t.Errorf("SkippedEdges = %d", res.SkippedEdges)
+	if len(res.FailedEdges) != 0 {
+		t.Errorf("空批次不应有延迟边: %d", len(res.FailedEdges))
 	}
 }
 func TestSaveBatchFKSkip(t *testing.T) {
@@ -49,8 +49,10 @@ func TestSaveBatchFKSkip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SaveBatchStats: %v", err)
 	}
-	if res.SkippedEdges != 0 {
-		t.Errorf("SkippedEdges = %d, want 0（FK 失败待重试，非最终跳过）", res.SkippedEdges)
+	// Q254c：端点解析不到的边进 FailedEdges（延迟重试），**不是**最终跳过——
+	// 最终跳过数由构建尾部按 len(FailedEdges) 统计（SkippedEdges 字段已删）。
+	if len(res.FailedEdges) != 1 {
+		t.Errorf("应延迟 1 条边，got %d", len(res.FailedEdges))
 	}
 	if len(res.FailedEdges) != 1 {
 		t.Fatalf("FailedEdges = %d, want 1", len(res.FailedEdges))
@@ -81,12 +83,12 @@ func TestSaveBatchFKRetry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("retry: %v", err)
 	}
-	if len(res2.FailedEdges) != 0 || res2.SkippedEdges != 0 {
+	if len(res2.FailedEdges) != 0 {
 		t.Fatalf("retry 残留: %+v", res2)
 	}
 	// 边已入库
 	var cnt int
-	if err := r.QueryRow(`SELECT COUNT(*) FROM edges WHERE source_id = ? AND target_id = ?`,
+	if err := r.QueryRow(`SELECT COUNT(*) FROM edges_v WHERE source_id = ? AND target_id = ?`,
 		string(src), string(tgt)).Scan(&cnt); err != nil || cnt != 1 {
 		t.Fatalf("edge count = %d, %v; want 1", cnt, err)
 	}
@@ -210,6 +212,7 @@ func TestDeleteByFileCascade(t *testing.T) {
 		t.Errorf("node b should remain: %v", err)
 	}
 }
+
 // TestOpenSchemaVersionMismatch 已由 Q235-3 替代：user_version 不再做
 // 严格相等校验——结构齐全即可用（TestOpenSchemaUnknownVersionSelfHeal
 // 覆盖）；缺列才报错 clean（TestOpenSchemaMissingColumnFails 覆盖）。

@@ -41,6 +41,9 @@ func (r *Repo) SaveBatchStats(nodes []*domain.CodeEntity, edges []*domain.Fact,
 	defer tx.Rollback()
 
 	if len(nodes) > 0 {
+		// Q254d 实测：多行批量 INSERT 在本项目**不划算**（节点 ON CONFLICT 子句
+		// 很大 → 长语句每 chunk 重新解析/计划，抵消往返节省；A/B 见 §103.4）
+		// ——保留预编译 + 逐行 Exec。
 		stmt, err := tx.Prepare(insertNodeSQL)
 		if err != nil {
 			return nil, fmt.Errorf("prepare node insert: %w", err)
@@ -60,20 +63,32 @@ func (r *Repo) SaveBatchStats(nodes []*domain.CodeEntity, edges []*domain.Fact,
 		stmt.Close()
 	}
 	if len(edges) > 0 {
+		// Q254c：canonical ID → nodes.rowid（整数代理键）批量解析；解析不到的
+		// 端点（节点还没落库）走 FailedEdges 延迟重试——与原来"外键冲突"同语义。
+		refs, rerr := resolveNodeRefs(tx, edgeEndpointIDs(edges))
+		if rerr != nil {
+			return nil, rerr
+		}
 		stmt, err := tx.Prepare(insertEdgeSQL)
 		if err != nil {
 			return nil, fmt.Errorf("prepare edge insert: %w", err)
 		}
 		for _, e := range edges {
+			src, okSrc := refs[string(e.SourceID)]
+			dst, okDst := refs[string(e.TargetID)]
+			if !okSrc || !okDst {
+				// Q254c：端点解析不到（节点未落库）→ 延迟重试（与 FK 冲突同路径）
+				result.FailedEdges = append(result.FailedEdges, e)
+				continue
+			}
 			meta, err := json.Marshal(e.Metadata)
 			if err != nil {
 				stmt.Close()
 				return nil, fmt.Errorf("marshal metadata: %w", err)
 			}
-			if _, err := stmt.Exec(string(e.SourceID), string(e.TargetID), string(e.Kind),
+			if _, err := stmt.Exec(src, dst, string(e.Kind),
 				e.ToolSource, e.Confidence, string(meta)); err != nil {
 				if isFKError(err) {
-
 					result.FailedEdges = append(result.FailedEdges, e)
 					continue
 				}

@@ -53,7 +53,7 @@ func (r *Repo) GetFactsByKinds(kinds ...string) ([]*domain.Fact, error) {
 		args[i] = k
 	}
 	rows, err := r.Query(`SELECT source_id, target_id, kind, tool_source, confidence, metadata
-		FROM edges WHERE kind IN (`+placeholders+`)`, args...)
+		FROM edges_v WHERE kind IN (`+placeholders+`)`, args...)
 	if err != nil {
 		return nil, err
 	}

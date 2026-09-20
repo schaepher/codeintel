@@ -117,7 +117,7 @@ func TestExtChainCache(t *testing.T) {
 		t.Fatalf("第一次 grpc = %+v", out1.Grpc)
 	}
 	// 删除索引调用边（模拟索引被改）——缓存仍命中（build 未变）
-	_, _ = r.Exec(`DELETE FROM edges WHERE source_id = ?`, sym)
+	_, _ = r.Exec(`DELETE FROM edges WHERE source_ref IN (SELECT id_int FROM nodes WHERE id = ?) OR target_ref IN (SELECT id_int FROM nodes WHERE id = ?)`, sym, sym)
 	out2, err := acts.ChainGrpcHTTP(ChainGrpcHTTPRequest{Symbol: sym})
 	if err != nil {
 		t.Fatal(err)

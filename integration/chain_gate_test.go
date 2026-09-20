@@ -29,6 +29,7 @@ func TestChainIntegritySmoke(t *testing.T) {
 	dir := t.TempDir()
 	copyDir(t, "fixtureapp", filepath.Join(dir, "fixtureapp"))
 	repoDir := filepath.Join(dir, "fixtureapp")
+	clearIndex(t, repoDir)
 	if code := runCLI(t, "init", "--repo", repoDir); code != 0 {
 		t.Fatalf("init exit = %d", code)
 	}

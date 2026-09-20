@@ -14,7 +14,7 @@ func (r *Repo) GetIndirectWriteEdges(funcID domain.CanonicalID) ([]*domain.Fact,
 	logger.Debug("enter (Repo).GetIndirectWriteEdges")
 	defer logger.Debug("exit (Repo).GetIndirectWriteEdges")
 	rows, err := r.Query(`SELECT source_id, target_id, kind, tool_source, confidence, metadata
-		FROM edges WHERE source_id = ? AND kind = 'indirect_write'`, string(funcID))
+		FROM edges_v WHERE source_id = ? AND kind = 'indirect_write'`, string(funcID))
 	if err != nil {
 		return nil, err
 	}
@@ -28,7 +28,7 @@ func (r *Repo) GetDispatchEdges(ifaceID domain.CanonicalID) ([]*domain.Fact, err
 	logger.Debug("enter (Repo).GetDispatchEdges")
 	defer logger.Debug("exit (Repo).GetDispatchEdges")
 	rows, err := r.Query(`SELECT source_id, target_id, kind, tool_source, confidence, metadata
-		FROM edges WHERE source_id = ? AND kind = 'dispatch_to'`, string(ifaceID))
+		FROM edges_v WHERE source_id = ? AND kind = 'dispatch_to'`, string(ifaceID))
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +42,7 @@ func (r *Repo) GetDispatchTargets() (map[domain.CanonicalID]domain.DispatchMeta,
 	logger := zap.L()
 	logger.Debug("enter (Repo).GetDispatchTargets")
 	defer logger.Debug("exit (Repo).GetDispatchTargets")
-	rows, err := r.Query(`SELECT target_id, confidence, metadata FROM edges WHERE kind = 'dispatch_to'`)
+	rows, err := r.Query(`SELECT target_id, confidence, metadata FROM edges_v WHERE kind = 'dispatch_to'`)
 	if err != nil {
 		return nil, err
 	}

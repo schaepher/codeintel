@@ -72,11 +72,11 @@ func measureChain(t *testing.T, repoDir, label string, oneHopN, multiHopN, hops 
 	repo := sqlite.NewRepo(db)
 	m := &chainMetrics{Repo: label}
 	m.Nodes = countQuery(t, repo, `SELECT count(*) FROM nodes`)
-	m.Edges = countQuery(t, repo, `SELECT count(*) FROM edges`)
+	m.Edges = countQuery(t, repo, `SELECT count(*) FROM edges_v`)
 	m.SSAValues = countQuery(t, repo, `SELECT count(*) FROM nodes WHERE kind='ssa_value'`)
 	m.SSAValuesNoLine = countQuery(t, repo, `SELECT count(*) FROM nodes WHERE kind='ssa_value' AND COALESCE(line_start,0)=0`)
-	m.AliasConnected = countQuery(t, repo, `SELECT count(*) FROM edges e JOIN nodes n ON n.id=e.target_id
-		WHERE e.kind='alias' AND EXISTS (SELECT 1 FROM edges e2 WHERE e2.source_id=n.id
+	m.AliasConnected = countQuery(t, repo, `SELECT count(*) FROM edges_v e JOIN nodes n ON n.id=e.target_id
+		WHERE e.kind='alias' AND EXISTS (SELECT 1 FROM edges_v e2 WHERE e2.source_id=n.id
 			AND e2.kind IN ('argument','returns','data_flows_to'))`)
 	// 分裂候选：同 (func_id, type_string, lower(ssa_op)) 且行号存在性互补——
 	// Q252b 的签名（同一指令被两条发射路径写成两个节点）。不是 0 容忍项
@@ -143,7 +143,7 @@ func countQuery(t *testing.T, repo *sqlite.Repo, q string) int {
 // sampleChainEdges 确定性抽样边（按 (source,target) 排序后等步长取 n 条）。
 func sampleChainEdges(t *testing.T, repo *sqlite.Repo, where string, n int) [][2]string {
 	t.Helper()
-	rows, err := repo.Query(`SELECT source_id, target_id FROM edges WHERE ` + where + ` ORDER BY source_id, target_id`)
+	rows, err := repo.Query(`SELECT source_id, target_id FROM edges_v WHERE ` + where + ` ORDER BY source_id, target_id`)
 	if err != nil {
 		t.Fatalf("sample edges: %v", err)
 	}
@@ -172,7 +172,7 @@ func sampleChainEdges(t *testing.T, repo *sqlite.Repo, where string, n int) [][2
 // 只收 ≥2 跳的对（1 跳由 0 容忍项覆盖；浅对测不出 BFS 扩展预算类问题）。
 func multiHopChainPairs(t *testing.T, repo *sqlite.Repo, hops, n int) [][2]string {
 	t.Helper()
-	rows, err := repo.Query(`SELECT source_id, target_id FROM edges
+	rows, err := repo.Query(`SELECT source_id, target_id FROM edges_v
 		WHERE kind IN ('data_flows_to','argument','returns','phi_operand','summary_io')
 		ORDER BY source_id, target_id`)
 	if err != nil {

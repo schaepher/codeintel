@@ -153,7 +153,7 @@ func main() {}
 	// 返回值节点：run6 中动态调用的结果（SSA 对只写不读的 err 重命名为
 	// tN——经 returns 入边定位）
 	var retID string
-	rows, err := repo.Query(`SELECT target_id FROM edges WHERE kind='returns'
+	rows, err := repo.Query(`SELECT target_id FROM edges_v WHERE kind='returns'
 			AND target_id LIKE 'symbol:go:example.com/mtest:run6#%' LIMIT 1`)
 	if err != nil {
 		t.Fatal(err)

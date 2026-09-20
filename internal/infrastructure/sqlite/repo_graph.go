@@ -44,10 +44,10 @@ func (r *Repo) walkEdges(id string, depth int, minConfidence float64, dir string
 	q := fmt.Sprintf(`
 WITH RECURSIVE walk(src, tgt, kind, tool_source, confidence, metadata, d) AS (
     SELECT source_id, target_id, kind, tool_source, confidence, metadata, 1
-    FROM edges WHERE %s = ? AND kind = 'calls' AND confidence >= ?
+    FROM edges_v WHERE %s = ? AND kind = 'calls' AND confidence >= ?
     UNION
     SELECT e.source_id, e.target_id, e.kind, e.tool_source, e.confidence, e.metadata, w.d + 1
-    FROM edges e JOIN walk w ON e.%s = w.%s
+    FROM edges_v e JOIN walk w ON e.%s = w.%s
     WHERE w.d < ? AND e.kind = 'calls' AND e.confidence >= ?
 )
 SELECT DISTINCT src, tgt, kind, tool_source, confidence, metadata FROM walk`,
@@ -89,13 +89,13 @@ func (r *Repo) GetImpact(id domain.CanonicalID, depth int) ([]*domain.CodeEntity
 	defer logger.Debug("exit (Repo).GetImpact")
 	q := `
 WITH RECURSIVE reach(id, d) AS (
-    SELECT target_id, 1 FROM edges WHERE source_id = ?
+    SELECT target_id, 1 FROM edges_v WHERE source_id = ?
     UNION
-    SELECT source_id, 1 FROM edges WHERE target_id = ?
+    SELECT source_id, 1 FROM edges_v WHERE target_id = ?
     UNION
-    SELECT e.target_id, r.d + 1 FROM edges e JOIN reach r ON e.source_id = r.id WHERE r.d < ?
+    SELECT e.target_id, r.d + 1 FROM edges_v e JOIN reach r ON e.source_id = r.id WHERE r.d < ?
     UNION
-    SELECT e.source_id, r.d + 1 FROM edges e JOIN reach r ON e.target_id = r.id WHERE r.d < ?
+    SELECT e.source_id, r.d + 1 FROM edges_v e JOIN reach r ON e.target_id = r.id WHERE r.d < ?
 )
 SELECT id FROM reach LIMIT 2000`
 
@@ -279,7 +279,7 @@ func (r *Repo) interfaceImpls(ifaceID string) []string {
 	if kind != "interface" {
 		return nil
 	}
-	implRows, err := r.Query(`SELECT target_id FROM edges
+	implRows, err := r.Query(`SELECT target_id FROM edges_v
 		WHERE source_id = ? AND kind = 'implements' AND target_id NOT LIKE '%Unimplemented%'`, ifaceID)
 	if err != nil {
 		return nil
