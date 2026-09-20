@@ -2513,34 +2513,42 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
 
 ## 待办与已知不足（按优先级，2026-08-27 统一整理，R97 更新——含 R84-R97 新暴露项）
 
-### Q252 系列（构建性能 + 正确性整改）新增待办 —— 2026-09-19
+### Q252 系列（构建性能 + 正确性整改）新增待办 —— 2026-09-19（Q252e/f 更新）
 
-**依据**：Q246–Q252d 七轮性能 + 三轮正确性整改（field_trace §87–§96）。
-当前基线：go2o 冷构建 16.4s/1.09GB（原 51.4s/2.32GB）、图构建与
-**缓存重放**双跑全等、`make it` 全绿、链完整性有常驻数字门槛。
+**依据**：Q246–Q252f 九轮性能 + 四轮正确性整改（field_trace §87–§98）。
+当前基线：go2o 冷构建（`reindex --workers 8`）24.2–24.4s / 峰值 RSS 1016–1047MB
+（原始 51.4s/2.32GB）；图构建与**缓存重放**双跑全等；`make it` 全绿；
+链完整性常驻数字门槛（`scripts/chaincheck.sh`，go2o 抽样 500/400 约 1.7s）。
 
-- 1. **邻接表缓存推广到剩余"每次全扫边集"的消费者**（Q252d 只接了
-  `GetPath`）：`repo_chain.go:18`、`repo_flows.go:200`（calls）、
-  `repo_unused.go:165`（calls）、`rg_bfs.go:33`（全边集）都是同一模式
-  （每次查询扫表建 map）。基础设施已就绪：`edge_graph.go` 的
-  `adjacencyView(label)`（按 build_id + 视图惰性缓存，命中 81µs/次）。
-  **逐个迁移、各自带验证**（这四处过滤条件/返回字段/是否要 metadata
-  各不同，勿一轮混做）；`rg_bfs` 若要全边集视图需新增 view 标签。
-- 2. **构建期内存线复测/收尾**（Q249 后剩余热点未复测）：用
-  `CODEINTEL_MEM_PROFILE=<file> go build`/`codeintel init` 拿**峰值** live
-  （`go tool pprof -top -inuse_space`）确认当前构成；待评估项：
-  ① 包缓存 JSON→gob 虽 CPU -25~30%/体积 -16%，但**分配 +60%**
-  （§93 编解码对照基准）——若峰值内存成为瓶颈可回退；
-  ② SSA 阶段剩余 live 已收敛到无病态单项（最大 9.7% 类型检查），
-  下一步只能靠"换格式/改数据结构"这类中等风险改动。
-  **验收**：go2o CLI 冷构建 wall + in-process 峰值 RSS 双数字对照。
-- 3. **`scripts/verify.sh --quick` 偶发失败（3 次，未复现）**：
-  Q252c/Q252d 期间三次红（只见到脚本自身 `FAIL: test`，包的
-  `--- FAIL` 详情因我 `| tail` 截断而丢失——runbook #22）。之后 7 轮
-  `go test -count=1 ./...` 全绿，无法复现。**下一步**：下次复现时用
-  `> .tmp/v.txt 2>&1` 落盘定位具体包/测试；嫌疑方向：并发包执行下的
-  内存压力（机器 3.4GB/可用 ~1.3GB）或某测试的时序假设。
+**已完成（本轮）**：
+- SSA 阶段三改（Q252e §97）：模块包并行建图（照抄 go/ssa `Program.Build`
+  信号量结构，只对模块包、上界 `--workers`）+ `AllFunctions` 排序 key 预计算
+  （1.77s→0.59s，本段主收益）+ 2 个阶段标记（`ssaBuild` /
+  `funcSnapshot+dispatchRegs`）。**结论纠错**：go2o 串行建图只占 429ms，
+  "15 分钟不出进度是逐包串行"不成立（那是换页下全阶段一起慢）。
+- 静默退化根治（Q252f §98）：`loadPackages` 对空 `ModuleDirs` / 全量构建
+  零包报错；6 个测试 fixture 补 `ModuleDirs`；`verify.sh`/`make test` 自动
+  把 `$(go env GOPATH)/bin` 加进 PATH 并打印 scip-go 路径（此前"全绿"实为
+  集成型单测静默 skip）。**原"偶发失败"待办已定位并消除**。
 
+**待办（按建议优先级）**：
+- 1. **写库/流水线层：单写者仍串行**（Q246 未动）：`orch_adapters.go`
+  `ch(4096)` → 单 consume → `flushCh(2)` → 单 flusher → SQLite（4 个 SSA
+  worker 共享一个 channel，flush 慢时全堵在 `ch <- item`；实测单批 flush
+  2s–68s 波动，中位 ~10s，波动源机器 I/O）。方向：①分片多个 DB 文件再合并
+  ②SSA 计算与写库彻底两阶段（先落中间文件，导入时 drop 索引、导完重建）。
+  **验收**：go2o `reindex` wall + flush 阶段 p95 双数字。
+- 2. **SCIP 适配器重复加载依赖图**（Q247 只优化了 orchestrator 那侧）：
+  我们的命令是 `scip-go index -o <f> -q --skip-tests`（**没有** `-deps` 之类
+  开关，`--help` 确认无此选项），但 scip-go **内部**会 `go list -deps=true
+  -export=true` 完整加载并自行类型检查一遍（进程树可见）——与 backlog 第 8
+  项"scip 按包增量"部分重叠。方向：把 scip 调用限定到变更模块/包 pattern
+  （`scip-go index <patterns>` 支持）、或评估替换 scip-go。
+- 3. **构建期内存线复测/收尾**：`CODEINTEL_MEM_PROFILE` 峰值 live 复测；
+  待评估 ①包缓存 gob 分配 +60%（§93）是否回退 ②SSA 剩余单项 ≤9.7% 无病态。
+- 4. **邻接表缓存推广到剩余"每次全扫边集"消费者**：`repo_chain.go:18`、
+  `repo_flows.go:200`、`repo_unused.go:165`、`rg_bfs.go:33`（基础设施
+  `edge_graph.go` `adjacencyView` 已就绪）；逐个迁移各自带验证。
 
 **P0——高优先级（机制未闭环/影响正确性）**：
 - 1. **真实业务系统端到端验证**（R90-R97 全部 grpc 识别形态在用户

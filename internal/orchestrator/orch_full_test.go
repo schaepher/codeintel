@@ -54,7 +54,7 @@ func (s *Service) TestHelper() {
 	}
 	defer db.Close()
 
-	orch := New(&domain.Repository{Path: dir, Module: "example.com/e2e", Modules: []string{"example.com/e2e"}}, db)
+	orch := New(&domain.Repository{Path: dir, Module: "example.com/e2e", Modules: []string{"example.com/e2e"}, ModuleDirs: []string{"."}}, db)
 	res, err := orch.FullBuild(context.Background())
 	if err != nil {
 		t.Fatalf("full build: %v", err)

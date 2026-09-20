@@ -52,9 +52,11 @@ release:
 	@cd dist && sha256sum codeintel-*.tar.gz > SHA256SUMS
 	@echo "== dist/ ==" && ls -la dist/
 
-## test: 运行全部测试（-race 竞态检测 + -count=1 禁用缓存 + 覆盖率汇总）
+## test: 运行全部测试（-race 竞态检测 + -count=1 禁用缓存 + 覆盖率汇总）；
+##       Q252f：自动把 GOBIN/GOPATH/bin 加入 PATH——scip-go 缺失时集成型
+##       单测（orchestrator e2e）会**静默 skip**（曾长期“绿”实为跳过）
 test:
-	go test -race -count=1 -cover ./...
+	@PATH="$$(go env GOPATH)/bin:$$PATH" go test -race -count=1 -cover ./...
 
 ## it: 集成测试（真实仓库 → CLI init/query/clean + HTTP serve 全 API；
 ##     需要 scip-go 在 PATH 或 GOBIN/GOPATH/bin，缺失时自动跳过）

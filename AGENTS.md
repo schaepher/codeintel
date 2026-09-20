@@ -83,6 +83,21 @@ internal/cli        internal/action            internal/infrastructure
 （PostToolUse 非阻断提醒，改 Go 文件后提示跑 verify.sh——未装
 pre-commit 场景的兜底）。
 
+## Q252f 静默退化根治教训（2026-09-19）
+
+- **`ok` 不等于"跑了"**：`go test` 的 `ok` 不区分"执行通过"与"全部 skip"。
+  `internal/orchestrator` 的 e2e 单测靠 `exec.LookPath("scip-go")` 决定跑/跳
+  ——scip-go 不在 PATH 时整批集成型单测静默跳过，此前多轮"13 包全绿"实为跳过。
+  **门槛脚本必须显式定位并打印外部工具**（`scripts/verify.sh` / `make test`
+  已自动把 `$(go env GOPATH)/bin` 加入 PATH，verify 头部打印 scip-go 路径）。
+- **静默退化第二次命中同一模式**（Q246 benchmark → Q252f 测试）：
+  `Repository` 少 `ModuleDirs` → `loadPackages` 循环体不进 → AST/SSA 全空跑，
+  但 scip/git 兜出 209 节点/1 边、`status=success`，断言"非空"照样过。
+  **守卫写在唯一入口**（`loadPackages`：ModuleDirs 空报错 + 全量构建零包报错；
+  增量构建的"无变更包"合法，不能报错），别指望每个调用方都记得填字段。
+- **"偶发红/重跑即绿"先怀疑"少跑了什么"**：那次 `verify.sh --quick` 三次红
+  的真身是这条长期失败（详情被 `| tail` 截断，见 runbook #22）。
+
 ## Q252e SSA 阶段整改教训（2026-09-19）
 
 - **"某阶段慢"的直觉要用阶段拆分先证伪**：go2o 的串行 `sp.Build()` 实测只占

@@ -191,3 +191,29 @@ func TestLoadPackagesSharedFileSet(t *testing.T) {
 		}
 	}
 }
+
+// Q252f：ModuleDirs 为空必须大声报错（否则 loadPackages 返回空包集，
+// AST/SSA 全空跑而构建报 success——静默退化）。
+func TestLoadPackagesRejectsEmptyModuleDirs(t *testing.T) {
+	o := &Orchestrator{Repo: &domain.Repository{Path: t.TempDir(), Module: "example.com/x", Modules: []string{"example.com/x"}}}
+	_, err := o.loadPackages(context.Background(), nil)
+	if err == nil {
+		t.Fatal("ModuleDirs 为空应当报错（拒绝静默返回空包集）")
+	}
+	if !strings.Contains(err.Error(), "ModuleDirs") {
+		t.Fatalf("错误信息应点明 ModuleDirs：%v", err)
+	}
+}
+
+// Q252f：全量构建零包同样报错（增量构建的 patterns 语义另测——那里
+// “无变更包”合法）。
+func TestLoadPackagesFullBuildZeroPackagesFails(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "go.mod"), "module example.com/empty\n\ngo 1.21\n")
+	writeFile(t, filepath.Join(dir, "readme.txt"), "no go files here")
+	o := &Orchestrator{Repo: &domain.Repository{Path: dir, Module: "example.com/empty", Modules: []string{"example.com/empty"}, ModuleDirs: []string{"."}}}
+	_, err := o.loadPackages(context.Background(), nil)
+	if err == nil {
+		t.Fatal("全量构建零包应当报错")
+	}
+}

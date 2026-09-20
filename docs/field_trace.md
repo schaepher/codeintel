@@ -4463,3 +4463,60 @@ build progress 是逐包串行导致"的假设**不成立**（那是内存压力
 → AST/SSA 一个包都没加载（scip/git 兜出 209 节点 1 边）→ 断言"非空"被"看起来
 正常"骗过。与 Q246 benchmark 同款**静默退化**。且该测试**只在 scip-go 在 PATH
 时才真跑**（缺失即 skip）——我此前多轮"绿"其实是跳过（Q252f 修）。
+
+## §98 静默退化根治：ModuleDirs 空 / 零包加载必须大声报错（Q252f，2026-09-19）
+
+### 触发链：所谓"偶发验证失败"其实是长期真红
+
+`verify.sh --quick` 曾三次红、重跑即绿（runbook #22 当时记为"未复现"）——本轮定位：
+不是偶发。`internal/orchestrator.TestFullBuildAndQuery` 长期失败，报告
+`build: 209 nodes, 1 edges, status=success`：
+
+- 测试构造 `domain.Repository{Path, Module, Modules}` 时**没给 `ModuleDirs`**
+  → `loadPackages` 的 `for i, d := range o.Repo.ModuleDirs` **循环体一次不进**
+  → 返回空包集 → AST/SSA 适配器全部空跑（scip/git 兜出 209 节点 1 边），
+  而测试只断言"节点/边非空"+`status=success` → 被"看起来正常"骗过。
+- 与 Q246 的 `benchmarks/bench_test.go` **同款静默退化（第二次命中）**。
+
+**为什么有时看着是绿的**：该测试开头 `exec.LookPath("scip-go")` 不满足即
+`t.Skip`——scip-go 不在 PATH 时，集成型单测**整批静默跳过**。此前多轮
+`go test ./...` 没把 `$HOME/go/bin` 放进 PATH，"13 包全绿"实为跳过。
+
+### 修法
+
+1. **生产守卫**（`loadPackages`，唯一入口）：
+   ① `len(ModuleDirs)==0` 直接报错（拒绝返回空包集）；
+   ② 全量构建（`patterns==nil`）加载到 0 个包也报错——增量构建**不报错**
+   （"该 module 无变更包"是合法语义，patterns 会让无关 module 跳过）。
+   错误信息点明 path/modules/dirs。
+2. **测试 fixture**：6 个 orchestrator 测试的 Repository 补
+   `ModuleDirs: []string{"."}`；`newTestOrchestrator` 改成真实 module
+   （go.mod + main.go，不再用裸空目录）。
+3. **门槛脚本不再允许静默跳过**：`scripts/verify.sh` 与 `make test`
+   **自动把 `$(go env GOPATH)/bin` 加入 PATH**，verify 头部打印
+   `== scip-go: <path> ==`；两者都找不到时显式告警。
+
+### 效果
+
+| 项 | 改前 | 改后 |
+|---|---|---|
+| `TestFullBuildAndQuery` 产物 | 209 节点 / **1 边**（status=success） | **212 节点 / 12 边**（真实 AST/SSA 边） |
+| 该测试是否真跑 | scip-go 不在 PATH 即 skip（无人察觉） | 门槛脚本保证 PATH + 打印路径 |
+| `loadPackages(ModuleDirs 空)` | 静默返回空包集 | 报错（点明 modules） |
+| `loadPackages(全量构建 0 包)` | 静默成功 | 报错 |
+
+新增回归测试：`TestLoadPackagesRejectsEmptyModuleDirs`、
+`TestLoadPackagesFullBuildZeroPackagesFails`。
+
+验证：`verify.sh --quick` 绿（头部 scip-go 行可见）、`make test`（13 包 -race）
+绿、`make it` 绿、`e2e-fixture` 38/38。
+
+### 教训
+
+- **`ok` 不等于"跑了"**：`go test` 的 `ok` 不区分"执行并通过"与"全部 skip"。
+  依赖外部工具的集成型单测，必须在**门槛脚本**里显式定位工具并打印路径。
+- **静默退化守卫要写在唯一入口**：同一类问题（Repository 少字段 → 适配器空跑
+  → status=success）已在 Q246/Q252f 两次命中；守卫放 `loadPackages` 一处，
+  优于在每个调用方查字段。
+- **"偶发红/重跑即绿"的日志必须在第一次就落盘**（runbook #22）——本次三次红
+  的详情全被 `| tail` 截断，多花了一轮才复现。

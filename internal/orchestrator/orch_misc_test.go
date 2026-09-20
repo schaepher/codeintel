@@ -62,7 +62,7 @@ func TestInjectChangedFiles(t *testing.T) {
 
 	mock := &mockAdapter{}
 	orch := &Orchestrator{
-		Repo:     &domain.Repository{Path: dir, Module: "example.com/e2e", Modules: []string{"example.com/e2e"}},
+		Repo:     &domain.Repository{Path: dir, Module: "example.com/e2e", Modules: []string{"example.com/e2e"}, ModuleDirs: []string{"."}},
 		RepoImpl: sqlite.NewRepo(db),
 		Adapters: []domain.IndexerPort{mock},
 	}
@@ -107,7 +107,7 @@ func TestFlushFKRetry(t *testing.T) {
 		t.Fatalf("open db: %v", err)
 	}
 	defer db.Close()
-	orch := New(&domain.Repository{Path: dir, Module: "m", Modules: []string{"m"}}, db)
+	orch := New(&domain.Repository{Path: dir, Module: "m", Modules: []string{"m"}, ModuleDirs: []string{"."}}, db)
 	src := domain.CanonicalID("symbol:go:m:a")
 	tgt := domain.CanonicalID("symbol:go:m:b")
 	var mu sync.Mutex

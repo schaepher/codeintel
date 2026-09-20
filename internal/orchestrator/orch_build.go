@@ -79,6 +79,13 @@ func (o *Orchestrator) FullBuild(ctx context.Context) (*BuildResult, error) {
 // P2-3 多 go.mod：每个 module 单独 Load（go/packages 不能跨 module），
 // 按 PkgPath 去重合并（同一包路径只属于一个 module，Go 语义保证）。
 func (o *Orchestrator) loadPackages(ctx context.Context, patterns pkgPatterns) ([]*packages.Package, error) {
+	// Q252f：空 ModuleDirs 是**静默退化**阀值——循环体一次不进、返回空包集，
+	// 上层却报 success（AST/SSA 什么都没干，只剩余 scip/git 产物；Q246 的
+	// benchmark、Q252f 的 e2e 测试都踩过“209 节点/1 边看着像成功”）。宁可
+	// 大声报错。
+	if len(o.Repo.ModuleDirs) == 0 {
+		return nil, fmt.Errorf("loadPackages: Repository.ModuleDirs 为空（modules=%v）——拒绝返回空包集：AST/SSA 适配器会全部空跑而构建仍报 success", o.Repo.Modules)
+	}
 	seen := map[string]bool{}
 	var out []*packages.Package
 	// Q251：多 module 共用**一个** token.FileSet——原先每个 module 各一次
@@ -118,6 +125,11 @@ func (o *Orchestrator) loadPackages(ctx context.Context, patterns pkgPatterns) (
 			seen[p.PkgPath] = true
 			out = append(out, p)
 		}
+	}
+	// 全量构建（patterns==nil）却一个包都没加载到 = 配置/路径错，不是“空仓库”
+	// ——同样拒绝静默成功（增量构建时 patterns 会让无关 module 跳过，不能报错）。
+	if patterns == nil && len(out) == 0 {
+		return nil, fmt.Errorf("loadPackages: 未加载到任何 Go 包（path=%s modules=%v dirs=%v）——检查 ModuleDirs 与仓库目录", o.Repo.Path, o.Repo.Modules, o.Repo.ModuleDirs)
 	}
 	return out, nil
 }

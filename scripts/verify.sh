@@ -29,6 +29,17 @@ if [ -d "$PWD/.tmp" ]; then
   export TMPDIR="$PWD/.tmp"
 fi
 
+# Q252f：scip-go 不在 PATH 时集成型单测会**静默 skip**（orchestrator 的
+# e2e 单测曾长期“绿”实为跳过 7 次以上）——自动补 GOPATH/bin 仍缺失则显式告警。
+if command -v scip-go >/dev/null 2>&1; then
+  echo "== scip-go: $(command -v scip-go) =="
+elif [ -x "$(go env GOPATH)/bin/scip-go" ]; then
+  export PATH="$(go env GOPATH)/bin:$PATH"
+  echo "== scip-go: $(go env GOPATH)/bin/scip-go（自动加入 PATH）=="
+else
+  echo "!! 未找到 scip-go：集成型单测会 skip（orchestrator e2e / make it）" >&2
+fi
+
 echo "== go build ./... =="
 go build ./... || { echo "FAIL: build"; exit 1; }
 

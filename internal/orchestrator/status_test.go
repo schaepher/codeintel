@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/schaepher/codeintel/internal/domain"
@@ -37,8 +38,13 @@ func newTestOrchestrator(t *testing.T, adapters []domain.IndexerPort) (*Orchestr
 		t.Fatalf("Open: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
+	// Q252f：fixture 必须是**真实 module**（有 go.mod + Go 文件）——否则
+	// loadPackages 零包（守卫会报错），也测不到真实装配路径。
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "go.mod"), "module example.com/m\n\ngo 1.21\n")
+	writeFile(t, filepath.Join(dir, "main.go"), "package main\n\nfunc main() {}\n")
 	o := &Orchestrator{
-		Repo:     &domain.Repository{Path: t.TempDir(), Module: "example.com/m", Modules: []string{"example.com/m"}},
+		Repo:     &domain.Repository{Path: dir, Module: "example.com/m", Modules: []string{"example.com/m"}, ModuleDirs: []string{"."}},
 		Adapters: adapters,
 		RepoImpl: sqlite.NewRepo(db),
 	}
