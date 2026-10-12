@@ -144,3 +144,66 @@ func TestValueTraceSearchExpandFlows(t *testing.T) {
 		t.Errorf("flows = %v, %v", flows, err)
 	}
 }
+
+// TestCallersConcreteIface：接口反向具体化回归——查实现方法的调用者时，
+// 经接口方法发出的首跳调用应映射回该实现方法（CallersConcrete）。
+func TestCallersConcreteIface(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/m\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	r := sqlite.NewRepo(db)
+
+	ifaceID := domain.CanonicalID("symbol:go:example.com/m/id:IStoreHandler")
+	ifaceM := domain.CanonicalID("symbol:go:example.com/m/id:(IStoreHandler).Check")
+	implType := domain.CanonicalID("symbol:go:example.com/m/biz:StoreBiz")
+	implM := domain.CanonicalID("symbol:go:example.com/m/biz:(StoreBiz).Check")
+	caller := domain.CanonicalID("symbol:go:example.com/m:caller")
+	direct := domain.CanonicalID("symbol:go:example.com/m:direct")
+	nodes := []*domain.CodeEntity{
+		{ID: ifaceID, Kind: domain.KindInterface, Name: "IStoreHandler"},
+		{ID: ifaceM, Kind: domain.KindMethod, Name: "(IStoreHandler).Check"},
+		{ID: implType, Kind: domain.KindStruct, Name: "StoreBiz"},
+		{ID: implM, Kind: domain.KindMethod, Name: "(StoreBiz).Check", FilePath: "biz/biz.go", LineStart: 10},
+		{ID: caller, Kind: domain.KindFunction, Name: "caller"},
+		{ID: direct, Kind: domain.KindFunction, Name: "direct"},
+	}
+	edges := []*domain.Fact{
+		{SourceID: ifaceID, TargetID: implType, Kind: domain.FactImplements, ToolSource: domain.ToolSCIP, Confidence: 1},
+		{SourceID: caller, TargetID: ifaceM, Kind: domain.FactCalls, ToolSource: domain.ToolCodeGraph, Confidence: 0.8,
+			Metadata: map[string]any{"line_num": 20}},
+		{SourceID: direct, TargetID: implM, Kind: domain.FactCalls, ToolSource: domain.ToolCodeGraph, Confidence: 0.8},
+	}
+	if _, err := r.SaveBatchStats(nodes, edges, nil); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	a := New(r)
+	facts, err := a.CallersConcrete(implM, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var viaIface, directHit bool
+	for _, f := range facts {
+		if f.SourceID == caller && f.TargetID == implM {
+			viaIface = true
+		}
+		if f.SourceID == direct && f.TargetID == implM {
+			directHit = true
+		}
+	}
+	if !viaIface {
+		t.Errorf("CallersConcrete 未回溯接口调用者，facts=%v", facts)
+	}
+	if !directHit {
+		t.Errorf("CallersConcrete 丢失直接调用者，facts=%v", facts)
+	}
+	// 接口类型形态（未记录方法名）不猜测：查接口方法本身不应产生映射
+	if got := a.repo.ConcreteMethodIfaces(string(ifaceM)); len(got) != 0 {
+		t.Errorf("接口方法不应有反向映射，got=%v", got)
+	}
+}

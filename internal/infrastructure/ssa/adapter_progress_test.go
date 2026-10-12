@@ -2,11 +2,13 @@ package ssa
 
 import (
 	"io"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/progress"
+	"go.uber.org/zap"
 )
 
 // Q253：未注入时用逐行实现保底（格式与改动前一致：前缀 + heap 统计）。
@@ -68,3 +70,60 @@ func (r *ssaRecProgress) End(name string, elapsed time.Duration, err error) {
 	r.ends = append(r.ends, name+"（"+elapsed.Round(time.Millisecond).String()+"）")
 }
 func (r *ssaRecProgress) Finish() {}
+
+// hbProgress 心跳测试用进度实现（跨 goroutine，加锁）。
+type hbProgress struct {
+	mu           sync.Mutex
+	advances     int
+	advancesList []int
+	ends         int
+	endName      string
+}
+
+func (r *hbProgress) Begin(string, int, int) {}
+func (r *hbProgress) Advance(_ string, done int) {
+	r.mu.Lock()
+	r.advances++
+	r.advancesList = append(r.advancesList, done)
+	r.mu.Unlock()
+}
+func (r *hbProgress) End(name string, _ time.Duration, _ error) {
+	r.mu.Lock()
+	r.ends++
+	r.endName = name
+	r.mu.Unlock()
+}
+func (r *hbProgress) Finish() {}
+
+// TestUnknownDenominatorHeartbeat：未知分母阶段（funcSnapshot）后台心跳
+// 持续 Advance 刷新耗时；end 后停止心跳并 End 一次。
+func TestUnknownDenominatorHeartbeat(t *testing.T) {
+	rec := &hbProgress{}
+	s := &stageReporter{rep: rec, log: zap.NewNop(), start: time.Now(), heartbeat: time.Millisecond}
+	end := s.beginHeartbeat("funcSnapshot")
+	time.Sleep(25 * time.Millisecond)
+	end()
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if rec.advances == 0 {
+		t.Error("心跳应周期性 Advance 刷新耗时")
+	}
+	if rec.ends != 1 || rec.endName != "funcSnapshot" {
+		t.Errorf("end 应 End(funcSnapshot) 一次：ends=%d name=%q", rec.ends, rec.endName)
+	}
+}
+
+// TestDispatchProgressPercent：dispatch 注册扫描按模块函数总数回报真实
+// 百分比（分母 = len(modFuncs)）。
+func TestDispatchProgressPercent(t *testing.T) {
+	rec := &hbProgress{}
+	s := &stageReporter{rep: rec, log: zap.NewNop(), start: time.Now(), heartbeat: time.Millisecond}
+	s.begin("dispatchRegs", 3)
+	for i := 1; i <= 3; i++ {
+		s.rep.Advance("dispatchRegs", i)
+	}
+	s.stage("dispatchRegs")
+	if len(rec.advancesList) != 3 || rec.advancesList[2] != 3 {
+		t.Errorf("进度应为 1/2/3，得到 %v", rec.advancesList)
+	}
+}

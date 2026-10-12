@@ -47,22 +47,8 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	stage("ssaBuild")
 
 	// Q247：原「释放依赖 AST」循环已删（NeedDeps 关闭后依赖无 AST；返回切片全是模块包——恒空操作）。
-	// Q249：函数全集快照（AllFunctions 一次；6 处消费者共享）
-	begin("funcSnapshot+dispatchRegs", 0)
-	a.funcs = newFuncSnapshot(prog)
-	modFuncs := a.funcs.moduleFuncs(repo.Modules)
-	// Q221：dispatchRegs 必须在 Index 级初始化一次（sp.Build 之后——
-	// MakeInterface 指令已构建）——零值 nil map 经 extractor 解引用
-	// 复制后 `ext.dispatchRegs == nil` 永远成立，cf_call.go 懒初始化
-	// 兜底导致每个函数都全程序 AllFunctions 扫描（go2o 12875 函数 ×
-	// 全图遍历 ≈ 305s CPU，pprof 46% 热点）。初始化后各 extractor
-	// 共享只读 map。
-	a.dispatchPkgs = nil
-	a.dispatchRegs, a.dispatchPkgs = collectDispatchRegistrations(prog, modFuncs, repo.Modules)
-	a.regHits = buildRegHits(a.dispatchRegs, prog)
-	// Q252e：此标记把「建图」与「函数全集/派发注册」分开——此前日志停在
-	// ssautil.Packages 时无法区分卡在串行建图还是 AllFunctions（必须 sample）。
-	stage("funcSnapshot+dispatchRegs")
+	// Q249/Q253：函数全集快照 + 派发注册（拆到 adapter_snapshot_dispatch.go）。
+	modFuncs := a.initFuncSnapshotDispatch(prog, repo, stages)
 
 	begin("buildIdentIndex", 0)
 	idents := buildIdentIndex(pkgs, repo.Modules)

@@ -92,17 +92,16 @@ func TestWikiAIFillSplitBatches(t *testing.T) {
 	var prompts []string
 	re := regexp.MustCompile(`example\.com/m\d\d`)
 	modsOf := func(prompt string) string {
-		var b strings.Builder
-		b.WriteString("modules:\n")
+		var parts []string
 		for _, name := range re.FindAllString(prompt, -1) {
-			fmt.Fprintf(&b, "  - name: %s\n    description: %s 描述\n", name, name)
+			parts = append(parts, fmt.Sprintf(`{"name":%q,"description":%q}`, name, name+" 描述"))
 		}
-		return b.String()
+		return "{\"modules\":[" + strings.Join(parts, ",") + "],\"tables\":[{\"name\":\"user_tab\",\"alias\":\"用户表\",\"columns\":[{\"name\":\"id\",\"comment\":\"用户 ID\"}]}],\"glossary\":[{\"term\":\"ORM\",\"definition\":\"对象关系映射\"}]}"
 	}
 	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration, dir string) (string, error) {
 		prompts = append(prompts, prompt)
-		// 合并一批：一次调用返回完整 YAML（模块 + 表别名 + 列 + 术语）
-		return modsOf(prompt) + "tables:\n  - name: user_tab\n    alias: 用户表\n    columns:\n      - name: id\n        comment: 用户 ID\nglossary:\n  - term: ORM\n    definition: 对象关系映射", nil
+		// 合并一批：一次调用返回完整 JSON（模块 + 表别名 + 列 + 术语）
+		return modsOf(prompt), nil
 	})
 	defer restore()
 	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second, false, nil, "")
@@ -140,7 +139,7 @@ func TestWikiAIFillWithQA(t *testing.T) {
 	gotPrompt := ""
 	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration, dir string) (string, error) {
 		gotPrompt = prompt
-		return aiBatchYAML, nil
+		return aiBatchJSON, nil
 	})
 	defer restore()
 	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second, true, action.New(repo), "")

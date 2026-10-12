@@ -22,19 +22,19 @@ func queryGraph(acts *action.Actions, sub, input string, depth int, opts outputO
 	if opts.json {
 		switch sub {
 		case "callers":
-			facts, err := acts.Callers(n.ID, depth)
+			facts, err := acts.CallersConcrete(n.ID, depth)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)
 				return 1
 			}
-			encodeJSON(map[string]any{"target": input, "rows": factIDs(facts, "source")})
+			encodeJSON(map[string]any{"target": input, "rows": factIDs(acts, facts, "source")})
 		case "callees":
 			facts, err := acts.Callees(n.ID, depth)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)
 				return 1
 			}
-			encodeJSON(map[string]any{"target": input, "rows": factIDs(facts, "target")})
+			encodeJSON(map[string]any{"target": input, "rows": factIDs(acts, facts, "target")})
 		case "impact":
 			nodes, err := acts.Impact(n.ID, depth)
 			if err != nil {
@@ -48,7 +48,7 @@ func queryGraph(acts *action.Actions, sub, input string, depth int, opts outputO
 
 	switch sub {
 	case "callers":
-		facts, err := acts.Callers(n.ID, depth)
+		facts, err := acts.CallersConcrete(n.ID, depth)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1

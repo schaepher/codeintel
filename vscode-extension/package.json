@@ -1,7 +1,7 @@
 {
   "name": "codeintel",
   "displayName": "codeintel",
-  "description": "Go 代码库智能查询——符号详情/调用者/被调用者/影响分析/增量更新索引",
+  "description": "Go 代码库智能查询——Activity Bar 查询视图/调用链/时序图/符号详情/影响分析/增量更新索引",
   "version": "0.1.0",
   "publisher": "schaepher",
   "license": "MIT",
@@ -17,6 +17,8 @@
     "onCommand:codeintel.querySymbolAt",
     "onCommand:codeintel.impact",
     "onCommand:codeintel.updateIndex",
+    "onCommand:codeintel.generateSequence",
+    "onView:codeintel.results",
     "onLanguage:go"
   ],
   "main": "./extension.js",
@@ -37,8 +39,53 @@
       {
         "command": "codeintel.querySymbolAt",
         "title": "codeintel: 查询光标处符号"
+      },
+      {
+        "command": "codeintel.generateSequence",
+        "title": "codeintel: 生成调用时序图",
+        "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "codeintel.refreshResults",
+        "title": "codeintel: 刷新查询结果",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "codeintel.openResult",
+        "title": "codeintel: 跳转到定义"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "codeintel",
+          "title": "codeintel",
+          "icon": "media/codeintel.svg"
+        }
+      ]
+    },
+    "views": {
+      "codeintel": [
+        {
+          "id": "codeintel.results",
+          "name": "查询结果"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "codeintel.generateSequence",
+          "when": "view == codeintel.results",
+          "group": "navigation@1"
+        },
+        {
+          "command": "codeintel.refreshResults",
+          "when": "view == codeintel.results",
+          "group": "navigation@2"
+        }
+      ]
+    },
     "configuration": {
       "title": "codeintel",
       "properties": {
@@ -56,6 +103,16 @@
           "type": "boolean",
           "default": true,
           "description": "保存 .go 文件后自动增量更新索引（防抖 2s；#234 索引自动更新闭环）"
+        },
+        "codeintel.callChainDepth": {
+          "type": "number",
+          "default": 10,
+          "description": "调用链树/时序图展开深度（层）"
+        },
+        "codeintel.maxTreeNodes": {
+          "type": "number",
+          "default": 100,
+          "description": "每棵调用链树最多展示的节点数（防止大图卡顿侧栏）"
         }
       }
     }

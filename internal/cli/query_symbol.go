@@ -44,8 +44,8 @@ func querySymbol(acts *action.Actions, input string, opts outputOpts, since *dom
 			"line":      n.LineStart,
 			"signature": n.Signature(),
 			"doc":       n.DocComment(),
-			"callers":   factIDs(d.Callers, "source"),
-			"callees":   factIDs(d.Callees, "target"),
+			"callers":   factIDs(acts, d.Callers, "source"),
+			"callees":   factIDs(acts, d.Callees, "target"),
 		}
 		if len(dispatch) > 0 {
 			cands := make([]map[string]any, 0, len(dispatch))
@@ -132,21 +132,76 @@ func factEndpointIDs(facts []*domain.Fact, endpoint string) []domain.CanonicalID
 	return out
 }
 
-// factIDs 提取边的端点 ID 列表（endpoint=source/target，JSON 输出用）。
-func factIDs(facts []*domain.Fact, endpoint string) []map[string]any {
-	out := make([]map[string]any, 0, len(facts))
+// factRow 调用者/被调用者 JSON 行：端点节点信息（名称/类型/文件:行/签名）
+// + 完整 source/target 边——VS Code 扩展一次查询即可在内存中组装调用树
+// （不必逐层再查 CLI）。snake_case（Q243 契约）。
+type factRow struct {
+	ID         string  `json:"id"`
+	Name       string  `json:"name,omitempty"`
+	Kind       string  `json:"kind,omitempty"`
+	File       string  `json:"file,omitempty"`
+	Line       int     `json:"line,omitempty"`
+	Signature  string  `json:"signature,omitempty"`
+	Source     string  `json:"source"`
+	Target     string  `json:"target"`
+	EdgeKind   string  `json:"edge_kind"`
+	Tool       string  `json:"tool,omitempty"`
+	Confidence float64 `json:"confidence"`
+	LineNum    int     `json:"line_num,omitempty"`
+}
+
+// factIDs 提取边的端点 JSON 行（endpoint=source/target）：附带端点节点
+// 名称/类型/位置与完整 source/target 边（扩展据此组装调用链）。
+func factIDs(acts *action.Actions, facts []*domain.Fact, endpoint string) []factRow {
+	ids := make([]domain.CanonicalID, 0, len(facts))
+	seen := map[domain.CanonicalID]bool{}
 	for _, f := range facts {
 		id := f.SourceID
 		if endpoint == "target" {
 			id = f.TargetID
 		}
-		out = append(out, map[string]any{
-			"id":         string(id),
-			"tool":       f.ToolSource,
-			"confidence": f.Confidence,
-		})
+		if !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	byID := map[domain.CanonicalID]*domain.CodeEntity{}
+	if acts != nil {
+		if m, err := acts.SymbolsByIDs(ids); err == nil {
+			byID = m
+		}
+	}
+	out := make([]factRow, 0, len(facts))
+	for _, f := range facts {
+		id := f.SourceID
+		if endpoint == "target" {
+			id = f.TargetID
+		}
+		r := factRow{
+			ID: string(id), Source: string(f.SourceID), Target: string(f.TargetID),
+			EdgeKind: string(f.Kind), Tool: string(f.ToolSource), Confidence: f.Confidence,
+			LineNum: metaLine(f.Metadata),
+		}
+		if n := byID[id]; n != nil {
+			r.Name, r.Kind, r.File, r.Line = n.Name, string(n.Kind), n.FilePath, n.LineStart
+			r.Signature = n.Signature()
+		}
+		out = append(out, r)
 	}
 	return out
+}
+
+// metaLine 取边元数据的调用点行号（int/float64——SQLite 回读类型差异）。
+func metaLine(md map[string]any) int {
+	switch v := md["line_num"].(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	}
+	return 0
 }
 
 // nodeBriefs 提取节点摘要（JSON 输出用）。

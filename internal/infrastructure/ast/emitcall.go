@@ -25,6 +25,10 @@ func (ctx *fileCtx) emitCall(call *ast.CallExpr) {
 	if callerID == "" {
 		return
 	}
+	// 函数集合嵌套调用：内建 append(list, g()...) / 变参展开
+	// outer(g()...) 的 g() 返回函数集合时补 caller→g 的 CALLS 边
+	// （passes_result 由 handleNestedArg 建；内建 append 到达不了那里）。
+	ctx.emitFuncSetNestedCalls(call, caller, callerID, callerKind)
 	// 内建 new(T)：callee 解析失败（builtin 无 Pkg）时单独处理
 	callee, ok := resolveCallee(pkg.TypesInfo, call.Fun)
 	if !ok {
@@ -123,6 +127,12 @@ func (ctx *fileCtx) emitCall(call *ast.CallExpr) {
 		ctx.markServiceEntry(call, callee, caller, callerID, callerKind)
 	}
 	calleeID, calleeKind := fnID(callee)
+	// 函数集合注册表：callee 是"函数集合入参 + 函数集合返回"的 getter 时，
+	// 为 callee → 实参里注册的每个函数补 CALLS 边（默认可见；不按签名
+	// 猜测全部候选函数）。
+	if callee.Pkg() != nil && isInModule(callee.Pkg().Path(), ctx.repo.Modules) {
+		ctx.emitFuncSetRegistry(call, callee, calleeID, calleeKind)
+	}
 	// 函数作为参数传入（回调）：参数函数 → 接收函数（passes_to）。
 	// 接收者可为外部框架函数（如 net/http.HandleFunc），为其建轻量节点
 	// （file_path 为空），使"作为谁的参数"关系可见。须在外部函数
@@ -236,56 +246,4 @@ func (ctx *fileCtx) emitCall(call *ast.CallExpr) {
 		Confidence: 0.8,
 		Metadata:   map[string]any{"line_num": pkg.Fset.PositionFor(call.Pos(), false).Line, "pos": pkg.Fset.PositionFor(call.Lparen, false).Offset},
 	}})
-}
-
-// emitHTTP §18.7：URL → 路由表匹配 → http_call 边 + http 路由节点。
-// httpMethod 由调用方按形态提取（Q205d：Get → GET；NewRequest →
-// Args[0]；NewRequestWithContext → Args[1]；Do → 复用 NewRequest 的），
-// 空则默认 GET——此前在函数内猜 Args[0] 会把 http.Get(url) 的 URL 当
-// method（模块间调用页 label 显示 "http http://..." 噪音）。
-
-func (ctx *fileCtx) emitHTTP(call *ast.CallExpr, callerID domain.CanonicalID, url string, line int, httpMethod, reqType string) {
-	host, path := parseURL(url)
-	target := ""
-	for _, re := range ctx.a.routes {
-		if routeMatch(path, re.path) {
-			target = string(re.nodeID)
-			break
-		}
-	}
-	if target == "" {
-		h := host
-		if h == "" {
-			h = "unknown"
-		}
-		target = "symbol:http:" + h + ":route." + path
-	}
-	if httpMethod == "" {
-		httpMethod = "GET"
-	}
-	meta := map[string]any{
-		"url":      url,
-		"host":     host,
-		"path":     path,
-		"method":   httpMethod,
-		"line_num": line,
-	}
-	if reqType != "" {
-		meta["req_type"] = reqType // R100：请求体实参类型（外部接口判定）
-	}
-	_ = ctx.emit(domain.Item{Node: &domain.CodeEntity{
-		ID:         domain.CanonicalID(target),
-		Kind:       domain.KindHTTPRoute,
-		Name:       "route." + path,
-		Properties: map[string]any{"path": path, "method": httpMethod},
-	}})
-	_ = ctx.emit(domain.Item{Fact: &domain.Fact{
-		SourceID:   callerID,
-		TargetID:   domain.CanonicalID(target),
-		Kind:       domain.FactHTTPCall,
-		ToolSource: domain.ToolCodeGraph,
-		Confidence: 1.0,
-		Metadata:   meta,
-	}})
-	ctx.httpURLsSeen[url] = true
 }

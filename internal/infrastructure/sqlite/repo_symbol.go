@@ -20,6 +20,41 @@ func (r *Repo) GetSymbol(id domain.CanonicalID) (*domain.CodeEntity, error) {
 		string(id)))
 }
 
+// GetSymbolsByIDs 批量按 Canonical ID 取节点（CLI 调用者/被调用者 JSON
+// 富化用——一次 IN 查询避免 N 次点查）。分块以适应 SQLite 变量上限。
+func (r *Repo) GetSymbolsByIDs(ids []domain.CanonicalID) ([]*domain.CodeEntity, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	out := make([]*domain.CodeEntity, 0, len(ids))
+	const chunk = 500
+	for start := 0; start < len(ids); start += chunk {
+		end := start + chunk
+		if end > len(ids) {
+			end = len(ids)
+		}
+		part := ids[start:end]
+		ph := strings.TrimSuffix(strings.Repeat("?,", len(part)), ",")
+		args := make([]any, len(part))
+		for i, id := range part {
+			args[i] = string(id)
+		}
+		rows, err := r.Query(
+			"SELECT id, kind, name, file_path, line_start, line_end, properties FROM nodes WHERE id IN ("+ph+")",
+			args...)
+		if err != nil {
+			return nil, err
+		}
+		ns, err := scanNodes(rows)
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ns...)
+	}
+	return out, nil
+}
+
 // GetSymbolByName 按名称查找：先精确匹配，无结果时退化为模糊匹配
 // （CLI 按名查找用）。
 func (r *Repo) GetSymbolByName(name string) ([]*domain.CodeEntity, error) {

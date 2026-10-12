@@ -55,27 +55,9 @@ func TestWikiAICollectGaps(t *testing.T) {
 	}
 }
 
-// aiBatchYAML 批量 AI 返回（对应 aiFixtureData 全部缺口：agent 模块、
-// user_tab 表别名+列、order_tab 列 + 术语表）。
-const aiBatchYAML = `modules:
-  - name: example.com/app/internal/agent
-    description: LLM 代理层：APIKey 管理
-tables:
-  - name: user_tab
-    alias: 用户表
-    columns:
-      - name: id
-        comment: 用户 ID
-  - name: order_tab
-    columns:
-      - name: order_no
-        comment: 订单号
-glossary:
-  - term: 对象关系映射
-    english: Object-Relational Mapping
-    abbr: ORM
-    definition: 结构体与数据库表列的映射约定
-`
+// aiBatchJSON 批量 AI 返回（JSON 协议；对应 aiFixtureData 全部缺口：
+// agent 模块、user_tab 表别名+列、order_tab 列 + 术语表）。
+const aiBatchJSON = `{"modules":[{"name":"example.com/app/internal/agent","description":"LLM 代理层：APIKey 管理"}],"tables":[{"name":"user_tab","alias":"用户表","columns":[{"name":"id","comment":"用户 ID"}]},{"name":"order_tab","columns":[{"name":"order_no","comment":"订单号"}]}],"glossary":[{"term":"对象关系映射","english":"Object-Relational Mapping","abbr":"ORM","definition":"结构体与数据库表列的映射约定"}]}`
 
 // TestWikiAIFillEndToEnd：注入 runner——批量一次请求补全部缺口。
 func TestWikiAIFillEndToEnd(t *testing.T) {
@@ -88,7 +70,7 @@ func TestWikiAIFillEndToEnd(t *testing.T) {
 	gotPrompt := ""
 	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration, dir string) (string, error) {
 		gotPrompt = prompt
-		return aiBatchYAML, nil
+		return aiBatchJSON, nil
 	})
 	defer restore()
 	rels := []*domain.TableRelation{
@@ -177,7 +159,7 @@ func TestWikiAIFillRetryOnce(t *testing.T) {
 		if calls <= 1 {
 			return "完全不可解析的内容！！！", nil
 		}
-		return "modules:\n  - name: example.com/app/internal/agent\n    description: 重试成功", nil
+		return "{\"modules\":[{\"name\":\"example.com/app/internal/agent\",\"description\":\"重试成功\"}]}", nil
 	})
 	defer restore()
 	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second, false, nil, "")
@@ -217,7 +199,7 @@ func TestWikiAIFillEmptyYAML(t *testing.T) {
 		t.Fatal(err)
 	}
 	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration, dir string) (string, error) {
-		return "modules:\n  - name: example.com/app/internal/agent\n    description: 空文件首跑描述", nil
+		return "{\"modules\":[{\"name\":\"example.com/app/internal/agent\",\"description\":\"空文件首跑描述\"}]}", nil
 	})
 	defer restore()
 	ok, _, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second, false, nil, "")

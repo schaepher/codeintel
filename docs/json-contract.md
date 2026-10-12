@@ -27,12 +27,12 @@ schema 变更需更新本契约并走 Q 流程（Agent/MCP 依赖字段名解析
 
 ## 各命令输出结构
 
-- **query symbol**：对象——id/name/kind/file/line/signature/doc/callers[]/callees[]/candidates[]（callers/callees 元素：id/tool/confidence）
+- **query symbol**：对象——id/name/kind/file/line/signature/doc/callers[]/callees[]/candidates[]（callers/callees 元素：id/name/kind/file/line/signature/source/target/edge_kind/tool/confidence/line_num——source/target 为完整边端点）
 - **query context**：对象——symbol/fields(direct_read|direct_write|indirect_write)/chain[]/traces[]/dispatch[]/callers[]/callees[]（顶层键缺失=无数据，omitempty）
 - **query fields**：对象——name/rows[]（rows 元素：access_kind/field_path/instance_path/line/code_snippet/origins）或 field/func/rows
 - **query trace-backward/forward**：对象——flows[]（元素：id/name/depth/dir/edge/line/kind/access/func_id/func_name/conditions/dispatch/edge_candidate）
 - **query value-trace**：对象——flows[]（同 trace，含 [读]/[写] 语义在 access）
-- **query callers/callees/impact**：对象——target/rows[] 或 target/nodes[]（元素：id/name/kind/file/line）
+- **query callers/callees/impact**：对象——target/rows[] 或 target/nodes[]（callers/callees rows 元素：id/name/kind/file/line/signature/source/target/edge_kind/tool/confidence/line_num；impact nodes 元素：id/name/kind/file/line）
 - **query summary**：对象——producers[]/consumers[]/chain[]（producers/consumers 元素：function/access/line/instance/code）
 - **query context/table**：数组——TableColumn[]（表.列虚拟节点）
 - **query relations**：数组——TableRelation[]（--all 同样式）

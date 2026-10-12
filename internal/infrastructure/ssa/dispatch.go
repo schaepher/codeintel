@@ -62,7 +62,7 @@ type dispatchCandidate struct {
 // 具体值 → 接口值的转换指令（SSA 中注册/注入点的标准形态）。
 // P0-2：同时返回注册点所在模块内包路径（增量构建补 Load 用——注册
 // 点包未 Load 时 dispatch_to 边整体丢失）。
-func collectDispatchRegistrations(prog *ssa.Program, modFuncs []*ssa.Function, modules []string) (dispatchReg, []string) {
+func collectDispatchRegistrations(prog *ssa.Program, modFuncs []*ssa.Function, modules []string, onProgress func(done int)) (dispatchReg, []string) {
 	logger := zap.L()
 	logger.Debug("enter collectDispatchRegistrations")
 	defer logger.Debug("exit collectDispatchRegistrations")
@@ -76,7 +76,11 @@ func collectDispatchRegistrations(prog *ssa.Program, modFuncs []*ssa.Function, m
 		seenPkg[pkgPath] = true
 		pkgs = append(pkgs, pkgPath)
 	}
-	for _, fn := range modFuncs { // Q249：共享快照（不再 AllFunctions）
+	for i, fn := range modFuncs { // Q249：共享快照（不再 AllFunctions）
+		// Q253：按模块函数总数回报真实百分比（分母 = len(modFuncs)）
+		if onProgress != nil {
+			onProgress(i + 1)
+		}
 		for _, b := range fn.Blocks {
 			for _, instr := range b.Instrs {
 				mi, ok := instr.(*ssa.MakeInterface)

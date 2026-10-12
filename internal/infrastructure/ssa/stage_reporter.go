@@ -15,10 +15,40 @@ type stageReporter struct {
 	rep   domain.Progress
 	log   *zap.Logger
 	start time.Time
+	// heartbeat 未知分母阶段的后台心跳间隔（测试可调小）。
+	heartbeat time.Duration
 }
 
 func newStageReporter(rep domain.Progress, log *zap.Logger) *stageReporter {
-	return &stageReporter{rep: rep, log: log, start: time.Now()}
+	return &stageReporter{rep: rep, log: log, start: time.Now(), heartbeat: 500 * time.Millisecond}
+}
+
+// beginHeartbeat 未知分母阶段的开始：Begin(total=0) + 后台心跳周期性
+// Advance（触发活动行重绘——TTY 阶段列表里的已用时间持续刷新，否则长
+// 阶段会看起来卡死）。返回 end 函数（停心跳 + 走 stage 收尾，语义与
+// 普通阶段一致）。
+func (s *stageReporter) beginHeartbeat(name string) func() {
+	s.rep.Begin(name, 1, 0)
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		tk := time.NewTicker(s.heartbeat)
+		defer tk.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-tk.C:
+				s.rep.Advance(name, 0)
+			}
+		}
+	}()
+	return func() {
+		close(stop)
+		<-done
+		s.stage(name)
+	}
 }
 
 func (s *stageReporter) begin(name string, total int) { s.rep.Begin(name, 1, total) }

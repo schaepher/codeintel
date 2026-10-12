@@ -1,27 +1,26 @@
 package action
 
 // R34 domains 解析/校验/AI prompt（批次 C 迁移，原 cli/domains.go +
-// domains_sub.go 的纯函数部分）：AI 返回 YAML 解析 + 归属校验（防编造）
+// domains_sub.go 的纯函数部分）：AI 返回 JSON 解析 + 归属校验（防编造）
 // + subdomains 清洗；prompt 构造；事实包 JSON 序列化。
 
 import (
 	"encoding/json"
 	"fmt"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
-// ParseDomains 解析 AI 返回的 domains YAML + 校验（归属须在事实包中，
-// 防 AI 编造——校验失败剔除并警告）。
+// ParseDomains 解析 AI 返回的 domains JSON + 校验（归属须在事实包中，
+// 防 AI 编造——校验失败剔除并警告）。JSON 是唯一机器协议
+// （YAML 宽松文本会被自然语言里的冒号破坏）。
 func ParseDomains(resp string, f *DomainFacts) ([]WikiDomainCfg, []string) {
 	var out struct {
-		Domains []WikiDomainCfg `yaml:"domains"`
+		Domains []WikiDomainCfg `json:"domains"`
 	}
-	if err := yaml.Unmarshal([]byte(resp), &out); err != nil {
-		// 宽松重试（可能带 ```yaml 围栏）
+	if err := json.Unmarshal([]byte(resp), &out); err != nil {
+		// 宽松重试（可能带 ```json 围栏）
 		s := StripYAMLFence(resp)
-		if err2 := yaml.Unmarshal([]byte(s), &out); err2 != nil {
+		if err2 := json.Unmarshal([]byte(s), &out); err2 != nil {
 			return nil, []string{fmt.Sprintf("domains 解析失败: %v", err2)}
 		}
 	}
@@ -158,13 +157,13 @@ func DomainPrompt(factsPath, extraPrompt string) string {
 	b.WriteString("3. **grpc 服务可能含多域方法**（services[].methods 方法名列表——服务定义大而分开部署）：方法明显属于其他域时，把服务名写入方法所属域（服务仍可在原域）\n")
 	b.WriteString("4. 包、表、服务只归属一个域；文件里没有的包路径、表名、服务名一律不要写\n")
 	b.WriteString("5. **services 字段必填**：每个域给出归属的服务名列表（grpc 服务名如 OrderService/MemberService 按业务语义归属；无法归属的服务可以不放任何域，但能归属的必须写上）\n")
-	b.WriteString("6. 只输出 YAML，不要解释：\n")
-	b.WriteString("domains:\n  - name: 商品域\n    description: 商品/SKU/类目管理\n    packages: [github.com/ixre/go2o/pkg/interface/domain/item]\n    tables: [item_info, item_sku]\n    services: [ItemService]\n")
+	b.WriteString("6. 只输出 JSON，不要解释（字段名必须一致——name/description/packages/tables/services/subdomains）：\n")
+	b.WriteString("{\"domains\":[{\"name\":\"商品域\",\"description\":\"商品/SKU/类目管理\",\"packages\":[\"github.com/ixre/go2o/pkg/interface/domain/item\"],\"tables\":[\"item_info\",\"item_sku\"],\"services\":[\"ItemService\"],\"subdomains\":[{\"name\":\"商品核心\",\"description\":\"商品/SKU 管理\",\"packages\":[\"github.com/ixre/go2o/pkg/interface/domain/item\"],\"tables\":[\"item_info\"]}]}]}\n")
 	b.WriteString("\n7. **调用热度辅助**（entities 的 out/in = 调出/被调聚合边数）：相互调用密集（out/in 高且互相关联）的实体尽量归同一域——领域内聚、跨域调用边少；单域实体过多（密集调用域内边会爆炸）时优先把调用稀疏的边界实体拆到其他域\n")
 	b.WriteString("\n8. **包级调用矩阵**（pkg_calls：from = 调用方包完整路径，to = [{pkg, count}] 被调目标数组——同 from 聚合、同包调用已不计）：仅用于理解包间关系与调用热度（R100-2）——**子域划分不按包/目录结构、不按调用密度进行**，按业务概念划分；包和表按它们承载的业务概念归入子域；实体归属先归包（entities.pkg）再随包归子域\n")
 	b.WriteString("\n9. **包规模与角色**：packages[].ents = 包内实体数（大头包——实体多的包建议拆子域或与其他包分域）；entities[].service = 行为载体（无字段/组合注入——service 按职责归域）vs 数据载体（字段被写——随所属 service 归域，不独立成域）\n")
 	b.WriteString("\n10. **规模基准（渲染上限）**：每个域的内部协作图调用边超过 500 条、实体超过约 30 个时渲染失败或降级。划分时**每域实体数建议 ≤15**（按 packages[].ents 预估）——实体多的包拆到多个域或拆子域；宁可多几个域，不要单域过大\n")
-	b.WriteString("\n11. **输出方式（R73）**：把归纳结果**直接输出到响应文本**（JSON 格式：{\"domains\": [{\"name\", \"description\", \"packages\": [], \"tables\": [], \"services\": [], \"subdomains\": [{\"name\", \"description\", \"packages\": [], \"tables\": []}]}]}）——**不要任何说明文字、不要 markdown 围栏**；如环境支持写文件（Write 工具）可同时写入 `.codeintel/domains-ai.json`（可选，响应仍是主交付物）\n")
+	b.WriteString("\n11. **输出方式（R73）**：把归纳结果**直接输出到响应文本**（**单个 JSON 对象**，唯一机器协议：{\"domains\": [{\"name\", \"description\", \"packages\": [], \"tables\": [], \"services\": [], \"subdomains\": [{\"name\", \"description\", \"packages\": [], \"tables\": []}]}]}）——**不要任何说明文字、不要 markdown 围栏**；如环境支持写文件（Write 工具）可同时写入 `.codeintel/domains-ai.json`（可选，响应仍是主交付物）\n")
 	b.WriteString("\n12. **每个域必须划分子域（subdomains）**：域内按**业务概念**拆分 2~5 个子域（域本身不大也至少 1 个——默认整个域为一个子域）。子域 = 域内的业务概念（如订单域的「订单核心」「结算」「库存」——按业务语义划分，**不是按包/目录结构、不是按调用密度划分**）；每个子域给出 name（中文业务名，如「订单核心」）、description（一句话职责）、packages（承载该业务概念的包完整路径）、tables（承载该业务概念的归属表名）——**域内全部包和表都要归入某个子域**；实体多的域（>15 实体或 packages[].ents 大头包）必须拆分多个子域\n")
 	if extraPrompt != "" {
 		b.WriteString("\n用户额外约束（**必须优先遵守**，冲突时以用户约束为准）：\n" + extraPrompt + "\n")

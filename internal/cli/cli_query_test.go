@@ -134,3 +134,29 @@ func TestQueryFieldsCallSite(t *testing.T) {
 		}
 	}
 }
+
+// TestQueryCallersJSONEnriched：callers/callees --json 附带端点节点信息与
+// 完整 source/target 边（VS Code 扩展据此在内存中组装调用树）。
+func TestQueryCallersJSONEnriched(t *testing.T) {
+	dir := seedRepo(t)
+	out := captureStdout(func() {
+		if code := cmdQuery([]string{"callers", "symbol:go:example.com/m/svc:(Svc).Run", "--repo", dir, "--json"}); code != 0 {
+			t.Errorf("query callers --json exit = %d", code)
+		}
+	})
+	for _, want := range []string{`"rows"`, `"source"`, `"target"`, `"edge_kind"`, `"name": "main"`, `"file": "main.go"`, `"kind": "function"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("callers --json 缺少 %s\n%s", want, out)
+		}
+	}
+	out = captureStdout(func() {
+		if code := cmdQuery([]string{"callees", "main", "--repo", dir, "--json"}); code != 0 {
+			t.Errorf("query callees --json exit = %d", code)
+		}
+	})
+	for _, want := range []string{`"source"`, `"target"`, `"name": "(Svc).Run"`, `"file": "svc/svc.go"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("callees --json 缺少 %s\n%s", want, out)
+		}
+	}
+}

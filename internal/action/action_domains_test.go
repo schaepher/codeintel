@@ -20,17 +20,11 @@ func TestParseDomainsValidate(t *testing.T) {
 		Pkgs:   []PkgFacts{{Path: "item", Doc: "商品"}, {Path: "order", Doc: "订单"}, {Path: "member", Doc: "会员"}},
 		Tables: []TableFacts{{Name: "item_info", Cols: 5}, {Name: "order_tab", Cols: 8}},
 	}
-	resp := `domains:
-  - name: 商品域
-    description: 商品管理
-    packages: [item, ghost_pkg]
-    tables: [item_info, ghost_table]
-  - name: 订单域
-    packages: [order]
-    tables: [order_tab]
-  - name: 空域
-    packages: [nope]
-`
+	resp := `{"domains":[
+  {"name":"商品域","description":"商品管理","packages":["item","ghost_pkg"],"tables":["item_info","ghost_table"]},
+  {"name":"订单域","packages":["order"],"tables":["order_tab"]},
+  {"name":"空域","packages":["nope"]}
+]}`
 	doms, warns := ParseDomains(resp, f)
 	if len(doms) != 2 {
 		t.Fatalf("域数 = %d; want 2（空域剔除）:\n%+v", len(doms), doms)
@@ -46,10 +40,10 @@ func TestParseDomainsValidate(t *testing.T) {
 	}
 }
 
-// TestParseDomainsFence：```yaml 围栏剥离。
+// TestParseDomainsFence：```json 围栏剥离。
 func TestParseDomainsFence(t *testing.T) {
 	f := &DomainFacts{Pkgs: []PkgFacts{{Path: "item"}}, Tables: []TableFacts{{Name: "item_info"}}}
-	resp := "```yaml\ndomains:\n  - name: 商品域\n    packages: [item]\n    tables: [item_info]\n```"
+	resp := "```json\n{\"domains\":[{\"name\":\"商品域\",\"packages\":[\"item\"],\"tables\":[\"item_info\"]}]}\n```"
 	doms, _ := ParseDomains(resp, f)
 	if len(doms) != 1 || doms[0].Name != "商品域" {
 		t.Errorf("围栏解析失败: %+v", doms)
@@ -64,19 +58,14 @@ func TestParseDomainsSubdomains(t *testing.T) {
 		Pkgs:   []PkgFacts{{Path: "item"}, {Path: "order"}, {Path: "member"}},
 		Tables: []TableFacts{{Name: "item_info"}, {Name: "order_tab"}},
 	}
-	resp := `domains:
-  - name: 商品域
-    packages: [item]
-    tables: [item_info]
-    subdomains:
-      - name: 商品核心
-        description: SKU/类目
-        packages: [item]
-        tables: [item_info]
-      - name: 幽灵子域
-        packages: [ghost_pkg]
-      - name: 空子域
-`
+	resp := `{"domains":[
+  {"name":"商品域","packages":["item"],"tables":["item_info"],
+   "subdomains":[
+     {"name":"商品核心","description":"SKU/类目","packages":["item"],"tables":["item_info"]},
+     {"name":"幽灵子域","packages":["ghost_pkg"]},
+     {"name":"空子域"}
+   ]}
+]}`
 	doms, warns := ParseDomains(resp, f)
 	if len(doms) != 1 {
 		t.Fatalf("域数 = %d; want 1", len(doms))

@@ -78,7 +78,7 @@ func TestWikiFillPartial(t *testing.T) {
 	gotPrompt := ""
 	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration, dir string) (string, error) {
 		gotPrompt = prompt
-		return aiBatchYAML, nil
+		return aiBatchJSON, nil
 	})
 	defer restore()
 	ok, skip, fail := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second, false, nil, "")
@@ -106,7 +106,7 @@ func TestWikiFillGlossaryOff(t *testing.T) {
 	gotPrompt := ""
 	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration, dir string) (string, error) {
 		gotPrompt = prompt
-		return aiBatchYAML, nil
+		return aiBatchJSON, nil
 	})
 	defer restore()
 	ok, _, _ := wikiAIFill(path, &cfg, data, cols, nil, "claude", 30*time.Second, false, nil, "")
@@ -192,7 +192,7 @@ func TestCmdDomainsPrompt(t *testing.T) {
 	gotPrompt := ""
 	restore := injectRunner(t, func(agent, prompt string, timeout time.Duration, dir string) (string, error) {
 		gotPrompt = prompt
-		return "domains:\n  - name: 交易域\n    description: 交易相关\n    packages: [example.com/m]\n", nil
+		return `{"domains":[{"name":"交易域","description":"交易相关","packages":["example.com/m"]}]}`, nil
 	})
 	defer restore()
 	var code int

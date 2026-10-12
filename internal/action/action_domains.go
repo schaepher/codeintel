@@ -20,26 +20,26 @@ import (
 // R100-2：按业务概念划分——不是按包/目录结构；包/表是承载业务概念
 // 的载体，按概念归属）。cli 渲染层经类型别名消费。
 type WikiSubdomainCfg struct {
-	Name        string   `yaml:"name"`
-	Description string   `yaml:"description"`
-	Packages    []string `yaml:"packages"` // 承载该业务概念的包（归属校验）
-	Tables      []string `yaml:"tables"`   // 承载该业务概念的表
+	Name        string   `yaml:"name" json:"name"`
+	Description string   `yaml:"description" json:"description"`
+	Packages    []string `yaml:"packages" json:"packages"` // 承载该业务概念的包（归属校验）
+	Tables      []string `yaml:"tables" json:"tables"`     // 承载该业务概念的表
 }
 
 // WikiDomainCfg 业务域（R34：AI 基于代码事实归纳——名称/描述/归属包与
 // 表；静态分析（ER 领域分组/实体分组）统一消费此数据源，未覆盖的
 // 包/表走前缀/DDD 目录规则降级）。cli 渲染层经类型别名消费。
 type WikiDomainCfg struct {
-	Name        string   `yaml:"name"`
-	Description string   `yaml:"description"`
-	Packages    []string `yaml:"packages"`
-	Tables      []string `yaml:"tables"`
+	Name        string   `yaml:"name" json:"name"`
+	Description string   `yaml:"description" json:"description"`
+	Packages    []string `yaml:"packages" json:"packages"`
+	Tables      []string `yaml:"tables" json:"tables"`
 	// R38：归属服务名（grpc 服务名 / http "METHOD path"）——流程页
 	// 服务子页按领域分目录的依据；AI 归纳 + 人工确认
-	Services []string `yaml:"services"`
+	Services []string `yaml:"services" json:"services"`
 	// R80：AI 划分子域（域内语义子域——渲染分组（实体/ER 域内图）优先
 	// 使用 subdomains 归属，未覆盖的包/表走自动细分降级）
-	Subdomains []WikiSubdomainCfg `yaml:"subdomains"`
+	Subdomains []WikiSubdomainCfg `yaml:"subdomains" json:"subdomains"`
 }
 
 // DomainsRequest domains 分析参数（类型/格式合法性校验在 cli；配置

@@ -16,6 +16,7 @@ const MinConfidence = 0.8
 type Reader interface {
 	GetSymbol(id domain.CanonicalID) (*domain.CodeEntity, error)
 	GetSymbolByName(name string) ([]*domain.CodeEntity, error)
+	GetSymbolsByIDs(ids []domain.CanonicalID) ([]*domain.CodeEntity, error) // 批量取节点（callers/callees JSON 富化）
 	SearchKind(name, kind string) ([]*domain.CodeEntity, error) // #234 搜索按类型过滤（kind 空=不过滤）
 	GetCallers(id domain.CanonicalID, depth int, minConfidence float64) ([]*domain.Fact, error)
 	GetCallees(id domain.CanonicalID, depth int, minConfidence float64) ([]*domain.Fact, error)
@@ -23,6 +24,9 @@ type Reader interface {
 	// InterfaceMethodImpl R75：接口方法 → 实现方法（implements 边 +
 	// 方法名匹配——调用链接口具体化）
 	InterfaceMethodImpl(methodID string) (string, bool)
+	// ConcreteMethodIfaces 实现方法 → 其实现的接口方法（接口反向具体化——
+	// 查询实现方法调用者时回溯接口调用）
+	ConcreteMethodIfaces(methodID string) []string
 	GetFunctionFields(funcID domain.CanonicalID) ([]*domain.FunctionFieldSummary, error)
 	TraceBackward(field string, funcID domain.CanonicalID, maxDepth int) ([]*domain.TraceRow, error)
 	TraceBackwardIndirect(field string, funcID domain.CanonicalID, maxDepth int) ([]*domain.TraceRow, error) // Q172 --follow-indirect

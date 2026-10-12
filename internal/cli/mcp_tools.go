@@ -100,7 +100,7 @@ func graphTool(acts *action.Actions, args graphParams, which string) (*mcp.CallT
 	}
 	var facts []*domain.Fact
 	if which == "callers" {
-		facts, err = acts.Callers(n.ID, depth)
+		facts, err = acts.CallersConcrete(n.ID, depth)
 	} else {
 		facts, err = acts.Callees(n.ID, depth)
 	}

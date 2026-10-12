@@ -254,7 +254,7 @@ func aiCallOnce[T any](agent, prompt string, timeout time.Duration, dir string, 
 	if len(prev) > 2000 {
 		prev = prev[:2000] + "…（截断）"
 	}
-	retryPrompt := prompt + "\n\n上次输出解析失败：" + failNote + "。请检查 YAML 格式（缩进/引号/字段名）后重新输出完整结果。\n上次输出：\n" + prev
+	retryPrompt := prompt + "\n\n上次输出解析失败：" + failNote + "。请检查 JSON 格式（字段名/引号/逗号）后重新输出完整结果。\n上次输出：\n" + prev
 	resp2, err2 := agentRunner(agent, retryPrompt, timeout, dir)
 	if err2 != nil {
 		return zero, err2

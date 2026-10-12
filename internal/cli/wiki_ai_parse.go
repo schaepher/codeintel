@@ -4,34 +4,35 @@ package cli
 // 围栏剥离（StripYAMLFence）批次 C 迁 action（domains 解析共用）。
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
-	"gopkg.in/yaml.v3"
 )
 
-// wikiBatchOut AI 批量返回结构（一次请求处理全部缺口）。
+// wikiBatchOut AI 批量返回结构（一次请求处理全部缺口——JSON 唯一
+// 机器协议：自然语言里的冒号会破坏 YAML 解析）。
 type wikiBatchOut struct {
 	Modules []struct {
-		Name        string `yaml:"name"`
-		Description string `yaml:"description"`
-	} `yaml:"modules"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	} `json:"modules"`
 	Tables []struct {
-		Name    string `yaml:"name"`
-		Alias   string `yaml:"alias"`
+		Name    string `json:"name"`
+		Alias   string `json:"alias"`
 		Columns []struct {
-			Name    string `yaml:"name"`
-			Comment string `yaml:"comment"`
-		} `yaml:"columns"`
-	} `yaml:"tables"`
+			Name    string `json:"name"`
+			Comment string `json:"comment"`
+		} `json:"columns"`
+	} `json:"tables"`
 	Glossary []struct {
-		Term       string `yaml:"term"`
-		English    string `yaml:"english"`
-		Abbr       string `yaml:"abbr"`
-		Definition string `yaml:"definition"`
-	} `yaml:"glossary"`
+		Term       string `json:"term"`
+		English    string `json:"english"`
+		Abbr       string `json:"abbr"`
+		Definition string `json:"definition"`
+	} `json:"glossary"`
 }
 
 // wikiQAReferences 历史问答参考资料（--with-qa）：按缺口表名/模块
@@ -123,21 +124,10 @@ func wikiAIBatchPrompt(mods []aiModuleGap, tbls []aiTableGap, colGaps []aiColGap
 	if withGlossary {
 		b.WriteString("四、术语表：从以上模块/表/列事实中识别 3-8 个专业术语（缩写/内部黑话，如 ssa/ast/ER/MCP），给出中文定义，并尽量给出英文术语（与缩写，若有）。\n")
 	}
-	b.WriteString(`只输出 YAML（结构严格如下，缺哪个部分就省略哪个）：
-modules:
-  - name: <模块名>
-    description: <描述>
-tables:
-  - name: <表名>
-    alias: <别名>
-    columns:
-      - name: <列名>
-        comment: <说明>
-glossary:
-  - term: <中文术语>
-    english: <英文术语>
-    abbr: <缩写（没有则省略）>
-    definition: <定义>`)
+	b.WriteString(`只输出一个 JSON 对象（**不要 markdown 围栏、不要任何解释文字**），结构严格如下（缺哪个部分就省略哪个字段）：
+{"modules":[{"name":"<模块名>","description":"<描述>"}],
+ "tables":[{"name":"<表名>","alias":"<别名>","columns":[{"name":"<列名>","comment":"<说明>"}]}],
+ "glossary":[{"term":"<中文术语>","english":"<英文术语>","abbr":"<缩写（没有则省略）>","definition":"<定义>"}]}`)
 	return b.String()
 }
 
@@ -157,12 +147,14 @@ func colGapRels(rels []*domain.TableRelation, table string) string {
 	return strings.Join(parts, ", ")
 }
 
-// parseWikiBatch 解析 AI 批量返回 → wikiBatchOut（围栏剥离 + 空结果
-// 校验——空结果视为不可解析，触发重试）。
+// parseWikiBatch 解析 AI 批量返回 → wikiBatchOut（围栏剥离 + JSON
+// 反序列化 + 空结果校验——空结果视为不可解析，触发重试）。改用 JSON
+// 而非 YAML：自然语言里的冒号（如「如下：」）会触发 YAML
+// "mapping values are not allowed" 解析失败。
 func parseWikiBatch(s string) (wikiBatchOut, error) {
 	s = action.StripYAMLFence(s)
 	var out wikiBatchOut
-	if err := yaml.Unmarshal([]byte(s), &out); err != nil {
+	if err := json.Unmarshal([]byte(s), &out); err != nil {
 		return out, fmt.Errorf("AI 批量返回不可解析: %v", err)
 	}
 	if len(out.Modules)+len(out.Tables) == 0 {

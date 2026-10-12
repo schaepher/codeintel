@@ -20,7 +20,7 @@ func emitDispatches(repo *domain.Repository, prog *ssa.Program, pool *implTypePo
 	logger := zap.L()
 	logger.Debug("enter emitDispatches")
 	defer logger.Debug("exit emitDispatches")
-	regs, regPkgs := collectDispatchRegistrations(prog, funcs.moduleFuncs(repo.Modules), repo.Modules)
+	regs, regPkgs := collectDispatchRegistrations(prog, funcs.moduleFuncs(repo.Modules), repo.Modules, nil)
 
 	// 接口方法调用集合：接口类型 → 方法名（map 去重；UNIQUE 边合并）
 	type callKey struct {

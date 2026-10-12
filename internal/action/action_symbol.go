@@ -82,6 +82,23 @@ func (a *Actions) Symbol(id domain.CanonicalID) (*domain.CodeEntity, error) {
 	return a.repo.GetSymbol(id)
 }
 
+// SymbolsByIDs 批量按 canonical ID 取节点（callers/callees JSON 富化
+// 用），返回 id → 节点映射（未命中的 id 无对应项）。
+func (a *Actions) SymbolsByIDs(ids []domain.CanonicalID) (map[domain.CanonicalID]*domain.CodeEntity, error) {
+	logger := zap.L()
+	logger.Info("enter (Actions).SymbolsByIDs", zap.Int("n", len(ids)))
+	defer logger.Info("exit (Actions).SymbolsByIDs")
+	nodes, err := a.repo.GetSymbolsByIDs(ids)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[domain.CanonicalID]*domain.CodeEntity, len(nodes))
+	for _, n := range nodes {
+		out[n.ID] = n
+	}
+	return out, nil
+}
+
 // Entries 目标仓库入口符号（name=main 的函数，排除测试）——wiki
 // 命令页数据源（F1：命令页展示目标仓库入口而非 codeintel 自身命令）。
 func (a *Actions) Entries() ([]*domain.CodeEntity, error) {
@@ -118,7 +135,7 @@ func (a *Actions) SymbolDetail(input string) (*SymbolDetail, error) {
 	if err != nil {
 		return nil, err
 	}
-	callers, err := a.repo.GetCallers(n.ID, 1, MinConfidence)
+	callers, err := a.CallersConcrete(n.ID, 1)
 	if err != nil {
 		return nil, err
 	}
