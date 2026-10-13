@@ -2650,8 +2650,9 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
   （现仍自打印，走 stdout）
 - 33. **NDJSON 进度事件流**（可选）：`--json`/MCP 目前用 `--progress plain`；
   出现真实消费者（IDE 插件等）再加
-- 34. ~~**`--ignore-dir`（多次）**~~ → 已实现：init/update/reindex 支持重复
-  `--ignore-dir`（DiscoverModules/loadPackages/scip/git/增量检测/指纹全链过滤）
+- 34. ~~**忽略目录**~~ → 已实现：`codeintel config ignore-dir add|rm|list`
+  写仓库级 `<repo>/codeintel.yaml`，init/update/reindex 自动应用
+  （DiscoverModules/loadPackages/scip/git/增量检测/指纹全链过滤）
 - 35. ~~**并行任务独立进度条**~~ → 已实现：TTY 多活动行（每个并行步骤各自一行
   独立进度条，eraseBlock/drawBlock 原地重绘）
 - 36. ~~**SSA emitFunction 循环真实完成进度条**~~ → 已实现（Q253 已接 total=

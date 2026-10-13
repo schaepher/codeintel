@@ -4937,7 +4937,9 @@ gob 分配 +60%）同类。
   - `funcSnapshot` 保持心跳（`ssautil.AllFunctions` 原子调用无真实分母，
     不编造假百分比——Q253 原则）；`runAdapters`/`flush done`/`finishIndex`
     为已用时行。
-- **`--ignore-dir`**（可重复，init/update/reindex）：不解析（不入索引）指定
-  目录及其子目录。链路：`domain.IsIgnoredPath` → `DiscoverModules` 不进入 →
-  `loadPackages` 过滤包 → scip document / git 文件过滤 → 增量检测与工作区指纹
-  过滤。端到端实测：忽略目录内符号不入图，未忽略包正常索引。
+- **忽略目录配置**：`codeintel config ignore-dir add|rm|list` 管理仓库级
+  `<repo>/codeintel.yaml` 的 `ignore_dirs`（不再用命令行 `--ignore-dir`）；
+  `buildRepo` 自动加载，init/update/reindex 及所有读取路径统一生效。链路：
+  `domain.IsIgnoredPath` → `DiscoverModules` 不进入 → `loadPackages` 过滤包 →
+  scip document / git 文件过滤 → 增量检测与工作区指纹过滤。端到端实测：
+  忽略目录内符号不入图，未忽略包正常索引。

@@ -31,8 +31,6 @@ func cmdUpdate(ctx context.Context, args []string) int {
 	repoPath := fs.String("repo", ".", "仓库根目录（须已运行 codeintel init 且为 git 仓库；默认当前目录）")
 	workers := fs.Int("workers", defaultBuildWorkers(), "SSA 分析并发数（Q221/Q252e：默认 min(NumCPU, 8)）")
 	progressMode := fs.String("progress", progress.ModeAuto, "构建进度显示（Q253：只写 stderr）：auto=终端时进度条、否则逐行；plain=逐行；none=不显示")
-	var ignoreDirs stringList
-	fs.Var(&ignoreDirs, "ignore-dir", "忽略目录（可重复；不解析该目录及其子目录中的文件）")
 	// R85：--base 分层——base 目录（完整索引，只读共享）。变更基准 =
 	// base HEAD（diff base..当前），只分析变更包；base 数据物化到本地
 	baseDir := fs.String("base", "", "base 分支目录（其 .codeintel 为完整索引；变更检测基准 = base HEAD）")
@@ -48,7 +46,7 @@ func cmdUpdate(ctx context.Context, args []string) int {
 		fmt.Fprintf(os.Stderr, "error: %s is not a directory\n", abs)
 		return 1
 	}
-	repo, err := buildRepo(abs, ignoreDirs...)
+	repo, err := buildRepo(abs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1

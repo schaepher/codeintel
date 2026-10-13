@@ -84,7 +84,7 @@ codeintel query table-path orders settlement --repo <你的仓库>
 
 | 命令 | 用途 |
 |---|---|
-| `codeintel init/update/reindex --repo <path>` | 全量构建 / 增量更新 / 重建（支持 `--progress auto\|plain\|none`、可重复 `--ignore-dir <目录>`） |
+| `codeintel init/update/reindex --repo <path>` | 全量构建 / 增量更新 / 重建（支持 `--progress auto\|plain\|none`；忽略目录用 `codeintel config ignore-dir add <目录>` 配置，自动生效） |
 | `codeintel query symbol <符号>` | 符号详情（签名、行号、调用者/被调用者） |
 | `codeintel query callers/callees <符号>` | 调用者 / 被调用者（--depth N） |
 | `codeintel query impact <符号>` | 影响分析（--depth N） |

@@ -29,8 +29,6 @@ func cmdInit(ctx context.Context, args []string) int {
 	repoPath := fs.String("repo", ".", "仓库根目录（含 go.mod；默认当前目录）")
 	workers := fs.Int("workers", defaultBuildWorkers(), "SSA 分析并发数（Q221/Q252e：默认 min(NumCPU, 8)——同时约束 ①模块包级 SSA 建图（Q252e 前逐包串行）②函数级发射；峰值内存与并发度正相关，小内存机器可调小，如 1）")
 	progressMode := fs.String("progress", progress.ModeAuto, "构建进度显示（Q253：只写 stderr，stdout 仍只承载结果）：auto=stderr 是终端时用进度条、否则逐行；plain=逐行（agent/日志抓取）；none=不显示")
-	var ignoreDirs stringList
-	fs.Var(&ignoreDirs, "ignore-dir", "忽略目录（可重复；不解析该目录及其子目录中的文件——如 --ignore-dir vendor --ignore-dir third_party）")
 	fs.Parse(args)
 	*repoPath = ResolveRepoRef(*repoPath) // Q238：注册表短名/后缀/module
 
@@ -51,12 +49,15 @@ func cmdInit(ctx context.Context, args []string) int {
 			return 1
 		}
 	}
-	repo, err := buildRepo(abs, ignoreDirs...)
+	repo, err := buildRepo(abs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
 	fmt.Printf("构建索引: %s (module=%s, %d 个 go.mod)\n", abs, repo.Module, len(repo.Modules))
+	if len(repo.IgnoreDirs) > 0 {
+		fmt.Printf("忽略目录: %s（codeintel.yaml）\n", strings.Join(repo.IgnoreDirs, ", "))
+	}
 	// 日志切换到 .codeintel/codeintel.log（stdout 只留查询结果，Q88）
 	if err := logging.ToFile(abs); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: 日志切换失败: %v\n", err)
@@ -161,6 +162,10 @@ func cmdInit(ctx context.Context, args []string) int {
 // ignoreDirs：忽略目录（不进入/不作为目标 module；写入 Repository 供
 // 加载/适配器过滤）。
 func buildRepo(repoPath string, ignoreDirs ...string) (*domain.Repository, error) {
+	if len(ignoreDirs) == 0 {
+		// 未显式传入 → 读仓库级配置（codeintel.yaml 的 ignore_dirs）
+		ignoreDirs = loadIgnoreDirs(repoPath)
+	}
 	modules, dirs, err := orchestrator.DiscoverModules(repoPath, ignoreDirs)
 	if err != nil {
 		return nil, err
