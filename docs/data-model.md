@@ -3,6 +3,8 @@
 权威来源：`internal/domain/entity.go` 常量定义 + 各适配器 emit 点 + `db.go` schema。
 本表为理解项目的速查总纲——节点/边/属性/置信度一页看全。
 
+**标识约束（Q?）**：`nodes.id_int`、`edges.source_ref`、`edges.target_ref` 是数据库内部的整数代理键，**仅供表内 JOIN/索引使用**——对外节点 ID 与边端点始终是 canonical ID（`edges_v` 兼容视图回填 `source_id`/`target_id`）。CLI/MCP/HTTP 的 JSON 输出不得出现上述内部键（`internal/cli/index_safety_test.go` 回归）。
+
 ## 1. 节点 kind（EntityKind）
 
 | kind | 含义 | 产生工具 | 说明 |

@@ -17,3 +17,8 @@ dist/
 # Python 字节码（scripts/dbdiag.py 等运行产物）
 __pycache__/
 *.pyc
+
+# 日志与扩展安装包
+/log
+*.log*
+*.vsix

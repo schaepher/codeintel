@@ -189,8 +189,8 @@ func TestImplTypePoolMatchesLegacyScan(t *testing.T) {
 	}
 }
 
-// TestImplTypePoolHitAndConcurrency：同键重复调用返回同一结果（memo
-// 生效、返回切片只读复用），并发调用无竞态（-race 基线）。
+// TestImplTypePoolHitAndConcurrency：同键重复调用结果一致（memo 生效）；
+// 同一接口的不同方法共用一份实现集合（只计算一次）；并发无竞态（-race）。
 func TestImplTypePoolHitAndConcurrency(t *testing.T) {
 	pool, typePkgs := implPoolTestPool(t)
 	store := ifaceNamed(t, typePkgs, "example.com/mtest/ifaces", "Store")
@@ -200,8 +200,13 @@ func TestImplTypePoolHitAndConcurrency(t *testing.T) {
 	if len(first) == 0 {
 		t.Fatal("Store.Save 应命中实现")
 	}
-	if &first[0] != &second[0] {
-		t.Errorf("同键应返回同一底层数组（memo 未生效）")
+	if len(second) != len(first) {
+		t.Errorf("同键重复调用结果不一致: %v vs %v", first, second)
+	}
+	// 同接口不同方法：实现集合按接口缓存，只扫描一次全库类型
+	_ = pool.methodsFor(store, "Load")
+	if got := pool.computes.Load(); got != 1 {
+		t.Errorf("同接口实现集合应只计算一次，got %d", got)
 	}
 
 	var wg sync.WaitGroup
@@ -217,6 +222,30 @@ func TestImplTypePoolHitAndConcurrency(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+}
+
+// TestImplTypePoolPerInterfaceCache：同接口多方法只计算一次实现集合；
+// 空候选（无实现者）场景返回空且仍只计算一次。
+func TestImplTypePoolPerInterfaceCache(t *testing.T) {
+	pool, typePkgs := implPoolTestPool(t)
+	store := ifaceNamed(t, typePkgs, "example.com/mtest/ifaces", "Store")
+	if got := pool.methodsFor(store, "Save"); len(got) == 0 {
+		t.Fatal("Store.Save 应有实现")
+	}
+	if got := pool.methodsFor(store, "Load"); len(got) == 0 {
+		t.Fatal("Store.Load 应有实现")
+	}
+	if got := pool.computes.Load(); got != 1 {
+		t.Errorf("Store 的两个方法应共用一次实现集合计算，got %d", got)
+	}
+	// 无实现者的接口（Closer 只有 Close，换一个无实现方法名触发空候选）
+	closer := ifaceNamed(t, typePkgs, "example.com/mtest/ifaces", "Closer")
+	if got := pool.methodsFor(closer, "Nope"); len(got) != 0 {
+		t.Errorf("不存在的方法应为空候选，got %v", got)
+	}
+	if got := pool.computes.Load(); got != 2 {
+		t.Errorf("不同接口应各计算一次，got %d", got)
+	}
 }
 
 // TestImplTypePoolSkipsNonModule：非模块内包的类型不入池（旧实现按

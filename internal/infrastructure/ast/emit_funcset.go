@@ -74,7 +74,10 @@ func (ctx *fileCtx) emitFuncSetRegistry(call *ast.CallExpr, callee *types.Func, 
 		if !isFuncSetType(ctx.pkg.TypesInfo.TypeOf(arg)) {
 			continue
 		}
-		for _, fn := range collectFuncSetRefs(ctx.pkg, arg) {
+		// 内联复合字面量 + 包级注册表变量（emit_registered_funcval.go）
+		refs := collectFuncSetRefs(ctx.pkg, arg)
+		refs = append(refs, ctx.registryFuncRefs(arg)...)
+		for _, fn := range dedupSortFuncs(refs) {
 			if fn.Pkg() == nil || !isInModule(fn.Pkg().Path(), ctx.repo.Modules) {
 				continue
 			}

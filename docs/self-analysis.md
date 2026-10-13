@@ -2650,6 +2650,16 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
   （现仍自打印，走 stdout）
 - 33. **NDJSON 进度事件流**（可选）：`--json`/MCP 目前用 `--progress plain`；
   出现真实消费者（IDE 插件等）再加
+- 34. **`--ignore-dir`（多次）**：不解析指定目录及其子目录中的文件（大仓
+  vendor/第三方目录跳过；仅记录需求，尚未实现）
+- 35. **并行任务独立进度条**：同时显示多个进度条，每个并行任务各自独立
+  （仅记录需求，尚未实现）
+- 36. **SSA emitFunction 循环真实完成进度条**：按函数总数展示（仅记录需求，尚未实现）
+
+**进度显示现状（Q253 后续，暂缓新增）**：loadPackages / ssaBuild / scip
+无百分比（仅阶段结束日志）；funcSnapshot 有心跳（持续刷新耗时）无百分比；
+dispatchRegs 已按模块函数总数展示进度条；`auto` 终端动态显示、`plain` 只输出
+阶段结束日志。
 
 **已完成（本清单最近轮次，详见 field_trace）**：
 - ~~构建/长任务进度条（codegraph 风格）~~ → **Q253**（§99）：`domain.Progress`

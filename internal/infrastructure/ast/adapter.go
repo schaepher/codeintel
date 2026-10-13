@@ -35,6 +35,10 @@ type Adapter struct {
 	registeredServices map[string]bool
 	// R95-2：当前仓库 module 列表（Index 时填充——类型匹配实现扫描）
 	modules []string
+	// 包级函数值注册表（P2-1 扩展）：包级 var 的函数集合 → 注册函数
+	// 列表（Index 时扫描一次；emitCall 中实参引用该变量时补 getter→函数
+	// 的 CALLS 边）
+	funcSetVars map[*types.Var][]*types.Func
 }
 
 // SetChangedFiles 限定增量分析的文件集合（orchestrator 增量构建注入，

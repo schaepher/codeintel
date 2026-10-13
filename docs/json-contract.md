@@ -10,6 +10,7 @@ schema 变更需更新本契约并走 Q 流程（Agent/MCP 依赖字段名解析
 - 顶层为对象（`query context`）或数组（`query table`、`relations`）
 - canonical ID 一律字符串；置信度 `confidence` float64（0.0~1.0）
 - 行号 `line`/`line_start` int；`file`/`file_path` 为仓库相对路径
+- **不泄露数据库内部整数代理键**：`id_int` / `source_ref` / `target_ref` 仅库内使用；节点与端点对外一律 canonical ID 字符串
 
 ## 核心类型（domain 层，Q243 加 tag 统一）
 

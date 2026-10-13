@@ -79,7 +79,10 @@ func tupleHasFuncSet(t *types.Tuple) bool {
 // 防自引用类型图递归。只收集具名函数/方法值（argFuncRef 能解析的）。
 func collectFuncSetRefs(pkg *packages.Package, expr ast.Expr) []*types.Func {
 	var out []*types.Func
-	seen := map[types.Type]bool{}
+	// active = 当前递归路径上的类型（防自引用类型图无限递归）；用
+	// 回溯（处理完删除）而非全局 visited——同一类型的不同兄弟元素
+	// 都要收集（如 []V{{F:a},{F:b}}）
+	active := map[types.Type]bool{}
 	var walk func(ast.Expr)
 	walk = func(e ast.Expr) {
 		switch x := e.(type) {
@@ -88,10 +91,11 @@ func collectFuncSetRefs(pkg *packages.Package, expr ast.Expr) []*types.Func {
 		case *ast.CompositeLit:
 			t := pkg.TypesInfo.TypeOf(x)
 			if t != nil {
-				if seen[t] {
+				if active[t] {
 					return
 				}
-				seen[t] = true
+				active[t] = true
+				defer delete(active, t)
 			}
 			for _, el := range x.Elts {
 				if kv, ok := el.(*ast.KeyValueExpr); ok {

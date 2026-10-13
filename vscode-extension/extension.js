@@ -5,6 +5,7 @@
 
 const vscode = require('vscode');
 const { execFile } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
@@ -39,11 +40,12 @@ function deactivate() {}
 
 function cfg() {
   const c = vscode.workspace.getConfiguration('codeintel');
-  let repo = c.get('repoPath', '');
+  const raw = c.get('repoPath', '');
+  let repo = raw;
   if (!repo && vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length) {
     repo = vscode.workspace.workspaceFolders[0].uri.fsPath;
   }
-  return { bin: c.get('binaryPath', 'codeintel'), repo: repo || '.' };
+  return { bin: c.get('binaryPath', 'codeintel'), repo: repo || '.', explicitRepo: !!raw };
 }
 
 function chainDepth() {
@@ -192,35 +194,114 @@ function findGoModRoot(dir) {
   return null;
 }
 
-// cursorTarget 光标处符号 → canonical ID：从定义文件目录逐层向上找 go.mod，
-// module path + 包相对路径 +（方法 receiver）+ 函数名拼成 canonical ID。
-// 直接使用 canonical ID 查询，不先按短名查候选（避免多匹配二次选择）。
-function cursorTarget(ed) {
-  const doc = ed.document;
-  const fileDir = path.dirname(doc.fileName);
-  const mod = findGoModRoot(fileDir);
-  if (!mod || !mod.module) return null;
-  const rel = path.relative(mod.root, fileDir).split(path.sep).filter(Boolean).join('/');
-  const pkgPath = rel ? mod.module + '/' + rel : mod.module;
-  const word = currentWord(ed);
-  if (!word) return null;
-  // 选择器 `pkg.Func` / `x.Method` → 取最后一段（receiver 由声明/同包扫描补全）
-  const short = word.split('.').pop().replace(/[^A-Za-z0-9_]/g, '');
-  if (!short) return null;
-  const line = ed.selection.active.line;
-  const decl = enclosingFuncDecl(doc, line);
-  let name = short;
-  let candidate = null;
-  if (decl && decl.name === short && decl.recv) {
-    name = '(' + decl.recv + ').' + decl.name;
-  } else if (decl && decl.name === short) {
-    name = decl.name;
-  } else {
-    candidate = receiverOfMethodInPackage(doc.fileName, short);
-    if (candidate) name = '(' + candidate + ').' + short;
+// queryRepos 待查询仓库列表：显式配置 repoPath 时只查指定仓库；否则
+// 依次尝试工作区根 + 第一层含 go.mod 的目录（找到结果即停止）。
+function queryRepos(c) {
+  if (c.explicitRepo && c.repo) return [c.repo];
+  const base = c.repo && c.repo !== '.' ? c.repo : firstWorkspaceFolder();
+  const out = [];
+  const add = function (p) { if (p && out.indexOf(p) < 0) out.push(p); };
+  if (!base) {
+    add(c.repo || '.');
+    return out;
   }
-  void candidate;
-  return { id: 'symbol:go:' + pkgPath + ':' + name, name: name, repo: mod.root };
+  if (hasGoMod(base)) add(base);
+  try {
+    fs.readdirSync(base, { withFileTypes: true })
+      .filter(function (e) { return e.isDirectory() && hasGoMod(path.join(base, e.name)); })
+      .forEach(function (e) { add(path.join(base, e.name)); });
+  } catch (e) { /* ignore */ }
+  if (out.length === 0) add(base);
+  return out;
+}
+
+// focusResults 把活动视图切到 Activity Bar 查询结果（侧栏）；失败静默
+// （命令未注册/无视图时不阻塞查询）。
+function focusResults() {
+  try {
+    vscode.commands.executeCommand('codeintel.results.focus');
+  } catch (e) { /* ignore */ }
+}
+
+// funcDeclAt 读取文件并从 1-based line 向上找最近的 func 声明（name/receiver）。
+function funcDeclAt(file, line) {
+  let text = '';
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch (e) {
+    return null;
+  }
+  return funcDeclInText(text, line);
+}
+
+// funcDeclInText 文本 + 1-based 行 → 最近的 func 声明（name/receiver）。
+function funcDeclInText(text, line) {
+  const lines = String(text).split('\n');
+  const start = Math.min(Math.max(line - 1, 0), lines.length - 1);
+  for (let i = start; i >= 0 && i >= start - 400; i--) {
+    const m = /^func\s+(?:\(\s*\w+\s+\*?([A-Za-z0-9_\[\]]+)\s*\)\s+)?([A-Za-z0-9_]+)/.exec(lines[i]);
+    if (m) return { recv: m[1] || '', name: m[2] };
+  }
+  return null;
+}
+
+// normalizeDefinition 归一 Go 定义提供器结果（Location / LocationLink）
+// 为 {file, line}（1-based）。
+function normalizeDefinition(d) {
+  if (!d) return null;
+  const uri = d.targetUri || d.uri;
+  const range = d.targetSelectionRange || d.targetRange || d.range;
+  if (!uri || !range || !range.start) return null;
+  return { file: uri.fsPath || String(uri), line: range.start.line + 1 };
+}
+
+// definitionLocations 通过 VS Code Go 定义提供器取真实定义位置（支持
+// Location 与 LocationLink），去重后返回 [{file,line}]。
+async function definitionLocations(ed) {
+  let defs = [];
+  try {
+    defs = await vscode.commands.executeCommand('vscode.executeDefinitionProvider',
+      ed.document.uri, ed.selection.active);
+  } catch (e) {
+    return null;
+  }
+  const out = [];
+  const seen = {};
+  (defs || []).forEach(function (d) {
+    const loc = normalizeDefinition(d);
+    if (!loc) return;
+    const k = loc.file + ':' + loc.line;
+    if (seen[k]) return;
+    seen[k] = true;
+    out.push(loc);
+  });
+  return out;
+}
+
+// canonicalIDForDefinition 定义文件 + 行 → canonical ID：从**定义文件**
+// 最近的 go.mod 取 module path（跨包调用用定义的包，而非调用点），
+// 定义行的 func 声明给出 receiver 与函数名。
+function canonicalIDForDefinition(file, line) {
+  const mod = findGoModRoot(path.dirname(file));
+  if (!mod || !mod.module) return null;
+  const rel = path.relative(mod.root, path.dirname(file)).split(path.sep).filter(Boolean).join('/');
+  const pkgPath = rel ? mod.module + '/' + rel : mod.module;
+  const decl = funcDeclAt(file, line);
+  if (!decl) return null;
+  const name = decl.recv ? '(' + decl.recv + ').' + decl.name : decl.name;
+  return { id: 'symbol:go:' + pkgPath + ':' + name, name: name, repo: mod.root, file: file, line: line };
+}
+
+// cursorTargetFromDefinition 光标处符号 → 真实定义位置 → canonical ID。
+// 多定义时不猜测（返回 error=multiple 由调用方提示）。
+async function cursorTargetFromDefinition(ed) {
+  const defs = await definitionLocations(ed);
+  if (!defs) return { error: 'no-definition' };
+  if (defs.length === 0) return { error: 'no-definition' };
+  if (defs.length > 1) return { error: 'multiple', count: defs.length };
+  const t = canonicalIDForDefinition(defs[0].file, defs[0].line);
+  if (!t) return { error: 'no-module' };
+  return t;
 }
 
 // enclosingFuncDecl 光标所在（或最近上方）的 func 声明：name/receiver。
@@ -269,17 +350,30 @@ async function querySymbol() {
     placeHolder: '如 (Manager).Run 或 symbol:go:...:main'
   });
   if (!sym) return;
-  const repo = await detectRepo();
-  await queryAndShow(sym, { bin: cfg().bin, repo: repo });
+  const c = cfg();
+  const repos = queryRepos(c);
+  // 多仓库：依次查询工作区第一层 Go module，找到结果即停止
+  for (const repo of repos) {
+    const r = await runCli(['query', 'symbol', sym, '--repo', repo, '--json'], true);
+    if (!r.error && r.data && r.data.name) {
+      await queryAndShow(sym, { bin: c.bin, repo: repo });
+      return;
+    }
+  }
+  provider.setError('✗ 未在 ' + repos.join(' / ') + ' 找到符号 ' + sym);
 }
 
-// querySymbolAt 光标处符号直接查询（Hover「查看详情」/ 命令入口）。
+// querySymbolAt 光标处符号直接查询（Hover「查看详情」/ 命令入口）：
+// 经 Go 定义提供器取真实定义 → canonical ID → 精确查询。
 async function querySymbolAt() {
   const ed = vscode.window.activeTextEditor;
   if (!ed) return;
-  const t = cursorTarget(ed);
-  if (!t) {
-    vscode.window.showWarningMessage('codeintel: 无法定位光标符号（需要 go.mod 与 Go 标识符）');
+  const t = await cursorTargetFromDefinition(ed);
+  if (!t || t.error) {
+    const msg = t && t.error === 'multiple'
+      ? 'codeintel: 符号有多个定义，无法确定唯一 canonical ID（请用「查询符号」输入完整 ID）'
+      : 'codeintel: 无法从定义定位符号（需要 Go 定义与 go.mod）';
+    vscode.window.showWarningMessage(msg);
     return;
   }
   await queryAndShow(t.id, { bin: cfg().bin, repo: t.repo });
@@ -289,6 +383,7 @@ async function querySymbolAt() {
 // 查询完整调用深度，在内存中组装调用树（不再逐层启动 CLI）。
 async function queryAndShow(sym, c) {
   provider.setLoading('搜索中…');
+  focusResults();
   let r = await runCli(['query', 'symbol', sym, '--repo', c.repo, '--json'], true);
   // #236：多匹配（重名符号）→ QuickPick 候选 → 用 canonical ID 重查
   if (r.error) {
@@ -359,9 +454,11 @@ async function queryImpact() {
   nodes.forEach(function (n) {
     channel.appendLine('  [' + n.kind + '] ' + n.name + (n.file ? '  ' + n.file + (n.line ? ':' + n.line : '') : ''));
   });
-  provider.setRoots([group('影响节点（' + nodes.length + '）', nodes.map(function (n) {
+  const impactRoots = [group('影响节点（' + nodes.length + '）', nodes.map(function (n) {
     return symbolNode({ name: n.name, kind: n.kind, file: n.file, line: n.line, id: n.id }, []);
-  }))]);
+  }))];
+  assignRepo(impactRoots, c.repo);
+  provider.setRoots(impactRoots);
 }
 
 async function updateIndex() {
@@ -410,7 +507,17 @@ async function buildResult(d, callerRows, calleeRows, c, depth) {
     group('上层调用链', upstream.length ? upstream : [emptyNode()]),
     group('下游调用链', downstream.length ? downstream : [emptyNode()])
   ];
+  // 仓库保持：所有结果节点记住本次查询的仓库（直接跳转/补查均用它）
+  assignRepo(roots, c.repo);
   return { roots: roots, upstream: upstream, downstream: downstream };
+}
+
+// assignRepo 递归为结果节点写入查询仓库（openAt/resolveAndJump 用它）。
+function assignRepo(nodes, repo) {
+  (nodes || []).forEach(function (n) {
+    n.repo = repo;
+    if (n.children && n.children.length) assignRepo(n.children, repo);
+  });
 }
 
 // buildChain 由扁平边 rows 组装调用树。dir=up：target→source（调用者树）；
@@ -580,18 +687,19 @@ class ResultProvider {
 async function openNode(node) {
   if (!node || !node.jump) return;
   if (node.file) {
-    await openAt(node.file, node.line);
+    await openAt(node.file, node.line, node.repo);
     return;
   }
-  if (node.symbolId) await resolveAndJump(node.symbolId);
+  if (node.symbolId) await resolveAndJump(node.symbolId, node.repo);
 }
 
 // ---- #236 跳到定义 ----
 
-async function openAt(file, line) {
+async function openAt(file, line, repo) {
   if (!file) return;
   const c = cfg();
-  const abs = path.isAbsolute(file) ? file : path.join(c.repo, file);
+  const base = repo || c.repo;
+  const abs = path.isAbsolute(file) ? file : path.join(base, file);
   try {
     const doc = await vscode.workspace.openTextDocument(abs);
     const editor = await vscode.window.showTextDocument(doc);
@@ -605,10 +713,12 @@ async function openAt(file, line) {
   }
 }
 
-// resolveAndJump 无位置的节点：按 canonical ID 二次解析位置再跳转。
-async function resolveAndJump(id) {
+// resolveAndJump 无位置的节点：按 canonical ID 二次解析位置再跳转
+// （用节点记录的查询仓库，而非全局配置）。
+async function resolveAndJump(id, repo) {
   const c = cfg();
-  const r = await runCli(['query', 'symbol', id, '--repo', c.repo, '--json'], true);
+  const base = repo || c.repo;
+  const r = await runCli(['query', 'symbol', id, '--repo', base, '--json'], true);
   if (r.error || !r.data) {
     vscode.window.showWarningMessage('codeintel: 无法解析 ' + shortID(id) + '（' + (r.error || '无结果') + '）');
     return;
@@ -629,29 +739,39 @@ function parseCandidates(errText) {
 
 // ---- 生成调用时序图 ----
 
+// sequenceFileName 时序图文件名：符号短名 + canonical ID 哈希（避免同名
+// 符号互相覆盖）。
+function sequenceFileName(id, name) {
+  const safe = String(name || 'sequence').replace(/[^A-Za-z0-9_.-]+/g, '_');
+  const h = crypto.createHash('sha1').update(String(id || '')).digest('hex').slice(0, 8);
+  return safe + '-' + h;
+}
+
 // generateSequence Activity Bar 标题按钮：对最近一次查询的符号执行
 // `query sequence --code --format plantuml`，产物写到
 // <repo>/.codeintel/sequence/ 后自动打开。CLI 可渲染时输出 PNG；PlantUML
-// 不可用（回退 Mermaid 文本）时改名为 .mmd 再打开。
+// 不可用（回退 Mermaid 文本）时改名为 .mmd 再打开。用户最后一次成功
+// 查询的**仓库**优先（多仓库场景）。
 async function generateSequence() {
   if (!lastQuery) {
     vscode.window.showWarningMessage('codeintel: 请先查询一个符号，再生成调用时序图');
     return;
   }
   const c = cfg();
-  const dir = path.join(c.repo, '.codeintel', 'sequence');
+  const repo = lastQuery.repo || c.repo;
+  const dir = path.join(repo, '.codeintel', 'sequence');
   try {
     fs.mkdirSync(dir, { recursive: true });
   } catch (e) {
     vscode.window.showErrorMessage('codeintel: 无法创建 ' + dir + '（' + e.message + '）');
     return;
   }
-  const safe = String(lastQuery.name || 'sequence').replace(/[^A-Za-z0-9_.-]+/g, '_');
+  const safe = sequenceFileName(lastQuery.id, lastQuery.name);
   const pngPath = path.join(dir, safe + '.png');
   channel.clear();
-  channel.appendLine('codeintel query sequence --code ' + lastQuery.id + ' (repo: ' + c.repo + ')');
+  channel.appendLine('codeintel query sequence --code ' + lastQuery.id + ' (repo: ' + repo + ')');
   channel.appendLine('='.repeat(50));
-  const r = await runCli(['query', 'sequence', '--code', lastQuery.id, '--repo', c.repo,
+  const r = await runCli(['query', 'sequence', '--code', lastQuery.id, '--repo', repo,
     '--format', 'plantuml', '--out', pngPath], false);
   if (r.error) {
     channel.appendLine('✗ ' + r.error);
@@ -723,4 +843,8 @@ function renderHoverMarkdown(d) {
   return parts.join('');
 }
 
-module.exports = { activate, deactivate, renderSymbol, renderHoverMarkdown, shortID, shouldAutoUpdateFileName, parseCandidates, openAt };
+module.exports = {
+  activate, deactivate, renderSymbol, renderHoverMarkdown, shortID,
+  shouldAutoUpdateFileName, parseCandidates, openAt,
+  queryRepos, normalizeDefinition, canonicalIDForDefinition, funcDeclInText, sequenceFileName
+};

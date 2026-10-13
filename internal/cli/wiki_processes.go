@@ -45,6 +45,11 @@ func renderProcessesMD(rc *wikiRenderCtx) string {
 		b.WriteString("未找到 main 入口（库项目或入口不在索引中）。\n")
 		return b.String()
 	}
+	// 主入口展开预算：Markdown/HTML 共用 --max-entries 的**总**展开预算
+	// （覆盖所有 main 入口）——预算内的一级调用才执行调用链/字段流查询，
+	// 其余保留为清单（大仓多入口防查询爆炸）。
+	budget := procMaxOf(rc.MaxEntries)
+	used := 0
 	for _, e := range entries {
 		b.WriteString("## 入口 `" + e.Name + "`\n\n")
 		if e.File != "" {
@@ -58,7 +63,13 @@ func renderProcessesMD(rc *wikiRenderCtx) string {
 			b.WriteString("一级调用: （无）\n\n")
 			continue
 		}
+		var rest []string
 		for i, c := range e.Callees {
+			if used >= budget {
+				rest = append(rest, c)
+				continue
+			}
+			used++
 			b.WriteString("### " + c + "\n\n")
 			// 完整 canonical ID 展开（短名 pkg:name 无法按名解析——
 			// go2o 实测 app:ParseFlags 解析失败致无调用链）
@@ -85,6 +96,9 @@ func renderProcessesMD(rc *wikiRenderCtx) string {
 			if len(chain.Pkgs) > 0 {
 				b.WriteString("涉及包：`" + strings.Join(chain.Pkgs, "`、`") + "`\n\n")
 			}
+		}
+		if len(rest) > 0 {
+			b.WriteString("其余一级调用（未展开，共 " + strconv.Itoa(len(rest)) + "）：`" + strings.Join(rest, "`、`") + "`\n\n")
 		}
 	}
 	// R37：HTTP 路由入口（handler 调用链，同 handler 去重）——数据源
@@ -117,6 +131,9 @@ func renderProcessesHTML(rc *wikiRenderCtx) string {
 		b.WriteString(`<p>未找到 main 入口（库项目或入口不在索引中）。</p></section>`)
 		return b.String()
 	}
+	// 与 Markdown 共用同一 --max-entries 总展开预算（所有 main 入口共享）
+	budget := procMaxOf(rc.MaxEntries)
+	used := 0
 	for _, e := range entries {
 		b.WriteString(fmt.Sprintf(`<h3>入口 <code>%s</code></h3>`, htmlEsc(e.Name)))
 		if e.File != "" {
@@ -130,7 +147,13 @@ func renderProcessesHTML(rc *wikiRenderCtx) string {
 			b.WriteString(`<p class="muted">一级调用：（无）</p>`)
 			continue
 		}
+		var rest []string
 		for i, c := range e.Callees {
+			if used >= budget {
+				rest = append(rest, c)
+				continue
+			}
+			used++
 			b.WriteString(fmt.Sprintf(`<h4><code>%s</code></h4>`, htmlEsc(c)))
 			target := ""
 			if i < len(e.CalleeIDs) {
@@ -155,6 +178,9 @@ func renderProcessesHTML(rc *wikiRenderCtx) string {
 			if len(chain.Pkgs) > 0 {
 				b.WriteString("<p class=\"muted\">涉及包：" + htmlEsc(strings.Join(chain.Pkgs, "、")) + "</p>")
 			}
+		}
+		if len(rest) > 0 {
+			b.WriteString(fmt.Sprintf(`<p class="muted">其余一级调用（未展开，共 %d）：<code>%s</code></p>`, len(rest), htmlEsc(strings.Join(rest, "、"))))
 		}
 	}
 	// R37：HTTP 路由入口 + gRPC 服务入口索引（每服务独立子页）；

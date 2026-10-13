@@ -4892,3 +4892,31 @@ drop 全部索引"因此**收益不成立**——为 5% 的耗时引入一条独
 
 教训：**"批量一定更快"也是要先量的直觉**——与"换格式一定更省内存"（§93
 gob 分配 +60%）同类。
+
+## §? 索引重建安全 + 插件本地查询恢复 + 包级函数值注册表（2026-10-13）
+
+按 codeintel-changelog-2 实现：
+
+- **索引重建安全**：旧库 schema 不兼容时 `reindex` 不再删库，改为
+  `sqlite.RebuildDerivedSchema` 在**单事务**中 DROP 派生图表（nodes/edges/
+  function_field_summary/summary_origins/relation_candidates/edges_v）并重跑
+  schema——保留 relation_rules / qa_history / relation_progress / build_metadata；
+  任一步失败回滚（数据库原样），非 schema 错误直接返回不删文件。`clean` 明示
+  删除范围（含人工规则/问答/时序图）。
+- **标识约束**：`id_int`/`source_ref`/`target_ref` 仅库内使用，对外 JSON 一律
+  canonical ID（`internal/cli/index_safety_test.go` 回归）。
+- **包级函数值注册表**：`collectPkgFuncSetVars` 扫包级 `var` 的函数集合初始化
+  表达式收集具名函数（去重排序）；变量作为实参传入「函数集合入参+返回」的
+  getter 时补 getter→函数 的 CALLS 边（conf 0.8）。`collectFuncSetRefs` 的递归
+  保护改为**路径回溯集**（同一类型的不同兄弟元素都要收集）。
+- **接口候选池**：实现类型集合按接口缓存（同接口多方法只 `types.Implements`
+  扫一次），方法级过滤；`computes` 计数供测试断言只算一次。
+- **Wiki 主入口预算**：Markdown/HTML 流程页共用 `--max-entries` 总展开预算
+  （覆盖所有 main 入口），预算外一级调用保留清单。
+- **插件本地查询恢复**：光标查询改经 VS Code Go 定义提供器（Location /
+  LocationLink）取真实定义 → 从定义文件最近 go.mod 拼 canonical ID（多定义不
+  猜）；多仓库依次查询（显式 repoPath 只查指定）；结果节点保存查询仓库；
+  时序图用最近查询仓库 + canonical ID 哈希文件名；侧栏自动聚焦。
+- **构建**：`make plugin`（固定版本 vsce）/ `make install-plugin`；`.vscodeignore`
+  排除 `*.vsix`；`scripts/selfcheck-vscode-extension.cjs` 纯逻辑自检。
+- **SSA 诊断**：`CODEINTEL_EMIT_SAMPLE=1` 容器采样（emit_sample.go）。

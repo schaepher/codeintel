@@ -1,0 +1,6 @@
+# VSIX 打包排除（避免安装包嵌套/开发产物进包）
+.vscode/**
+.vscodeignore
+*.vsix
+**/*.map
+node_modules/**

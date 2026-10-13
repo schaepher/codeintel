@@ -53,6 +53,9 @@ func emitFunctionFields(repo *domain.Repository, prog *ssa.Program, fn *ssa.Func
 		typeMapping:   typeMapping,
 		fallbackAgg:   fallbackAgg,
 	}
+	// Q?：CODEINTEL_EMIT_SAMPLE=1 时每 10 个函数抽样一次容器规模
+	// （诊断 GC 扫描压力；无环境变量不采样）。
+	sampleEmitContainers(ext)
 
 	// Q231：第一遍收集（FieldAddr/IndexAddr 用途判定）抽到
 	// collectAddrUses（fe_emit.go 行数收敛）

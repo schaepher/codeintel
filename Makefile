@@ -12,8 +12,10 @@ E2E_REPO   ?= .
 GIT_COMMIT := $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
 VERSION_PKG := github.com/schaepher/codeintel/internal/cli
 LDFLAGS    := -X '$(VERSION_PKG).gitCommit=$(GIT_COMMIT)'
+# VSIX 打包工具固定版本（避免 npx 拉到不兼容的新版）
+VSIX_TOOL  ?= @vscode/vsce@3.6.0
 
-.PHONY: build install test it e2e serve vet clean version
+.PHONY: build install test it e2e serve vet clean version plugin install-plugin
 
 ## build: 编译二进制（注入 commit hash）
 build:
@@ -21,7 +23,7 @@ build:
 
 ## install: 安装到 GOBIN（默认 GOPATH/bin）+ 首次自动初始化全局配置
 ##           （~/.codeintel/config.yaml 不存在时用 `codeintel config
-##           default` 写入——R60；已存在不覆盖，用户改动保留）
+##           default` 写入——R60；已存在则合并缺失项，用户改动保留）
 install:
 	go install -ldflags "$(LDFLAGS)" ./cmd/codeintel
 	@CONFIG=$${HOME}/.codeintel/config.yaml; \
@@ -32,9 +34,16 @@ install:
 	else \
 	  echo "== 检查配置缺失项（S7）：$$CONFIG =="; \
 	  go run ./cmd/codeintel config merge; \
-	else \
-	  echo "== 全局配置已存在：$$CONFIG（跳过） =="; \
 	fi
+
+## plugin: 打包 VS Code 扩展（固定版本 vsce）→ vscode-extension/codeintel.vsix
+plugin:
+	cd vscode-extension && npx --yes $(VSIX_TOOL) package --allow-missing-repository --out codeintel.vsix
+	@echo "== 已生成 vscode-extension/codeintel.vsix =="
+
+## install-plugin: 先打包再用 code 安装扩展（--force 覆盖已有版本）
+install-plugin: plugin
+	code --install-extension vscode-extension/codeintel.vsix --force
 
 ## release: 交叉编译多平台发布包（#227 分发简化）——dist/codeintel-<os>-<arch>.tar.gz
 ##          （包内二进制名 codeintel，与 scripts/install.sh 约定一致）+ SHA256SUMS

@@ -147,3 +147,33 @@ init / reindex / update 三处默认值统一（defaultBuildWorkers）。
    单线程算法优化都封顶于 ~1 核收益；先让核数满起来。
 3. **测量数据驱动决策**：GOGC=100 "看起来更快"的直觉被 RSS +54%
    数据否决；默认 workers 从 1 到 8 由冷启动实测（5m16s→40s）支撑。
+
+---
+
+## 目标仓库全量 GC 采样与优化方向（2026-10-13）
+
+- **采样**：临时副本完整 reindex（排除 `scripts/`、`vendor/`，独立 Go 包缓存）；
+  未修改目标仓库原有 `.codeintel` 索引。
+- **结果**：耗时 25m16s，status success，产出 2,400,240 符号、7,423,969 边；
+  日志仍有部分包的编译/类型错误——success 不代表所有包均完整解析。
+- **GC 热点**：运行时 GC 占比约 26–27%；CPU profile 中
+  `runtime.tryDeferToSpanScan` 占采样 CPU 43.6%，GC 标记路径累计约 51.7%
+  （调用栈包含关系有重叠，不可相加）。
+- **存活堆分配热点**：`go/types.(*Checker).recordTypeAndValue` ≈693MB、
+  `canonicalizer.GoSymbolID` ≈655MB、`ssa.mergeFuncData` ≈378MB、
+  `ssa.buildIdentIndex` ≈208MB；分配热点中 `encoding/gob` 写入累计 ≈28.7GB
+  （累计分配 ≠ 存活量/GC 扫描量）。
+- **emitFunction 容器估算**：≈17.5 万函数、192.5 万 map、2390 万条目，
+  平均 ≈12.4 条/map；最大采样容器 8733 条（抽样外推，非精确计数）。
+- **结论边界**：CPU profile 能定位 GC 扫描函数，heap profile 能定位分配
+  调用点，但二者不能确定被扫描对象的精确 Go 类型及各类型扫描字节占比；
+  不能断言 emitFunction 的 map 是唯一/最大扫描来源。
+- **优化思路**：纯值类型（整数数组/切片）底层元素无需扫描（切片头仍含
+  指针）；元素含字符串/指针/含指针字段仍需扫描；map 不能仅靠改数组/切片
+  消除扫描。先选生命周期短且高频的容器做小范围实验（整数索引/紧凑纯值
+  缓冲区替代指针丰富结构），以 GC CPU、扫描堆、峰值 RSS、产物一致性做
+  同仓库 A/B 对照。避免无差别池化 map（可能保留桶与引用、延长存活并增加
+  后续扫描）。
+- **诊断开关**：`CODEINTEL_EMIT_SAMPLE=1` 时每 10 个函数抽样一次
+  `fieldExtractor` 容器规模（函数数/map 数/entry 数/最大 entry + 堆/GC），
+  见 `internal/infrastructure/ssa/fe_emit.go` 与 `emit_sample.go`。

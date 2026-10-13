@@ -30,16 +30,20 @@ func cmdReindex(ctx context.Context, args []string) int {
 		return 1
 	}
 	fmt.Printf("重建索引: %s\n", abs)
-	// Q254c：reindex 的语义是"重建"——检测到 schema 不兼容（如 edges 改整数
-	// 代理键）时删除旧库文件再走 init（图数据是派生数据，重建即迁移）。
-	// 配置文件关系表 relation_rules 会一并丢失 → 打印醒目提示。
+	fmt.Println("说明：图数据（nodes/edges/函数摘要等）为派生数据，将整体重建；人工数据（relation_rules 连线规则、qa_history 问答）保留")
+	// Q254/Q?：reindex 的语义是"重建"——检测到 schema 不兼容（如 edges
+	// 改整数代理键）时不再删除整个数据库，而是**在事务中重置派生图表**
+	// （保留 relation_rules / qa_history）；重置失败回滚，数据库保持原样。
 	if db, err := sqlite.Open(abs); err != nil {
 		if strings.Contains(err.Error(), "schema mismatch") {
-			fmt.Fprintf(os.Stderr,
-				"warning: 旧索引 schema 不兼容——删除旧库后重建（配置表 relation_rules 会丢失）\n  原因: %v\n", err)
-			for _, suf := range []string{"", "-wal", "-shm"} {
-				_ = os.Remove(filepath.Join(abs, ".codeintel", "codeintel.db"+suf))
+			fmt.Printf("检测到旧索引 schema 不兼容——重置派生图表（保留 relation_rules/qa_history）\n  原因: %v\n", err)
+			if rerr := sqlite.RebuildDerivedSchema(abs); rerr != nil {
+				fmt.Fprintf(os.Stderr, "error: 重置派生图表失败（数据库未改动）: %v\n", rerr)
+				return 1
 			}
+		} else {
+			fmt.Fprintf(os.Stderr, "error: 打开索引失败（未删除数据库）: %v\n", err)
+			return 1
 		}
 	} else {
 		db.Close()

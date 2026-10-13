@@ -30,6 +30,10 @@ func cmdClean(args []string) int {
 		fmt.Printf("没有找到索引目录 %s\n", target)
 		return 0
 	}
+	// 删除范围明示（--force 只跳过确认，仍打印）：除包级缓存外全部内容，
+	// 包括人工数据（连线规则 relation_rules、问答 qa_history）与时序图
+	// （.codeintel/sequence/）——clean 是破坏性操作。
+	fmt.Printf("删除范围：%s（含派生索引、人工连线规则 relation_rules、问答 qa_history、时序图 sequence）\n", target)
 	if !*force {
 		fmt.Printf("确定删除 %s ？输入 yes 确认: ", target)
 		var answer string
@@ -43,7 +47,7 @@ func cmdClean(args []string) int {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
 		}
-		fmt.Printf("已删除 %s（含包级分析缓存）\n", target)
+		fmt.Printf("已删除 %s（含派生索引、人工规则/问答/时序图、包级分析缓存）\n", target)
 		unregisterRepoAfterClean(abs)
 		return 0
 	}

@@ -75,14 +75,34 @@
     "menus": {
       "view/title": [
         {
-          "command": "codeintel.generateSequence",
+          "command": "codeintel.querySymbol",
           "when": "view == codeintel.results",
           "group": "navigation@1"
         },
         {
-          "command": "codeintel.refreshResults",
+          "command": "codeintel.querySymbolAt",
           "when": "view == codeintel.results",
           "group": "navigation@2"
+        },
+        {
+          "command": "codeintel.impact",
+          "when": "view == codeintel.results",
+          "group": "navigation@3"
+        },
+        {
+          "command": "codeintel.updateIndex",
+          "when": "view == codeintel.results",
+          "group": "navigation@4"
+        },
+        {
+          "command": "codeintel.generateSequence",
+          "when": "view == codeintel.results",
+          "group": "navigation@5"
+        },
+        {
+          "command": "codeintel.refreshResults",
+          "when": "view == codeintel.results",
+          "group": "navigation@6"
         }
       ]
     },

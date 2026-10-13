@@ -3,6 +3,7 @@ package ssa
 import (
 	"go/types"
 	"sync"
+	"sync/atomic"
 
 	"go.uber.org/zap"
 )
@@ -15,16 +16,20 @@ import (
 // = 调用点数 × 模块内类型数 × 类型方法数；emitCall（cf_call.go）是**按
 // 调用点**调用它，go2o 全量构建里这是 SSA 阶段最大的分配/GC 来源之一。
 //
-// 改造两点，语义与旧实现逐条对齐：
+// 改造三点，语义与旧实现逐条对齐：
 //  1. 类型池 Index 级构建一次（只扫一遍各包 scope，顺带预计算
 //     *types.Pointer），types.NewPointer 不再按 (调用点 × 类型) 分配
-//  2. 结果按 (接口, 方法名) memo——同一接口方法的后续调用点 O(1)
+//  2. 实现类型集合**按接口缓存**——同一接口的不同方法（Save/Load...）
+//     复用同一份 types.Implements 扫描结果，不再逐方法重扫全库类型
+//  3. 结果按 (接口, 方法名) 过滤——方法级切片由调用方只读
 type implTypePool struct {
 	// types 模块内全部包级具名类型（Q246：Index 级一次扫描）
 	types []pooledType
 	mu    sync.RWMutex
-	// cached 结果 memo（键为接口类型指针 + 方法名——池与程序同生命周期）
-	cached map[implKey][]*types.Func
+	// cached 实现类型集合（键为接口类型指针——池与程序同生命周期）
+	cached map[*types.Named][]pooledType
+	// computes 实现集合计算次数（测试断言「同接口只算一次」用；并发安全）
+	computes atomic.Int64
 }
 
 // pooledType 池内类型：具名类型 + 预计算的指针类型（值与指针方法集都查）。
@@ -33,19 +38,14 @@ type pooledType struct {
 	ptr   *types.Pointer
 }
 
-type implKey struct {
-	iface  *types.Named
-	method string
-}
-
 // newImplTypePool 扫描模块内包，收集全部包级具名类型。接口类型也留在
-// 池内——methodsFor 内按「接口自身」排除（与旧实现一致：旧实现是
+// 池内——implsFor 内按「接口自身」排除（与旧实现一致：旧实现是
 // 在候选循环里 named == iface 跳过）。
 func newImplTypePool(pkgs []*types.Package, modules []string) *implTypePool {
 	logger := zap.L()
 	logger.Debug("enter newImplTypePool")
 	defer logger.Debug("exit newImplTypePool")
-	p := &implTypePool{cached: map[implKey][]*types.Func{}}
+	p := &implTypePool{cached: map[*types.Named][]pooledType{}}
 	for _, pkg := range pkgs {
 		if pkg == nil || !isInModule(pkg.Path(), modules) {
 			continue
@@ -75,40 +75,51 @@ func (p *implTypePool) Len() int {
 }
 
 // methodsFor 枚举模块内实现 iface.method 的具名类型方法（值与指针方法集
-// 都查）。返回切片由池持有——调用方只读，不得修改。
+// 都查）。返回切片为新建只读切片——调用方只读，不得修改。
 func (p *implTypePool) methodsFor(iface *types.Named, method string) []*types.Func {
 	if p == nil || iface == nil {
 		return nil
 	}
-	key := implKey{iface: iface, method: method}
+	impls := p.implsFor(iface)
+	var out []*types.Func
+	for _, t := range impls {
+		if fn := findMethod(t.named, method); fn != nil {
+			out = append(out, fn)
+		}
+	}
+	return out
+}
+
+// implsFor 返回实现 iface 的具名类型集合（按接口缓存——同一接口的不同
+// 方法共用一次全库 types.Implements 扫描）。
+func (p *implTypePool) implsFor(iface *types.Named) []pooledType {
 	p.mu.RLock()
-	out, ok := p.cached[key]
+	out, ok := p.cached[iface]
 	p.mu.RUnlock()
 	if ok {
 		return out
 	}
-
-	out = p.compute(iface, method)
-
+	out = p.computeImpls(iface)
 	p.mu.Lock()
-	if prev, ok := p.cached[key]; ok { // 并发同键：保留先到者，保证同键返回同一底层数组
+	if prev, ok := p.cached[iface]; ok { // 并发同键：保留先到者
 		p.mu.Unlock()
 		return prev
 	}
-	p.cached[key] = out
+	p.cached[iface] = out
 	p.mu.Unlock()
 	return out
 }
 
-// compute 未命中时的实际枚举（无锁；结果由 methodsFor 落 memo）。
-func (p *implTypePool) compute(iface *types.Named, method string) []*types.Func {
+// computeImpls 未命中时的实际枚举（无锁；结果由 implsFor 落 memo）。
+func (p *implTypePool) computeImpls(iface *types.Named) []pooledType {
+	p.computes.Add(1)
 	// iface 非接口不应出现（调用方只传 interfaceNamedOf 的结果）；
 	// 旧实现直接断言会 panic，此处返回空更稳
 	it, ok := iface.Underlying().(*types.Interface)
 	if !ok {
 		return nil
 	}
-	var out []*types.Func
+	var out []pooledType
 	for _, t := range p.types {
 		if t.named == iface {
 			continue
@@ -116,9 +127,7 @@ func (p *implTypePool) compute(iface *types.Named, method string) []*types.Func 
 		if !types.Implements(t.named, it) && !types.Implements(t.ptr, it) {
 			continue
 		}
-		if fn := findMethod(t.named, method); fn != nil {
-			out = append(out, fn)
-		}
+		out = append(out, t)
 	}
 	return out
 }

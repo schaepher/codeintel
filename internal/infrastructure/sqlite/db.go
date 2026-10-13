@@ -49,10 +49,7 @@ func Open(repoPath string) (*DB, error) {
 	//   - journal_size_limit(64MB)（Q254）：checkpoint 后把 WAL 文件截断到该
 	//     上限——真实业务库构建末尾 WAL 涨到 1.33GB（未设上限 + checkpoint
 	//     跟不上），收尾再显式 wal_checkpoint(TRUNCATE)。
-	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"+
-		"&_pragma=cache_size(-131072)&_pragma=synchronous(NORMAL)"+
-		"&_pragma=journal_size_limit(%d)",
-		filepath.Join(dir, "codeintel.db"), journalSizeLimit)
+	dsn := dbDSN(dir)
 	raw, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
@@ -72,6 +69,15 @@ func Open(repoPath string) (*DB, error) {
 type DB struct {
 	*sql.DB
 	repoPath string
+}
+
+// dbDSN 仓库数据库连接串（WAL + busy_timeout + 外键 + Q246 调参）。
+// 抽成函数供 Open 与 rebuild_schema.go（不跑 schema 校验的原始打开）共用。
+func dbDSN(dir string) string {
+	return fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"+
+		"&_pragma=cache_size(-131072)&_pragma=synchronous(NORMAL)"+
+		"&_pragma=journal_size_limit(%d)",
+		filepath.Join(dir, "codeintel.db"), journalSizeLimit)
 }
 
 func (db *DB) init() error {

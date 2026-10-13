@@ -159,6 +159,12 @@ func TestQueryGraphOutputs(t *testing.T) {
 	if !strings.Contains(out, `"rows"`) || !strings.Contains(out, `symbol:go:example.com/m/svc:(Svc).Run`) {
 		t.Errorf("callees --json 缺 rows:\n%s", out)
 	}
+	// 调用关系 JSON 富化断言：端点 name/kind/file + 完整 source/target 边
+	for _, want := range []string{`"name": "(Svc).Run"`, `"kind": "method"`, `"file": "svc/svc.go"`, `"source"`, `"target"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("callees --json 缺 %s:\n%s", want, out)
+		}
+	}
 }
 
 // TestExportGraphValueTraceDot：⑬ 猎 bug——export graph value-trace 的

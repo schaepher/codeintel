@@ -21,15 +21,22 @@ code --install-extension .   # 或 F5 启动扩展开发宿主
 
 | 命令 | 作用 |
 |---|---|
-| `codeintel: 查询符号` | 输入符号名 → 详情 + 调用者/被调用者 + 上下层调用链 |
-| `codeintel: 查询光标处符号` | 光标处符号（从文件目录向上找 go.mod 拼 canonical ID，直接查定义） |
+| `codeintel: 查询符号` | 输入符号名 → 详情 + 调用者/被调用者 + 上下层调用链（多仓库依次查询） |
+| `codeintel: 查询光标处符号` | 经 Go 定义提供器取真实定义 → canonical ID → 精确查询 |
 | `codeintel: 影响分析` | 输入符号名 → 改前影响节点列表 |
 | `codeintel: 增量更新索引` | 增量重建（改了代码先更新再查询） |
 | `codeintel: 生成调用时序图` | 对最近一次查询的符号生成 PlantUML（Activity Bar 标题按钮） |
 
 ### 查询结果视图（Activity Bar）
 
-- 查询开始显示「搜索中…」，完成后展示符号详情（位置/签名/文档）、
+- 查询开始显示「搜索中…」并自动切到 Activity Bar 结果视图（不自动弹出 Output）。
+- 光标符号查询经 **VS Code Go 定义提供器**（支持 Location / LocationLink）取真实定义，
+  从**定义文件**最近的 go.mod 拼 canonical ID（跨包调用用定义的包）；多定义时不
+  猜测候选，提示改用「查询符号」输入完整 ID。
+- **多仓库**：未显式配置 `repoPath` 时，输入符号后依次查询工作区第一层 Go module，
+  找到结果即停止；显式配置 `repoPath` 时只查指定仓库。结果节点保存查询仓库——
+  直接跳转与缺少位置时的补查都用它。
+- 查询完成后展示符号详情（位置/签名/文档）、
   调用者、被调用者、上层调用链、下游调用链。
 - **结果节点均可点击跳转定义位置**（新 CLI 的 callers/callees JSON 已带
   节点 file/line；缺位置的旧输出回退按 canonical ID 解析后再跳）。
@@ -47,8 +54,22 @@ CLI 原始文本仍写入「codeintel」Output Channel，但查询、影响分�
 ### 生成调用时序图
 
 对最近一次查询的符号执行 `codeintel query sequence --code --format
-plantuml`，产物写到 `<repo>/.codeintel/sequence/` 后自动打开：CLI 可渲染
+plantuml`，产物写到**最近一次成功查询的仓库**的 `<repo>/.codeintel/sequence/`
+（文件名 = 符号短名 + canonical ID 哈希，避免同名覆盖）后自动打开：CLI 可渲染
 时输出 PNG；PlantUML 渲染不可用时把回退的 Mermaid 文本改名 `.mmd` 再打开。
+
+## 打包 / 安装（VSIX）
+
+```bash
+make plugin          # 生成 vscode-extension/codeintel.vsix（固定版本 vsce）
+make install-plugin  # 打包后用 code --install-extension --force 安装
+```
+
+## 自检
+
+```bash
+node scripts/selfcheck-vscode-extension.cjs   # 定义定位/多仓库/跳转/时序图纯逻辑自检
+```
 
 ## 配置（settings.json）
 

@@ -36,6 +36,13 @@ go install github.com/schaepher/codeintel@latest
 go install github.com/scip-code/scip-go/cmd/scip-go@latest
 ```
 
+VS Code 插件（Activity Bar 查询视图/调用链/时序图）：
+
+```shell
+make install          # 安装 CLI（并初始化/合并全局配置）
+make install-plugin   # 打包 VSIX 并安装到 VS Code（--force 覆盖旧版）
+```
+
 ## 30 秒上手
 
 ```shell
@@ -99,7 +106,9 @@ codeintel query table-path orders settlement --repo <你的仓库>
 - **改了代码查询还是旧数据**：`codeintel update --repo <path>` 增量
   更新（git 检测变更文件）；分析逻辑升级后自动全量重建
 - **`schema version mismatch`**：列变更需重建——`codeintel reindex
-  --repo <path>`（删旧库 + 全量构建）
+  --repo <path>` 会在事务中重置派生图表（**保留 relation_rules
+  连线规则与 qa_history 问答**，失败回滚）；仅需彻底清理时才用
+  `codeintel clean --repo <path> --force`（删除派生索引 + 人工规则/问答/时序图）
 - **日志在哪**：`.codeintel/codeintel.log`（stdout 只留查询结果）
 - **go.work 仓库**：请进入具体模块目录后 `init`
 - **查询结果带 `[stale]` 标注**：索引已过期（MCP 工具场景），先 update

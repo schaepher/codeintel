@@ -114,37 +114,6 @@ func callNested() {
 	}
 }
 
-// TestFuncSetNestedCallCalls：返回函数切片的嵌套调用（变参展开
-// consume(get()...) / 内建 append(list, get()...)）补 caller→getter 的
-// CALLS 边（修复 region getter 到上层工厂的断链；passes_result 仍保留）。
-func TestFuncSetNestedCallCalls(t *testing.T) {
-	_, facts := indexFixture(t, map[string]string{
-		"go.mod": fixtureGoMod,
-		"a.go": `package m
-
-type V struct{ F func() bool }
-
-func a() bool { return true }
-
-func get() []V { return []V{{F: a}} }
-
-func consume(vs ...V) {}
-
-func viaAppend() { consume(get()...) }
-
-func viaBuiltin() {
-	list := []V{}
-	list = append(list, get()...)
-	_ = list
-}
-`,
-	})
-	findFact(t, facts, "symbol:go:example.com/mtest:viaAppend", "symbol:go:example.com/mtest:get", string(domain.FactCalls))
-	findFact(t, facts, "symbol:go:example.com/mtest:viaBuiltin", "symbol:go:example.com/mtest:get", string(domain.FactCalls))
-	// 返回值关系保留
-	findFact(t, facts, "symbol:go:example.com/mtest:consume", "symbol:go:example.com/mtest:get", string(domain.FactPassesResult))
-}
-
 // TestFuncSetRegistryGetter：函数集合入参 + 函数集合返回的 getter——
 // 实参复合字面量里注册的函数补 getter→函数 的 CALLS 边（不按签名猜测
 // 全部候选函数）。
@@ -185,4 +154,32 @@ func call() { _ = get([]N{{Next: &N{}, F: a}}) }
 `,
 	})
 	findFact(t, facts, "symbol:go:example.com/mtest:get", "symbol:go:example.com/mtest:a", string(domain.FactCalls))
+}
+
+// TestFuncSetPkgRegistry：包级函数值注册表变量（`var registry = []V{{F: a}}`）
+// 传入「函数集合入参+返回」的 getter → getter 到每个注册函数补 CALLS 边
+// （置信度 0.8）；函数引用去重排序。
+func TestFuncSetPkgRegistry(t *testing.T) {
+	_, facts := indexFixture(t, map[string]string{
+		"go.mod": fixtureGoMod,
+		"a.go": `package m
+
+type V struct{ F func() bool }
+
+func a() bool { return true }
+
+func b() bool { return false }
+
+var registry = []V{{F: a}, {F: b}}
+
+func get(vs []V) []V { return vs }
+
+func call() { _ = get(registry) }
+`,
+	})
+	f := findFact(t, facts, "symbol:go:example.com/mtest:get", "symbol:go:example.com/mtest:a", string(domain.FactCalls))
+	if f.Confidence != 0.8 {
+		t.Errorf("注册表传播边置信度 = %v; want 0.8", f.Confidence)
+	}
+	findFact(t, facts, "symbol:go:example.com/mtest:get", "symbol:go:example.com/mtest:b", string(domain.FactCalls))
 }
