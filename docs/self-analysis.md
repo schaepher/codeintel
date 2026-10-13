@@ -2650,16 +2650,17 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
   （现仍自打印，走 stdout）
 - 33. **NDJSON 进度事件流**（可选）：`--json`/MCP 目前用 `--progress plain`；
   出现真实消费者（IDE 插件等）再加
-- 34. **`--ignore-dir`（多次）**：不解析指定目录及其子目录中的文件（大仓
-  vendor/第三方目录跳过；仅记录需求，尚未实现）
-- 35. **并行任务独立进度条**：同时显示多个进度条，每个并行任务各自独立
-  （仅记录需求，尚未实现）
-- 36. **SSA emitFunction 循环真实完成进度条**：按函数总数展示（仅记录需求，尚未实现）
+- 34. ~~**`--ignore-dir`（多次）**~~ → 已实现：init/update/reindex 支持重复
+  `--ignore-dir`（DiscoverModules/loadPackages/scip/git/增量检测/指纹全链过滤）
+- 35. ~~**并行任务独立进度条**~~ → 已实现：TTY 多活动行（每个并行步骤各自一行
+  独立进度条，eraseBlock/drawBlock 原地重绘）
+- 36. ~~**SSA emitFunction 循环真实完成进度条**~~ → 已实现（Q253 已接 total=
+  模块函数总数，本轮补全其它主流程分母）
 
-**进度显示现状（Q253 后续，暂缓新增）**：loadPackages / ssaBuild / scip
-无百分比（仅阶段结束日志）；funcSnapshot 有心跳（持续刷新耗时）无百分比；
-dispatchRegs 已按模块函数总数展示进度条；`auto` 终端动态显示、`plain` 只输出
-阶段结束日志。
+**进度显示现状**：loadPackages/scip/ast/git/ssaBuild/dispatchRegs/emitFunction
+循环均有真实分母进度条；funcSnapshot 为心跳（无真实分母——AllFunctions
+原子调用不可分段，不编造百分比）；runAdapters/flush/finishIndex 为已用时行。
+`auto` 终端动态多行显示、`plain` 只输出阶段结束日志。
 
 **已完成（本清单最近轮次，详见 field_trace）**：
 - ~~构建/长任务进度条（codegraph 风格）~~ → **Q253**（§99）：`domain.Progress`

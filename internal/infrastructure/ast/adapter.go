@@ -39,6 +39,19 @@ type Adapter struct {
 	// 列表（Index 时扫描一次；emitCall 中实参引用该变量时补 getter→函数
 	// 的 CALLS 边）
 	funcSetVars map[*types.Var][]*types.Func
+	// prog 进度上报（orchestrator 注入；nil → 静默）
+	prog domain.Progress
+}
+
+// SetProgress 注入进度上报（orchestrator 转发）。
+func (a *Adapter) SetProgress(p domain.Progress) { a.prog = p }
+
+// progress 当前进度实现（未注入 → 静默）。
+func (a *Adapter) progress() domain.Progress {
+	if a != nil && a.prog != nil {
+		return a.prog
+	}
+	return domain.NopProgress{}
 }
 
 // SetChangedFiles 限定增量分析的文件集合（orchestrator 增量构建注入，

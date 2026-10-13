@@ -4920,3 +4920,24 @@ gob 分配 +60%）同类。
 - **构建**：`make plugin`（固定版本 vsce）/ `make install-plugin`；`.vscodeignore`
   排除 `*.vsix`；`scripts/selfcheck-vscode-extension.cjs` 纯逻辑自检。
 - **SSA 诊断**：`CODEINTEL_EMIT_SAMPLE=1` 容器采样（emit_sample.go）。
+
+## §? 多活动行进度条 + --ignore-dir（2026-10-13）
+
+- **TTY 多活动行**（`internal/progress/tty.go`）：从单活动行改为活动块——所有
+  进行中的步骤各占一行、各自独立进度条/已用时，Begin/Advance/End 时上移光标
+  擦块再重绘（`eraseBlockLocked`/`drawBlockLocked`）。并行适配器与 SSA 子步骤
+  同时可见。
+- **主流程分母**：
+  - `loadPackages`：total = module 数（逐 module `packages.Load` 后 Advance）；
+  - `scip`：子步骤 `scip index`，total = module 数；
+  - `ast`：子步骤 `ast packages`，total = 模块内包数；
+  - `git`：子步骤 `git commits`，total = 提交数；
+  - `ssaBuild`：total = 模块内 SSA 目标包数（`moduleSSATargets`）；
+  - `dispatchRegs` / `emitFunction 循环`：原有真实分母；
+  - `funcSnapshot` 保持心跳（`ssautil.AllFunctions` 原子调用无真实分母，
+    不编造假百分比——Q253 原则）；`runAdapters`/`flush done`/`finishIndex`
+    为已用时行。
+- **`--ignore-dir`**（可重复，init/update/reindex）：不解析（不入索引）指定
+  目录及其子目录。链路：`domain.IsIgnoredPath` → `DiscoverModules` 不进入 →
+  `loadPackages` 过滤包 → scip document / git 文件过滤 → 增量检测与工作区指纹
+  过滤。端到端实测：忽略目录内符号不入图，未忽略包正常索引。

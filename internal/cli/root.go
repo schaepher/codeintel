@@ -86,13 +86,18 @@ const usageText = `codeintel - Go 代码库智能索引与查询（MVP）
                                   把已注册仓库创建 git worktree 到 workspace
                                   （幂等；默认 detached 不构建）
   codeintel workspace prune       清理目录已消失的注册条目
-  codeintel init --repo <path>     全量构建索引（生成 .codeintel/codeintel.db）
+  codeintel init --repo <path>     全量构建索引（生成 .codeintel/codeintel.db；
+                                  --ignore-dir <目录> 可重复：不解析该目录及子目录）
   codeintel update --repo <path> [--base <dir>]
                                   增量更新（git 检测变更文件，按包分析；
+                                  --ignore-dir 同上；
                                   --base 多 workspace 分层：base 目录索引
                                   物化到本地，只分析 diff(base..当前) 的包）
-  codeintel reindex --repo <path> 全量重建索引（清空 + 重新分析）
-  codeintel clean --repo <path>    删除仓库的索引数据库
+  codeintel reindex --repo <path> 重建索引（事务重置派生图表——保留人工
+                                  规则 relation_rules/问答 qa_history；
+                                  --ignore-dir 同上）
+  codeintel clean --repo <path>    删除索引（含人工规则/问答/时序图；
+                                  --purge-cache 连包级缓存；--force 不确认）
   codeintel rule <命令>            表间关联人工规则（list/add/rm——merchant_id
                                   等外键形态列无值流验证时人工连线）
   codeintel serve --repo <path>    启动图探索 Web 服务（AntV G6 前端，--addr 默认 :8090）

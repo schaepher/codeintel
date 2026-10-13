@@ -21,7 +21,29 @@ import (
 //  2. **上界用 --workers 而非 GOMAXPROCS**：并行建图同时持有多个包的
 //     SSA 中间产物，并发度直接换内存；小内存机器可 `--workers 1` 退回
 //     原串行行为。
-func buildModuleSSA(pkgs []*packages.Package, ssaPkgs []*ssa.Package, modules []string, workers int) int {
+func buildModuleSSA(pkgs []*packages.Package, ssaPkgs []*ssa.Package, modules []string, workers int, onProgress func(done, total int)) int {
+	targets := moduleSSATargets(pkgs, ssaPkgs, modules)
+	total := len(targets)
+	if onProgress != nil {
+		onProgress(0, total)
+	}
+	var mu sync.Mutex
+	done := 0
+	runBounded(workers, total, func(i int) {
+		targets[i].Build()
+		mu.Lock()
+		done++
+		d := done
+		mu.Unlock()
+		if onProgress != nil {
+			onProgress(d, total)
+		}
+	})
+	return total
+}
+
+// moduleSSATargets 模块内包的 SSA 包指针列表（建图目标；依赖包不含 body）。
+func moduleSSATargets(pkgs []*packages.Package, ssaPkgs []*ssa.Package, modules []string) []*ssa.Package {
 	targets := make([]*ssa.Package, 0, len(pkgs))
 	for i, p := range pkgs {
 		if !isInModule(p.PkgPath, modules) {
@@ -31,8 +53,7 @@ func buildModuleSSA(pkgs []*packages.Package, ssaPkgs []*ssa.Package, modules []
 			targets = append(targets, sp)
 		}
 	}
-	runBounded(workers, len(targets), func(i int) { targets[i].Build() })
-	return len(targets)
+	return targets
 }
 
 // runBounded 并发执行 n 个任务（任务以索引传递），并发上界 workers；

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/logging"
@@ -19,6 +20,18 @@ import (
 // Adapter 是 Git 历史适配器。
 type Adapter struct {
 	MaxCommits int // 单文件最多追踪的提交数（默认 200），控制图规模
+	prog       domain.Progress
+}
+
+// SetProgress 注入进度上报（orchestrator 转发）。
+func (a *Adapter) SetProgress(p domain.Progress) { a.prog = p }
+
+// progress 当前进度实现（未注入 → 静默）。
+func (a *Adapter) progress() domain.Progress {
+	if a != nil && a.prog != nil {
+		return a.prog
+	}
+	return domain.NopProgress{}
 }
 
 var _ domain.IndexerPort = (*Adapter)(nil)
@@ -32,7 +45,7 @@ func (a *Adapter) Name() string {
 }
 
 // Index 扫描仓库最近提交，为每个变更文件建立 MODIFIED_BY 边。
-func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, _ []*packages.Package, emit domain.EmitFunc) error {
+func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, _ []*packages.Package, emit domain.EmitFunc) (err error) {
 	logger := logging.FromContext(ctx)
 	logger.Debug("enter (Adapter).Index")
 	defer logger.Debug("exit (Adapter).Index")
@@ -49,9 +62,23 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, _ []*packa
 		return fmt.Errorf("git log failed: %w", err)
 	}
 
+	lines := strings.Split(string(out), "\n")
+	// 进度：提交数（头部带 \t 的行）为真实分母
+	total := 0
+	for _, line := range lines {
+		if strings.Contains(line, "\t") {
+			total++
+		}
+	}
+	p := a.progress()
+	p.Begin("git commits", 2, total)
+	gitStart := time.Now()
+	defer func() { p.End("git commits", time.Since(gitStart), err) }()
+	gitDone := 0
+
 	// 逐条解析提交块
 	var cur *domain.CodeEntity
-	for _, line := range strings.Split(string(out), "\n") {
+	for _, line := range lines {
 		if line == "" {
 			continue
 		}
@@ -70,6 +97,8 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, _ []*packa
 				LineStart: 0,
 				LineEnd:   0,
 			}
+			gitDone++
+			p.Advance("git commits", gitDone)
 			if date != "" {
 				cur.Properties = map[string]any{"date": date}
 			}
@@ -90,6 +119,9 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, _ []*packa
 			continue
 		}
 		filePath = normalizePath(filePath)
+		if domain.IsIgnoredPath(filePath, repo.IgnoreDirs) {
+			continue
+		}
 		if err := emit(domain.Item{Fact: &domain.Fact{
 			SourceID:   domain.CanonicalID("file:" + filePath),
 			TargetID:   cur.ID,

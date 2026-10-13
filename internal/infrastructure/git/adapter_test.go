@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/schaepher/codeintel/internal/domain"
 )
@@ -158,5 +159,87 @@ func TestShortSHA(t *testing.T) {
 	}
 	if got := shortSHA("short"); got != "short" {
 		t.Errorf("shortSHA(short) = %q", got)
+	}
+}
+
+// gitRecordProgress 记录型进度实现（进度接线断言用）。
+type gitRecordProgress struct {
+	begun  []string
+	adv    []int
+	ended  []string
+	totals []int
+}
+
+func (p *gitRecordProgress) Begin(name string, depth, total int) {
+	p.begun = append(p.begun, name)
+	p.totals = append(p.totals, total)
+}
+func (p *gitRecordProgress) Advance(name string, done int) { p.adv = append(p.adv, done) }
+func (p *gitRecordProgress) End(name string, _ time.Duration, _ error) {
+	p.ended = append(p.ended, name)
+}
+func (p *gitRecordProgress) Finish() {}
+
+// TestGitIndexReportsProgress：git 适配器上报真实提交数（分母）与逐提交
+// 进度（不编造分母）。
+func TestGitIndexReportsProgress(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+	dir := newGitRepo(t)
+	rec := &gitRecordProgress{}
+	adapter := &Adapter{}
+	adapter.SetProgress(rec)
+	if err := adapter.Index(context.Background(), &domain.Repository{Path: dir}, nil, func(domain.Item) error { return nil }); err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+	if len(rec.begun) != 1 || rec.begun[0] != "git commits" {
+		t.Fatalf("应上报 git commits 步骤: %+v", rec.begun)
+	}
+	if rec.totals[0] != 2 {
+		t.Fatalf("分母应为提交数 2，得到 %d", rec.totals[0])
+	}
+	if len(rec.adv) != 2 || rec.adv[len(rec.adv)-1] != 2 {
+		t.Fatalf("应逐提交 Advance 到 2: %v", rec.adv)
+	}
+	if len(rec.ended) != 1 || rec.ended[0] != "git commits" {
+		t.Fatalf("应结束 git commits: %v", rec.ended)
+	}
+}
+
+// TestGitIndexIgnoreDirs：--ignore-dir 目录内的文件不建 modified_by 边。
+func TestGitIndexIgnoreDirs(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+	dir := newGitRepo(t)
+	if err := os.MkdirAll(filepath.Join(dir, "vendor"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "vendor", "v.go"), []byte("package v\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run := exec.Command("git", "-C", dir, "add", "vendor/v.go")
+	run.Run()
+	run = exec.Command("git", "-C", dir, "commit", "-q", "-m", "vendor file")
+	if out, err := run.CombinedOutput(); err != nil {
+		t.Fatalf("commit: %v\n%s", err, out)
+	}
+	var facts []*domain.Fact
+	adapter := &Adapter{}
+	err := adapter.Index(context.Background(), &domain.Repository{Path: dir, IgnoreDirs: []string{"vendor"}}, nil,
+		func(item domain.Item) error {
+			if item.Fact != nil {
+				facts = append(facts, item.Fact)
+			}
+			return nil
+		})
+	if err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+	for _, f := range facts {
+		if string(f.SourceID) == "file:vendor/v.go" {
+			t.Fatalf("忽略目录文件不应建边: %v", f)
+		}
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/logging"
@@ -12,11 +13,24 @@ import (
 )
 
 // Index 加载仓库全部包并产出 CALLS / IMPORTS 边。
-func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*packages.Package, emit domain.EmitFunc) error {
+func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*packages.Package, emit domain.EmitFunc) (err error) {
 	logger := logging.FromContext(ctx)
 	logger.Debug("enter (Adapter).Index")
 	defer logger.Debug("exit (Adapter).Index")
 	packages.PrintErrors(pkgs)
+
+	// 进度：按模块内包数（真实分母）。
+	p := a.progress()
+	total := 0
+	for _, pkg := range pkgs {
+		if isInModule(pkg.PkgPath, repo.Modules) {
+			total++
+		}
+	}
+	p.Begin("ast packages", 2, total)
+	astStart := time.Now()
+	defer func() { p.End("ast packages", time.Since(astStart), err) }()
+	astDone := 0
 
 	a.pkgsByPath = map[string]*packages.Package{}
 	a.modules = repo.Modules
@@ -82,6 +96,8 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 		if err := a.processPackage(repo, pkg, emit, serviceFlags, registerServers, newClients); err != nil {
 			return err
 		}
+		astDone++
+		p.Advance("ast packages", astDone)
 	}
 	return nil
 }

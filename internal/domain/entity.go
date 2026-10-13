@@ -193,6 +193,9 @@ type Repository struct {
 	// ModuleDirs 与 Modules 对齐的 module 目录（相对仓库根，根为 "."）——
 	// 加载与 scip-go 需要按目录定位 module
 	ModuleDirs []string `json:"module_dirs,omitempty"`
+	// IgnoreDirs 忽略目录（仓库相对路径；可重复 --ignore-dir）——
+	// 不解析（不入索引）该目录及其子目录中的文件
+	IgnoreDirs []string `json:"ignore_dirs,omitempty"`
 }
 
 // PkgCodeFacts 包内代码事实（无包级 doc_comment 时的 fallback——

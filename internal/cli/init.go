@@ -29,6 +29,8 @@ func cmdInit(ctx context.Context, args []string) int {
 	repoPath := fs.String("repo", ".", "仓库根目录（含 go.mod；默认当前目录）")
 	workers := fs.Int("workers", defaultBuildWorkers(), "SSA 分析并发数（Q221/Q252e：默认 min(NumCPU, 8)——同时约束 ①模块包级 SSA 建图（Q252e 前逐包串行）②函数级发射；峰值内存与并发度正相关，小内存机器可调小，如 1）")
 	progressMode := fs.String("progress", progress.ModeAuto, "构建进度显示（Q253：只写 stderr，stdout 仍只承载结果）：auto=stderr 是终端时用进度条、否则逐行；plain=逐行（agent/日志抓取）；none=不显示")
+	var ignoreDirs stringList
+	fs.Var(&ignoreDirs, "ignore-dir", "忽略目录（可重复；不解析该目录及其子目录中的文件——如 --ignore-dir vendor --ignore-dir third_party）")
 	fs.Parse(args)
 	*repoPath = ResolveRepoRef(*repoPath) // Q238：注册表短名/后缀/module
 
@@ -49,12 +51,11 @@ func cmdInit(ctx context.Context, args []string) int {
 			return 1
 		}
 	}
-	repo, err := buildRepo(abs)
+	repo, err := buildRepo(abs, ignoreDirs...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
-
 	fmt.Printf("构建索引: %s (module=%s, %d 个 go.mod)\n", abs, repo.Module, len(repo.Modules))
 	// 日志切换到 .codeintel/codeintel.log（stdout 只留查询结果，Q88）
 	if err := logging.ToFile(abs); err != nil {
@@ -72,7 +73,7 @@ func cmdInit(ctx context.Context, args []string) int {
 	// Q254b：记录构建时的工作区变更指纹（stale 判定用——"改文件→重索引"
 	// 之后不该再报过期）
 	if dirtyGo, cerr := dirtyGoFiles(abs); cerr == nil {
-		orch.SetWorktreeFingerprint(worktreeFingerprint(abs, dirtyGo))
+		orch.SetWorktreeFingerprint(worktreeFingerprint(abs, filterIgnoredFiles(dirtyGo, repo.IgnoreDirs)))
 	}
 	rep := progress.New(os.Stderr, progress.Config{Mode: *progressMode, Prefix: "[index] 步骤", Title: "构建索引"})
 	orch.SetProgress(rep)
@@ -157,8 +158,10 @@ func cmdInit(ctx context.Context, args []string) int {
 
 // buildRepo 解析仓库的 module 信息（P2-3 多 go.mod monorepo）：
 // 递归扫描根下所有 go.mod，构造 Repository（根 module 在前）。
-func buildRepo(repoPath string) (*domain.Repository, error) {
-	modules, dirs, err := orchestrator.DiscoverModules(repoPath)
+// ignoreDirs：忽略目录（不进入/不作为目标 module；写入 Repository 供
+// 加载/适配器过滤）。
+func buildRepo(repoPath string, ignoreDirs ...string) (*domain.Repository, error) {
+	modules, dirs, err := orchestrator.DiscoverModules(repoPath, ignoreDirs)
 	if err != nil {
 		return nil, err
 	}
@@ -167,6 +170,7 @@ func buildRepo(repoPath string) (*domain.Repository, error) {
 		Module:     modules[0],
 		Modules:    modules,
 		ModuleDirs: dirs,
+		IgnoreDirs: ignoreDirs,
 	}, nil
 }
 

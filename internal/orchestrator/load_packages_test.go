@@ -150,7 +150,7 @@ func TestLoadPackagesSharedFileSet(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "sub", "sub.go"),
 		"package sub\n\nimport \"fmt\"\n\nfunc Hello() string {\n\tfmt.Println(\"x\")\n\treturn \"hi\"\n}\n")
 
-	modules, dirs, err := DiscoverModules(dir)
+	modules, dirs, err := DiscoverModules(dir, nil)
 	if err != nil {
 		t.Fatalf("DiscoverModules: %v", err)
 	}

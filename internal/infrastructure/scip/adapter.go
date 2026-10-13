@@ -15,6 +15,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/scip-code/scip/bindings/go/scip"
 	"google.golang.org/protobuf/proto"
@@ -29,6 +30,18 @@ import (
 // Adapter 是 SCIP 索引适配器。
 type Adapter struct {
 	BinPath string // scip-go 二进制路径，空则自动查找
+	prog    domain.Progress
+}
+
+// SetProgress 注入进度上报（orchestrator 转发）。
+func (a *Adapter) SetProgress(p domain.Progress) { a.prog = p }
+
+// progress 当前进度实现（未注入 → 静默）。
+func (a *Adapter) progress() domain.Progress {
+	if a != nil && a.prog != nil {
+		return a.prog
+	}
+	return domain.NopProgress{}
 }
 
 var _ domain.IndexerPort = (*Adapter)(nil)
@@ -44,7 +57,7 @@ func (a *Adapter) Name() string {
 // Index 在仓库上执行全量 SCIP 索引并流式产出节点与边。
 // P2-3 多 go.mod：每个 module 单独跑 scip-go（scip-go 一次索引一个
 // module；在各自目录执行，输出独立 .scip 文件）。
-func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, _ []*packages.Package, emit domain.EmitFunc) error {
+func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, _ []*packages.Package, emit domain.EmitFunc) (err error) {
 	logger := logging.FromContext(ctx)
 	logger.Debug("enter (Adapter).Index")
 	defer logger.Debug("exit (Adapter).Index")
@@ -69,6 +82,12 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, _ []*packa
 		dirs = append(dirs, moduleDir{abs: filepath.Join(repo.Path, d), rel: filepath.ToSlash(d)})
 	}
 
+	// 进度：每个 module 一次 scip-go（真实分母）。
+	p := a.progress()
+	p.Begin("scip index", 2, len(dirs))
+	scipStart := time.Now()
+	defer func() { p.End("scip index", time.Since(scipStart), err) }()
+
 	for i, md := range dirs {
 		dir := md.abs
 		indexPath := filepath.Join(repo.Path, ".codeintel", fmt.Sprintf("index-%d.scip", i))
@@ -92,6 +111,7 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, _ []*packa
 				return err
 			}
 		}
+		p.Advance("scip index", i+1)
 	}
 	return nil
 }
@@ -133,6 +153,9 @@ func (a *Adapter) processDocument(repo *domain.Repository, doc *scip.Document, m
 	logger.Debug("enter (Adapter).processDocument")
 	defer logger.Debug("exit (Adapter).processDocument")
 	filePath := repoRelPath(moduleRel, doc.RelativePath)
+	if domain.IsIgnoredPath(filePath, repo.IgnoreDirs) {
+		return nil // --ignore-dir：忽略目录不入图
+	}
 
 	// FILE 节点：ID 为 file:<relpath>
 	if err := emit(domain.Item{Node: &domain.CodeEntity{

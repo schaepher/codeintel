@@ -12,10 +12,27 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/schaepher/codeintel/internal/domain"
 	"go.uber.org/zap"
 
 	_ "modernc.org/sqlite"
 )
+
+// filterIgnoredFiles 过滤掉落在忽略目录（--ignore-dir）内的变更文件
+// （不入索引的文件不该参与增量分析与 stale 指纹）。
+func filterIgnoredFiles(files []string, ignore []string) []string {
+	if len(ignore) == 0 || len(files) == 0 {
+		return files
+	}
+	out := make([]string, 0, len(files))
+	for _, f := range files {
+		if domain.IsIgnoredPath(filepath.ToSlash(f), ignore) {
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
+}
 
 // detectChangedGoFiles 检测仓库中变更的 Go 源文件（相对路径）：
 //   - 索引 commit 落后于 HEAD（build_metadata 最新 commit_sha ≠ HEAD）：

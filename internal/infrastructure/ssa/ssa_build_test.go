@@ -110,7 +110,7 @@ func greet() string { return "hi" }
 	if prog == nil {
 		t.Fatal("ssautil.Packages 返回 nil")
 	}
-	built := buildModuleSSA(pkgs, ssaPkgs, []string{"example.com/mtest"}, 4)
+	built := buildModuleSSA(pkgs, ssaPkgs, []string{"example.com/mtest"}, 4, nil)
 	if built != 1 {
 		t.Fatalf("模块包数不符：%d != 1", built)
 	}

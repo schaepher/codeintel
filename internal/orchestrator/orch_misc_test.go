@@ -4,11 +4,13 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
+	"golang.org/x/tools/go/packages"
 )
 
 // TestDiscoverModules：P2-3——递归扫描 go.mod（根在前）；跳过
@@ -27,7 +29,7 @@ func TestDiscoverModules(t *testing.T) {
 	// 临时 module 当目标 module）
 	writeFile(t, filepath.Join(dir, ".tmp", "probe", "go.mod"), "module example.com/tmptest\n")
 
-	modules, dirs, err := DiscoverModules(dir)
+	modules, dirs, err := DiscoverModules(dir, nil)
 	if err != nil {
 		t.Fatalf("DiscoverModules: %v", err)
 	}
@@ -139,5 +141,43 @@ func TestFlushFKRetry(t *testing.T) {
 	if err := db.QueryRow(`SELECT COUNT(*) FROM edges_v WHERE source_id = ? AND target_id = ?`,
 		string(src), string(tgt)).Scan(&cnt); err != nil || cnt != 1 {
 		t.Fatalf("edge count = %d, %v; want 1（跨批 FK 边不丢）", cnt, err)
+	}
+}
+
+// TestDiscoverModulesIgnoreDirs：--ignore-dir 目录（及其中的 go.mod）
+// 不作为目标 module；未忽略的照常发现。
+func TestDiscoverModulesIgnoreDirs(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "go.mod"), "module example.com/root\n\ngo 1.21\n")
+	writeFile(t, filepath.Join(dir, "ignored", "go.mod"), "module example.com/ignored\n\ngo 1.21\n")
+	writeFile(t, filepath.Join(dir, "kept", "go.mod"), "module example.com/kept\n\ngo 1.21\n")
+	modules, dirs, err := DiscoverModules(dir, []string{"ignored"})
+	if err != nil {
+		t.Fatalf("DiscoverModules: %v", err)
+	}
+	for _, m := range modules {
+		if m == "example.com/ignored" {
+			t.Fatalf("忽略目录内的 module 不应被发现: %v", modules)
+		}
+	}
+	joined := strings.Join(dirs, ",")
+	if strings.Contains(joined, "ignored") || !strings.Contains(joined, "kept") {
+		t.Fatalf("dirs = %v; want 含 kept 不含 ignored", dirs)
+	}
+}
+
+// TestFilterIgnoredPackages：落在忽略目录内的包被丢弃，其余保留。
+func TestFilterIgnoredPackages(t *testing.T) {
+	dir := t.TempDir()
+	pkgs := []*packages.Package{
+		{PkgPath: "example.com/m/ignored", GoFiles: []string{filepath.Join(dir, "ignored", "a.go")}},
+		{PkgPath: "example.com/m/kept", GoFiles: []string{filepath.Join(dir, "kept", "b.go")}},
+	}
+	got := filterIgnoredPackages(pkgs, dir, []string{"ignored"})
+	if len(got) != 1 || got[0].PkgPath != "example.com/m/kept" {
+		t.Fatalf("filterIgnoredPackages = %v; want [kept]", got)
+	}
+	if all := filterIgnoredPackages(pkgs, dir, nil); len(all) != 2 {
+		t.Fatalf("无忽略目录应全保留: %v", all)
 	}
 }

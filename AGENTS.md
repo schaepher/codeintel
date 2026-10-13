@@ -388,9 +388,11 @@ go test ./...                       # 测试（需要 scip-go 在 PATH 或 go bi
 go build -o codeintel ./cmd/codeintel
 # 对任意 Go 仓库构建索引并查询：
 #   codeintel init --repo <path>          # 全量构建（--progress auto|plain|none：
-#                                         #   Q253 进度条，只写 stderr；plain=逐行给 agent/日志）
-#   codeintel update --repo <path>        # 增量更新（同样支持 --progress）
-#   codeintel reindex --repo <path>       # 重建（删旧库绕过 schema 检查 + init）
+#                                         #   Q253 进度条，只写 stderr；plain=逐行给 agent/日志；
+#                                         #   多活动行=并行步骤各自独立进度条）
+#                                         #   --ignore-dir <目录> 可重复（不解析该目录及子目录）
+#   codeintel update --repo <path>        # 增量更新（同样支持 --progress/--ignore-dir）
+#   codeintel reindex --repo <path>       # 重建（事务重置派生图表，保留人工规则/问答；--ignore-dir）
 #   codeintel query symbol|callers|callees|impact|table|grpc-routes|http-routes|cli-routes|external-deps ...
 #   codeintel wiki --yaml wiki.yaml [--diagram plantuml|mermaid] [--max-entries N]
 #                                          # 业务 wiki 生成（--ai 增量补缺写回 yaml 标注 # AI 初稿；

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 	"github.com/schaepher/codeintel/internal/infrastructure/ssa"
 	"github.com/schaepher/codeintel/internal/logging"
@@ -37,7 +38,7 @@ func (o *Orchestrator) FullBuild(ctx context.Context) (*BuildResult, error) {
 		rep.End(name, elapsed, nil)
 		orchestraStart = time.Now()
 	}
-	rep.Begin("loadPackages", 0, 0)
+	rep.Begin("loadPackages", 0, len(o.Repo.ModuleDirs))
 	pkgs, err := o.loadPackages(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -100,6 +101,7 @@ func (o *Orchestrator) loadPackages(ctx context.Context, patterns pkgPatterns) (
 	// 包的位置都在同一坐标系，SSA/AST 两适配器同时受益。
 	fset := token.NewFileSet()
 	for i, d := range o.Repo.ModuleDirs {
+		o.prog().Advance("loadPackages", i)
 		dir := o.Repo.Path
 		if i > 0 {
 			dir = filepath.Join(o.Repo.Path, d)
@@ -130,6 +132,10 @@ func (o *Orchestrator) loadPackages(ctx context.Context, patterns pkgPatterns) (
 			out = append(out, p)
 		}
 	}
+	o.prog().Advance("loadPackages", len(o.Repo.ModuleDirs))
+	// --ignore-dir：丢弃落在忽略目录内的包（AST/SSA 不再分析；依赖包
+	// 保留——只是不做图分析，Types 仍供导入方使用）
+	out = filterIgnoredPackages(out, o.Repo.Path, o.Repo.IgnoreDirs)
 	// 全量构建（patterns==nil）却一个包都没加载到 = 配置/路径错，不是“空仓库”
 	// ——同样拒绝静默成功（增量构建时 patterns 会让无关 module 跳过，不能报错）。
 	if patterns == nil && len(out) == 0 {
@@ -138,10 +144,33 @@ func (o *Orchestrator) loadPackages(ctx context.Context, patterns pkgPatterns) (
 	return out, nil
 }
 
+// filterIgnoredPackages 丢弃文件落在忽略目录内的包（--ignore-dir）。
+func filterIgnoredPackages(pkgs []*packages.Package, repoPath string, ignore []string) []*packages.Package {
+	if len(ignore) == 0 {
+		return pkgs
+	}
+	out := make([]*packages.Package, 0, len(pkgs))
+	for _, p := range pkgs {
+		files := p.GoFiles
+		if len(files) == 0 {
+			files = p.CompiledGoFiles
+		}
+		if len(files) > 0 {
+			if rel, err := filepath.Rel(repoPath, files[0]); err == nil && domain.IsIgnoredPath(filepath.ToSlash(rel), ignore) {
+				continue
+			}
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
 // DiscoverModules 递归扫描仓库根下的 go.mod（跳过 .git/.codeintel/vendor/
 // node_modules），返回 module 路径与相对仓库根的目录（根 go.mod 在前）。
+// ignoreDirs：忽略目录（仓库相对；不进入该目录及其子目录——含其中的
+// go.mod 也不作为目标 module）。
 // P2-3 多 go.mod monorepo。
-func DiscoverModules(repoPath string) (modules []string, dirs []string, err error) {
+func DiscoverModules(repoPath string, ignoreDirs []string) (modules []string, dirs []string, err error) {
 	rootMod, err := readGoModModule(filepath.Join(repoPath, "go.mod"))
 	if err != nil {
 		return nil, nil, err
@@ -166,12 +195,15 @@ func DiscoverModules(repoPath string) (modules []string, dirs []string, err erro
 				continue
 			}
 			sub := filepath.Join(dir, e.Name())
+			rel, _ := filepath.Rel(repoPath, sub)
+			if domain.IsIgnoredPath(filepath.ToSlash(rel), ignoreDirs) {
+				continue
+			}
 			if _, err := os.Stat(filepath.Join(sub, "go.mod")); err == nil {
 				m, err := readGoModModule(filepath.Join(sub, "go.mod"))
 				if err != nil {
 					continue
 				}
-				rel, _ := filepath.Rel(repoPath, sub)
 				modules = append(modules, m)
 				dirs = append(dirs, filepath.ToSlash(rel))
 				continue

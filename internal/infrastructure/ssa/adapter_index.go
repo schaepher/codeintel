@@ -41,8 +41,10 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	// 8 核只用 1 核，且日志停在 ssautil.Packages 时无法区分卡在哪）。照抄
 	// go/ssa `Program.Build` 的信号量结构，但只对模块包生效、上界用
 	// --workers（理由见 ssa_build.go 注释）。
-	begin("ssaBuild", 0)
-	built := buildModuleSSA(pkgs, ssaPkgs, repo.Modules, a.workers)
+	begin("ssaBuild", len(moduleSSATargets(pkgs, ssaPkgs, repo.Modules)))
+	built := buildModuleSSA(pkgs, ssaPkgs, repo.Modules, a.workers, func(done, total int) {
+		rep.Advance("ssaBuild", done)
+	})
 	logger.Info("ssa build", zap.Int("module_pkgs", built), zap.Int("workers", a.workers))
 	stage("ssaBuild")
 

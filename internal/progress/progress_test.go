@@ -212,3 +212,26 @@ func stripANSI(s string) string {
 	re := regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]`)
 	return strings.ReplaceAll(re.ReplaceAllString(s, ""), "\r", "\n")
 }
+
+// TTY：并行步骤各自独立进度条（多活动行同时可见、各自分母/百分比）。
+func TestTTYParallelIndependentBars(t *testing.T) {
+	var buf bytes.Buffer
+	p := NewTTY(&buf, "构建索引")
+	p.Gap = 0
+	p.Begin("scip", 0, 4)
+	p.Begin("ast", 0, 10)
+	p.Advance("scip", 2)
+	p.Advance("ast", 5)
+	plain := stripANSI(buf.String())
+	lines := strings.Split(strings.TrimRight(plain, "\n"), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("应有活动块输出：%q", plain)
+	}
+	block := strings.Join(lines[len(lines)-2:], "\n")
+	if !strings.Contains(block, "scip") || !strings.Contains(block, "ast") {
+		t.Fatalf("活动块应同时含 scip/ast：%q", block)
+	}
+	if n := strings.Count(block, "50%"); n != 2 {
+		t.Fatalf("两行应各含 50%%（实际 %d）：%q", n, block)
+	}
+}
