@@ -194,22 +194,12 @@ func (ext *fieldExtractor) resolveParamCandidates(p *ssa.Parameter, depth int) [
 	if paramIdx >= len(fn.Params) {
 		return nil
 	}
-	// 惰性扫描 prog 找调用 fn 的静态调用点（每函数一次，缓存）
+	// 静态调用点：构建级反向索引（funcSnapshot.staticCallSites，惰性一次，
+	// 顺序与旧实现的全程序扫描一致）；本提取器再 memo 一次指针。
 	key := fn
 	pc, ok := ext.paramCallerCache[key]
 	if !ok {
-		pc = &paramCalls{fn: fn}
-		for _, f := range ext.allFunctions() {
-			for _, b := range f.Blocks {
-				for _, instr := range b.Instrs {
-					call, isCall := instr.(*ssa.Call)
-					if !isCall || call.Call.StaticCallee() != fn {
-						continue
-					}
-					pc.callers = append(pc.callers, call.Call.Args)
-				}
-			}
-		}
+		pc = &paramCalls{fn: fn, callers: ext.funcs.staticCallSites()[fn]}
 		if ext.paramCallerCache == nil {
 			ext.paramCallerCache = map[*ssa.Function]*paramCalls{}
 		}
@@ -234,10 +224,4 @@ func (ext *fieldExtractor) resolveParamCandidates(p *ssa.Parameter, depth int) [
 		}
 	}
 	return out
-}
-
-// allFunctions 全部 SSA 函数（Q249：Index 级共享快照；原先每个用到的
-// extractor 各自物化一份全程序函数列表）。
-func (ext *fieldExtractor) allFunctions() []*ssa.Function {
-	return ext.funcs.all()
 }
