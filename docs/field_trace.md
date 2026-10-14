@@ -4971,3 +4971,32 @@ gob 分配 +60%）同类。
   摘要仍按追加合并。新增跨块往返、损坏文件、旧格式拒绝测试。
   实测（go2o）：v3 缓存自动失效重建 11.6s → v4 命中 9.4s，节点/边/跳过边
   与既有基线完全一致（117998 / 136028 / 561）。
+
+## §? 重复解析/重复计算治理 + 缓存分块 v4 复查（2026-10-14）
+
+按 codeintel-changelog3 的“尚未实施”候选逐项落地（每项一提交）：
+
+- **函数身份构建级缓存**（e2a70ad）：`funcSnapshot.identityOf`；修 nil 快照
+  回归（8d19017，见下）。
+- **静态调用点反向索引**（fdc1c69）：`funcSnapshot.staticCallSites` 惰性一次；
+  `resolveParamCandidates` 查索引（基准 ≈2450×）。
+- **Return 操作数构建级缓存**（cee00ab）。
+- **类型表名构建级缓存**（8bb626c）。
+- **SQL 解析结果缓存**（e99e31a）：按原始 SQL，含失败；统计按调用口径。
+- **摘要包合并 map 复用**（86fcfc8）+ 中间复制基准；预分配实测中性→不采纳。
+- **采样准确性/开关回归**（0d59db0）、**接口二级缓存基准**（4b7ab9d）、
+  **缓存写盘/体积/读取基准**（141cc7e）、**共享机制守护**（5f1a7be）。
+
+**真回归与根治（8d19017）**：`emitGlobalInit` 的轻量 `fieldExtractor` 未设
+`funcs` → `identityOf` 对 nil 快照返回空 ID → 丢 50 个 global-init `ssa_value`
+节点（go2o 117998→117948）。这类“新缓存引入的静默丢节点”不会让既有单测变红，
+是 **go2o A/B 产物逐行对照** 抓到的。根治：`fieldExtractor.identityOf` 在
+`funcs==nil` 时回退纯 `funcIdentity`（语义等价，不静默降级），并显式给
+`emitGlobalInit` 传快照；新增 `TestExtractorIdentityFallsBackWithoutSnapshot`。
+教训：**任何“把纯函数换成带缓存包装”的改动，必须覆盖所有构造点**（本处有
+`fe_emit.go` 与 `fe_global.go` 两个 `fieldExtractor` 构造点），并用大仓产物
+逐行对照兜底。
+
+**大仓 A/B（go2o）**：旧/新版 warm init wall/RSS 基本持平（≈8.2s/930MB），
+产物 nodes 117998 / edges 136028 **逐行全等（diff 0）**；局部缓存收益显著
+但端到端未测出稳定提速。详见 `docs/build_perf.md`。

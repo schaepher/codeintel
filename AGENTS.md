@@ -19,6 +19,10 @@
 - [`docs/field_trace.md`](docs/field_trace.md)：逐 Q 实现记录（§63 起为
   Q234/Q235/Q238 系列；§77 = Q238 全局注册表 + worktree/workspace，
   design-q238.md 已归档；§81 = 排障树脚本化 + 防忘机制 Q245）
+- [`docs/build_perf.md`](docs/build_perf.md)：构建期性能优化记录（Q221 起）
+  + 重复解析/重复计算治理与大仓 A/B（2026-10-14）
+- [`docs/repeat-work-checklist.md`](docs/repeat-work-checklist.md)：
+  codeintel-changelog3 验收 Checklist 逐项证据（全部通过/评估归档）
 
 ## 项目一句话
 

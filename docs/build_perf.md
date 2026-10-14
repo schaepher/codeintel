@@ -189,3 +189,78 @@ init / reindex / update 三处默认值统一（defaultBuildWorkers）。
   **不外推全量构建收益**；字节缓冲本身无需 GC 扫描，减少的是分配压力。
 - 正确性：跨块往返、截断/缺结束标记/结束标记带数据/尾随消息拒绝、旧格式
   拒绝均有测试；go2o 冷重建→暖命中产物计数一致（117998/136028/561）。
+
+---
+
+## 重复解析/重复计算治理 + 全量复查（2026-10-14）
+
+按 codeintel-changelog3 的候选清单实测并实现，未实施的记录数据/原因/触发条件。
+
+### 已实现（每项含局部基准）
+
+| 项 | 实现 | 局部测量 |
+|---|---|---|
+| 函数身份构建级缓存 | `funcSnapshot.identityOf`（含失败结果）；`funcIDOf/FuncIDOfFn` 走缓存 | 消除每调用点重算 canonical ID |
+| 静态调用点反向索引 | `funcSnapshot.staticCallSites`（惰性一次）；`resolveParamCandidates` 查索引 | fixture 100 目标：旧按目标重扫 1.52ms/op → 索引 0.62µs/op（≈2450×） |
+| Return 操作数缓存 | `funcSnapshot.returnOperandsOf`；cf_resolve/summary_orm/aliasPass 共用 | 同一被调函数跨 extractor 只扫一次 |
+| 类型表名缓存 | `funcSnapshot.tableNameCached`（按 `*types.Named`，空结果也缓存） | TableName 解析跨 extractor 只算一次 |
+| SQL 解析结果缓存 | `funcSnapshot.sqlParseCached`（按原始 SQL，上限 8192，含失败；统计口径按调用） | 命中复用表/列/关联；AST/启发式计数不因命中失真 |
+| 摘要包合并 map 复用 | `pkgCollect.save` 复用首块 map 作合并目标 | 每包少一次整包 map 分配 |
+
+**未采纳（有数据）**：`mergeFuncData` 目标切片预分配——实测与不预分配**中性**
+（1079326 vs 1079237 B/op，4803 allocs 相同），按项目纪律回滚为 no-op。
+
+### 大仓 A/B（go2o，同一临时仓库，交错运行）
+
+- 旧版（`214df5f`）warm init：9.93s/949MB、8.21s/931MB；
+  新版 warm init：9.25s/935MB、8.18s/937MB。
+- **产物逐行全等**（nodes 117998、edges 136028；`diff` = 0 行，含 kind/端点）。
+- 结论：这些缓存消除的是局部重复扫描（微基准收益显著），但 go2o warm 构建的
+  wall/RSS 由 SCIP/SSA 计算与 I/O 主导，端到端**未测出稳定提速或内存改善**；
+  不宣称全量收益。
+- 期间抓到并修复一个真回归：`emitGlobalInit` 的轻量 extractor 未设 `funcs`，
+  身份缓存对 nil 快照返回空 → 丢 50 个 global-init `ssa_value` 节点 +
+  50 条边（117998→117948）。修法：`fieldExtractor.identityOf` 在 `funcs==nil`
+  时回退纯 `funcIdentity`，并显式给 `emitGlobalInit` 传快照（§field_trace）。
+
+### 运行参数对照（GOGC，go2o warm init 交错 2 次）
+
+| GOGC | wall | 峰值 RSS |
+|---|---|---|
+| 40 | 11.82s / 8.41s | 958MB / 898MB |
+| 100 | 8.30s / 8.13s | 1103MB / 1103MB |
+
+GOGC=100 更快（中位约 -19%），峰值 RSS 约 +19%——以内存换速度，非算法收益。
+（`/usr/bin/time` Max RSS 含 scip-go 子进程，两设置同口径，仅相对可比。）
+
+### 阶段定位（go2o warm init 8.37s）
+
+loadPackages 636ms、scip index 2.12s、ast packages 649ms、ssa 4.49s
+（ssaBuild 214ms / funcSnapshot 413ms / dispatchRegs 35ms / emitFunction 2.71s /
+finishIndex 1.04s）、runAdapters 6.36s（并行）、flush 1.87s。热点在 SCIP 与
+SSA 计算，不在重复扫描。
+
+### 紧凑容器 / 对象复用评估（未采纳，触发条件见下）
+
+- 纯整数切片/数组元素无需 GC 扫描，但切片头仍含指针；字符串、指针、含指针
+  字段仍需扫描。要真正免扫描需把字符串/SSA 引用转编号，编号对应表仍有引用，
+  不能用 `uintptr` 绕过 GC。
+- map 池化可能保留桶与引用、延长存活并增加后续扫描；当前 `CODEINTEL_EMIT_SAMPLE`
+  只给抽样外推（不是精确扫描字节），不足以支撑改造。
+- **触发条件**：出现 GC CPU 占比回归到 >35%（当前约 26–27%）或扫描堆成为
+  阶段瓶颈时，再按“短期高频容器 → 整数索引/紧凑缓冲区”做小范围 A/B，比较
+  GC CPU/扫描堆/峰值 RSS/产物一致性。
+
+### SCIP 重复加载评估（保留，不删除）
+
+- `scip-go index` 支持 `<package-patterns>`（可限制到变更包），但无“跳过依赖”
+  开关——内部仍 `go list -deps` 完整加载并独立类型检查一遍。
+- 符号/引用覆盖是 SCIP 的权威来源，删除或替换会改变图语义；保留该步。
+- **后续触发条件**：`update` 中 scip 全量扫描成为瓶颈时，按变更包传
+  package-patterns（需验证符号/引用覆盖与内存压力）。
+
+### 内容差异与覆盖限制
+
+- 旧/新版同二进制对照产物逐行全等；跨版本（含分块缓存）此前记录的
+  SSA 值名/dispatch_to.register_site/code_snippet 差异属既有同版本不确定性。
+- 目标仓库存在部分编译/类型错误包，A/B 以相同口径运行，未声称覆盖全部调用关系。
