@@ -132,3 +132,19 @@ func TestParseSQLStmtCachedStats(t *testing.T) {
 		t.Errorf("VACUUM 不应占降级计数（%d → %d）", before, after)
 	}
 }
+
+// TestExtractorIdentityFallsBackWithoutSnapshot：ext.funcs 缺失（如
+// emitGlobalInit 的轻量提取器）时 identityOf 回退纯 funcIdentity，不静默
+// 返回空 ID（曾因此丢 50 个 go2o global-init ssa_value 节点）。
+func TestExtractorIdentityFallsBackWithoutSnapshot(t *testing.T) {
+	_, fn := testFuncSnapshot(t)
+	if fn == nil {
+		t.Fatal("fixture 未找到具名函数")
+	}
+	ext := &fieldExtractor{} // funcs == nil
+	want, kind, name := funcIdentity(fn)
+	got := ext.identityOf(fn)
+	if got.id != want || got.kind != kind || got.name != name {
+		t.Fatalf("无快照回退 = %+v; want {%s %s %s}", got, kind, name, want)
+	}
+}

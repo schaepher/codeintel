@@ -143,7 +143,7 @@ func (ext *fieldExtractor) funcIDOf(v ssa.Value) (domain.CanonicalID, bool) {
 	if !ok || obj == nil {
 		return "", false
 	}
-	id := ext.funcs.identityOf(obj).id
+	id := ext.identityOf(obj).id
 	if id == "" {
 		return "", false
 	}
@@ -160,7 +160,7 @@ func (ext *fieldExtractor) funcIDOfFn(fn *ssa.Function) (domain.CanonicalID, boo
 	if !ok || obj == nil {
 		return "", false
 	}
-	id := ext.funcs.identityOf(obj).id
+	id := ext.identityOf(obj).id
 	if id == "" {
 		return "", false
 	}

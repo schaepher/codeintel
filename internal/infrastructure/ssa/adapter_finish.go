@@ -41,7 +41,7 @@ func finishIndex(repo *domain.Repository, prog *ssa.Program, idents map[token.Po
 	}
 	a.fd, aliasRes = nil, nil
 
-	if err := emitGlobalInit(repo, prog, a.funcs.moduleFuncs(repo.Modules), emit); err != nil {
+	if err := emitGlobalInit(repo, prog, a.funcs, a.funcs.moduleFuncs(repo.Modules), emit); err != nil {
 		return err
 	}
 	// P0-2：dispatch 相关包（注册点 ∪ 动态调用，emitDispatches 内合并

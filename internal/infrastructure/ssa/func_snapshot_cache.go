@@ -20,6 +20,17 @@ type funcIdent struct {
 	name string
 }
 
+// identityOf 提取器侧函数身份：快照存在走构建级缓存；快照缺失（如
+// emitGlobalInit 的轻量提取器）回退纯 funcIdentity——避免 ext.funcs 为 nil
+// 时静默返回空 ID 而丢节点（Q252f 静默退化教训）。
+func (ext *fieldExtractor) identityOf(fn *types.Func) funcIdent {
+	if ext == nil || ext.funcs == nil {
+		id, kind, name := funcIdentity(fn)
+		return funcIdent{id: id, kind: kind, name: name}
+	}
+	return ext.funcs.identityOf(fn)
+}
+
 // identityOf 函数身份（funcIdentity 的构建级缓存，含失败结果——失败时
 // id 为空，同样缓存，避免同函数重复解析）。
 func (s *funcSnapshot) identityOf(fn *types.Func) funcIdent {

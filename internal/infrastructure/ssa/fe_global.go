@@ -39,13 +39,14 @@ func (ext *fieldExtractor) lookupAssignTargetStart(pos token.Pos) (string, token
 // var G = T{...} 结构体初始化是字段级 Store（&G.A），经 FieldAddr 分支
 // 处理。Global 节点跨函数共享（symbol:go:<pkg>:var.<name>），value-trace
 // 从使用处反向可达初始化表达式。
-func emitGlobalInit(repo *domain.Repository, prog *ssa.Program, modFuncs []*ssa.Function, emit domain.EmitFunc) error {
+func emitGlobalInit(repo *domain.Repository, prog *ssa.Program, funcs *funcSnapshot, modFuncs []*ssa.Function, emit domain.EmitFunc) error {
 	logger := zap.L()
 	logger.Debug("enter emitGlobalInit")
 	defer logger.Debug("exit emitGlobalInit")
 	ext := &fieldExtractor{
 		repo:     repo,
 		prog:     prog,
+		funcs:    funcs, // Q?：构建级身份缓存（nil 时 identityOf 回退纯函数）
 		emit:     emit,
 		values:   map[ssa.Value]domain.CanonicalID{},
 		funcIDs:  map[*ssa.Function]domain.CanonicalID{},
