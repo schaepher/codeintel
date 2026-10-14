@@ -106,6 +106,13 @@ func Enums(repoAbs string, onlyTyped bool) []EnumEntry {
 		if out[i].Group != out[j].Group {
 			return out[i].Group < out[j].Group
 		}
+		// 枚举值是数字（proto 值号/数值常量）时按从小到大排序；
+		// 非数字（字符串枚举）保持按名称排序。
+		vi, ei := strconv.Atoi(out[i].Value)
+		vj, ej := strconv.Atoi(out[j].Value)
+		if ei == nil && ej == nil && vi != vj {
+			return vi < vj
+		}
 		return out[i].Name < out[j].Name
 	})
 	return out

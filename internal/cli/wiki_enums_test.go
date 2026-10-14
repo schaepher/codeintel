@@ -135,3 +135,37 @@ const (
 		t.Errorf("_pb.go 生成代码不应进枚举（%d 条）:\n%+v", pbN, out)
 	}
 }
+
+// TestEnumNumericSortAscending：枚举值是数字时按从小到大排序（不再按
+// 名称排序）；同值/非数字回退名称序保证确定性。
+func TestEnumNumericSortAscending(t *testing.T) {
+	dir := t.TempDir()
+	proto := `syntax = "proto3";
+package p;
+
+enum EStatus {
+  Unknown = 2;
+  Active = 0;
+  Disabled = 1;
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "a.proto"), []byte(proto), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := action.Enums(dir, false)
+	var names []string
+	for _, e := range out {
+		if e.Type == "EStatus" {
+			names = append(names, e.Name)
+		}
+	}
+	want := []string{"Active", "Disabled", "Unknown"}
+	if len(names) != len(want) {
+		t.Fatalf("EStatus 条目 = %v; want %v", names, want)
+	}
+	for i := range want {
+		if names[i] != want[i] {
+			t.Fatalf("EStatus 数值升序 = %v; want %v", names, want)
+		}
+	}
+}
