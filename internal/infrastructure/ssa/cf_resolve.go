@@ -103,12 +103,14 @@ func returnOperands(fn *ssa.Function) [][]ssa.Value {
 }
 
 // returnOperandsCached 惰性缓存函数的 Return 指令操作数（多调用点复用，
-// 避免每次 emitCall 重复扫描被调函数）。
+// 避免每次 emitCall 重复扫描被调函数）。Q?：实际扫描走构建级缓存
+// （funcSnapshot.returnOperandsOf——跨 extractor 只扫一次）；本提取器 map
+// 只存引用（供采样统计本提取器触及的 returns 数）。
 func (ext *fieldExtractor) returnOperandsCached(fn *ssa.Function) [][]ssa.Value {
 	if rets, ok := ext.rets[fn]; ok {
 		return rets
 	}
-	rets := returnOperands(fn)
+	rets := ext.funcs.returnOperandsOf(fn)
 	ext.rets[fn] = rets
 	return rets
 }

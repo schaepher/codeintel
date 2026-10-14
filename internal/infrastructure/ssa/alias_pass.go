@@ -235,7 +235,7 @@ func (p *aliasPass) returnOperandsCached(fn *ssa.Function) [][]ssa.Value {
 	if rets, ok := p.rets[fn]; ok {
 		return rets
 	}
-	rets := returnOperands(fn)
+	rets := p.funcs.returnOperandsOf(fn) // Q?：构建级缓存（跨 extractor 只扫一次）
 	p.rets[fn] = rets
 	return rets
 }

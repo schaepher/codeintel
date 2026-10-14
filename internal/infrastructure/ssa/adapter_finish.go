@@ -30,7 +30,7 @@ func finishIndex(repo *domain.Repository, prog *ssa.Program, idents map[token.Po
 			fmt.Fprintf(stderr, "warning: 字段访问静态类型解析失败（回退源码字面量）: %s\n", d)
 		}
 	}
-	aliasRes, err := computeAliases(repo, prog, idents, a.fd, a.lines, a.funcs.moduleFuncs(repo.Modules), emit)
+	aliasRes, err := computeAliases(repo, prog, idents, a.fd, a.lines, a.funcs, a.funcs.moduleFuncs(repo.Modules), emit)
 	if err != nil {
 		return fmt.Errorf("alias analysis: %w", err)
 	}

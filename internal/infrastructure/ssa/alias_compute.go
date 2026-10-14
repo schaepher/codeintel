@@ -14,7 +14,7 @@ import (
 // computeAliases 执行轻量别名分析，返回间接写排除集（emitSummaries 消费）。
 func computeAliases(repo *domain.Repository, prog *ssa.Program,
 	idents map[token.Pos]string, funcData map[domain.CanonicalID]*funcData,
-	lines *lineCache, modFuncs []*ssa.Function, emit domain.EmitFunc) (*aliasResult, error) {
+	lines *lineCache, funcSnap *funcSnapshot, modFuncs []*ssa.Function, emit domain.EmitFunc) (*aliasResult, error) {
 	logger := zap.L()
 	logger.Debug("enter computeAliases")
 	defer logger.Debug("exit computeAliases")
@@ -32,7 +32,8 @@ func computeAliases(repo *domain.Repository, prog *ssa.Program,
 		fieldValues: map[domain.CanonicalID]map[ssa.Value]bool{},
 		slotSeen:    map[domain.CanonicalID]map[string]bool{},
 		funcData:    funcData,
-		lines:       lines, // Q248：与 extractor 共用 Index 级行缓存
+		lines:       lines,    // Q248：与 extractor 共用 Index 级行缓存
+		funcs:       funcSnap, // Q?：构建级 Return 操作数缓存
 		calleeInfo:  map[*ssa.Function]*calleeWritesInfo{},
 		rets:        map[*ssa.Function][][]ssa.Value{},
 	}

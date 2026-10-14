@@ -115,7 +115,7 @@ func tableNameOfSlow(ext *fieldExtractor, entity types.Type, named *types.Named)
 	if m := types.NewMethodSet(types.NewPointer(entity)).Lookup(nil, "TableName"); m != nil {
 		if fn, ok := m.Obj().(*types.Func); ok {
 			if ssaFn := ext.prog.FuncValue(fn); ssaFn != nil {
-				for _, ret := range returnOperands(ssaFn) {
+				for _, ret := range ext.funcs.returnOperandsOf(ssaFn) {
 					for _, rv := range ret {
 						if c, ok := rv.(*ssa.Const); ok && c.Value != nil {
 							if s := constant.StringVal(c.Value); s != "" {

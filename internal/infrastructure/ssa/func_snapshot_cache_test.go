@@ -173,3 +173,55 @@ func main() { _ = rec(3) }
 		t.Fatalf("递归函数应有 2 个调用点（自调用 + main），got %d", got)
 	}
 }
+
+// TestFuncSnapshotReturnOperandsCache：构建级 Return 操作数缓存——结果与
+// returnOperands 一致、重复调用命中单条缓存、nil 返回 nil。
+func TestFuncSnapshotReturnOperandsCache(t *testing.T) {
+	s := testFuncSnapshotFiles(t, map[string]string{
+		"go.mod": baseModule,
+		"main.go": `package main
+
+func pair() (int, string) { return 1, "x" }
+
+func none() {}
+
+func main() { _, _ = pair(); none() }
+`,
+	})
+	var pair, none *ssa.Function
+	for _, f := range s.all() {
+		switch f.Name() {
+		case "pair":
+			pair = f
+		case "none":
+			none = f
+		}
+	}
+	if pair == nil || none == nil {
+		t.Fatal("fixture 未找到函数")
+	}
+	want := returnOperands(pair)
+	got := s.returnOperandsOf(pair)
+	if !reflect.DeepEqual(got, want) || len(got) != 1 || len(got[0]) != 2 {
+		t.Fatalf("returnOperandsOf = %v; want %v", got, want)
+	}
+	if len(s.rets) != 1 {
+		t.Fatalf("首次调用应写入 1 条缓存，got %d", len(s.rets))
+	}
+	for i := 0; i < 5; i++ {
+		_ = s.returnOperandsOf(pair)
+	}
+	if len(s.rets) != 1 {
+		t.Fatalf("重复调用不应新增缓存，got %d", len(s.rets))
+	}
+	// 无返回函数也缓存（Return 指令存在但 Results 为空）
+	if got, want := s.returnOperandsOf(none), returnOperands(none); !reflect.DeepEqual(got, want) {
+		t.Errorf("无返回函数 = %v; want %v", got, want)
+	}
+	if len(s.rets) != 2 {
+		t.Errorf("空结果也应缓存，got %d", len(s.rets))
+	}
+	if s.returnOperandsOf(nil) != nil {
+		t.Error("nil 函数应返回 nil")
+	}
+}
