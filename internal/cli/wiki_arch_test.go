@@ -33,10 +33,15 @@ func TestArchMermaidFallback(t *testing.T) {
 		"cli -->|8| action",    // 接入 → 领域 聚合
 		"cli -->|1| server",    // 接入层内
 		"action -->|3| sqlite", // 领域 → 存储
-		"padA", "padB", "padC", // 三层占位节点（等宽）
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("fallback 应含 %q:\n%s", want, got)
+		}
+	}
+	// R44 的等宽占位节点（padA/B/C 空白矩形）已移除——不得再出现
+	for _, bad := range []string{"padA", "padB", "padC"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("架构图不应含占位节点 %q:\n%s", bad, got)
 		}
 	}
 	if archMermaidFallback(nil, nil, nil) != "" {

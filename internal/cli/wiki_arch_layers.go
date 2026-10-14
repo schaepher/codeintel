@@ -42,10 +42,6 @@ func archForceTB(mermaid string) string {
 	return mermaid
 }
 
-// archPadLabel 占位节点 label（固定宽度撑 subgraph 等宽——R44 用户
-// 要求三层框宽对齐）。
-const archPadLabel = "　　　　　　　　　　　　　　"
-
 // archLayeredMermaid 三层架构图 mermaid（graph TB 从上到下）：
 // subgraph 接入层/领域层/存储层，各层节点 + 跨层/层内调用边。
 // domains 非空时领域层 = 领域聚合节点（含包数）；否则领域层 = 包节点。
@@ -196,7 +192,6 @@ func archLayeredMermaid(data []*domain.WikiModule, doms []wikiDomainCfg, acts *a
 	for _, p := range accessNodes {
 		b.WriteString("    " + archNode(p) + "\n")
 	}
-	b.WriteString("    padA[\"" + archPadLabel + "\"]\n")
 	b.WriteString("  end\n")
 	// 领域层（领域节点 + 右侧外部接口节点）
 	b.WriteString("  subgraph 领域层[领域层]\n")
@@ -221,14 +216,12 @@ func archLayeredMermaid(data []*domain.WikiModule, doms []wikiDomainCfg, acts *a
 		}
 		b.WriteString(fmt.Sprintf("    %s[\"%s\"]\n", extNodeID[svc], label))
 	}
-	b.WriteString("    padB[\"" + archPadLabel + "\"]\n")
 	b.WriteString("  end\n")
 	// 存储层
 	b.WriteString("  subgraph 存储层[存储层]\n")
 	for _, p := range storageNodes {
 		b.WriteString("    " + archNode(p) + "\n")
 	}
-	b.WriteString("    padC[\"" + archPadLabel + "\"]\n")
 	b.WriteString("  end\n")
 	for _, k := range keys {
 		// R99-3：PkgCalls 完整路径后 nodeID 含点（mermaid id 非法——
