@@ -43,7 +43,7 @@ func (ext *fieldExtractor) applySQLSummary(cc *ssa.CallCommon, calleeID domain.C
 
 // applySQLSummaryOne 单条 SQL 的摘要主体（Q252：多候选各自调用）。
 func (ext *fieldExtractor) applySQLSummaryOne(cc *ssa.CallCommon, calleeID domain.CanonicalID, spec summarySpec, callVal ssa.Value, sqlArg int, sqlStr string) error {
-	table, tableAlias, cols, whereCols, joinPairs := parseSQLStmt(sqlStr)
+	table, tableAlias, cols, whereCols, joinPairs := ext.parseSQLStmtCached(sqlStr)
 	line := ext.prog.Fset.PositionFor(cc.Pos(), false).Line
 
 	if sqlStmtIsWrite(sqlStr) {

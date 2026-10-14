@@ -261,3 +261,37 @@ func TestFuncSnapshotTableNameCache(t *testing.T) {
 		t.Fatalf("空结果应缓存，compute 调用 %d 次", emptyCalls)
 	}
 }
+
+// TestParseSQLStmtCachedStats：SQL 解析缓存——命中复用结果，且降级统计
+// 保持「按调用」口径（AST 成功/失败各按调用次数计）；VACUUM 等短路命令
+// 不占降级计数。
+func TestParseSQLStmtCachedStats(t *testing.T) {
+	s, _ := testFuncSnapshot(t)
+	ext := &fieldExtractor{funcs: s}
+	ResetSQLStats()
+	defer ResetSQLStats()
+
+	const astSQL = "SELECT id, name FROM user_tab WHERE id = ?"
+	ext.parseSQLStmtCached(astSQL)
+	ext.parseSQLStmtCached(astSQL) // 命中
+	if _, ok := s.sqlParseCached(astSQL); !ok {
+		t.Fatal("首次解析应写缓存")
+	}
+	if got := sqlAstOK.Load(); got != 2 {
+		t.Errorf("AST 成功应按调用计 2 次，got %d", got)
+	}
+
+	const badSQL = "SELECT * FROM %s WHERE id = ?"
+	ext.parseSQLStmtCached(badSQL)
+	ext.parseSQLStmtCached(badSQL) // 命中
+	if got := sqlAstFail.Load(); got != 2 {
+		t.Errorf("AST 失败应按调用计 2 次，got %d", got)
+	}
+
+	before := sqlAstOK.Load() + sqlAstFail.Load()
+	ext.parseSQLStmtCached("VACUUM")
+	ext.parseSQLStmtCached("VACUUM")
+	if after := sqlAstOK.Load() + sqlAstFail.Load(); after != before {
+		t.Errorf("VACUUM 不应占降级计数（%d → %d）", before, after)
+	}
+}

@@ -117,16 +117,24 @@ func (s *funcSnapshot) tableNameCached(named *types.Named, compute func() string
 	return v
 }
 
-// sqlParseEntry SQL 解析缓存条目（含是否 AST 成功——命中时据此保持
-// 降级统计口径：按**调用**计数而非按唯一 SQL）。
+// sqlParseEntry SQL 解析缓存条目（含解析路径 outcome——命中时据此保持
+// 降级统计口径：按**调用**计数而非按唯一 SQL；classifyHeuristic 已去重，
+// 命中时不重复分类）。
 type sqlParseEntry struct {
 	table     string
 	alias     string
 	cols      []string
 	whereCols []string
 	joinPairs []sqlJoinPair
-	astOK     bool
+	outcome   int
 }
+
+// SQL 解析路径 outcome（与降级统计对应）。
+const (
+	sqlOutcomeNoCount   = 0 // SQLite 特有命令（VACUUM/PRAGMA...）——不占降级计数
+	sqlOutcomeAST       = 1 // AST 主路径成功
+	sqlOutcomeHeuristic = 2 // AST 失败→启发式降级
+)
 
 // sqlCacheLimit SQL 解析缓存条数上限（超出后不再新增——限制内存）。
 const sqlCacheLimit = 8192
