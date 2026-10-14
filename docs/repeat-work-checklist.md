@@ -18,9 +18,11 @@
   `TestRebuildDerivedSchemaPreservesManualData` / `rebuild_schema` + `clean` 告知测试。
 - [x] JSON 契约：callers 返回 canonical ID，不暴露 `id_int`/`source_ref`/
   `target_ref` —— `TestQueryCallersJSONEnriched` / `TestQueryJSONNoIntegerProxyKeys`。
-- [x] 插件交付：仓库根 `make plugin` / `make install-plugin`；命令图标正常
-  （package.json 四命令 icon + 时序图/刷新）；`node scripts/selfcheck-vscode-extension.cjs`
-  通过；`node --check` + package.json JSON 校验通过。
+- [x] 插件交付：仓库根 `make plugin` / `make install-plugin` 已就绪（固定版本
+  vsce）；命令图标正常（四命令 icon + 时序图/刷新）；`node --check` +
+  package.json JSON 校验 + `scripts/selfcheck-vscode-extension.cjs` 通过。
+  **环境限制**：本机无外网，`npx @vscode/vsce` 拉包失败（ECONNRESET），未能
+  实际产出 `.vsix`——命令链路与清单内容已验证，打包待有网环境执行。
 - [x] 接口二级缓存：新旧候选扫描一致、按 (接口,方法) 隔离、含空候选、并发
   安全、命中/分配对照 —— `TestImplTypePool*` + `BenchmarkImplTypePoolCached`
   （22.9ns/0 allocs）vs Legacy（5565ns/4442B/76 allocs）。
