@@ -149,13 +149,21 @@ func (pc *pkgCollect) save() {
 	if pc == nil || pc.hash == "" {
 		return
 	}
-	fd := map[domain.CanonicalID]*funcData{}
-	// Q252：块间也按追加语义合并（`fd[id] = d` 覆盖会丢同 owner 的其它块贡献）
+	// Q?：复用第一个非空块 map 作为合并目标（避免再分配一个整包 map）；
+	// 块在 save 后即弃，可安全复用。块间仍按追加语义合并。
+	var fd map[domain.CanonicalID]*funcData
 	var fdMu sync.Mutex
 	for _, m := range pc.fd {
+		if fd == nil {
+			fd = m
+			continue
+		}
 		for id, d := range m {
 			mergeFuncData(&fdMu, fd, id, d)
 		}
+	}
+	if fd == nil {
+		fd = map[domain.CanonicalID]*funcData{}
 	}
 	savePkgCacheBlocks(pc.path, pc.hash, pc.blocks, pc.facts, fd)
 }
