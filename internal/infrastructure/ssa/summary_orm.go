@@ -100,11 +100,15 @@ func (ext *fieldExtractor) tableNameOf(entity types.Type) string {
 		return ""
 	}
 	// Q205 缓存：TableName() 方法扫描（FuncValue + returnOperands）在无
-	// spec 接口调用兜底下被高频触发（go2o 数千接口调用），同类型只算一次
+	// spec 接口调用兜底下被高频触发（go2o 数千接口调用），同类型只算一次；
+	// Q?：实际计算走构建级缓存（跨 extractor 只算一次），本提取器 map 存
+	// 引用（供采样统计本提取器触及的表名数）。
 	if cached, ok := ext.tableNames[named]; ok {
 		return cached
 	}
-	name := tableNameOfSlow(ext, entity, named)
+	name := ext.funcs.tableNameCached(named, func() string {
+		return tableNameOfSlow(ext, entity, named)
+	})
 	ext.tableNames[named] = name // 缓存任何结果（含空串——该类型无 TableName）
 	return name
 }

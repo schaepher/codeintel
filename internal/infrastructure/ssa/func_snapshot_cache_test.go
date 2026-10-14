@@ -1,6 +1,7 @@
 package ssa
 
 import (
+	"go/token"
 	"go/types"
 	"reflect"
 	"testing"
@@ -223,5 +224,40 @@ func main() { _, _ = pair(); none() }
 	}
 	if s.returnOperandsOf(nil) != nil {
 		t.Error("nil 函数应返回 nil")
+	}
+}
+
+// TestFuncSnapshotTableNameCache：构建级表名缓存——compute 只调用一次
+// （重复查询命中）、空结果也缓存、nil 退化直接 compute。
+func TestFuncSnapshotTableNameCache(t *testing.T) {
+	s, _ := testFuncSnapshot(t)
+	mk := func(name string) *types.Named {
+		pkg := types.NewPackage("example.com/x", "x")
+		obj := types.NewTypeName(token.NoPos, pkg, name, nil)
+		return types.NewNamed(obj, types.NewStruct(nil, nil), nil)
+	}
+	n1 := mk("T1")
+	calls := 0
+	compute := func() string { calls++; return "tb1" }
+	if got := s.tableNameCached(n1, compute); got != "tb1" {
+		t.Fatalf("表名 = %q; want tb1", got)
+	}
+	for i := 0; i < 5; i++ {
+		if got := s.tableNameCached(n1, compute); got != "tb1" {
+			t.Fatalf("命中返回 %q", got)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("compute 应只调用一次，got %d", calls)
+	}
+	// 空结果也缓存
+	n2 := mk("T2")
+	emptyCalls := 0
+	if got := s.tableNameCached(n2, func() string { emptyCalls++; return "" }); got != "" {
+		t.Fatalf("空表名 = %q", got)
+	}
+	_ = s.tableNameCached(n2, func() string { emptyCalls++; return "" })
+	if emptyCalls != 1 {
+		t.Fatalf("空结果应缓存，compute 调用 %d 次", emptyCalls)
 	}
 }
