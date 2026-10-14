@@ -2,7 +2,6 @@ package ssa
 
 import (
 	"crypto/sha256"
-	"encoding/gob"
 	"encoding/hex"
 	"os"
 	"path/filepath"
@@ -101,101 +100,6 @@ func pkgCacheKeyHash(pkg *packages.Package, depMemo map[string]string) (string, 
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// loadPkgCache 读缓存并校验 hash；未命中（缺文件/版本/analyzer/hash 不符/
-// 解码失败）返回 nil。Q181：Analyzer 是二进制内容 hash——分析逻辑变化后
-// 旧缓存自动失效（确定机制，无需手动清理）。Q252：gob 编码，**头先读**
-// （hash 不符时不反序列化大载荷）；旧 JSON 缓存解码即失败 → 自动 miss。
-func loadPkgCache(path, wantHash string) *pkgCacheFile {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
-	dec := gob.NewDecoder(f)
-	var hdr pkgCacheHeader
-	if err := dec.Decode(&hdr); err != nil {
-		return nil
-	}
-	if hdr.Version != pkgCacheFormat || hdr.Analyzer != analyzerVersionHash() || hdr.PkgHash != wantHash {
-		return nil
-	}
-	var payload pkgCachePayload
-	if err := dec.Decode(&payload); err != nil {
-		return nil
-	}
-	return &pkgCacheFile{
-		Version: hdr.Version, Analyzer: hdr.Analyzer, PkgHash: hdr.PkgHash,
-		Nodes: payload.Nodes, Facts: payload.Facts, FuncData: payload.FuncData,
-	}
-}
-
-// pkgCacheHeader 缓存头（先写先读：版本/hash 不符时直接拒绝，**不做**
-// 大载荷反序列化——旧实现把 88MB JSON 全解完才发现 hash 不符）。
-type pkgCacheHeader struct {
-	Version  int
-	Analyzer string
-	PkgHash  string
-}
-
-// pkgCachePayload 缓存载荷（nodes/facts/funcData 三段）。
-type pkgCachePayload struct {
-	Nodes    []*domain.CodeEntity
-	Facts    []*domain.Fact
-	FuncData map[string]*cachedFuncData
-}
-
-// savePkgCache 写缓存（Q252：gob 编码 + 临时文件原子替换；失败不阻塞构建
-// ——缓存是加速非必需）。
-//
-// 换 gob 的动机（实测）：JSON 序列化占构建分配 15.6%（jsonwire.AppendQuote
-// 316MB flat）/ CPU 7.2%，缓存体积 ana 42MB、go2o 88MB；gob 是 stdlib
-// 自描述二进制格式，体积与 CPU 双双下降，且读侧可"先头后身"。
-// 原子替换：写入期间被并发读或写中断都不会留下半个文件（原先直接
-// WriteFile，进程被杀会留截断 JSON——解码失败虽会被当作 miss，但白读盘）。
-func savePkgCache(path, hash string, nodes []*domain.CodeEntity, facts []*domain.Fact,
-	fd map[domain.CanonicalID]*funcData) {
-	c := &pkgCacheFile{
-		Version:  pkgCacheFormat,
-		Analyzer: analyzerVersionHash(),
-		PkgHash:  hash,
-		Nodes:    nodes,
-		Facts:    facts,
-		FuncData: map[string]*cachedFuncData{},
-	}
-	for id, f := range fd {
-		c.FuncData[string(id)] = toCachedFD(f)
-	}
-	writePkgCacheFile(path, c)
-}
-
-// writePkgCacheFile 按内容写缓存文件（供 savePkgCache 与测试共用）。
-func writePkgCacheFile(path string, c *pkgCacheFile) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return
-	}
-	// Q252：先写临时文件再 rename（同目录 rename 原子）
-	tmp := path + ".tmp"
-	f, err := os.Create(tmp)
-	if err != nil {
-		return
-	}
-	enc := gob.NewEncoder(f)
-	err = enc.Encode(pkgCacheHeader{Version: c.Version, Analyzer: c.Analyzer, PkgHash: c.PkgHash})
-	if err == nil {
-		err = enc.Encode(pkgCachePayload{Nodes: c.Nodes, Facts: c.Facts, FuncData: c.FuncData})
-	}
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	if err != nil {
-		os.Remove(tmp) // 不留下半截文件
-		return
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
-	}
-}
-
 // pkgCollect 单包产物收集器（Q246：块产物按块序号收集，最后一块到达
 // 即整包写缓存并释放——原实现把全量包产物留到构建尾部统一写，go2o
 // 实测占了峰值堆近 1GB）。
@@ -238,18 +142,12 @@ func (s *pkgCollectSet) get(pkgPath string) *pkgCollect {
 // release 删出集合（整包已写完——释放引用）。
 func (s *pkgCollectSet) release(pkgPath string) { delete(s.cols, pkgPath) }
 
-// save 按块序号拼接产物并落盘缓存（并发下写文件不持收集锁）。
+// save 按块序号拼接产物并落盘缓存（并发下写文件不持收集锁）。Q?：节点/
+// 边块**直接交给分块写入器**（避免先拼接整包指针切片）；摘要仍按追加语义
+// 合并后分块。
 func (pc *pkgCollect) save() {
 	if pc == nil || pc.hash == "" {
 		return
-	}
-	var nodes []*domain.CodeEntity
-	for _, b := range pc.blocks {
-		nodes = append(nodes, b...)
-	}
-	var facts []*domain.Fact
-	for _, f := range pc.facts {
-		facts = append(facts, f...)
 	}
 	fd := map[domain.CanonicalID]*funcData{}
 	// Q252：块间也按追加语义合并（`fd[id] = d` 覆盖会丢同 owner 的其它块贡献）
@@ -259,5 +157,5 @@ func (pc *pkgCollect) save() {
 			mergeFuncData(&fdMu, fd, id, d)
 		}
 	}
-	savePkgCache(pc.path, pc.hash, nodes, facts, fd)
+	savePkgCacheBlocks(pc.path, pc.hash, pc.blocks, pc.facts, fd)
 }

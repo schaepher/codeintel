@@ -28,8 +28,19 @@ type implTypePool struct {
 	mu    sync.RWMutex
 	// cached 实现类型集合（键为接口类型指针——池与程序同生命周期）
 	cached map[*types.Named][]pooledType
+	// methods 候选方法二级缓存（键为接口 + 方法名）：减少同一方法在不同
+	// 调用点的重复过滤（implsFor 已按接口缓存类型集合）
+	methods map[implMethodKey][]*types.Func
 	// computes 实现集合计算次数（测试断言「同接口只算一次」用；并发安全）
 	computes atomic.Int64
+	// methodComputes 方法过滤次数（测试断言「同 (接口,方法) 只过滤一次」）。
+	methodComputes atomic.Int64
+}
+
+// implMethodKey 候选方法缓存键（接口类型指针 + 方法名）。
+type implMethodKey struct {
+	iface  *types.Named
+	method string
 }
 
 // pooledType 池内类型：具名类型 + 预计算的指针类型（值与指针方法集都查）。
@@ -45,7 +56,7 @@ func newImplTypePool(pkgs []*types.Package, modules []string) *implTypePool {
 	logger := zap.L()
 	logger.Debug("enter newImplTypePool")
 	defer logger.Debug("exit newImplTypePool")
-	p := &implTypePool{cached: map[*types.Named][]pooledType{}}
+	p := &implTypePool{cached: map[*types.Named][]pooledType{}, methods: map[implMethodKey][]*types.Func{}}
 	for _, pkg := range pkgs {
 		if pkg == nil || !isInModule(pkg.Path(), modules) {
 			continue
@@ -80,14 +91,29 @@ func (p *implTypePool) methodsFor(iface *types.Named, method string) []*types.Fu
 	if p == nil || iface == nil {
 		return nil
 	}
+	key := implMethodKey{iface: iface, method: method}
+	p.mu.RLock()
+	out, ok := p.methods[key]
+	p.mu.RUnlock()
+	if ok {
+		return out
+	}
 	impls := p.implsFor(iface)
-	var out []*types.Func
+	var res []*types.Func
 	for _, t := range impls {
 		if fn := findMethod(t.named, method); fn != nil {
-			out = append(out, fn)
+			res = append(res, fn)
 		}
 	}
-	return out
+	p.methodComputes.Add(1)
+	p.mu.Lock()
+	if prev, ok := p.methods[key]; ok { // 并发同键：保留先到者
+		p.mu.Unlock()
+		return prev
+	}
+	p.methods[key] = res
+	p.mu.Unlock()
+	return res
 }
 
 // implsFor 返回实现 iface 的具名类型集合（按接口缓存——同一接口的不同

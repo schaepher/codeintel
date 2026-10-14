@@ -39,7 +39,11 @@ import (
 // orchestrator），故用版本号强制失效。
 // v3（Q252）：缓存编码 JSON → gob（体积/CPU/分配三降；头先读，hash 不符
 // 直接拒绝不做大载荷反序列化）——格式不兼容，旧缓存自动失效。
-const pkgCacheFormat = 3
+// v4（Q?）：gob **分块编码**——节点/边/函数摘要每 200 条一个消息 +
+// 独立结束标记（truncated/缺结束标记/结束标记带数据/尾随消息一律拒绝）。
+// 动机（实测）：整包消息会在 gob 内部缓冲完整载荷（44.6MB/op）→ 分块后
+// 缓冲区复用，分配字节约 -92.9%、局部编码耗时约 -36.1%（不外推全量）。
+const pkgCacheFormat = 4
 
 // pkgCacheFile 单包缓存文件。
 type pkgCacheFile struct {

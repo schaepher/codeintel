@@ -4943,3 +4943,31 @@ gob 分配 +60%）同类。
   `domain.IsIgnoredPath` → `DiscoverModules` 不进入 → `loadPackages` 过滤包 →
   scip document / git 文件过滤 → 增量检测与工作区指纹过滤。端到端实测：
   忽略目录内符号不入图，未忽略包正常索引。
+
+## §? 函数值调用者补边 + 接口二级缓存 + emitFunction 采样增强 + 包缓存分块 v4（2026-10-14）
+
+按 codeintel-changelog3 实现（基准 8ff4e99）：
+
+- **函数值调用者补边**（ast）：函数集合参数传入「函数集合入参+返回」的
+  getter 时，除 getter→注册函数外，补**当前调用者→注册函数**的 CALLS
+  边（conf 0.8，metadata `line_num` + `registered_function_value: true`）；
+  回归覆盖包级注册表经 getter 传递与递归类型。
+- **Schema/JSON 契约**：schema mismatch 报错指引改为 `reindex`（说明保留
+  relation_rules/qa_history）；`configSchema` 注释明确 reindex 保留 / clean
+  删除；schema_migrate_test 断言 reindex 与保留说明；callers JSON 测试断言
+  返回 canonical ID 且不泄露 id_int/source_ref/target_ref。
+- **插件**：package.json 为查询符号/光标查询/影响分析/更新索引补图标；
+  README 补充仓库根 `make plugin` / `make install-plugin`。
+- **接口候选二级缓存**（ssa/impl_pool.go）：在一级「按接口缓存实现类型
+  集合」之上，增加 `(接口, 方法名)` 候选方法缓存（`methodComputes` 计数），
+  同一方法不同调用点不再重复过滤；`legacyImplMethodsFor` 保留作结果对照。
+- **emitFunction 采样增强**（ssa/emit_sample.go）：改为**函数处理结束后**
+  （defer）采样；计入嵌套 slots、returns 与参数调用者切片
+  （paramCallerCache.callers）；输出累计函数/map/entry、最大采样提取器条目
+  总数与 heap/GC/耗时。
+- **包缓存分块编码 v4**（ssa/pkg_cache_io.go）：格式 v3→v4，节点/边/摘要
+  每 200 条一个 gob 消息 + 独立结束标记；解码拒绝截断/缺结束标记/结束标记
+  带数据/尾随消息；`pkgCollect.save` 直接编码已有块（避免拼接整包指针切片）；
+  摘要仍按追加合并。新增跨块往返、损坏文件、旧格式拒绝测试。
+  实测（go2o）：v3 缓存自动失效重建 11.6s → v4 命中 9.4s，节点/边/跳过边
+  与既有基线完全一致（117998 / 136028 / 561）。

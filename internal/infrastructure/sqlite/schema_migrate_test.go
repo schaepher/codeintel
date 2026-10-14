@@ -89,15 +89,15 @@ func TestOpenSchemaAutoMigrate(t *testing.T) {
 
 	// Q254c Stage 2：v1 的 edges 是 TEXT 端点，而现 schema 用整数代理键
 	// （source_ref/target_ref）——列**类型**变更无法加法迁移。图数据是派生
-	// 数据，约定"重建即迁移"：Open 必须**明确报错并指引 clean+init**
-	// （不能静默当作可用旧库）。
+	// 数据，约定"重建即迁移"：Open 必须**明确报错并指引 reindex**
+	// （事务重置派生图表，保留 relation_rules/qa_history），不能静默当作可用旧库。
 	d, err := Open(dir)
 	if err == nil {
 		d.Close()
 		t.Fatal("v1（TEXT 端点）旧库应要求重建（Q254c schema 变更），却成功打开")
 	}
-	if !strings.Contains(err.Error(), "source_ref") || !strings.Contains(err.Error(), "clean") {
-		t.Fatalf("错误信息应点明缺失列与重建指引，got %v", err)
+	if !strings.Contains(err.Error(), "source_ref") || !strings.Contains(err.Error(), "reindex") {
+		t.Fatalf("错误信息应点明缺失列与 reindex 重建指引，got %v", err)
 	}
 	if !strings.Contains(err.Error(), "Q254") {
 		t.Errorf("错误信息应说明这是 Q254 Stage 2 代理键变更，got %v", err)
@@ -106,7 +106,7 @@ func TestOpenSchemaAutoMigrate(t *testing.T) {
 }
 
 // TestOpenSchemaMissingColumnFails：核心表缺列（幂等 DDL 无法补列——
-// 破坏性变更）→ Open 报错提示 clean。
+// 破坏性变更）→ Open 报错提示 reindex。
 func TestOpenSchemaMissingColumnFails(t *testing.T) {
 	dir := t.TempDir()
 	// properties 换名 → 生成列引用悬空，须同步改
@@ -118,10 +118,14 @@ func TestOpenSchemaMissingColumnFails(t *testing.T) {
 
 	_, err := Open(dir)
 	if err == nil {
-		t.Fatal("nodes 缺 properties 列应报错（列变更须 clean）")
+		t.Fatal("nodes 缺 properties 列应报错（列变更须重建）")
 	}
-	if !strings.Contains(err.Error(), "clean") {
-		t.Errorf("报错应提示 clean 重建，got: %v", err)
+	// 操作建议指向 reindex（事务重置派生图表，保留 relation_rules/qa_history）
+	if !strings.Contains(err.Error(), "reindex") {
+		t.Errorf("报错应提示 reindex 重建，got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "relation_rules") || !strings.Contains(err.Error(), "qa_history") {
+		t.Errorf("报错应说明保留人工数据，got: %v", err)
 	}
 }
 

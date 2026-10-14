@@ -11,9 +11,9 @@ package ssa
 //  2. **真实产物**（fixture 构建出的 nodes/facts/funcData）往返后 DeepEqual。
 
 import (
-	"bytes"
 	"encoding/gob"
-	"encoding/json"
+	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -130,84 +130,94 @@ func TestPkgCacheGobRejectsStale(t *testing.T) {
 	}
 }
 
-// BenchmarkPkgCacheSerialization：缓存编解码的 CPU/分配对比（gob vs JSON）。
-// 数据规模取真实缓存文件量级（1.75 万节点 + 2 万边 + 400 funcData）。
-// 跑法：go test ./internal/infrastructure/ssa/ -run XXX -bench PkgCacheSerialization
-func BenchmarkPkgCacheSerialization(b *testing.B) {
-	payload := benchCachePayload(17500, 19600, 400)
-	b.Run("gob-encode", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			var buf bytes.Buffer
-			enc := gob.NewEncoder(&buf)
-			_ = enc.Encode(pkgCacheHeader{Version: pkgCacheFormat, Analyzer: "a", PkgHash: "h"})
-			_ = enc.Encode(payload)
-		}
-	})
-	var gobBuf bytes.Buffer
-	enc := gob.NewEncoder(&gobBuf)
-	_ = enc.Encode(pkgCacheHeader{Version: pkgCacheFormat, Analyzer: "a", PkgHash: "h"})
-	_ = enc.Encode(payload)
-	b.Run("gob-decode", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			dec := gob.NewDecoder(bytes.NewReader(gobBuf.Bytes()))
-			var hdr pkgCacheHeader
-			var p pkgCachePayload
-			_ = dec.Decode(&hdr)
-			_ = dec.Decode(&p)
-		}
-	})
-	b.Run("json-encode(对照)", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			_, _ = json.Marshal(payload)
-		}
-	})
-	js, _ := json.Marshal(payload)
-	b.Run("json-decode(对照)", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			var p pkgCachePayload
-			_ = json.Unmarshal(js, &p)
-		}
-	})
-	b.Logf("载荷大小：gob=%dKB json=%dKB", gobBuf.Len()>>10, len(js)>>10)
+// TestPkgCacheChunkedMultiBlock：节点/边/摘要都超过 chunkSize 时跨块往返
+// 深比较（分块协议不丢条、不乱序）。
+func TestPkgCacheChunkedMultiBlock(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "c.json")
+	var nodes []*domain.CodeEntity
+	for i := 0; i < chunkSize*2+3; i++ {
+		nodes = append(nodes, &domain.CodeEntity{
+			ID: domain.CanonicalID(fmt.Sprintf("symbol:go:m:f%d", i)), Kind: domain.KindFunction, Name: fmt.Sprintf("f%d", i),
+			Properties: map[string]any{"i": i},
+		})
+	}
+	var facts []*domain.Fact
+	for i := 0; i < chunkSize+7; i++ {
+		facts = append(facts, &domain.Fact{
+			SourceID: domain.CanonicalID(fmt.Sprintf("symbol:go:m:a%d", i)), TargetID: domain.CanonicalID(fmt.Sprintf("symbol:go:m:b%d", i)),
+			Kind: domain.FactCalls, ToolSource: domain.ToolSSA, Confidence: 0.8,
+		})
+	}
+	fd := map[string]*cachedFuncData{}
+	for i := 0; i < chunkSize+1; i++ {
+		fd[fmt.Sprintf("symbol:go:m:f%d", i)] = &cachedFuncData{Calls: []cachedCallInfo{{CalleeID: "symbol:go:m:g", CallLine: i}}}
+	}
+	in := &pkgCacheFile{Version: pkgCacheFormat, Analyzer: analyzerVersionHash(), PkgHash: "h", Nodes: nodes, Facts: facts, FuncData: fd}
+	writePkgCacheFile(path, in)
+
+	got := loadPkgCache(path, "h")
+	if got == nil {
+		t.Fatal("跨块缓存应命中")
+	}
+	if !reflect.DeepEqual(nodes, got.Nodes) {
+		t.Errorf("跨块 Nodes 不相等（%d 项）", len(nodes))
+	}
+	if !reflect.DeepEqual(facts, got.Facts) {
+		t.Errorf("跨块 Facts 不相等（%d 项）", len(facts))
+	}
+	if !reflect.DeepEqual(fd, got.FuncData) {
+		t.Errorf("跨块 FuncData 不相等（%d 项）", len(fd))
+	}
 }
 
-func benchCachePayload(nNodes, nFacts, nFD int) pkgCachePayload {
-	p := pkgCachePayload{
-		Nodes:    make([]*domain.CodeEntity, 0, nNodes),
-		Facts:    make([]*domain.Fact, 0, nFacts),
-		FuncData: map[string]*cachedFuncData{},
-	}
-	for i := 0; i < nNodes; i++ {
-		p.Nodes = append(p.Nodes, &domain.CodeEntity{
-			ID: domain.CanonicalID("symbol:go:example.com/m/pkg" + itoaPad(i%50) + ":Func" + itoaPad(i%500) + "#t" + itoaPad(i%20)), Kind: domain.KindSSAValue,
-			Name: "field" + itoaPad(i%100), FilePath: "internal/pkg/file" + itoaPad(i%200) + ".go",
-			LineStart: i % 500, LineEnd: i%500 + 2,
-			Properties: map[string]any{
-				"func_id":     "symbol:go:example.com/m/pkg:Func" + itoaPad(i%500),
-				"type_string": "*example.com/m/pkg.T" + itoaPad(i%100),
-				"origin_kind": "local", "ssa_op": "alloc",
-			},
-		})
-	}
-	for i := 0; i < nFacts; i++ {
-		p.Facts = append(p.Facts, &domain.Fact{
-			SourceID: domain.CanonicalID("symbol:go:example.com/m/pkg:A" + itoaPad(i%500)),
-			TargetID: domain.CanonicalID("symbol:go:example.com/m/pkg:B" + itoaPad(i%700)),
-			Kind:     domain.FactDataFlowsTo, ToolSource: domain.ToolSSA, Confidence: 0.8,
-			Metadata: map[string]any{"line": i % 500},
-		})
-	}
-	for i := 0; i < nFD; i++ {
-		id := "symbol:go:example.com/m/pkg:Func" + itoaPad(i)
-		p.FuncData[id] = &cachedFuncData{
-			DirectReads:  []cachedFieldEntry{{FieldPath: "pkg.T.X", InstancePath: "t.x", Line: i % 500, Snippet: "x := t.X"}},
-			DirectWrites: []cachedFieldEntry{{FieldPath: "pkg.T.Y", InstancePath: "t.y", Line: i % 499}},
-			Calls:        []cachedCallInfo{{CalleeID: "symbol:go:example.com/m/pkg:G", CallLine: i % 300, ArgNames: []string{"a", "b"}}},
+// TestPkgCacheChunkIntegrity：缺结束标记/结束标记带数据/尾随消息/旧版本
+// 一律拒绝（避免重放不完整产物）。
+func TestPkgCacheChunkIntegrity(t *testing.T) {
+	dir := t.TempDir()
+	writeCache := func(name string, fn func(enc *gob.Encoder)) string {
+		p := filepath.Join(dir, name)
+		f, err := os.Create(p)
+		if err != nil {
+			t.Fatal(err)
 		}
+		fn(gob.NewEncoder(f))
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return p
 	}
-	return p
+	hdr := pkgCacheHeader{Version: pkgCacheFormat, Analyzer: analyzerVersionHash(), PkgHash: "h"}
+	oneNode := []*domain.CodeEntity{{ID: "x", Kind: domain.KindFunction, Name: "x"}}
+
+	noEnd := writeCache("noend", func(enc *gob.Encoder) {
+		_ = enc.Encode(hdr)
+		_ = enc.Encode(pkgCacheChunk{Kind: chunkNodes, Nodes: oneNode})
+	})
+	if got := loadPkgCache(noEnd, "h"); got != nil {
+		t.Error("缺结束标记应拒绝")
+	}
+	endData := writeCache("enddata", func(enc *gob.Encoder) {
+		_ = enc.Encode(hdr)
+		_ = enc.Encode(pkgCacheChunk{Kind: chunkEnd, Nodes: oneNode})
+	})
+	if got := loadPkgCache(endData, "h"); got != nil {
+		t.Error("结束标记带数据应拒绝")
+	}
+	trailing := writeCache("trailing", func(enc *gob.Encoder) {
+		_ = enc.Encode(hdr)
+		_ = enc.Encode(pkgCacheChunk{Kind: chunkEnd})
+		_ = enc.Encode(pkgCacheChunk{Kind: chunkNodes, Nodes: oneNode})
+	})
+	if got := loadPkgCache(trailing, "h"); got != nil {
+		t.Error("尾随消息应拒绝")
+	}
+	old := writeCache("old", func(enc *gob.Encoder) {
+		_ = enc.Encode(pkgCacheHeader{Version: 3, Analyzer: analyzerVersionHash(), PkgHash: "h"})
+		_ = enc.Encode(pkgCacheChunk{Kind: chunkEnd})
+	})
+	if got := loadPkgCache(old, "h"); got != nil {
+		t.Error("旧版本（v3）应拒绝")
+	}
+
 }

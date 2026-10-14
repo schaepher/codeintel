@@ -26,19 +26,23 @@
     "commands": [
       {
         "command": "codeintel.querySymbol",
-        "title": "codeintel: 查询符号（详情/调用者/被调用者）"
+        "title": "codeintel: 查询符号（详情/调用者/被调用者）",
+        "icon": "$(search)"
       },
       {
         "command": "codeintel.impact",
-        "title": "codeintel: 影响分析（改前预判）"
+        "title": "codeintel: 影响分析（改前预判）",
+        "icon": "$(warning)"
       },
       {
         "command": "codeintel.updateIndex",
-        "title": "codeintel: 增量更新索引"
+        "title": "codeintel: 增量更新索引",
+        "icon": "$(sync)"
       },
       {
         "command": "codeintel.querySymbolAt",
-        "title": "codeintel: 查询光标处符号"
+        "title": "codeintel: 查询光标处符号",
+        "icon": "$(symbol-method)"
       },
       {
         "command": "codeintel.generateSequence",

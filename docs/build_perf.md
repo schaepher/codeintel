@@ -177,3 +177,15 @@ init / reindex / update 三处默认值统一（defaultBuildWorkers）。
 - **诊断开关**：`CODEINTEL_EMIT_SAMPLE=1` 时每 10 个函数抽样一次
   `fieldExtractor` 容器规模（函数数/map 数/entry 数/最大 entry + 堆/GC），
   见 `internal/infrastructure/ssa/fe_emit.go` 与 `emit_sample.go`。
+
+## 包缓存分块 gob 编码（v4，2026-10-14）
+
+- 问题：v3 整包 gob 消息会在 gob 内部缓冲完整载荷（基准 44.58MB/op），
+  大仓缓存写盘时造成大块分配与 GC 触发压力。
+- 改法：节点/边/摘要每 200 条一个 gob 消息 + 独立结束标记；`pkgCollect.save`
+  直接编码已有块（不再先拼接整包指针切片）。
+- 局部基准（三次中位数）：整包 40.26ms / 44.58MB/op → 分块 25.72ms /
+  3.18MB/op（分配字节 ≈ -92.9%，局部编码耗时 ≈ -36.1%）。
+  **不外推全量构建收益**；字节缓冲本身无需 GC 扫描，减少的是分配压力。
+- 正确性：跨块往返、截断/缺结束标记/结束标记带数据/尾随消息拒绝、旧格式
+  拒绝均有测试；go2o 冷重建→暖命中产物计数一致（117998/136028/561）。

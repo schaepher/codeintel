@@ -65,11 +65,12 @@ func isFuncSetConsumer(call *ast.CallExpr) bool {
 // 也含函数集合（"函数集合入参、函数集合返回"的 getter）时，为 callee →
 // 实参里注册的每个函数补 CALLS 边（默认可见；不按签名猜测全部候选函数）。
 // 注册函数从复合字面量（含嵌套字段）收集，访问集防自引用类型图递归。
-func (ctx *fileCtx) emitFuncSetRegistry(call *ast.CallExpr, callee *types.Func, calleeID domain.CanonicalID, calleeKind domain.EntityKind) {
+func (ctx *fileCtx) emitFuncSetRegistry(call *ast.CallExpr, caller *types.Func, callerID domain.CanonicalID, callerKind domain.EntityKind, callee *types.Func, calleeID domain.CanonicalID, calleeKind domain.EntityKind) {
 	sig, _ := callee.Type().(*types.Signature)
 	if sig == nil || !tupleHasFuncSet(sig.Params()) || !tupleHasFuncSet(sig.Results()) {
 		return
 	}
+	line := ctx.pkg.Fset.PositionFor(call.Pos(), false).Line
 	for _, arg := range call.Args {
 		if !isFuncSetType(ctx.pkg.TypesInfo.TypeOf(arg)) {
 			continue
@@ -87,11 +88,25 @@ func (ctx *fileCtx) emitFuncSetRegistry(call *ast.CallExpr, callee *types.Func, 
 			}
 			_ = ctx.emit(domain.Item{Node: nodeFor(ctx.repo, ctx.pkg, callee, calleeID, calleeKind, nil)})
 			_ = ctx.emit(domain.Item{Node: nodeFor(ctx.repo, ctx.pkg, fn, fid, fkind, nil)})
+			// getter → 注册函数（changelog2）
 			_ = ctx.emit(domain.Item{Fact: &domain.Fact{
 				SourceID: calleeID, TargetID: fid, Kind: domain.FactCalls,
 				ToolSource: domain.ToolCodeGraph, Confidence: 0.8,
 				Metadata: map[string]any{"func_registry": true},
 			}})
+			// 当前调用者 → 注册函数（changelog3：集合参数传入 getter 时，
+			// 调用者也是注册函数的可见调用方；带行号与 registered_function_value 标记）
+			if callerID != "" && callerID != fid {
+				_ = ctx.emit(domain.Item{Node: nodeFor(ctx.repo, ctx.pkg, caller, callerID, callerKind, ctx.serviceFlags[callerID])})
+				_ = ctx.emit(domain.Item{Fact: &domain.Fact{
+					SourceID: callerID, TargetID: fid, Kind: domain.FactCalls,
+					ToolSource: domain.ToolCodeGraph, Confidence: 0.8,
+					Metadata: map[string]any{
+						"line_num":                  line,
+						"registered_function_value": true,
+					},
+				}})
+			}
 		}
 	}
 }

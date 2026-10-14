@@ -238,6 +238,17 @@ func TestImplTypePoolPerInterfaceCache(t *testing.T) {
 	if got := pool.computes.Load(); got != 1 {
 		t.Errorf("Store 的两个方法应共用一次实现集合计算，got %d", got)
 	}
+	// 二级缓存：同一 (接口,方法) 只过滤一次；复用同一结果
+	if got := pool.methodComputes.Load(); got != 2 {
+		t.Errorf("两个不同方法应各过滤一次，got %d", got)
+	}
+	first := pool.methodsFor(store, "Save")
+	if got := pool.methodComputes.Load(); got != 2 {
+		t.Errorf("重复方法不应重新过滤，got %d", got)
+	}
+	if len(first) == 0 || len(first) != len(pool.methodsFor(store, "Save")) {
+		t.Errorf("重复方法结果应一致")
+	}
 	// 无实现者的接口（Closer 只有 Close，换一个无实现方法名触发空候选）
 	closer := ifaceNamed(t, typePkgs, "example.com/mtest/ifaces", "Closer")
 	if got := pool.methodsFor(closer, "Nope"); len(got) != 0 {
@@ -245,6 +256,9 @@ func TestImplTypePoolPerInterfaceCache(t *testing.T) {
 	}
 	if got := pool.computes.Load(); got != 2 {
 		t.Errorf("不同接口应各计算一次，got %d", got)
+	}
+	if got := pool.methodComputes.Load(); got != 3 {
+		t.Errorf("空候选也应计入方法过滤一次，got %d", got)
 	}
 }
 

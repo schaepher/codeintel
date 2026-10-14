@@ -131,7 +131,19 @@ func get(vs []V) []V { return vs }
 func call() { _ = get([]V{{F: a}}) }
 `,
 	})
+	// getter → 注册函数
 	findFact(t, facts, "symbol:go:example.com/mtest:get", "symbol:go:example.com/mtest:a", string(domain.FactCalls))
+	// 当前调用者 → 注册函数（registered_function_value 标记 + 行号）
+	f := findFact(t, facts, "symbol:go:example.com/mtest:call", "symbol:go:example.com/mtest:a", string(domain.FactCalls))
+	if f.Confidence != 0.8 {
+		t.Errorf("调用者补边置信度 = %v; want 0.8", f.Confidence)
+	}
+	if v, ok := f.Metadata["registered_function_value"]; !ok || v != true {
+		t.Errorf("调用者补边应带 registered_function_value 标记: %v", f.Metadata)
+	}
+	if _, ok := f.Metadata["line_num"]; !ok {
+		t.Errorf("调用者补边应带调用行号: %v", f.Metadata)
+	}
 }
 
 // TestFuncSetRecursiveType 自引用类型（struct 指向自身 + 函数字段）不
@@ -182,4 +194,11 @@ func call() { _ = get(registry) }
 		t.Errorf("注册表传播边置信度 = %v; want 0.8", f.Confidence)
 	}
 	findFact(t, facts, "symbol:go:example.com/mtest:get", "symbol:go:example.com/mtest:b", string(domain.FactCalls))
+	// 当前调用者 → 每个注册函数（registered_function_value 标记）
+	for _, reg := range []string{"a", "b"} {
+		cf := findFact(t, facts, "symbol:go:example.com/mtest:call", "symbol:go:example.com/mtest:"+reg, string(domain.FactCalls))
+		if v, ok := cf.Metadata["registered_function_value"]; !ok || v != true {
+			t.Errorf("caller→%s 应带 registered_function_value 标记: %v", reg, cf.Metadata)
+		}
+	}
 }

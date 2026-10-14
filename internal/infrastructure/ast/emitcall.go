@@ -131,7 +131,7 @@ func (ctx *fileCtx) emitCall(call *ast.CallExpr) {
 	// 为 callee → 实参里注册的每个函数补 CALLS 边（默认可见；不按签名
 	// 猜测全部候选函数）。
 	if callee.Pkg() != nil && isInModule(callee.Pkg().Path(), ctx.repo.Modules) {
-		ctx.emitFuncSetRegistry(call, callee, calleeID, calleeKind)
+		ctx.emitFuncSetRegistry(call, caller, callerID, callerKind, callee, calleeID, calleeKind)
 	}
 	// 函数作为参数传入（回调）：参数函数 → 接收函数（passes_to）。
 	// 接收者可为外部框架函数（如 net/http.HandleFunc），为其建轻量节点

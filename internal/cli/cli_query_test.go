@@ -144,9 +144,16 @@ func TestQueryCallersJSONEnriched(t *testing.T) {
 			t.Errorf("query callers --json exit = %d", code)
 		}
 	})
-	for _, want := range []string{`"rows"`, `"source"`, `"target"`, `"edge_kind"`, `"name": "main"`, `"file": "main.go"`, `"kind": "function"`} {
+	for _, want := range []string{`"rows"`, `"source"`, `"target"`, `"edge_kind"`, `"name": "main"`, `"file": "main.go"`, `"kind": "function"`,
+		`"source": "symbol:go:example.com/m:main"`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("callers --json 缺少 %s\n%s", want, out)
+		}
+	}
+	// 对外只暴露 canonical ID，不泄露数据库内部整数代理键
+	for _, bad := range []string{`"id_int"`, `"source_ref"`, `"target_ref"`} {
+		if strings.Contains(out, bad) {
+			t.Errorf("callers --json 泄露内部代理键 %s:\n%s", bad, out)
 		}
 	}
 	out = captureStdout(func() {

@@ -144,7 +144,8 @@ CREATE INDEX IF NOT EXISTS idx_relcand_build_from ON relation_candidates(build_i
 
 // configSchema 配置表（Q220c）：独立于 schema 版本演进——幂等补建
 // （CREATE TABLE IF NOT EXISTS，打开时始终执行，旧库自动获得配置表，
-// 不要求 clean 重建）；ResetGraphTables 不 DROP（clean/reindex 保留）。
+// 不要求 clean 重建）；**reindex/RebuildDerivedSchema 保留配置表，
+// clean 删除整个 .codeintel（含配置表）**。
 // 用户连线规则：外键形态列（merchant_id 等）值来自参数、无值流验证时，
 // 由用户声明规则连线。from_table=” 为模式规则（所有含 from_col 列的
 // 表 → to_table.to_col）；否则为显式列对。生效时校验目标表/列存在。

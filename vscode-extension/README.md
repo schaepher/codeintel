@@ -60,10 +60,14 @@ plantuml`，产物写到**最近一次成功查询的仓库**的 `<repo>/.codein
 
 ## 打包 / 安装（VSIX）
 
+在**仓库根目录**执行：
+
 ```bash
 make plugin          # 生成 vscode-extension/codeintel.vsix（固定版本 vsce）
 make install-plugin  # 打包后用 code --install-extension --force 安装
 ```
+
+（也可在 vscode-extension/ 目录直接 `npx @vscode/vsce package`。）
 
 ## 自检
 
