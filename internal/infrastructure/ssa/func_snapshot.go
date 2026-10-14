@@ -23,15 +23,38 @@ package ssa
 //     调用），故不存在"晚些调用能看到更多函数"的情况
 
 import (
+	"go/types"
 	"sort"
+	"sync"
 
 	"golang.org/x/tools/go/ssa"
 	"golang.org/x/tools/go/ssa/ssautil"
 )
 
 // funcSnapshot 程序函数全集（Index 级快照）。
+//
+// 除函数列表外，还承载**构建级只读缓存**（Q?：重复解析/重复计算整
+// 治）——函数身份、静态调用点反向索引、Return 操作数、类型表名、SQL
+// 解析结果。extractor 按包并发，各缓存自带锁；缓存只增不改（空结果也
+// 缓存），生命周期与 funcSnapshot 一致（不跨 SSA Program）。
 type funcSnapshot struct {
 	list []*ssa.Function
+
+	identMu sync.Mutex
+	idents  map[*types.Func]funcIdent
+
+	callSitesOnce sync.Once
+	callSites     map[*ssa.Function][][]ssa.Value
+
+	retMu sync.Mutex
+	rets  map[*ssa.Function][][]ssa.Value
+
+	tableMu    sync.Mutex
+	tableNames map[*types.Named]string
+
+	sqlMu        sync.Mutex
+	sqlCache     map[string]sqlParseEntry
+	sqlCacheFull bool
 }
 
 // newFuncSnapshot 采集一次（内部即 ssautil.AllFunctions）。

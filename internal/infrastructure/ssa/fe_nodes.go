@@ -143,7 +143,7 @@ func (ext *fieldExtractor) funcIDOf(v ssa.Value) (domain.CanonicalID, bool) {
 	if !ok || obj == nil {
 		return "", false
 	}
-	id, _, _ := funcIdentity(obj)
+	id := ext.funcs.identityOf(obj).id
 	if id == "" {
 		return "", false
 	}
@@ -151,7 +151,7 @@ func (ext *fieldExtractor) funcIDOf(v ssa.Value) (domain.CanonicalID, bool) {
 	return id, true
 }
 
-// funcIDOfFn 解析具名函数的 canonical ID（不落缓存，幂等）。
+// funcIDOfFn 解析具名函数的 canonical ID（构建级身份缓存）。
 func (ext *fieldExtractor) funcIDOfFn(fn *ssa.Function) (domain.CanonicalID, bool) {
 	logger := zap.L()
 	logger.Debug("enter (fieldExtractor).funcIDOfFn")
@@ -160,7 +160,7 @@ func (ext *fieldExtractor) funcIDOfFn(fn *ssa.Function) (domain.CanonicalID, boo
 	if !ok || obj == nil {
 		return "", false
 	}
-	id, _, _ := funcIdentity(obj)
+	id := ext.funcs.identityOf(obj).id
 	if id == "" {
 		return "", false
 	}
