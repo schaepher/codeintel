@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"encoding/gob"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/schaepher/codeintel/internal/domain"
@@ -131,4 +133,35 @@ func benchCachePayload(nNodes, nFacts, nFD int) pkgCachePayload {
 		}
 	}
 	return p
+}
+
+// BenchmarkPkgCacheFileWriteRead：真实缓存写盘 + 体积 + 读取成本（区别于
+// io.Discard 的纯编码基准）。覆盖多块包（1.75 万节点/1.96 万边/400 摘要）。
+func BenchmarkPkgCacheFileWriteRead(b *testing.B) {
+	payload := benchCachePayload(17500, 19600, 400)
+	hdr := pkgCacheHeader{Version: pkgCacheFormat, Analyzer: analyzerVersionHash(), PkgHash: "h"}
+	nodeBlocks := chunkSlices(payload.Nodes, chunkSize)
+	factBlocks := chunkSlices(payload.Facts, chunkSize)
+	path := filepath.Join(b.TempDir(), "c.json")
+
+	b.Run("write", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			writePkgCacheBlocks(path, hdr, nodeBlocks, factBlocks, payload.FuncData)
+		}
+	})
+	if fi, err := os.Stat(path); err == nil {
+		b.Logf("缓存文件大小=%dKB（%d 节点/%d 边/%d 摘要）", fi.Size()>>10, len(payload.Nodes), len(payload.Facts), len(payload.FuncData))
+	}
+	if got := loadPkgCache(path, "h"); got == nil {
+		b.Fatal("写后应可读回")
+	}
+	b.Run("read", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			if got := loadPkgCache(path, "h"); got == nil {
+				b.Fatal("读取失败")
+			}
+		}
+	})
 }
