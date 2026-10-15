@@ -5000,3 +5000,21 @@ gob 分配 +60%）同类。
 **大仓 A/B（go2o）**：旧/新版 warm init wall/RSS 基本持平（≈8.2s/930MB），
 产物 nodes 117998 / edges 136028 **逐行全等（diff 0）**；局部缓存收益显著
 但端到端未测出稳定提速。详见 `docs/build_perf.md`。
+
+## §? 单文件 HTML 去掉内联模块章节（2026-10-15）
+
+用户反馈：go2o 单文件 wiki 里「术语表」之后的模块章节（`github.com/ixre/go2o`，
+下一个顶层区块是「构建 SQL 解析降级统计」）**没什么用而且重复**。
+
+- **定位**：`renderWikiHTML` 里 `for i, wm := range ordered` 把每个模块
+  六区块（职责/入口/核心符号/关键数据流/相关表 + 包间架构图 + 流程时序）
+  内联进 `index.html`，与顶层区块（实体协作/系统流程/ER 领域分组/表清单）
+  大量重叠；单模块仓库（go2o）就是整仓聚合，重复最明显。
+- **改动**（仅单文件 HTML）：删除模块 `main` 区块与左侧 `mod-head` 目录树，
+  快速开始引导改指 `#tables`/`#er`；`ordered`/`sort`/`domain` 依赖随之移除。
+  **md 模式与 serve 不受影响**——模块详情仍在 `index.md` 的「模块」链接与
+  独立模块页（`<短名>.md`）/ `/wiki/mod/<短名>`。
+- **验证**：新增 `TestWikiHTML` 断言单文件 HTML 不含 `id="mod-"` /
+  `href="#mod-"` / `data-target="sec-"`；本仓库实测生成 HTML 的 section
+  顺序为 `… packages/er/er-domains/tables/glossary/degrade`（无 `mod-*`）。
+  `scripts/verify.sh --quick` 全绿。

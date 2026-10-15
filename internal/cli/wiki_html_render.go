@@ -4,10 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
-	"github.com/schaepher/codeintel/internal/domain"
 	"go.uber.org/zap"
 )
 
@@ -27,16 +25,7 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return err
 	}
-	meta, tableAlias, hidden := wikiMetaIndex(cfg)
-
-	ordered := append([]*domain.WikiModule(nil), data...)
-	sort.SliceStable(ordered, func(i, j int) bool {
-		oi, oj := meta[ordered[i].Name].order, meta[ordered[j].Name].order
-		if oi != oj {
-			return oi != 0 && (oj == 0 || oi < oj)
-		}
-		return ordered[i].Name < ordered[j].Name
-	})
+	_, tableAlias, _ := wikiMetaIndex(cfg)
 
 	eg, egErr := acts.Entities() // R9：实体协作图（模块页/概览渲染）
 	_ = egErr
@@ -136,38 +125,16 @@ func renderWikiHTML(repoAbs, outDir string, rc *wikiRenderCtx) error {
 		main.WriteString("</section>\n")
 		nav.WriteString(`<li><a href="#glossary">术语表</a></li>`)
 	}
-	// R14：模块（逐模块深入——认知路径靠后，比命令/流程细节深）
-	for i, wm := range ordered {
-		secID := fmt.Sprintf("sec-%d", i)
-		modID := fmt.Sprintf("mod-%d", i)
-		desc := meta[wm.Name].desc
-		label := wm.Name
-		if desc != "" {
-			label += " — " + desc
-		}
-
-		nav.WriteString(fmt.Sprintf(
-			`<li class="mod"><div class="mod-head fold-btn" data-target="%s" data-label="1">▸ %s</div><ul class="mod-sec" id="%s">`,
-			secID, htmlEsc(label), secID))
-		for _, a := range moduleAnchors(wm) {
-			nav.WriteString(fmt.Sprintf(`<li><a href="#%s-%d">%s</a></li>`, a.key, i, a.label))
-		}
-		nav.WriteString("</ul></li>\n")
-
-		main.WriteString(fmt.Sprintf(`<section id="%s"><h2>%s</h2>`, modID, htmlEsc(wm.Name)))
-		if desc != "" {
-			main.WriteString("<blockquote>" + htmlEsc(desc) + "</blockquote>")
-		}
-		main.WriteString(renderModuleHTML(wm, i, eg, wikiModuleKeyFlows(acts, wm), tableAlias, hidden, cfg, desc, rc))
-		main.WriteString("</section>\n")
-	}
+	// R14 修订：单文件 HTML 不再内联模块章节（与实体协作/系统流程/
+	// ER 领域分组/表清单等顶层区块大量重复）——模块详情看 md 模式的
+	// 独立模块页（index.md 的「模块」链接）或 serve 的 /wiki/mod/<短名>。
 
 	// R6：构建 SQL 解析降级统计（与 md/serve 三通道一致）
 	if degradeStats != "" {
 		main.WriteString(`<section id="degrade"><h2>构建 SQL 解析降级统计</h2><p class="muted">` + htmlEsc(">"+degradeStats) + `（AST 降级率异常高时检查解析器）</p></section>` + "\n")
 		nav.WriteString(`<li><a href="#degrade">构建降级统计</a></li>`)
 	}
-	guide := `<strong>快速开始：</strong>① 看<a href="#arch">架构图</a>了解系统组成 → ② 看<a href="#entities">实体协作</a>了解对象怎么协作 → ③ 看<a href="#commands">命令清单</a>上手 → ④ 深入<a href="#mod-0">模块</a>与<a href="#tables">表</a>。`
+	guide := `<strong>快速开始：</strong>① 看<a href="#arch">架构图</a>了解系统组成 → ② 看<a href="#entities">实体协作</a>了解对象怎么协作 → ③ 看<a href="#commands">命令清单</a>上手 → ④ 深入<a href="#tables">表清单</a>与<a href="#er">ER 图</a>。`
 	html := wikiHTMLPage(title, cfg.Project.Description, guide, nav.String(), main.String(), wikiPageOpts{freshNote: freshNote, diagram: rc.Diagram})
 	return os.WriteFile(filepath.Join(outDir, "index.html"), []byte(html), 0o644)
 }

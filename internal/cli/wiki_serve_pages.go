@@ -170,7 +170,8 @@ func (ws *wikiServe) overviewPage(snap *wikiSnapshot) string {
 	return ws.pageHTML(snap, "/wiki/overview", b.String())
 }
 
-// modulePage 模块页（六区块内容，与单文件 html 同渲染）。
+// modulePage 模块页（六区块内容；serve 与 md 独立模块页共用。
+// 单文件 html 不再内联模块章节）。
 func (ws *wikiServe) modulePage(snap *wikiSnapshot, wm *domain.WikiModule) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf(`<section id="mod-0"><h2>%s</h2>`, htmlEsc(wm.Name)))

@@ -9,7 +9,7 @@ import (
 )
 
 // TestWikiHTML：--format html 单文件自包含——目录导航 + 折叠标记 +
-// 六区块内容。
+// 顶层内容区块（R14 修订：不内联模块章节）。
 func TestWikiHTML(t *testing.T) {
 	dir := seedWikiRepo(t)
 	out := filepath.Join(t.TempDir(), "wiki")
@@ -42,6 +42,11 @@ func TestWikiHTML(t *testing.T) {
 	body := regexp.MustCompile(`(?s)<script>.*?</script>`).ReplaceAllString(s, "")
 	if strings.Contains(body, "## ") {
 		t.Error("html 不应含 markdown 标题")
+	}
+	// R14 修订：单文件 HTML 不再内联模块章节（与实体协作/系统流程/
+	// ER 领域分组/表清单等顶层区块重复）——模块详情在 md 独立模块页。
+	if strings.Contains(s, `id="mod-`) || strings.Contains(s, `href="#mod-`) || strings.Contains(s, `data-target="sec-`) {
+		t.Error("单文件 html 不应内联模块章节")
 	}
 
 	out2 := filepath.Join(t.TempDir(), "wiki2")
