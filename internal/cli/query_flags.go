@@ -58,6 +58,11 @@ func parseQueryFlags(args []string) queryFlags {
 			f.minPkgs, _ = strconv.Atoi(strings.TrimPrefix(a, "--min-packages="))
 		case a == "--include-container":
 			f.includeContainer = true
+		case a == "--direction" && i+1 < len(args):
+			f.direction = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--direction="):
+			f.direction = strings.TrimPrefix(a, "--direction=")
 		case a == "--follow-indirect":
 			f.followIndirect = true
 		case a == "--all":

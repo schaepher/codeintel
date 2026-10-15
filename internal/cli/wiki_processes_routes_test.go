@@ -236,3 +236,48 @@ func TestProcFoldMaxEntries(t *testing.T) {
 		t.Errorf("折叠后只应展开 1 个入口的图，实际:\n%s", m)
 	}
 }
+
+// TestHTTPRoutesInboundOutboundSeparated：HTTP 路由入口节只列入站
+// （服务端路由）；出站 http_call 目标（symbol:http:，无 handler）不作为
+// 入口出现，仅在附注中给出数量（纯出站 = 无同名入站 path）。
+func TestHTTPRoutesInboundOutboundSeparated(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/m\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	r := sqlite.NewRepo(db)
+	nodes := []*domain.CodeEntity{
+		{ID: "symbol:go:example.com/m/api:route.1", Kind: domain.KindHTTPRoute,
+			Name: "GET /ping", Properties: map[string]any{
+				"method": "GET", "path": "/ping", "handler": "pingHandler",
+				"resolver": "gin", "register": "api/routes.go:20",
+			}},
+		{ID: "symbol:http:sms.253.com:route./msg/send", Kind: domain.KindHTTPRoute,
+			Name: "GET /msg/send", Properties: map[string]any{"method": "GET", "path": "/msg/send"}},
+	}
+	if _, err := r.SaveBatchStats(nodes, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	acts := action.New(r)
+	entries := httpProcEntries(acts)
+	for _, e := range entries {
+		if strings.Contains(strings.Join(e.Paths, ","), "/msg/send") {
+			t.Fatalf("出站目标不应进入口节: %+v", e)
+		}
+	}
+	if len(entries) != 1 {
+		t.Fatalf("入口数 = %d; want 1（仅入站）: %+v", len(entries), entries)
+	}
+	m := renderHTTPRoutesMD(&wikiRenderCtx{acts: acts, Diagram: "mermaid"}, entries, 10)
+	if !strings.Contains(m, "HTTP 出站调用目标 1 个") || !strings.Contains(m, "纯出站 1 个") {
+		t.Errorf("应附出站统计（1 个纯出站）:\n%s", m)
+	}
+	if strings.Contains(m, "#### `GET /msg/send`") {
+		t.Errorf("出站路径不应作为入口标题:\n%s", m)
+	}
+}

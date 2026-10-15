@@ -41,6 +41,7 @@ type queryFlags struct {
 	memory           string   // relations --memory：full/sql（默认 auto 按规模，P0④）
 	yamlPath         string   // R77：architecture/er/processes 的 wiki.yaml 路径（--yaml；缺省仓库根 wiki.yaml）
 	maxEntries       int      // R77：processes 每节/每页入口展开上限（0 = 默认 15，同 wiki --max-entries）
+	direction        string   // http-routes 方向过滤：inbound|outbound（空=全部）
 	code             bool     // R81：sequence --code——代码级时序（AST 解析函数体：调用名 + 分支/循环）
 	minPkgs          int      // R88：helpers --min-packages——跨包使用数阈值（0 = 配置默认 3）
 	out              string   // R100：sequence --out——输出写文件（plantuml → PNG；否则文本）

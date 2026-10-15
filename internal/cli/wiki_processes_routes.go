@@ -42,6 +42,8 @@ type httpProcEntry struct {
 }
 
 // httpProcEntries 读 http_route 节点 → 按 handler_id 去重 → 展开调用链。
+// Q?：只取**入站**（服务端路由）——出站 http_call 目标（symbol:http:，
+// 无 handler）不进本入口节，见 httpOutboundStats 附注。
 // handler_id 空：匿名/方法值（s.orders 无法 fallback）→ Chain nil 仅列路由；
 // 具名函数短名 fallback ResolveSymbol（老索引兼容，多匹配失败为 nil）。
 func httpProcEntries(acts *action.Actions) []httpProcEntry {
@@ -53,6 +55,9 @@ func httpProcEntries(acts *action.Actions) []httpProcEntry {
 	// 无 handler_id 的短名 fallback 缓存（多路由同短名只解析一次）
 	shortResolved := map[string]*action.ProcChain{}
 	for _, r := range res.Routes {
+		if r.Direction == action.HTTPRouteOutbound {
+			continue // 出站调用目标：无 handler，不进入口节
+		}
 		if r.HandlerID != "" {
 			if i := indexOfProc(out, r.HandlerID); i >= 0 {
 				// 多模块仓库同一源码重复加载会重复发射（ana 8 个 go.mod
@@ -113,6 +118,28 @@ func routeLabel(r action.HTTPRouteEntry) string {
 	return r.Method + " " + r.Path
 }
 
+// httpOutboundStats 出站调用目标统计（入口节的附注用）：total=出站节点数，
+// pure=同仓库无同名入站 path 的“纯出站”数。
+func httpOutboundStats(acts *action.Actions) (total, pure int) {
+	if acts == nil {
+		return 0, 0
+	}
+	res, err := acts.HTTPRoutes()
+	if err != nil {
+		return 0, 0
+	}
+	for _, r := range res.Routes {
+		if r.Direction != action.HTTPRouteOutbound {
+			continue
+		}
+		total++
+		if !r.MatchedInbound {
+			pure++
+		}
+	}
+	return total, pure
+}
+
 // procFold 入口超限拆分：前 max 完整展开，其余折叠（渲染时清单）。
 func procFold[T any](max int, xs []T) (expanded []T, folded []T) {
 	if max <= 0 || len(xs) <= max {
@@ -126,11 +153,15 @@ func procFold[T any](max int, xs []T) (expanded []T, folded []T) {
 
 // renderHTTPRoutesMD HTTP 路由入口节（md）。
 func renderHTTPRoutesMD(rc *wikiRenderCtx, entries []httpProcEntry, max int) string {
-	if len(entries) == 0 {
+	outTotal, outPure := httpOutboundStats(rc.acts)
+	if len(entries) == 0 && outTotal == 0 {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("## HTTP 路由入口\n\n> 数据源：http_route 节点（构建期识别）→ handler 调用链展开（同 handler 多路由去重）。\n\n")
+	b.WriteString("## HTTP 路由入口\n\n> 入站（服务端路由）：http_route 节点（构建期识别）→ handler 调用链展开（同 handler 多路由去重）。\n\n")
+	if len(entries) == 0 {
+		b.WriteString("（未识别到服务端 HTTP 路由——本仓库可能是 gRPC/库项目）\n\n")
+	}
 	expanded, folded := procFold(max, entries)
 	curResolver := ""
 	for _, e := range expanded {
@@ -155,16 +186,24 @@ func renderHTTPRoutesMD(rc *wikiRenderCtx, entries []httpProcEntry, max int) str
 		}
 		b.WriteString("\n")
 	}
+	if outTotal > 0 {
+		b.WriteString("\n> HTTP 出站调用目标 " + itoa(outTotal) + " 个（纯出站 " + itoa(outPure) +
+			" 个：本仓库无同名入站 path）——调用方与 URL 见[外部接口调用](index.md#外部接口调用)。\n\n")
+	}
 	return b.String()
 }
 
 // renderHTTPRoutesHTML HTTP 路由入口节（html）。
 func renderHTTPRoutesHTML(rc *wikiRenderCtx, entries []httpProcEntry, max int) string {
-	if len(entries) == 0 {
+	outTotal, outPure := httpOutboundStats(rc.acts)
+	if len(entries) == 0 && outTotal == 0 {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString(`<h2>HTTP 路由入口</h2><p class="muted">数据源：http_route 节点（构建期识别）→ handler 调用链展开（同 handler 多路由去重）。</p>`)
+	b.WriteString(`<h2>HTTP 路由入口</h2><p class="muted">入站（服务端路由）：http_route 节点（构建期识别）→ handler 调用链展开（同 handler 多路由去重）。</p>`)
+	if len(entries) == 0 {
+		b.WriteString(`<p class="muted">（未识别到服务端 HTTP 路由——本仓库可能是 gRPC/库项目）</p>`)
+	}
 	expanded, folded := procFold(max, entries)
 	curResolver := ""
 	for _, e := range expanded {
@@ -189,6 +228,10 @@ func renderHTTPRoutesHTML(rc *wikiRenderCtx, entries []httpProcEntry, max int) s
 				htmlEsc(e.Handler) + "（" + htmlEsc(loc) + "）</li>")
 		}
 		b.WriteString("</ul></details>")
+	}
+	if outTotal > 0 {
+		b.WriteString(`<p class="muted">HTTP 出站调用目标 ` + itoa(outTotal) + ` 个（纯出站 ` + itoa(outPure) +
+			` 个：本仓库无同名入站 path）——调用方与 URL 见<a href="index.html#外部接口调用">外部接口调用</a>。</p>`)
 	}
 	return b.String()
 }

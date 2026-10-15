@@ -128,3 +128,52 @@ func TestQueryHTTPRoutesHandlerID(t *testing.T) {
 		}
 	}
 }
+
+// TestQueryHTTPRoutesDirection：入站/出站区分——出站目标 Host 提取、
+// 同仓库存在同名入站 path → MatchedInbound=true（非纯出站），否则纯出站；
+// 排序入站在前。
+func TestQueryHTTPRoutesDirection(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/m\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	r := sqlite.NewRepo(db)
+	nodes := []*domain.CodeEntity{
+		{ID: "symbol:go:example.com/m/api:route.1", Kind: domain.KindHTTPRoute,
+			Name: "GET /ping", Properties: map[string]any{
+				"method": "GET", "path": "/ping", "handler": "pingHandler",
+				"resolver": "gin", "register": "api/routes.go:20",
+			}},
+		{ID: "symbol:http:svc.internal:route./ping", Kind: domain.KindHTTPRoute,
+			Name: "GET /ping", Properties: map[string]any{"method": "GET", "path": "/ping"}},
+		{ID: "symbol:http:sms.253.com:route./msg/send", Kind: domain.KindHTTPRoute,
+			Name: "GET /msg/send", Properties: map[string]any{"method": "GET", "path": "/msg/send"}},
+	}
+	if _, err := r.SaveBatchStats(nodes, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	res, err := New(r).HTTPRoutes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Routes[0].Direction != HTTPRouteInbound {
+		t.Fatalf("入站应排在前: %+v", res.Routes)
+	}
+	byPath := map[string]HTTPRouteEntry{}
+	for _, e := range res.Routes {
+		if e.Direction == HTTPRouteOutbound {
+			byPath[e.Path] = e
+		}
+	}
+	if e, ok := byPath["/ping"]; !ok || e.Host != "svc.internal" || !e.MatchedInbound {
+		t.Errorf("svc.internal /ping 应命中入站 path: %+v", e)
+	}
+	if e, ok := byPath["/msg/send"]; !ok || e.Host != "sms.253.com" || e.MatchedInbound {
+		t.Errorf("sms.253.com /msg/send 应为纯出站: %+v", e)
+	}
+}
