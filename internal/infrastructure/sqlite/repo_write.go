@@ -27,6 +27,7 @@ func (r *Repo) SaveBatchStats(nodes []*domain.CodeEntity, edges []*domain.Fact,
 	logger.Debug("enter (Repo).SaveBatchStats")
 	defer logger.Debug("exit (Repo).SaveBatchStats")
 	result := &saveBatchResult{}
+	var freshRefs map[string]int64 // 构建期端点缓存：提交成功后发布
 	allOrigins := []*domain.SummaryOrigin{}
 	for _, os := range origins {
 		allOrigins = append(allOrigins, os...)
@@ -65,10 +66,13 @@ func (r *Repo) SaveBatchStats(nodes []*domain.CodeEntity, edges []*domain.Fact,
 	if len(edges) > 0 {
 		// Q254c：canonical ID → nodes.rowid（整数代理键）批量解析；解析不到的
 		// 端点（节点还没落库）走 FailedEdges 延迟重试——与原来"外键冲突"同语义。
-		refs, rerr := resolveNodeRefs(tx, edgeEndpointIDs(edges))
+		// Q?：构建期正缓存（build_write_cache.go）命中即跳过查询；fresh 只在
+		// 事务提交成功后发布。
+		refs, fresh, rerr := r.resolveNodeRefsCached(tx, edgeEndpointIDs(edges))
 		if rerr != nil {
 			return nil, rerr
 		}
+		freshRefs = fresh
 		stmt, err := tx.Prepare(insertEdgeSQL)
 		if err != nil {
 			return nil, fmt.Errorf("prepare edge insert: %w", err)
@@ -144,6 +148,8 @@ func (r *Repo) SaveBatchStats(nodes []*domain.CodeEntity, edges []*domain.Fact,
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
+	// 事务成功提交后才发布正向键（回滚时新节点 id_int 未持久化）。
+	r.publishBuildWriteCache(freshRefs)
 	return result, nil
 }
 

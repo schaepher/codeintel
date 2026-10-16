@@ -36,6 +36,15 @@ func (o *Orchestrator) runAdapters(ctx context.Context, pkgs []*packages.Package
 			logger.Warn("disable foreign keys for build", zap.Error(err))
 		}
 	}
+	// Q?：开启构建期端点正缓存（build_write_cache.go）——flush 单写者，
+	// 事务提交成功才发布正向键；构建结束无论成败都清空（不跨构建复用）。
+	o.RepoImpl.BeginBuildWriteCache()
+	defer func() {
+		st := o.RepoImpl.EndBuildWriteCache()
+		logger.Info("build write cache",
+			zap.Int64("inputs", st.Inputs), zap.Int64("writes", st.Writes),
+			zap.Int64("hits", st.Hits), zap.Int64("clears", st.Clears), zap.Int64("size", st.Size))
+	}()
 	// "adapters done" 聚合步骤：elapsed 覆盖整个并行适配器阶段（与 Q253 前
 	// 同一个数字），只是改由进度渲染器输出。
 	rep.Begin("adapters done", 0, 0)

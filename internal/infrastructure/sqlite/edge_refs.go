@@ -17,16 +17,8 @@ import (
 //
 // 同事务内可见性：节点先于边写入同一 tx，故本批新插入的节点也能查到。
 func resolveNodeRefs(tx *sql.Tx, ids []string) (map[string]int64, error) {
-	refs := make(map[string]int64, len(ids))
-	uniq := make([]string, 0, len(ids))
-	seen := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		if id == "" || seen[id] {
-			continue
-		}
-		seen[id] = true
-		uniq = append(uniq, id)
-	}
+	uniq := uniqueIDs(ids)
+	refs := make(map[string]int64, len(uniq))
 	const chunk = 800 // 绑定变量上限（SQLITE_MAX_VARIABLE_NUMBER 默认 32766）
 	for start := 0; start < len(uniq); start += chunk {
 		end := start + chunk
@@ -59,6 +51,20 @@ func resolveNodeRefs(tx *sql.Tx, ids []string) (map[string]int64, error) {
 		}
 	}
 	return refs, nil
+}
+
+// uniqueIDs 去重（保持首次出现顺序，跳过空串）。
+func uniqueIDs(ids []string) []string {
+	uniq := make([]string, 0, len(ids))
+	seen := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		uniq = append(uniq, id)
+	}
+	return uniq
 }
 
 // edgeEndpointIDs 取边的端点 canonical ID（去重前，顺序无关）。

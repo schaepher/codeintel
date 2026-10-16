@@ -33,6 +33,11 @@ type Repo struct {
 	// 全表扫边建 map（77-110ms/次）改为按 build_id 复用；锁只保护槽位
 	edgeGraphMu    sync.RWMutex
 	edgeGraphCache *edgeGraph
+
+	// Q?：构建期端点正向缓存（build_write_cache.go）——只在构建生命周期
+	// 内启用（编排器 Begin/End），不跨构建复用。
+	buildWriteMu sync.Mutex
+	buildWrite   *buildWriteCache
 }
 
 // SetRelationHops 配置三类关系的跳数上限（--query-max-hops 等，Q197）：
