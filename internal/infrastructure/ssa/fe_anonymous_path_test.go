@@ -56,6 +56,7 @@ func ptr(p *Outer) {
 func cp(x Outer) {
 	m := x.Mid
 	_ = m.A
+	m.A = 2
 }
 
 func idx(b Basket) {

@@ -180,4 +180,5 @@ type fieldExtractor struct {
 	tableNames       map[*types.Named]string                // Q205：tableNameOf 结果缓存（无 spec 接口调用兜底高频触发）
 	typeMapping      map[*types.Named]string                // Q211：orm.Mapping 实体类型→表名（Index 级收集共享）
 	paramCallerCache map[*ssa.Function]*paramCalls          // Q239：参数→静态调用点缓存（动态 SQL 还原）
+	allocStores      map[*ssa.Alloc]allocStoreResult        // Q?：副本来源（单一 Store）追溯结果缓存——避免每次重扫函数块
 }

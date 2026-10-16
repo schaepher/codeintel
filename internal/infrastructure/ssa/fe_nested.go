@@ -82,12 +82,22 @@ func namedStructPath(t types.Type) string {
 	return named.Obj().Pkg().Path() + "." + named.Obj().Name()
 }
 
+// allocStoreResult 单一 Store 来源追溯结果（done=false = 未查过）。
+type allocStoreResult struct {
+	val  ssa.Value
+	done bool
+}
+
 // singleStoredValue 返回只有一个 Store 写入的 Alloc 的来源值；否则 nil。
+// 结果按 Alloc 缓存在 extractor 上（同一函数内多次字段访问同一副本时不重扫）。
 func (ext *fieldExtractor) singleStoredValue(alloc *ssa.Alloc) ssa.Value {
-	if ext.fn == nil || alloc == nil {
+	if ext == nil || alloc == nil || ext.fn == nil {
 		return nil
 	}
-	var found ssa.Value
+	if r, ok := ext.allocStores[alloc]; ok && r.done {
+		return r.val
+	}
+	res := allocStoreResult{done: true}
 	n := 0
 	for _, b := range ext.fn.Blocks {
 		for _, instr := range b.Instrs {
@@ -97,10 +107,18 @@ func (ext *fieldExtractor) singleStoredValue(alloc *ssa.Alloc) ssa.Value {
 			}
 			n++
 			if n > 1 {
-				return nil
+				res.val = nil
+				break
 			}
-			found = st.Val
+			res.val = st.Val
+		}
+		if n > 1 {
+			break
 		}
 	}
-	return found
+	if ext.allocStores == nil {
+		ext.allocStores = map[*ssa.Alloc]allocStoreResult{}
+	}
+	ext.allocStores[alloc] = res
+	return res.val
 }
