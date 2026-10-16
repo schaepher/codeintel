@@ -23,7 +23,7 @@ func (ext *fieldExtractor) newElementAccess(container, key ssa.Value, pos token.
 	fi := fieldInfo{
 		fullPath:   full,
 		fieldName:  "",
-		typeString: container.Type().String(),
+		typeString: ext.typeString(container.Type()),
 		filePath:   ext.currentFile,
 		line:       line,
 		snippet:    ext.sourceLine(ext.currentFile, line),

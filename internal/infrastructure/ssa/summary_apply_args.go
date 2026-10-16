@@ -78,7 +78,7 @@ func (ext *fieldExtractor) applyArgSummaryOne(cc *ssa.CallCommon, calleeID domai
 				"full_path":     fullPath,
 				"instance_path": instance,
 				"access_kind":   access,
-				"type_string":   realArg.Type().String(),
+				"type_string":   ext.typeString(realArg.Type()),
 				"func_id":       string(ext.funcID),
 				"is_external":   "true",
 				"code_snippet":  ext.sourceLine(ext.currentFile, line),
@@ -162,7 +162,7 @@ func (ext *fieldExtractor) applyScanOut(cc *ssa.CallCommon, calleeID domain.Cano
 				Properties: map[string]any{
 					"origin_kind": "local",
 					"ssa_op":      "scan_out",
-					"type_string": arg.Type().String(),
+					"type_string": ext.typeString(arg.Type()),
 					"func_id":     string(fid),
 				},
 			}}); err != nil {

@@ -78,7 +78,7 @@ func (ext *fieldExtractor) fieldInfo(baseType types.Type, fieldIdx int, pos toke
 	}
 	field := st.Field(fieldIdx)
 	fi := fieldInfo{
-		typeString: field.Type().String(),
+		typeString: ext.typeString(field.Type()),
 		fieldName:  field.Name(),
 	}
 

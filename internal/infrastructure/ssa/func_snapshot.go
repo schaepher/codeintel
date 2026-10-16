@@ -55,6 +55,11 @@ type funcSnapshot struct {
 	sqlMu        sync.Mutex
 	sqlCache     map[string]sqlParseEntry
 	sqlCacheFull bool
+
+	// 构建级字符串缓存（string_cache.go）：类型字符串 + 候选键。
+	strMu    sync.Mutex
+	typeStrs map[types.Type]string
+	candKeys map[*types.Func]string
 }
 
 // newFuncSnapshot 采集一次（内部即 ssautil.AllFunctions）。

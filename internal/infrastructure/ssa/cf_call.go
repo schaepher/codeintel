@@ -110,7 +110,7 @@ func (ext *fieldExtractor) emitCall(cc *ssa.CallCommon, callVal ssa.Value) error
 					}
 				}
 
-				logger.Debug("dyn interface dispatch", zap.Int("impls", len(impls)), zap.String("call", cc.String()), zap.String("iface", cc.Value.Type().String()))
+				logDynInterfaceDispatch(logger, cc, len(impls))
 				handled, err := ext.applyInterfaceSummary(cc, callVal)
 				if err != nil {
 					return err
@@ -215,7 +215,7 @@ func (ext *fieldExtractor) emitCall(cc *ssa.CallCommon, callVal ssa.Value) error
 func (ext *fieldExtractor) dispatchOriginOf(iface *types.Named, method string, implFn *types.Func) (string, float64) {
 	// Q221：dispatchRegs/regHits 均为 Index 级共享（Adapter 初始化一次）
 	// ——原 extractor 懒构建导致每函数重复全量预处理
-	if ext.regHits[iface.String()][candidateKey(implFn)] {
+	if ext.regHits[ext.typeString(iface)][ext.candidateKeyOf(implFn)] {
 		return "register", 0.9
 	}
 	return "enum", 0.7
@@ -251,4 +251,20 @@ func (ext *fieldExtractor) recordCallInfo(cc *ssa.CallCommon, calleeID domain.Ca
 		callLine:       ext.prog.Fset.PositionFor(cc.Pos(), false).Line,
 		argNames:       argNames,
 	})
+}
+
+// logDynInterfaceDispatch 输出动态派发的调试日志。仅在 Debug 级别开启时
+// 才构造昂贵字段（cc.String() / cc.Value.Type().String() 会做符号渲染）——
+// 默认 Info 级构建下这两次字符串构造是纯浪费（Q221 调查：构建期大量
+// 调试调用点）。开启后日志内容与旧实现逐字一致。
+func logDynInterfaceDispatch(logger *zap.Logger, cc *ssa.CallCommon, implCount int) {
+	ce := logger.Check(zap.DebugLevel, "dyn interface dispatch")
+	if ce == nil {
+		return
+	}
+	ce.Write(
+		zap.Int("impls", implCount),
+		zap.String("call", cc.String()),
+		zap.String("iface", cc.Value.Type().String()),
+	)
 }

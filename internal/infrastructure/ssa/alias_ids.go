@@ -97,7 +97,7 @@ func (p *aliasPass) valueNodeID(v ssa.Value) (domain.CanonicalID, bool) {
 	// Q235-6/8/9：SSA 临时名回退类型短名（与 emitValue 一致）——Alloc
 	// （Q235-6 匿名分配）扩展到全部指令；phi 有声明时已恢复变量名
 	// （Q235-9），无 Pos 合成 phi 同样回退类型短名
-	if tn := allocTypeShort(v.Type().String()); tn != "" {
+	if tn := allocTypeShort(p.typeString(v.Type())); tn != "" {
 		name = tn
 	}
 	if err := p.emit(domain.Item{Node: &domain.CodeEntity{
@@ -107,7 +107,7 @@ func (p *aliasPass) valueNodeID(v ssa.Value) (domain.CanonicalID, bool) {
 		Properties: map[string]any{
 			"origin_kind": originKind(v),
 			"ssa_op":      ssaOp(v),
-			"type_string": v.Type().String(),
+			"type_string": p.typeString(v.Type()),
 			"func_id":     string(funcID),
 		},
 	}}); err != nil {
@@ -151,7 +151,7 @@ func (p *aliasPass) objectIDOf(obj ssa.Value) (domain.CanonicalID, bool) {
 	}
 	name := slot
 	// Q235-6：匿名分配回退类型短名（与 emitValue 一致）
-	if tn := allocTypeShort(obj.Type().String()); tn != "" {
+	if tn := allocTypeShort(p.typeString(obj.Type())); tn != "" {
 		name = tn
 	}
 	if err := p.emit(domain.Item{Node: &domain.CodeEntity{
@@ -161,7 +161,7 @@ func (p *aliasPass) objectIDOf(obj ssa.Value) (domain.CanonicalID, bool) {
 		Properties: map[string]any{
 			"origin_kind": kind,
 			"ssa_op":      ssaOp(obj),
-			"type_string": obj.Type().String(),
+			"type_string": p.typeString(obj.Type()),
 			"func_id":     string(funcID),
 		},
 	}}); err != nil {
@@ -181,7 +181,7 @@ func (p *aliasPass) fieldInfoFor(fa *ssa.FieldAddr) (fieldInfo, bool) {
 	fi := fieldInfo{
 		fullPath:   named.Obj().Pkg().Path() + "." + named.Obj().Name() + "." + field.Name(),
 		fieldName:  field.Name(),
-		typeString: field.Type().String(),
+		typeString: p.typeString(field.Type()),
 	}
 	pos := p.prog.Fset.PositionFor(fa.Pos(), false)
 	fi.filePath = relPath(p.repo.Path, pos.Filename)
