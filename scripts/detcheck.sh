@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # 图构建确定性 + 包缓存保真度自检：同一仓库连续构建**三次**（同样
-# workers），四类产物必须完全一致——节点 ID 集合、节点内容（properties
-# 键序归一化）、边集合（含 count）、function_field_summary。
+# workers），产物必须完全一致——节点 ID 集合、节点内容（properties 键序
+# 归一化）、边（tool_source/置信度/count/metadata 键序归一化）、
+# function_field_summary、summary_origins（R16：旧口径漏比边 metadata 与
+# 摘要来源，SSA register_site / 间接写 code_snippet 差异会漏判）。
 #   构建 1（清库冷构建）vs 构建 2（清库冷构建）→ 确定性
 #   构建 2（冷）vs 构建 3（**不清库**，包缓存全命中）→ 缓存重放保真度
 # Q252：第 3 次对照抓到过"缓存收集用覆盖语义"导致的暖构建少 43 边 /
@@ -39,16 +41,24 @@ for i in 1 2 3; do
   # Q254c：edges 已改整数代理键（source_ref/target_ref）——dump 走兼容视图
   # edges_v（暴露 canonical ID）。**每条 dump 都检查退出码与空集**：曾因列名
   # 变更让 dump 静默失败 → 两侧都是 0 行、看着"全等通过"（假绿）。
-  dump() { # dump <out> <sql>
+  dump() { # dump <out> <sql> [allow_empty]
     if ! sqlite3 "$DB" "$2" > "$1"; then
       echo "dump 失败（SQL 与 schema 不一致?）：$2"; exit 2
     fi
-    [ -s "$1" ] || { echo "dump 为空（schema/查询不匹配?）：$2"; exit 2; }
+    # summary_origins 在小仓可能合法为空（无间接写传播）——传 allow_empty
+    # 跳过非空断言；查询本身出错仍由上面的退出码捕获。
+    if [ "${3:-}" != "allow_empty" ] && [ ! -s "$1" ]; then
+      echo "dump 为空（schema/查询不匹配?）：$2"; exit 2
+    fi
   }
   dump "$TMP/ids$i" "select id from nodes order by id;"
   dump "$TMP/nodes$i" "select id||'|'||kind||'|'||name||'|'||coalesce(file_path,'')||'|'||coalesce(line_start,0)||'|'||coalesce(line_end,0)||'|'||coalesce(properties,'') from nodes order by id;"
-  dump "$TMP/edges$i" "select source_id||'|'||target_id||'|'||kind||'|'||count from edges_v order by source_id,target_id,kind;"
+  # R16（Q?）：边比较扩展到 tool_source/confidence/metadata（register_site 等
+  # 元数据藏在 metadata 里，旧口径只比 source/target/kind/count 会漏差异）。
+  dump "$TMP/edges$i" "select source_id||'|'||target_id||'|'||kind||'|'||coalesce(tool_source,'')||'|'||coalesce(confidence,0)||'|'||coalesce(count,0)||'|'||coalesce(metadata,'') from edges_v order by source_id,target_id,kind;"
   dump "$TMP/summ$i" "select function_id||'|'||access_kind||'|'||field_path||'|'||coalesce(instance_path,'')||'|'||coalesce(line_start,0)||'|'||coalesce(code_snippet,'') from function_field_summary order by function_id,access_kind,field_path;"
+  # R16：摘要来源（间接写传播链的 call_line/callee_id）——旧口径完全没比。
+  dump "$TMP/origins$i" "select function_id||'|'||access_kind||'|'||field_path||'|'||coalesce(call_line,0)||'|'||coalesce(callee_id,'') from summary_origins order by function_id,access_kind,field_path,call_line,callee_id;" allow_empty
 done
 
 python3 - "$TMP" <<'PY'
@@ -57,18 +67,21 @@ tmp = sys.argv[1]
 import collections
 def lines(p):
     return [l.rstrip("\n") for l in open(p)]
-def norm_nodes(p):
+def norm_json_col(p, ncol):
+    # 把最后一列（JSON）解析后按键序归一化；前 ncol-1 列原样。
     out = []
     for line in open(p):
-        parts = line.rstrip("\n").split("|", 6)
-        if len(parts) < 7:
+        parts = line.rstrip("\n").split("|", ncol - 1)
+        if len(parts) < ncol:
             continue
         try:
-            props = json.dumps(json.loads(parts[6]), sort_keys=True, ensure_ascii=False)
+            val = json.dumps(json.loads(parts[-1]), sort_keys=True, ensure_ascii=False)
         except Exception:
-            props = parts[6]
-        out.append("|".join(parts[:6]) + "|" + props)
+            val = parts[-1]
+        out.append("|".join(parts[:-1]) + "|" + val)
     return out
+def norm_nodes(p):
+    return norm_json_col(p, 7)
 def diff(a, b):
     return sorted(set(a) ^ set(b))
 bad = 0
@@ -76,8 +89,9 @@ for label, ia, ib in (("确定性(冷1 vs 冷2)", 1, 2), ("缓存重放保真(�
     checks = [
         ("节点 ID", lines(f"{tmp}/ids{ia}"), lines(f"{tmp}/ids{ib}")),
         ("节点内容", norm_nodes(f"{tmp}/nodes{ia}"), norm_nodes(f"{tmp}/nodes{ib}")),
-        ("边(含count)", lines(f"{tmp}/edges{ia}"), lines(f"{tmp}/edges{ib}")),
+        ("边(含来源/置信度/元数据)", norm_json_col(f"{tmp}/edges{ia}", 7), norm_json_col(f"{tmp}/edges{ib}", 7)),
         ("摘要", lines(f"{tmp}/summ{ia}"), lines(f"{tmp}/summ{ib}")),
+        ("摘要来源", lines(f"{tmp}/origins{ia}"), lines(f"{tmp}/origins{ib}")),
     ]
     print(f"  [{label}]")
     for name, a, b in checks:
