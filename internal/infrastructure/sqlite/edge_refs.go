@@ -17,7 +17,15 @@ import (
 //
 // 同事务内可见性：节点先于边写入同一 tx，故本批新插入的节点也能查到。
 func resolveNodeRefs(tx *sql.Tx, ids []string) (map[string]int64, error) {
-	uniq := uniqueIDs(ids)
+	return resolveNodeRefsUnique(tx, uniqueIDs(ids))
+}
+
+// resolveNodeRefsUnique 同 resolveNodeRefs，但调用方保证 ids 已去重——
+// 跳过 seen/uniq 容器（缓存未命中路径直接传已去重的 miss）。
+func resolveNodeRefsUnique(tx *sql.Tx, uniq []string) (map[string]int64, error) {
+	if len(uniq) == 0 {
+		return map[string]int64{}, nil
+	}
 	refs := make(map[string]int64, len(uniq))
 	const chunk = 800 // 绑定变量上限（SQLITE_MAX_VARIABLE_NUMBER 默认 32766）
 	for start := 0; start < len(uniq); start += chunk {

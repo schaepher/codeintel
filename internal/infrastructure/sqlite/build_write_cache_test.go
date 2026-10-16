@@ -21,13 +21,14 @@ func edgesOf(pairs ...string) []*domain.Fact {
 	return out
 }
 
-// TestBuildWriteCacheLookupPublish：命中/未命中分离 + 统计。
-func TestBuildWriteCacheLookupPublish(t *testing.T) {
+// TestBuildWriteCachePartition：命中/未命中分离（命中直接写入 refs）+ 统计。
+func TestBuildWriteCachePartition(t *testing.T) {
 	c := newBuildWriteCache(10)
 	c.publish(map[string]int64{"a": 1, "b": 2})
-	hits, miss := c.lookup([]string{"a", "b", "c"})
-	if hits["a"] != 1 || hits["b"] != 2 {
-		t.Errorf("hits = %v, want a=1 b=2", hits)
+	refs := map[string]int64{}
+	miss := c.partition(refs, []string{"a", "b", "c"})
+	if refs["a"] != 1 || refs["b"] != 2 {
+		t.Errorf("refs = %v, want a=1 b=2", refs)
 	}
 	if len(miss) != 1 || miss[0] != "c" {
 		t.Errorf("miss = %v, want [c]", miss)
@@ -38,17 +39,27 @@ func TestBuildWriteCacheLookupPublish(t *testing.T) {
 	}
 }
 
-// TestBuildWriteCacheCapacityClear：容量溢出整表清空并计数（P2 再换淘汰）。
-func TestBuildWriteCacheCapacityClear(t *testing.T) {
-	c := newBuildWriteCache(2)
-	c.publish(map[string]int64{"a": 1, "b": 2})
-	c.publish(map[string]int64{"c": 3})
-	st := c.snapshot()
-	if st.Clears != 1 || st.Size != 1 {
-		t.Errorf("stats = %+v, want clears=1 size=1", st)
+// TestBuildWriteCacheSegmentedEviction：cur 达 capacity/2 时分段轮换——
+// 上一代命中的键晋升保留，更早的键被淘汰（非整表清空）。
+func TestBuildWriteCacheSegmentedEviction(t *testing.T) {
+	c := newBuildWriteCache(4)                  // half=2
+	c.publish(map[string]int64{"a": 1, "b": 2}) // cur={a,b} 满
+	c.publish(map[string]int64{"c": 3})         // 轮换：prev={a,b}, cur={c}
+	// a 在 prev 中命中并晋升
+	refs := map[string]int64{}
+	if miss := c.partition(refs, []string{"a"}); len(miss) != 0 || refs["a"] != 1 {
+		t.Errorf("a 应在 prev 命中并返回，miss=%v refs=%v", miss, refs)
 	}
-	if _, miss := c.lookup([]string{"a"}); len(miss) != 1 {
-		t.Errorf("清表后 a 应未命中")
+	// c 在 cur 中
+	if miss := c.partition(map[string]int64{}, []string{"c"}); len(miss) != 0 {
+		t.Errorf("c 应在 cur 命中")
+	}
+	st := c.snapshot()
+	if st.Rotations != 1 {
+		t.Errorf("rotations = %d, want 1", st.Rotations)
+	}
+	if st.Size > 4 {
+		t.Errorf("size = %d, 不得超过 capacity", st.Size)
 	}
 }
 
@@ -97,7 +108,7 @@ func TestResolveNodeRefsCachedMissingNotCached(t *testing.T) {
 		t.Fatalf("缺失端点边应 FailedEdges=1, got %d", len(res.FailedEdges))
 	}
 	if c := r.currentBuildWriteCache(); c != nil {
-		if _, ok := c.refs["symbol:go:x:missing"]; ok {
+		if miss := c.partition(map[string]int64{}, []string{"symbol:go:x:missing"}); len(miss) != 1 {
 			t.Fatal("缺失端点不得缓存")
 		}
 	}
@@ -125,14 +136,14 @@ func TestResolveNodeRefsRollbackDoesNotPublish(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
-	if _, _, err := r.resolveNodeRefsCached(tx, []string{"symbol:go:x:a"}); err != nil {
+	if _, _, err := r.resolveNodeRefsCached(tx, edgesOf("symbol:go:x:a", "")); err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
 	if err := tx.Rollback(); err != nil {
 		t.Fatalf("Rollback: %v", err)
 	}
-	if c := r.currentBuildWriteCache(); len(c.refs) != 0 {
-		t.Errorf("回滚后缓存应为空, got %d", len(c.refs))
+	if sz := r.currentBuildWriteCache().snapshot().Size; sz != 0 {
+		t.Errorf("回滚后缓存应为空, got %d", sz)
 	}
 	if st := r.EndBuildWriteCache(); st.Writes != 0 {
 		t.Errorf("回滚后 writes 应为 0, got %+v", st)
@@ -169,7 +180,8 @@ func TestBuildWriteCacheConcurrent(t *testing.T) {
 			defer wg.Done()
 			for i := 0; i < 500; i++ {
 				id := string(rune('a' + (seed+i)%8))
-				c.lookup([]string{id})
+				refs := map[string]int64{}
+				c.partition(refs, []string{id})
 				c.publish(map[string]int64{id: int64(i)})
 			}
 		}(w)
@@ -240,6 +252,7 @@ func BenchmarkEndpointResolveCached(b *testing.B) {
 	}
 	_ = tx.Rollback()
 	r.currentBuildWriteCache().publish(got)
+	benchEdges := edgesOf(ids...)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -247,7 +260,7 @@ func BenchmarkEndpointResolveCached(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		if _, _, err := r.resolveNodeRefsCached(tx, ids); err != nil {
+		if _, _, err := r.resolveNodeRefsCached(tx, benchEdges); err != nil {
 			b.Fatal(err)
 		}
 		_ = tx.Rollback()

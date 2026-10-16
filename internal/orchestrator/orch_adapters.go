@@ -43,7 +43,7 @@ func (o *Orchestrator) runAdapters(ctx context.Context, pkgs []*packages.Package
 		st := o.RepoImpl.EndBuildWriteCache()
 		logger.Info("build write cache",
 			zap.Int64("inputs", st.Inputs), zap.Int64("writes", st.Writes),
-			zap.Int64("hits", st.Hits), zap.Int64("clears", st.Clears), zap.Int64("size", st.Size))
+			zap.Int64("hits", st.Hits), zap.Int64("rotations", st.Rotations), zap.Int64("size", st.Size))
 	}()
 	// "adapters done" 聚合步骤：elapsed 覆盖整个并行适配器阶段（与 Q253 前
 	// 同一个数字），只是改由进度渲染器输出。

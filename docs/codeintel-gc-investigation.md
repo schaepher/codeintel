@@ -28,8 +28,8 @@
 |---|---:|---|
 | `BenchmarkDispatchKeyDirect` | 631 ns/op，888 B/op，14 allocs | 直接 `iface.String()+candidateKey` |
 | `BenchmarkDispatchKeyCached` | 49 ns/op，48 B/op，1 alloc | 构建级缓存命中（约 12.9×；剩 1 次分配来自基准里的字符串拼接） |
-| `BenchmarkEndpointResolveUncached` | 1,009,548 ns/op，146 KB/op | 每批直接查库 |
-| `BenchmarkEndpointResolveCached` | 58,522 ns/op，94 KB/op | 正缓存命中（约 17.3×） |
+| `BenchmarkEndpointResolveUncached` | 1,003,490 ns/op，146 KB/op | 每批直接查库 |
+| `BenchmarkEndpointResolveCached` | 41,649 ns/op，74 KB/op | 正缓存命中（约 24×；P1 合并容器后由 58.5µs/94KB 降至） |
 | `BenchmarkLogDynInterfaceDispatchDisabled` | 见 `ssa/cf_call_debug_test.go` | Debug 关闭路径只有一次 level 检查 |
 | `BenchmarkNodeDedupDuplicate` / `Unique` | 见 `orchestrator/node_batch_test.go` | 重复/唯一节点场景对照 |
 
@@ -46,15 +46,29 @@
   `fe_anonymous_path_test.go`（上述匿名路径矩阵）、
   `cpu_profile_test.go`（gzip 头 + `go tool pprof -raw` 可解码）。
 
-## 4. 未完成（沿用 changelog4 的验收要求）
+## 4. P1/P2 追加（本机）
+
+- **P1 端点解析临时容器**：`resolveNodeRefsCached` 改为直接消费 `edges`
+  （不再建 `edgeEndpointIDs` 大切片），单遍去重后 `partition` 把命中直接写
+  入结果 map（去掉额外 hits map），未命中已去重 → 走 `resolveNodeRefsUnique`
+  不再二次去重。基准：58.5µs/94KB/19allocs → 41.6µs/74KB/15allocs。
+- **P2 有界端点缓存淘汰**：整表清空 → 两代分段轮换（`cur` 达 capacity/2
+  时 `prev←cur`、`cur` 清空；prev 命中且有空间时晋升）。幂律序列对照
+  （capacity=32768，20 万次访问，3 个 seed）：整表清空命中率 ≈8.7–8.8%，
+  分段轮换 ≈12.1–12.2%（`TestEvictionHitRateSegmentedBeatsClear` 作护栏）。
+  **真实大仓端点序列的命中率/CPU/存活内存仍需在大仓实测**（本机无该仓库）。
+- **P1 `emitValue` 分配**、**P2 包缓存 gob 编码分配**：尚未实施（需先按
+  changelog 要求测属性 map/装箱/重复字符串与缓冲区上限），见下节。
+
+## 5. 未完成（沿用 changelog4 的验收要求）
 
 - **P0**：严格比较里不属于匿名字段修复的内容差异（40 个节点名称、97 条
   dispatch_to 的 `register_site`、3 条间接写 `code_snippet`）——需要大仓副本与
   固定工具链/并行度做双冷构建，本机无该仓库。
-- **P1**：`emitValue` 分配（峰值累计约 4 GiB）；`resolveNodeRefsCached` 的
-  临时容器（refs/seen/uniq/edgeEndpointIDs）合并去重与结果状态。
-- **P2**：有界端点缓存的淘汰方式（当前整表清空，命中率待大仓度量）；
-  包缓存 gob 编码临时分配（`WriteString`）。
+- **P1**：`emitValue` 分配（峰值累计约 4 GiB）——先测属性 map、装箱、重复
+  字符串贡献，再考虑类型化临时数据/减少重复属性物化。
+- **P2**：包缓存 gob 编码临时分配（`WriteString` 累计约 2.51 GiB）——先测
+  缓冲区增长与复用上限，不直接换文件协议。
 - **测量条件统一**：固定 GOROOT/工具链/GOMAXPROCS/workers/源码输入，记录
   TotalAlloc / NumGC / 累计 GC CPU，区分峰值堆采样累计值与全程累计值。
 - 大仓冷/暖保真与 chaincheck 历史基线：需大仓副本，本机 go2o 可作较小口径

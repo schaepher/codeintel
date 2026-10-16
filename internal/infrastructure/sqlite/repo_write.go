@@ -68,7 +68,7 @@ func (r *Repo) SaveBatchStats(nodes []*domain.CodeEntity, edges []*domain.Fact,
 		// 端点（节点还没落库）走 FailedEdges 延迟重试——与原来"外键冲突"同语义。
 		// Q?：构建期正缓存（build_write_cache.go）命中即跳过查询；fresh 只在
 		// 事务提交成功后发布。
-		refs, fresh, rerr := r.resolveNodeRefsCached(tx, edgeEndpointIDs(edges))
+		refs, fresh, rerr := r.resolveNodeRefsCached(tx, edges)
 		if rerr != nil {
 			return nil, rerr
 		}
