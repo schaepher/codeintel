@@ -57,7 +57,9 @@ func emitDispatches(repo *domain.Repository, prog *ssa.Program, pool *implTypePo
 		}
 	}
 	if len(calls) == 0 {
-		return nil, nil
+		// 无动态接口调用时仍返回注册点包集——否则 meta.DispatchPkgs 变空，
+		// 后续增量不再补 Load 注册点包，dispatch_to 边永久丢（P0-2 根治）。
+		return regPkgs, nil
 	}
 
 	dispatchPkgs := make([]string, 0, len(callPkgSet))

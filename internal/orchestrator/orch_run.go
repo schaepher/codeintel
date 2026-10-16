@@ -91,6 +91,13 @@ func (o *Orchestrator) finishBuild(start time.Time, results []AdapterResult, ski
 			}
 		}
 	}
+	// P0-2 根治：与上一轮记录 union（只能增、不能减）——增量构建仅 Load
+	// 变更包 + 上轮 dispatch 包，本轮收集的是子集，直接覆盖会让集合逐轮
+	// 缩小（改 impl 包每次丢 dispatch_to 边）。已删除的包由
+	// mergeDispatchPkgPatterns 的目录存在性检查跳过。
+	if prev, err := o.RepoImpl.GetLatest(); err == nil && prev != nil {
+		dispatchPkgs = mergeDispatchPkgs(dispatchPkgs, prev.DispatchPkgs)
+	}
 
 	meta := &domain.BuildMeta{
 		BuildID:      newBuildID(),
@@ -116,6 +123,26 @@ func newBatch() *batchT {
 	logger.Debug("enter newBatch")
 	defer logger.Debug("exit newBatch")
 	return &batchT{dedup: newNodeDedup()}
+}
+
+// mergeDispatchPkgs dispatch 相关包**只增不减**（P0-2 根治）：先去重 current
+// （保持其顺序），再追加 prev 中未出现项。纯函数，便于单测。
+func mergeDispatchPkgs(current, prev []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(current)+len(prev))
+	for _, p := range current {
+		if !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	for _, p := range prev {
+		if !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // flush 将当前批次写入数据库。

@@ -142,3 +142,65 @@ func (m *ManagerImpl) Extra() {}
 		t.Errorf("增量后 dispatch_to 边 = %d, want 1（注册点包补 Load 后保留）", n)
 	}
 }
+
+// TestMergeDispatchPkgsMonotone：union 只增不减（顺序：current 优先）。
+func TestMergeDispatchPkgsMonotone(t *testing.T) {
+	got := mergeDispatchPkgs([]string{"a", "b"}, []string{"b", "c"})
+	want := []string{"a", "b", "c"}
+	if len(got) != len(want) {
+		t.Fatalf("merge = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("merge = %v, want %v", got, want)
+		}
+	}
+	if again := mergeDispatchPkgs(got, []string{"a"}); len(again) != 3 {
+		t.Errorf("重复 union 不应增长: %v", again)
+	}
+}
+
+// TestDispatchPkgsPersistWithoutDynamicCall：只有注册点、没有动态接口调用
+// 时，DispatchPkgs 仍须记录注册点包（否则 meta 为空 → 后续增量不补 Load
+// → dispatch_to 边永久丢）。
+func TestDispatchPkgsPersistWithoutDynamicCall(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "go.mod"), "module example.com/inc2\n\ngo 1.21\n")
+	writeFile(t, filepath.Join(dir, "container", "container.go"), `package container
+
+import "example.com/inc2/impl"
+
+type Manager interface{ Handle() }
+
+// 注册点，但无动态调用
+func Wire() Manager { return &impl.ManagerImpl{} }
+`)
+	writeFile(t, filepath.Join(dir, "impl", "impl.go"), `package impl
+
+type ManagerImpl struct{}
+
+func (m *ManagerImpl) Handle() {}
+`)
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	orch := New(&domain.Repository{Path: dir, Module: "example.com/inc2", Modules: []string{"example.com/inc2"}, ModuleDirs: []string{"."}}, db)
+	if _, err := orch.FullBuild(context.Background()); err != nil {
+		t.Fatalf("FullBuild: %v", err)
+	}
+	meta, err := orch.GetRepo().GetLatest()
+	if err != nil {
+		t.Fatalf("GetLatest: %v", err)
+	}
+	found := false
+	for _, p := range meta.DispatchPkgs {
+		if p == "example.com/inc2/container" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("DispatchPkgs = %v; want 含注册点包 container", meta.DispatchPkgs)
+	}
+}
