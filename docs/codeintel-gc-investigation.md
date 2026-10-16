@@ -128,3 +128,31 @@
   逐行 + `scripts/chaincheck.sh` 链完整性）；比较前先固定 workers 与缓存状态。
 - **判定**：时间/内存/分配同时看；只有单次数字或不同环境/并行度的对照，
   一律视为待验收，不写成收益结论（build_perf.md 的既有纪律）。
+
+## 7. remote-todo R13/R14 评估（本机，结论：需大仓 profile 再动）
+
+### R13 内存与 GC（调用记录保留 / 字段产物物化 / 暖缓存字符串）
+
+现状定位（本机代码审计）：
+
+- `funcData.calls`（`crossflow.go`）保留全部静态调用点 + `argStructPaths`/`argNames`；
+  间接写传播（`summary.go` 的 `callers` 反向索引 + fixpoint）**需要**它们，
+  且某被调函数的写可能在后续轮次才被发现 → 不能在扫描期就丢。
+- 可安全减少的是 **fixpoint 结束后**仍无任何匹配写的调用记录：需先算
+  `calleeHasWrites` 集合再裁剪，属中等风险（缓存内容会变，需冷暖保真对照）。
+- `idents`（token.Pos→名）per-function，随 `emitFunction` 作用域释放；未见长期悬挂。
+- 暖缓存：gob 解码为每条目新建字符串（`pkg_cache_*`）——**构建级字符串共享**
+  （string_cache.go 已有 `typeStrs`）可覆盖解码后的类型串，但“字符串共享 ≠ 减少
+  GC 扫描”；减少扫描需改为无指针紧凑记录。两者不可混为一谈。
+- 无大仓峰值 profile 无法量化收益 → **不盲改**；验收须按 §6 模板在大仓测
+  GC CPU / 扫描堆 / 峰值 RSS，并保持调用边与摘要传播语义。
+
+### R14 暖构建准备（提前识别包缓存命中）
+
+- 方向：把别名分析（`computeAliases`）、全局初始化（`emitGlobalInit`）、
+  派发分析（`emitDispatches`）真正需要的数据与**每函数 emit** 分离；对包缓存
+  命中的包跳过类型图/SSA 准备工作，但**不能跳过仍被收尾阶段依赖的建图**。
+- 风险：同一 SSA Program 内跨包调用/接口派发需要全程序函数集；跳过某包的
+  SSA 构建会让 dispatch/alias 缺失 → 需要“按包产物 + 共享收尾数据”的重构，
+  并用冷暖保真（detcheck `scripts/detcheck.sh`）验证。
+- 缺大仓暖构建耗时/内存拆分 → 同 R13，先评估后动。

@@ -2648,7 +2648,7 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
   msq/events 非 sarama）待真实 kafka 项目验证；redis 命令式已覆盖（R36），
   其他客户端库后置
 
-**远端待办（remote-todo.txt，2026-10-16 合并）**：
+**远端待办（remote-todo.txt，2026-10-16 合并）**——执行结果见 `docs/changelog4-checklist.md` §E（R3/R5–R12/R15–R17 完成；R13/R14 评估待大仓 profile；R1/R2 既有）：
 
 - **R1 大图路径查询**（按需查询 + 同构建版本复用规模判断，保留深度限制）：
   部分已做——Q252d `edge_graph.go` 按 build_id+视图**惰性**邻接表缓存

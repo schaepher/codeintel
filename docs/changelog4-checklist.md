@@ -55,3 +55,30 @@
 - 四包 `-race`：ssa 26.3s / sqlite 23.3s / orchestrator 6.8s / cmd 1.4s 全绿。
 - `go test -tags integration ./integration/` 通过。
 - 局部基准与淘汰对照见 `docs/codeintel-gc-investigation.md`。
+
+## E. remote-todo（R1–R17）执行结果（2026-10-16）
+
+| 项 | 状态 | 提交 / 证据 |
+|---|---|---|
+| R1 大图路径按需查询 + 规模判断复用 | 部分（Q252d 已做：`edge_graph.go` 按 build_id+视图惰性邻接表、maxDepth 语义）；“规模判断复用”留待明确 | 既有 Q252d |
+| R2 包缓存分块限制单块 + 减少编码临时容器 | 完成（v4 chunkSize=200；编码分配已评估不换协议） | `214df5f`、`docs/codeintel-gc-investigation.md §4` |
+| R3 匿名字段路径（含避免重复扫全函数） | 完成 | `077dbed`（路径）+ `73d42d0`（Alloc memo） |
+| R4 构建级字符串缓存 | 完成 | `6e82acb`、`d305671` |
+| R5 写库保真测试 | 完成 | `5c4ab05`（同节点多次贡献合并 + 去重交互）、`0af5f7f`/`c3d8940`（端点缓存回滚/新增/隔离/并发） |
+| R6 函数值调用测试（注册集合/工厂返回/遍历执行/递归容器） | 完成（新增遍历执行补边） | `bc4db2b` |
+| R7 缓存与大图测试（超限查询/失效/分块大小/拒绝行为） | 完成 | `e97d601`（超限/隔离）；分块与截断/缺标记/尾随/旧格式见既有 `pkg_cache_gob_test.go` |
+| R8 性能采样测试（启动失败不停既有采样/结束后可用） | 完成 | `f711071` |
+| R9 值身份（闭包/多 init/结果槽位/别名稳定） | 完成（本地回归固化；40 节点名差异属旧版既有，本机双跑已一致） | `5fbf0b3` |
+| R10 注册来源（消除遍历顺序依赖/稳定选择） | **完成**（go2o 双冷 + 冷暖 detcheck 全等） | `3b566e1` |
+| R11 摘要代表（平局与传播更新/环形调用/冷暖） | 完成（全序 tie-break + 环形回归） | `da90dd4` |
+| R12 接收者摘要（直调 vs 接口一致） | 完成（一致性回归 + 下标约定文档） | `ffce118` |
+| R13 内存与 GC | 评估完成，**代码待大仓 profile** | `docs/codeintel-gc-investigation.md §7` |
+| R14 暖构建准备 | 评估完成，**代码待大仓 profile** | `docs/codeintel-gc-investigation.md §7` |
+| R15 日志测试（开启字段一致 + 关闭跳过） | 完成 | `b99597a`（开启）+ 既有 `cf_call_debug_test.go`（关闭） |
+| R16 检查脚本（边元数据 + 摘要来源） | 完成（并据此抓到 R10） | `9320ea5` |
+| R17 扩展时序图（图片预览/文本/PlantUML 源） | 完成（CLI sidecar + 扩展打开方式 + 自检） | `76de975` |
+
+**R10/R16 关键结果**：增强后的 `scripts/detcheck.sh`（比 edges metadata + summary_origins）
+在 go2o 副本上暴露 16 条 `dispatch_to` 的 `register_site` 抖动（24↔255）；修复后
+`go2o` 冷1/冷2/暖3 **五类产物全等**（节点 117998 / 边 136029 / 摘要 21158 / 来源 3443）。
+原目标仓库索引未改动（在 `.tmp/go2o-copy` 副本上验证）。
