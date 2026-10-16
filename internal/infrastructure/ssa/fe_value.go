@@ -14,7 +14,7 @@ func (ext *fieldExtractor) newFieldAccessValue(f *ssa.Field) *fieldAccess {
 	logger := zap.L()
 	logger.Debug("enter (fieldExtractor).newFieldAccessValue")
 	defer logger.Debug("exit (fieldExtractor).newFieldAccessValue")
-	info, ok := ext.fieldInfo(f.X.Type(), f.Field, f.Pos())
+	info, ok := ext.fieldInfo(f.X, f.Field, f.Pos())
 	if !ok {
 		return nil
 	}

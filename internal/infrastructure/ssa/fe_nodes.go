@@ -25,7 +25,7 @@ func (ext *fieldExtractor) newFieldAccess(fa *ssa.FieldAddr, access string) *fie
 	logger := zap.L()
 	logger.Debug("enter (fieldExtractor).newFieldAccess")
 	defer logger.Debug("exit (fieldExtractor).newFieldAccess")
-	info, ok := ext.fieldInfo(fa.X.Type(), fa.Field, fa.Pos())
+	info, ok := ext.fieldInfo(fa.X, fa.Field, fa.Pos())
 	if !ok {
 		return nil
 	}
@@ -67,12 +67,14 @@ func (ext *fieldExtractor) recordEntry(access string, info fieldInfo, instance s
 }
 
 // fieldInfo 解析字段访问的静态信息：full_path（类型限定路径）、类型、位置。
-// 静态类型不是具名结构体（匿名 struct/接口等）时返回 ok=false（Q15 限定）。
-func (ext *fieldExtractor) fieldInfo(baseType types.Type, fieldIdx int, pos token.Pos) (fieldInfo, bool) {
+// 具名结构体直接取 pkg.Named.field；匿名 struct（嵌套/元素）沿 SSA 字段访问
+// 与解引用向外找最近具名类型，拼出与变量名无关的 full_path（fe_nested.go）；
+// 无法恢复所属类型时 fullPath 留空，由调用方回退 instance_path（Q15）。
+func (ext *fieldExtractor) fieldInfo(base ssa.Value, fieldIdx int, pos token.Pos) (fieldInfo, bool) {
 	logger := zap.L()
 	logger.Debug("enter (fieldExtractor).fieldInfo")
 	defer logger.Debug("exit (fieldExtractor).fieldInfo")
-	named, st := derefStruct(baseType)
+	named, st := derefStruct(base.Type())
 	if st == nil {
 		return fieldInfo{}, false
 	}
@@ -93,7 +95,10 @@ func (ext *fieldExtractor) fieldInfo(baseType types.Type, fieldIdx int, pos toke
 		fi.snippet = snippet
 	}
 	if named == nil {
-
+		// 匿名 struct：沿字段访问/解引用向外恢复最近具名类型的类型路径。
+		if basePath := ext.nestedTypePath(base, 0); basePath != "" {
+			fi.fullPath = basePath + "." + field.Name()
+		}
 		return fi, true
 	}
 	fi.fullPath = named.Obj().Pkg().Path() + "." + named.Obj().Name() + "." + field.Name()

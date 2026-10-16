@@ -69,15 +69,13 @@ func (ext *fieldExtractor) containerInstance(container ssa.Value) string {
 	return ext.instancePath(container)
 }
 
-// containerFullPath 容器类型限定路径（字段路径 > named 容器类型 > 空回退）。
+// containerFullPath 容器类型限定路径（类型路径 > named 容器类型 > 空回退）。
 func (ext *fieldExtractor) containerFullPath(container ssa.Value) string {
 	if un, ok := container.(*ssa.UnOp); ok && un.Op == token.MUL {
 		container = un.X
 	}
-	if fa, ok := container.(*ssa.FieldAddr); ok {
-		if info, ok2 := ext.fieldInfo(fa.X.Type(), fa.Field, fa.Pos()); ok2 {
-			return info.fullPath
-		}
+	if p := ext.nestedTypePath(container, 0); p != "" {
+		return p
 	}
 	if named := namedContainerOf(container.Type()); named != "" {
 		return named
