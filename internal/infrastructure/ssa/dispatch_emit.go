@@ -78,7 +78,20 @@ func emitDispatches(repo *domain.Repository, prog *ssa.Program, pool *implTypePo
 				continue
 			}
 			if fn := findMethod(t, ck.method); fn != nil {
-				candidates[candidateKey(fn)] = dispatchCandidate{fn: fn, origin: "register", confidence: 0.9, site: site}
+				key := candidateKey(fn)
+				// R10：同一候选方法可能由多个注册点（值/指针共享方法等）
+				// 命中——不能"map 迭代顺序最后者赢"（go2o 同一
+				// (ApprovalImpl).IsFinal 的 register_site 在 24/255 间抖动）。
+				// 稳定规则：取**最小注册行号**作代表（所有来源参与选择，
+				// site=0 视为未知不参选）。
+				if prev, ok := candidates[key]; ok {
+					if prev.origin == "register" && site > 0 && (prev.site == 0 || site < prev.site) {
+						prev.site = site
+						candidates[key] = prev
+					}
+					continue
+				}
+				candidates[key] = dispatchCandidate{fn: fn, origin: "register", confidence: 0.9, site: site}
 			}
 		}
 		for _, fn := range pool.methodsFor(ck.iface, ck.method) {
