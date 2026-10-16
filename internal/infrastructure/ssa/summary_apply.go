@@ -19,7 +19,7 @@ func (ext *fieldExtractor) applySummary(cc *ssa.CallCommon, callee *ssa.Function
 	if len(ext.specs) == 0 {
 		return false, nil
 	}
-	key := summaryKey(callee)
+	key := ext.summaryKeyCached(callee)
 	spec, ok := ext.specs[key]
 	if !ok {
 		return false, nil

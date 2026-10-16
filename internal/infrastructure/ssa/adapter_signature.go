@@ -15,7 +15,7 @@ import (
 // 返回 #result（多返回 #result.<idx>）。
 
 func emitSignatureNodes(fn *ssa.Function, funcID domain.CanonicalID, pos token.Position,
-	filePath string, emit domain.EmitFunc) error {
+	filePath string, funcs *funcSnapshot, emit domain.EmitFunc) error {
 	logger := zap.L()
 	logger.Debug("enter emitSignatureNodes")
 	defer logger.Debug("exit emitSignatureNodes")
@@ -38,7 +38,7 @@ func emitSignatureNodes(fn *ssa.Function, funcID domain.CanonicalID, pos token.P
 			LineStart: pos.Line,
 			LineEnd:   pos.Line,
 			Properties: map[string]any{
-				"type_string": recvVar.Type().String(),
+				"type_string": funcs.typeString(recvVar.Type()),
 				"index":       -1,
 				"receiver":    "true",
 				"func_id":     string(funcID),
@@ -73,7 +73,7 @@ func emitSignatureNodes(fn *ssa.Function, funcID domain.CanonicalID, pos token.P
 			LineStart: pos.Line,
 			LineEnd:   pos.Line,
 			Properties: map[string]any{
-				"type_string": p.Type().String(),
+				"type_string": funcs.typeString(p.Type()),
 				"index":       i,
 				"func_id":     string(funcID),
 			},
@@ -103,7 +103,7 @@ func emitSignatureNodes(fn *ssa.Function, funcID domain.CanonicalID, pos token.P
 		// ——信息栏"返回"分组显示"名称 · 类型"
 		name := r.Name()
 		if name == "" {
-			name = r.Type().String()
+			name = funcs.typeString(r.Type())
 		}
 		if err := emit(domain.Item{Node: &domain.CodeEntity{
 			ID:        id,
@@ -113,7 +113,7 @@ func emitSignatureNodes(fn *ssa.Function, funcID domain.CanonicalID, pos token.P
 			LineStart: pos.Line,
 			LineEnd:   pos.Line,
 			Properties: map[string]any{
-				"type_string": r.Type().String(),
+				"type_string": funcs.typeString(r.Type()),
 				"index":       i,
 				"func_id":     string(funcID),
 			},

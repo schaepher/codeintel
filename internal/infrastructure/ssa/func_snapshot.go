@@ -60,6 +60,17 @@ type funcSnapshot struct {
 	strMu    sync.Mutex
 	typeStrs map[types.Type]string
 	candKeys map[*types.Func]string
+
+	// 构建级"重复构建"缓存（func_snapshot_cache.go）：
+	//   snippets  = 调用点源码片段（cc.String() 昂贵，同一调用点每字段/列复用）
+	//   owners    = 实参嵌套 owner 类型路径（ownerTypesOf 递归纯函数）
+	//   sk        = 摘要键（summaryKey 纯函数）
+	snippetMu sync.Mutex
+	snippets  map[*ssa.CallCommon]string
+	ownerMu   sync.Mutex
+	owners    map[types.Type][]string
+	skMu      sync.Mutex
+	sk        map[*ssa.Function]string
 }
 
 // newFuncSnapshot 采集一次（内部即 ssautil.AllFunctions）。

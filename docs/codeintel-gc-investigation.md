@@ -48,6 +48,21 @@
 
 ## 4. P1/P2 追加（本机）
 
+### 4.1 识别到的"反复构建而不用缓存"（本轮新增缓存）
+
+| 数据 | 原先的重复形态 | 缓存 | 本机基准 |
+|---|---|---|---|
+| 调用点源码片段 `cc.String()` | `emitEntityFields` 对**每个导出字段**、`emitWhereFilterTyped` 对**每个 where 列**各渲染一次（SSA 值打印）；同一调用点数十次 | `funcSnapshot.callSnippet`（key=`*ssa.CallCommon`） | — |
+| 实参嵌套 owner 类型路径 | `recordCallInfo` 对**每个调用点的每个实参**递归展开（纯类型函数） | `funcSnapshot.ownerTypesOfCached`（key=`types.Type`） | 150ns/112B/5allocs → 11ns/0/0 |
+| 摘要键 `summaryKey(fn)` | `applySummary` 对**每个调用点**重新拼路径 | `funcSnapshot.summaryKeyCached`（key=`*ssa.Function`） | — |
+| 签名节点类型串 | `emitSignatureNodes` 对每个接收者/参数/返回值直接 `Type().String()`，绕过已有构建级类型串缓存 | 插入 `funcSnapshot.typeString` | — |
+
+仍**未**缓存（有意保守，待大仓 profile 确认收益/风险）：`instancePath` /
+`recoverVarName` / `allocTypeShort`（每次访问）、`nestedTypePath` 的
+`singleStoredValue`（每次字段访问扫描函数块）、`snakeCase`（每字段）。
+
+### 4.2 端点缓存
+
 - **P1 端点解析临时容器**：`resolveNodeRefsCached` 改为直接消费 `edges`
   （不再建 `edgeEndpointIDs` 大切片），单遍去重后 `partition` 把命中直接写
   入结果 map（去掉额外 hits map），未命中已去重 → 走 `resolveNodeRefsUnique`

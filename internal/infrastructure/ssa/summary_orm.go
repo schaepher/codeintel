@@ -69,7 +69,7 @@ func (ext *fieldExtractor) applyORMRead(cc *ssa.CallCommon, calleeID domain.Cano
 				"full_path":     table + "." + col,
 				"instance_path": table + "." + col,
 				"access_kind":   "read",
-				"code_snippet":  cc.String(),
+				"code_snippet":  ext.callSnippet(cc),
 				"type_string":   "gorm",
 				"is_external":   "true",
 				"func_id":       string(ext.funcID),

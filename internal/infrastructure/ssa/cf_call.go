@@ -235,7 +235,7 @@ func (ext *fieldExtractor) recordCallInfo(cc *ssa.CallCommon, calleeID domain.Ca
 		if _, isConst := arg.(*ssa.Const); isConst {
 			continue
 		}
-		for _, p := range ownerTypesOf(arg.Type(), 0) {
+		for _, p := range ext.ownerTypesOfCached(arg.Type()) {
 			argPaths = append(argPaths, p)
 		}
 

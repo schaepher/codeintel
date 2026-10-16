@@ -179,3 +179,110 @@ func (s *funcSnapshot) storeSQLParse(sql string, e sqlParseEntry) {
 	}
 	s.sqlCache[sql] = e
 }
+
+// callSnippet 调用点源码片段（cc.String()）构建级缓存。
+//
+// 同一调用点在摘要发射里会被多次渲染：emitEntityFields 对每个导出字段、
+// emitWhereFilterTyped 对每个 where 列都取一次 code_snippet。cc.String()
+// 走 SSA 值打印（字符串拼接/符号渲染），字段多的实体上是数十次重复。
+// 纯函数（同一 *ssa.CallCommon 结果稳定），按调用点缓存。
+func (s *funcSnapshot) callSnippet(cc *ssa.CallCommon) string {
+	if cc == nil {
+		return ""
+	}
+	if s == nil {
+		return cc.String()
+	}
+	s.snippetMu.Lock()
+	v, ok := s.snippets[cc]
+	s.snippetMu.Unlock()
+	if ok {
+		return v
+	}
+	v = cc.String()
+	s.snippetMu.Lock()
+	if s.snippets == nil {
+		s.snippets = map[*ssa.CallCommon]string{}
+	}
+	s.snippets[cc] = v
+	s.snippetMu.Unlock()
+	return v
+}
+
+// callSnippet 提取器侧：快照缺失（轻量提取器）回退直接渲染。
+func (ext *fieldExtractor) callSnippet(cc *ssa.CallCommon) string {
+	if ext == nil || ext.funcs == nil {
+		if cc == nil {
+			return ""
+		}
+		return cc.String()
+	}
+	return ext.funcs.callSnippet(cc)
+}
+
+// ownerTypesOfCached 实参嵌套 owner 类型路径构建级缓存：ownerTypesOf 是
+// 类型的递归纯函数（≤3 层），同一类型在大量调用点重复展开。返回切片
+// 只读（调用方仅遍历）。
+func (s *funcSnapshot) ownerTypesOfCached(t types.Type) []string {
+	if t == nil {
+		return nil
+	}
+	if s == nil {
+		return ownerTypesOf(t, 0)
+	}
+	s.ownerMu.Lock()
+	v, ok := s.owners[t]
+	s.ownerMu.Unlock()
+	if ok {
+		return v
+	}
+	v = ownerTypesOf(t, 0)
+	s.ownerMu.Lock()
+	if s.owners == nil {
+		s.owners = map[types.Type][]string{}
+	}
+	s.owners[t] = v
+	s.ownerMu.Unlock()
+	return v
+}
+
+// ownerTypesOfCached 提取器侧：快照缺失回退纯函数。
+func (ext *fieldExtractor) ownerTypesOfCached(t types.Type) []string {
+	if ext == nil || ext.funcs == nil {
+		return ownerTypesOf(t, 0)
+	}
+	return ext.funcs.ownerTypesOfCached(t)
+}
+
+// summaryKeyCached 摘要键（pkg.Func / pkg.(T).Method）构建级缓存：纯函数
+// 于 *ssa.Function，被每个调用点的 applySummary 查询。
+func (s *funcSnapshot) summaryKeyCached(fn *ssa.Function) string {
+	if fn == nil {
+		return ""
+	}
+	if s == nil {
+		return summaryKey(fn)
+	}
+	s.skMu.Lock()
+	v, ok := s.sk[fn]
+	s.skMu.Unlock()
+	if ok {
+		return v
+	}
+	v = summaryKey(fn)
+	s.skMu.Lock()
+	if s.sk == nil {
+		s.sk = map[*ssa.Function]string{}
+	}
+	s.sk[fn] = v
+	s.skMu.Unlock()
+	return v
+}
+
+// summaryKeyCached 提取器侧：快照缺失回退纯函数。
+func (ext *fieldExtractor) summaryKeyCached(fn *ssa.Function) string {
+	if ext == nil || ext.funcs == nil {
+		return summaryKey(fn)
+	}
+	return ext.funcs.summaryKeyCached(fn)
+}

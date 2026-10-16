@@ -119,7 +119,7 @@ func emitFunction(repo *domain.Repository, prog *ssa.Program, fn *ssa.Function,
 		return "", nil, err
 	}
 
-	if err := emitSignatureNodes(fn, id, pos, filePath, emit); err != nil {
+	if err := emitSignatureNodes(fn, id, pos, filePath, funcs, emit); err != nil {
 		return "", nil, err
 	}
 	fd := &funcData{}
