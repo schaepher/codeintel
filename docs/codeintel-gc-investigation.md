@@ -73,3 +73,28 @@
   TotalAlloc / NumGC / 累计 GC CPU，区分峰值堆采样累计值与全程累计值。
 - 大仓冷/暖保真与 chaincheck 历史基线：需大仓副本，本机 go2o 可作较小口径
   的对照（`scripts/detcheck.sh`、`scripts/chaincheck.sh`）。
+
+## 6. 统一测量条件模板（后续所有构建期 A/B 对照）
+
+固定下列输入，缺一项不得把差异归因于代码：
+
+- **工具链**：`ASDF_GOLANG_VERSION` / `GOROOT` / `PATH`（含期望的 scip-go）与
+  `GOTOOLCHAIN`（建议 `local` 防自动下载）；记录 `go version`。
+- **并行度**：`GOMAXPROCS`、`--workers`（两者都会改 GC/内存曲线）。
+- **源码输入**：固定 commit/工作区指纹；排除目录一致；包缓存状态一致
+  （冷：删 `.codeintel/cache`；暖：保留）且**必须先跑一次冷构建再跑暖**。
+- **诊断开关**：`CODEINTEL_GOGC`、`CODEINTEL_MEMLIMIT`、`CODEINTEL_CPU_PROFILE`、
+  `CODEINTEL_MEM_PROFILE`、`CODEINTEL_EMIT_SAMPLE` 显式记录；profile 会引入
+  诊断开销，须与无诊断基线分开记录。
+- **记录口径**：
+  - 阶段耗时（emitFunction / finishIndex / flush）与 wall
+  - 峰值 **RSS**（`/usr/bin/time -v` 的 Max RSS 含 scip-go 子进程；进程内用
+    `VmHWM`），与 `CODEINTEL_MEM_PROFILE` 的峰值 **live** 分开
+  - 构建结束的 `runtime.MemStats`：`TotalAlloc`、`NumGC`、`PauseTotalNs`
+    与累计 GC CPU（`runtime/metrics` 的 `/cpu/classes/gc/total:cpu-seconds`）
+  - **区分** 峰值堆采样的累计值与全程累计值（`TotalAlloc` 不是存活量）；记录
+    诊断时的强制 GC 次数与耗时
+- **产物对照**：`scripts/detcheck.sh <repo> [workers]`（冷1/冷2/暖3 四类产物
+  逐行 + `scripts/chaincheck.sh` 链完整性）；比较前先固定 workers 与缓存状态。
+- **判定**：时间/内存/分配同时看；只有单次数字或不同环境/并行度的对照，
+  一律视为待验收，不写成收益结论（build_perf.md 的既有纪律）。
