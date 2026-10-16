@@ -158,7 +158,7 @@ func renderHTTPRoutesMD(rc *wikiRenderCtx, entries []httpProcEntry, max int) str
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("## HTTP 路由入口\n\n> 入站（服务端路由）：http_route 节点（构建期识别）→ handler 调用链展开（同 handler 多路由去重）。\n\n")
+	b.WriteString("## HTTP 路由入口\n\n> 入站（服务端路由）：http_route 节点（构建期识别）→ handler 代码级时序（源码 AST；gRPC 入口同款），符号/源码缺失时 fallback 索引调用链；同 handler 多路由去重。\n\n")
 	if len(entries) == 0 {
 		b.WriteString("（未识别到服务端 HTTP 路由——本仓库可能是 gRPC/库项目）\n\n")
 	}
@@ -173,7 +173,7 @@ func renderHTTPRoutesMD(rc *wikiRenderCtx, entries []httpProcEntry, max int) str
 		if e.Register != "" {
 			b.WriteString("注册点：" + e.Register + "\n\n")
 		}
-		b.WriteString(renderProcChainMD(rc, e.Chain, httpMissNote(e)))
+		b.WriteString(renderProcSeqMD(rc, e.HandlerID, e.Chain, httpMissNote(e)))
 	}
 	if len(folded) > 0 {
 		b.WriteString("其余 " + itoa(len(folded)) + " 个入口仅列清单（--max-entries 可调上限）：\n\n")
@@ -200,7 +200,7 @@ func renderHTTPRoutesHTML(rc *wikiRenderCtx, entries []httpProcEntry, max int) s
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString(`<h2>HTTP 路由入口</h2><p class="muted">入站（服务端路由）：http_route 节点（构建期识别）→ handler 调用链展开（同 handler 多路由去重）。</p>`)
+	b.WriteString(`<h2>HTTP 路由入口</h2><p class="muted">入站（服务端路由）：http_route 节点（构建期识别）→ handler 代码级时序（源码 AST；gRPC 入口同款），fallback 索引调用链；同 handler 多路由去重。</p>`)
 	if len(entries) == 0 {
 		b.WriteString(`<p class="muted">（未识别到服务端 HTTP 路由——本仓库可能是 gRPC/库项目）</p>`)
 	}
@@ -215,7 +215,7 @@ func renderHTTPRoutesHTML(rc *wikiRenderCtx, entries []httpProcEntry, max int) s
 		if e.Register != "" {
 			b.WriteString(`<p class="muted">注册点：` + htmlEsc(e.Register) + `</p>`)
 		}
-		b.WriteString(renderProcChainHTML(rc, e.Chain, httpMissNote(e)))
+		b.WriteString(renderProcSeqHTML(rc, e.HandlerID, e.Chain, httpMissNote(e)))
 	}
 	if len(folded) > 0 {
 		b.WriteString("<details><summary>其余 " + itoa(len(folded)) + " 个入口仅列清单（--max-entries 可调上限）</summary><ul>")
