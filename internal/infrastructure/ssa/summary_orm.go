@@ -38,9 +38,9 @@ func (ext *fieldExtractor) applyORMRead(cc *ssa.CallCommon, calleeID domain.Cano
 	}
 	if table == "" {
 		if scope := chainScopeObject(cc.Args[0]); scope != nil {
-			table = snakeCase(scope.Obj().Name())
+			table = ext.snakeCase(scope.Obj().Name())
 		} else {
-			table = snakeCase(named.Obj().Name())
+			table = ext.snakeCase(named.Obj().Name())
 		}
 	}
 	st, ok := named.Underlying().(*types.Struct)
@@ -57,7 +57,7 @@ func (ext *fieldExtractor) applyORMRead(cc *ssa.CallCommon, calleeID domain.Cano
 		if !field.Exported() {
 			continue
 		}
-		col := snakeCase(field.Name())
+		col := ext.snakeCase(field.Name())
 		id := domain.CanonicalID(string(ext.funcID) + "#ext.gorm." + table + "." + col + ".read@" + fmt.Sprintf("%d", line))
 		if err := ext.emit(domain.Item{Node: &domain.CodeEntity{
 			ID:        id,
@@ -89,7 +89,7 @@ func (ext *fieldExtractor) applyORMRead(cc *ssa.CallCommon, calleeID domain.Cano
 }
 
 // tableNameOf 实体类型表名：TableName() 方法（SSA Return 常量）优先，
-// fallback snakeCase(类型名)（GORM 默认命名）。
+// fallback ext.snakeCase(类型名)（GORM 默认命名）。
 
 func (ext *fieldExtractor) tableNameOf(entity types.Type) string {
 	if p, ok := entity.(*types.Pointer); ok {
@@ -114,7 +114,7 @@ func (ext *fieldExtractor) tableNameOf(entity types.Type) string {
 }
 
 // tableNameOfSlow 表名解析本体（Q205 拆出供缓存包裹）：
-// TableName() 方法（SSA Return 常量）优先，fallback snakeCase(类型名)。
+// TableName() 方法（SSA Return 常量）优先，fallback ext.snakeCase(类型名)。
 func tableNameOfSlow(ext *fieldExtractor, entity types.Type, named *types.Named) string {
 	if m := types.NewMethodSet(types.NewPointer(entity)).Lookup(nil, "TableName"); m != nil {
 		if fn, ok := m.Obj().(*types.Func); ok {
@@ -137,7 +137,7 @@ func tableNameOfSlow(ext *fieldExtractor, entity types.Type, named *types.Named)
 	if t, ok := ext.typeMapping[named]; ok {
 		return t
 	}
-	return snakeCase(named.Obj().Name())
+	return ext.snakeCase(named.Obj().Name())
 }
 
 // pkColumnOf 主键列名：字段 pk:"yes" tag（gorm column 优先）→ 该字段列名；

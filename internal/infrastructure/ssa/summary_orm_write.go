@@ -46,7 +46,7 @@ func (ext *fieldExtractor) applyORMWrite(cc *ssa.CallCommon, calleeID domain.Can
 				if scope == nil {
 					return nil
 				}
-				table = snakeCase(scope.Obj().Name())
+				table = ext.snakeCase(scope.Obj().Name())
 			}
 			col := constant.StringVal(c.Value)
 
@@ -77,7 +77,7 @@ func (ext *fieldExtractor) applyORMWrite(cc *ssa.CallCommon, calleeID domain.Can
 
 	table := ext.tableNameOf(named)
 	if table == "" {
-		table = snakeCase(named.Obj().Name())
+		table = ext.snakeCase(named.Obj().Name())
 	}
 	line := ext.prog.Fset.PositionFor(cc.Pos(), false).Line
 
@@ -90,7 +90,7 @@ func (ext *fieldExtractor) applyORMWrite(cc *ssa.CallCommon, calleeID domain.Can
 		if !field.Exported() {
 			continue
 		}
-		col := snakeCase(field.Name())
+		col := ext.snakeCase(field.Name())
 
 		fieldVal := fieldValueOf(realArg, i)
 		srcID := ""

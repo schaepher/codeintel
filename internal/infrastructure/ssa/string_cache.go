@@ -94,3 +94,37 @@ func (p *aliasPass) typeString(t types.Type) string {
 	}
 	return p.funcs.typeString(t)
 }
+
+// snakeCase 字段/类型名 → snake_case 的构建级缓存：snakeCase 对每个名字跑
+// ~30 个 initialism 的 ReplaceAll，字段名在大量实体间重复（Id/CreatedAt…），
+// 纯函数可复用。命中路径零分配。
+func (s *funcSnapshot) snakeCase(name string) string {
+	if name == "" {
+		return ""
+	}
+	if s == nil {
+		return snakeCase(name)
+	}
+	s.snakeMu.Lock()
+	v, ok := s.snakes[name]
+	s.snakeMu.Unlock()
+	if ok {
+		return v
+	}
+	v = snakeCase(name)
+	s.snakeMu.Lock()
+	if s.snakes == nil {
+		s.snakes = map[string]string{}
+	}
+	s.snakes[name] = v
+	s.snakeMu.Unlock()
+	return v
+}
+
+// snakeCase 提取器侧：快照缺失回退纯函数。
+func (ext *fieldExtractor) snakeCase(name string) string {
+	if ext == nil || ext.funcs == nil {
+		return snakeCase(name)
+	}
+	return ext.funcs.snakeCase(name)
+}

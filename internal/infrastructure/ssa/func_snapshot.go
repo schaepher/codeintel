@@ -71,6 +71,10 @@ type funcSnapshot struct {
 	owners    map[types.Type][]string
 	skMu      sync.Mutex
 	sk        map[*ssa.Function]string
+
+	// snakes = snakeCase 缓存（字段/类型名重复率高）
+	snakeMu sync.Mutex
+	snakes  map[string]string
 }
 
 // newFuncSnapshot 采集一次（内部即 ssautil.AllFunctions）。

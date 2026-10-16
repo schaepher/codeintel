@@ -31,7 +31,7 @@ func (ext *fieldExtractor) emitEntityFields(entity types.Type, table, access str
 		if !field.Exported() {
 			continue
 		}
-		col := snakeCase(field.Name())
+		col := ext.snakeCase(field.Name())
 		id := domain.CanonicalID(string(ext.funcID) + "#ext.gorm." + table + "." + col + "." + access + "@" + fmt.Sprintf("%d", line))
 		if err := ext.emit(domain.Item{Node: &domain.CodeEntity{
 			ID:        id,

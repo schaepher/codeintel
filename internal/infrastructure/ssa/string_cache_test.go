@@ -182,3 +182,25 @@ func BenchmarkDispatchKeyCached(b *testing.B) {
 		_ = s.typeString(iface) + "|" + s.candidateKeyOf(fn)
 	}
 }
+
+// TestSnakeCaseCacheMatchesDirect：snakeCase 缓存与纯函数一致（含 initialism）。
+func TestSnakeCaseCacheMatchesDirect(t *testing.T) {
+	s := &funcSnapshot{}
+	for _, name := range []string{"Id", "CreatedAt", "APIKey", "HTTPServer", "URLPath", "Name"} {
+		if got, want := s.snakeCase(name), snakeCase(name); got != want {
+			t.Errorf("snakeCase(%q) = %q, want %q", name, got, want)
+		}
+	}
+	if got := s.snakeCase(""); got != "" {
+		t.Errorf("空串应返回空，got %q", got)
+	}
+}
+
+// TestSnakeCaseCacheZeroAllocOnHit：命中路径零分配。
+func TestSnakeCaseCacheZeroAllocOnHit(t *testing.T) {
+	s := &funcSnapshot{}
+	s.snakeCase("CreatedAt")
+	if n := testing.AllocsPerRun(1000, func() { _ = s.snakeCase("CreatedAt") }); n != 0 {
+		t.Errorf("命中分配 = %v, want 0", n)
+	}
+}
