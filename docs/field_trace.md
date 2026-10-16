@@ -5018,3 +5018,31 @@ gob 分配 +60%）同类。
   `href="#mod-"` / `data-target="sec-"`；本仓库实测生成 HTML 的 section
   顺序为 `… packages/er/er-domains/tables/glossary/degrade`（无 `mod-*`）。
   `scripts/verify.sh --quick` 全绿。
+
+## §? 构建期分配治理重新实现（changelog4「已完成待同步」，2026-10-16）
+
+changelog4 描述的一批优化来自另一套环境，本仓库并不存在对应代码；本轮按
+描述在本仓库重新实现并通过本机验证（完整调查与基准见
+`docs/codeintel-gc-investigation.md`）：
+
+- **构建级字符串缓存**（`ssa/string_cache.go`）：共享 `types.Type.String()` 与
+  `candidateKey`（挂在 `funcSnapshot`，不跨 SSA Program）；`cf_call.go` 派发
+  判定与 `fe_emitvalue.go`/`fe_nodes.go`/`fe_elements.go`/`alias_ids.go` 复用；
+  快照缺失回退纯函数（不静默返回空串）。本机基准：派发键 631ns → 49ns。
+- **调试日志级别检查**（`ssa/cf_call.go`）：Debug 关闭不再构造 `cc.String()`。
+- **同批次等价节点写入消除**（`orchestrator/node_batch.go`）：只跳过与同 ID
+  上一次贡献完全相同的节点，保留 A→B→A；边不去重、count 不变。
+- **构建期端点正向缓存**（`sqlite/build_write_cache.go`）：32768 上限、缺失
+  不缓存、事务提交后才发布、`EndBuildWriteCache` 不跨构建复用、带统计；
+  本机基准：端点解析 1.01ms → 58.5µs。
+- **CPU profile 收尾修复**（`cmd/codeintel/cpu_profile.go`）：停止时关闭启动
+  句柄，不再二次 `os.Create` 截断；测试用 `go tool pprof -raw` 解码。
+- **匿名嵌套字段类型路径**（`ssa/fe_nested.go`）：沿字段访问/解引用/索引/
+  切片/单一赋值副本回溯最近具名类型，生成与变量名无关的 `full_path`
+  （元素层级用 `[*]`）；独立匿名结构体仍回退 `instance_path`。
+  测试 `fe_anonymous_path_test.go` 覆盖指针/值/副本/不同所属类型/索引/遍历/
+  数组/子切片/两层匿名元素/独立回退。
+
+未完成（需大仓副本，本机无）：P0 内容差异（节点名称 / `register_site` /
+`code_snippet`）、P1 `emitValue` 与端点解析临时容器、P2 缓存淘汰与 gob 编码
+分配、统一测量条件与大仓冷/暖保真 + chaincheck 历史基线。

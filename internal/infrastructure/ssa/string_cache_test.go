@@ -155,3 +155,30 @@ func TestStringCacheExtractorFallback(t *testing.T) {
 		t.Errorf("fallback nil = %q, want empty", got)
 	}
 }
+
+// BenchmarkDispatchKeyDirect：直接构造派发判定用的类型键（iface.String + candidateKey）。
+func BenchmarkDispatchKeyDirect(b *testing.B) {
+	pkg := types.NewPackage("example.com/m", "m")
+	iface := types.NewNamed(types.NewTypeName(token.NoPos, pkg, "Iface", nil), types.NewInterfaceType(nil, nil).Complete(), nil)
+	fn := types.NewFunc(token.NoPos, pkg, "M", types.NewSignatureType(
+		types.NewVar(token.NoPos, pkg, "r", types.NewPointer(iface)), nil, nil, nil, nil, false))
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = iface.String() + "|" + candidateKey(fn)
+	}
+}
+
+// BenchmarkDispatchKeyCached：同一键走构建级缓存（命中零分配）。
+func BenchmarkDispatchKeyCached(b *testing.B) {
+	pkg := types.NewPackage("example.com/m", "m")
+	iface := types.NewNamed(types.NewTypeName(token.NoPos, pkg, "Iface", nil), types.NewInterfaceType(nil, nil).Complete(), nil)
+	fn := types.NewFunc(token.NoPos, pkg, "M", types.NewSignatureType(
+		types.NewVar(token.NoPos, pkg, "r", types.NewPointer(iface)), nil, nil, nil, nil, false))
+	s := &funcSnapshot{}
+	s.typeString(iface)
+	s.candidateKeyOf(fn)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = s.typeString(iface) + "|" + s.candidateKeyOf(fn)
+	}
+}
