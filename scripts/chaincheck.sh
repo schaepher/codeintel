@@ -44,7 +44,7 @@ done
 [ -d "$REPO" ] || { echo "仓库不存在: $REPO"; exit 2; }
 REPO=$(cd "$REPO" && pwd)
 [ -f "$REPO/.codeintel/codeintel.db" ] || {
-  echo "未建索引: $REPO/.codeintel/codeintel.db 不存在（先 codeintel init --repo $REPO）"; exit 2; }
+  echo "未建索引: ${REPO}/.codeintel/codeintel.db 不存在（先 codeintel init --repo ${REPO}）"; exit 2; }
 [ -n "$LABEL" ] || LABEL=$(basename "$REPO")
 cd "$(dirname "$0")/.." || exit 2
 [ -d "$PWD/.tmp" ] && export TMPDIR="$PWD/.tmp"
@@ -52,7 +52,7 @@ cd "$(dirname "$0")/.." || exit 2
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
-echo "链完整性检查：$REPO（label=$LABEL，一跳 $ONE_HOP / 多跳 $MULTI_HOP，hops=$HOPS，容差 $TOLERANCE）"
+echo "链完整性检查：${REPO}（label=${LABEL}，一跳 ${ONE_HOP} / 多跳 ${MULTI_HOP}，hops=${HOPS}，容差 ${TOLERANCE}）"
 CHAIN_REPO="$REPO" CHAIN_LABEL="$LABEL" CHAIN_ONE_HOP="$ONE_HOP" \
   CHAIN_MULTI_HOP="$MULTI_HOP" CHAIN_HOPS="$HOPS" CHAIN_TOLERANCE="$TOLERANCE" \
   CHAIN_UPDATE="$UPDATE" \
@@ -81,6 +81,6 @@ grep -aE "^--- FAIL|_test\.go:[0-9]+: " "$TMP/out.txt" | grep -av "CHAIN-RESULT"
 if [ "$RC" -eq 0 ]; then
   echo "链完整性：通过 ✓"
 else
-  echo "链完整性：不通过 ✗（退出码 $RC）"; tail -5 "$TMP/out.txt" | sed 's/^/  /'
+  echo "链完整性：不通过 ✗（退出码 ${RC}）"; tail -5 "$TMP/out.txt" | sed 's/^/  /'
 fi
 exit "$RC"

@@ -103,7 +103,7 @@ echo "== go test -race -p 1 逐包（每包 timeout 300s，缓存）=="
 fail=0
 for pkg in $(go list ./...); do
   if ! timeout 300 go test -race -p 1 "$pkg"; then
-    echo "FAIL: $pkg（挂起已被 timeout 终止，事后树分支 B）"
+    echo "FAIL: ${pkg}（挂起已被 timeout 终止，事后树分支 B）"
     fail=1
   fi
 done
