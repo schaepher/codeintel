@@ -747,6 +747,44 @@ function sequenceFileName(id, name) {
   return safe + '-' + h;
 }
 
+// isPNG 判定字节是否为 PNG（R17：区分图片预览与文本打开）。
+function isPNG(buf) {
+  return !!(buf && buf.length > 8 && buf[0] === 0x89 && buf[1] === 0x50 &&
+    buf[2] === 0x4e && buf[3] === 0x47);
+}
+
+// seqArtifactOpenMode 时序图产物打开方式：'image'（PNG 预览）| 'text'（编辑器）。
+// 避免把 PNG 当文本打开（乱码），也避免把 mermaid 文本当图片。
+function seqArtifactOpenMode(buf) {
+  return isPNG(buf) ? 'image' : 'text';
+}
+
+// pumlSidecarPath 与 PNG 同目录的可编辑 PlantUML 源文件路径（CLI 侧写入）。
+function pumlSidecarPath(pngPath) {
+  return String(pngPath).replace(/\.png$/i, '') + '.puml';
+}
+
+// openSequenceArtifact 按产物类型打开：PNG → 图片预览（vscode.open，绝不
+// 交给文本编辑器）+ 可编辑的 PlantUML 源（文本编辑器）；mermaid 回退 →
+// 改名为 .mmd 后文本编辑器打开。返回实际打开/保留的主产物路径。
+async function openSequenceArtifact(dir, safe, pngPath) {
+  const buf = fs.readFileSync(pngPath);
+  if (seqArtifactOpenMode(buf) === 'image') {
+    await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(pngPath), { preview: true });
+    const pumlPath = pumlSidecarPath(pngPath);
+    if (fs.existsSync(pumlPath)) {
+      const pdoc = await vscode.workspace.openTextDocument(pumlPath);
+      await vscode.window.showTextDocument(pdoc, { preview: true });
+    }
+    return pngPath;
+  }
+  const outPath = path.join(dir, safe + '.mmd');
+  fs.renameSync(pngPath, outPath);
+  const doc = await vscode.workspace.openTextDocument(outPath);
+  await vscode.window.showTextDocument(doc, { preview: true });
+  return outPath;
+}
+
 // generateSequence Activity Bar 标题按钮：对最近一次查询的符号执行
 // `query sequence --code --format plantuml`，产物写到
 // <repo>/.codeintel/sequence/ 后自动打开。CLI 可渲染时输出 PNG；PlantUML
@@ -779,21 +817,15 @@ async function generateSequence() {
     return;
   }
   channel.appendLine(r.text || '');
-  // CLI 渲染成功写 PNG 字节；失败写 Mermaid 文本（改后缀打开）
-  let outPath = pngPath;
+  // R17：按产物类型打开（PNG → 图片预览 + PlantUML 源；文本 → .mmd 编辑器）
+  let outPath;
   try {
-    const head = fs.readFileSync(pngPath);
-    const isPNG = head.length > 8 && head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47;
-    if (!isPNG) {
-      outPath = path.join(dir, safe + '.mmd');
-      fs.renameSync(pngPath, outPath);
-    }
+    outPath = await openSequenceArtifact(dir, safe, pngPath);
   } catch (e) {
-    vscode.window.showErrorMessage('codeintel: 读取时序图产物失败（' + e.message + '）');
+    vscode.window.showErrorMessage('codeintel: 打开时序图产物失败（' + e.message + '）');
     return;
   }
-  const doc = await vscode.workspace.openTextDocument(outPath);
-  await vscode.window.showTextDocument(doc, { preview: true });
+  channel.appendLine('已打开 ' + outPath);
 }
 
 // ---- 渲染 ----
@@ -846,5 +878,6 @@ function renderHoverMarkdown(d) {
 module.exports = {
   activate, deactivate, renderSymbol, renderHoverMarkdown, shortID,
   shouldAutoUpdateFileName, parseCandidates, openAt,
-  queryRepos, normalizeDefinition, canonicalIDForDefinition, funcDeclInText, sequenceFileName
+  queryRepos, normalizeDefinition, canonicalIDForDefinition, funcDeclInText, sequenceFileName,
+  isPNG, seqArtifactOpenMode, pumlSidecarPath, openSequenceArtifact
 };

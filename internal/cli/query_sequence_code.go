@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/schaepher/codeintel/internal/action"
 )
@@ -60,6 +61,11 @@ func cmdQuerySequenceCode(acts *action.Actions, abs, target string, depth int, m
 						if !writeOutFile(out, png) {
 							return 1
 						}
+						// R17：PNG 旁保存可编辑的 PlantUML 源文件（供编辑器打开编辑，
+						// 不再把 PNG 交给文本编辑器）。
+						if !writeOutFile(pumlSidecarPath(out), []byte(puml)) {
+							return 1
+						}
 						return 0
 					}
 					fmt.Println("data:image/png;base64," + base64.StdEncoding.EncodeToString(png))
@@ -97,4 +103,13 @@ func writeOutFile(out string, data []byte) bool {
 	}
 	fmt.Printf("已写入 %s\n", out)
 	return true
+}
+
+// pumlSidecarPath PNG 产物旁的 PlantUML 源文件路径（可编辑）。.png → .puml；
+// 其余后缀直接追加 .puml。
+func pumlSidecarPath(out string) string {
+	if strings.HasSuffix(strings.ToLower(out), ".png") {
+		return out[:len(out)-4] + ".puml"
+	}
+	return out + ".puml"
 }

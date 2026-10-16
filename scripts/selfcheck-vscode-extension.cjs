@@ -16,7 +16,9 @@ const assert = require('assert');
 
 let configuredRepo = '';
 const opened = [];
+const execCommands = [];
 const fakeVscode = {
+  Uri: { file: function (p) { return { fsPath: p }; } },
   workspace: {
     workspaceFolders: [],
     getConfiguration: function () {
@@ -35,7 +37,10 @@ const fakeVscode = {
   },
   commands: {
     registerCommand: function () { return { dispose: function () {} }; },
-    executeCommand: async function () { return []; }
+    executeCommand: async function (cmd) {
+      execCommands.push({ cmd: cmd, args: Array.prototype.slice.call(arguments, 1) });
+      return [];
+    }
   },
   languages: { registerHoverProvider: function () { return { dispose: function () {} }; } },
   EventEmitter: class { constructor() { this.event = function () { return { dispose: function () {} }; }; } fire() {} },
@@ -59,7 +64,14 @@ const ext = require('../vscode-extension/extension.js');
 // ---- helpers ----
 
 let failures = 0;
+const asyncChecks = [];
 function check(name, fn) {
+  // 异步用例延迟到同步用例之后**串行**执行（否则共享的 opened/execCommands
+  // 会被并发的用例互相清空——自检必须确定性）。
+  if (fn && fn.constructor && fn.constructor.name === 'AsyncFunction') {
+    asyncChecks.push({ name: name, fn: fn });
+    return;
+  }
   try {
     fn();
     console.log('  ✓ ' + name);
@@ -138,21 +150,64 @@ check('sequenceFileName 含 canonical ID 哈希且同名不同 ID 不冲突', fu
 check('openAt 使用节点仓库解析相对路径', async function () {
   configuredRepo = '';
   opened.length = 0;
-  ext.openAt('svc/svc.go', 5, repoRoot);
-  // openAt 内部为 async；等一个微任务
-  return new Promise(function (resolve) {
-    setImmediate(function () {
-      assert.strictEqual(opened[0], path.join(repoRoot, 'svc/svc.go'));
-      resolve();
-    });
-  });
+  await ext.openAt('svc/svc.go', 5, repoRoot);
+  assert.strictEqual(opened[0], path.join(repoRoot, 'svc/svc.go'));
 });
 
-// openAt 是异步的（上面 check 用了 Promise）——collect 后统一退出
-setTimeout(function () {
-  if (failures > 0) {
-    console.error('selfcheck FAILED：' + failures + ' 项');
-    process.exit(1);
-  }
-  console.log('selfcheck OK');
-}, 50);
+// 6) R17：时序图产物打开方式（PNG 预览 vs 文本）
+check('seqArtifactOpenMode：PNG → image，mermaid 文本 → text', function () {
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
+  assert.strictEqual(ext.seqArtifactOpenMode(png), 'image');
+  assert.strictEqual(ext.isPNG(png), true);
+  assert.strictEqual(ext.seqArtifactOpenMode(Buffer.from('sequenceDiagram\n  A->>B: x')), 'text');
+  assert.strictEqual(ext.isPNG(Buffer.from('x')), false);
+});
+check('pumlSidecarPath：.png → .puml', function () {
+  assert.strictEqual(ext.pumlSidecarPath('/x/seq.png'), '/x/seq.puml');
+  assert.strictEqual(ext.pumlSidecarPath('/x/seq'), '/x/seq.puml');
+});
+check('openSequenceArtifact：PNG 走图片预览 + PlantUML 文本', async function () {
+  const dir = tmpdir();
+  const png = path.join(dir, 'seq.png');
+  fs.writeFileSync(png, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]));
+  fs.writeFileSync(path.join(dir, 'seq.puml'), '@startuml\nA->B\n@enduml\n');
+  execCommands.length = 0;
+  opened.length = 0;
+  const out = await ext.openSequenceArtifact(dir, 'seq', png);
+  assert.strictEqual(out, png);
+  assert.ok(execCommands.some(function (c) {
+    return c.cmd === 'vscode.open' && c.args[0] && c.args[0].fsPath === png;
+  }), 'PNG 应走 vscode.open 图片预览（非文本编辑器）');
+  assert.ok(opened.some(function (p) { return /seq\.puml$/.test(p); }), 'PlantUML 源应在文本编辑器打开');
+});
+check('openSequenceArtifact：mermaid 文本改 .mmd 文本打开', async function () {
+  const dir = tmpdir();
+  const f = path.join(dir, 'seq.png');
+  fs.writeFileSync(f, 'sequenceDiagram\n  A->>B: x\n');
+  execCommands.length = 0;
+  opened.length = 0;
+  const out = await ext.openSequenceArtifact(dir, 'seq', f);
+  assert.ok(/seq\.mmd$/.test(out), out);
+  assert.ok(opened.some(function (p) { return /seq\.mmd$/.test(p); }), '文本产物应走文本编辑器');
+  assert.strictEqual(execCommands.length, 0, '文本产物不应走 vscode.open 图片预览');
+});
+
+Promise.resolve()
+  .then(async function () {
+    for (const c of asyncChecks) {
+      try {
+        await c.fn();
+        console.log('  ✓ ' + c.name);
+      } catch (e) {
+        failures++;
+        console.error('  ✗ ' + c.name + '：' + e.message);
+      }
+    }
+  })
+  .then(function () {
+    if (failures > 0) {
+      console.error('selfcheck FAILED：' + failures + ' 项');
+      process.exit(1);
+    }
+    console.log('selfcheck OK');
+  });

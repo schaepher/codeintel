@@ -17,7 +17,8 @@ import (
 func TestCmdSeqPlantumlOut(t *testing.T) {
 	dir := seedCodeSeqRepo(t)
 	old := plantumlRenderFunc
-	plantumlRenderFunc = func(string) ([]byte, error) { return []byte("FAKE-PNG"), nil }
+	var gotPuml string
+	plantumlRenderFunc = func(p string) ([]byte, error) { gotPuml = p; return []byte("FAKE-PNG"), nil }
 	defer func() { plantumlRenderFunc = old }()
 	outFile := filepath.Join(t.TempDir(), "seq.png")
 	stdout := captureStdout(func() {
@@ -32,6 +33,15 @@ func TestCmdSeqPlantumlOut(t *testing.T) {
 	}
 	if string(data) != "FAKE-PNG" {
 		t.Errorf("PNG 文件内容 = %q; want FAKE-PNG", string(data))
+	}
+	// R17：PNG 旁同时保存可编辑的 PlantUML 源文件
+	side := filepath.Join(filepath.Dir(outFile), "seq.puml")
+	sd, err := os.ReadFile(side)
+	if err != nil {
+		t.Fatalf("PlantUML 源文件未生成: %v", err)
+	}
+	if string(sd) != gotPuml {
+		t.Errorf("PlantUML 源 = %q; want %q", string(sd), gotPuml)
 	}
 	if !strings.Contains(stdout, outFile) {
 		t.Errorf("stdout 应打印输出路径:\n%s", stdout)
