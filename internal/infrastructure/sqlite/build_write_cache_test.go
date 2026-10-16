@@ -1,8 +1,6 @@
 package sqlite
 
 import (
-	"strconv"
-	"sync"
 	"testing"
 
 	"github.com/schaepher/codeintel/internal/domain"
@@ -170,99 +168,56 @@ func TestBuildWriteCacheRebuildIsolation(t *testing.T) {
 	}
 }
 
-// TestBuildWriteCacheConcurrent：并发 lookup/publish 无数据竞争（-race 验证）。
-func TestBuildWriteCacheConcurrent(t *testing.T) {
-	c := newBuildWriteCache(64)
-	var wg sync.WaitGroup
-	for w := 0; w < 8; w++ {
-		wg.Add(1)
-		go func(seed int) {
-			defer wg.Done()
-			for i := 0; i < 500; i++ {
-				id := string(rune('a' + (seed+i)%8))
-				refs := map[string]int64{}
-				c.partition(refs, []string{id})
-				c.publish(map[string]int64{id: int64(i)})
-			}
-		}(w)
-	}
-	wg.Wait()
-	if st := c.snapshot(); st.Inputs != 8*500 {
-		t.Errorf("inputs = %d, want %d", st.Inputs, 8*500)
-	}
-}
-
-func benchRepo(b *testing.B, ids []string) *Repo {
-	b.Helper()
-	db, err := Open(b.TempDir())
-	if err != nil {
-		b.Fatalf("Open: %v", err)
-	}
-	b.Cleanup(func() { db.Close() })
-	r := NewRepo(db)
+// TestResolveBeyondCapacityStillCorrect：缓存超限（远小于端点规模）后，
+// 查询仍必须通过回源解析得到正确 refs——淘汰只影响命中率，不影响语义。
+func TestResolveBeyondCapacityStillCorrect(t *testing.T) {
+	r := newTestRepo(t)
+	ids := benchIDs(12)
 	nodes := make([]*domain.CodeEntity, 0, len(ids))
 	for _, id := range ids {
 		nodes = append(nodes, node(id, "function", "n", "a.go"))
 	}
-	if _, err := r.SaveBatchStats(nodes, nil, nil); err != nil {
-		b.Fatalf("save nodes: %v", err)
-	}
-	return r
-}
+	save(t, r, nodes, nil)
 
-func benchIDs(n int) []string {
-	ids := make([]string, 0, n)
-	for i := 0; i < n; i++ {
-		ids = append(ids, "symbol:go:x:n"+strconv.Itoa(i))
-	}
-	return ids
-}
-
-// BenchmarkEndpointResolveUncached：每批直接查库解析端点（对照基线）。
-func BenchmarkEndpointResolveUncached(b *testing.B) {
-	ids := benchIDs(512)
-	r := benchRepo(b, ids)
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		tx, err := r.Begin()
-		if err != nil {
-			b.Fatal(err)
-		}
-		if _, err := resolveNodeRefs(tx, ids); err != nil {
-			b.Fatal(err)
-		}
-		_ = tx.Rollback()
-	}
-}
-
-// BenchmarkEndpointResolveCached：命中构建期正向缓存（不查库）。
-func BenchmarkEndpointResolveCached(b *testing.B) {
-	ids := benchIDs(512)
-	r := benchRepo(b, ids)
 	r.BeginBuildWriteCache()
+	r.buildWrite = newBuildWriteCache(4) // 人为缩小容量，制造持续淘汰
 	defer r.EndBuildWriteCache()
-	tx, err := r.Begin()
-	if err != nil {
-		b.Fatal(err)
+	edges := make([]*domain.Fact, 0, len(ids)/2)
+	for i := 0; i+1 < len(ids); i += 2 {
+		edges = append(edges, &domain.Fact{
+			SourceID: domain.CanonicalID(ids[i]), TargetID: domain.CanonicalID(ids[i+1]),
+			Kind: domain.FactCalls, Confidence: 1.0,
+		})
 	}
-	got, err := resolveNodeRefs(tx, ids)
-	if err != nil {
-		b.Fatal(err)
+	if _, err := r.SaveBatchStats(nil, edges, nil); err != nil {
+		t.Fatalf("SaveBatchStats: %v", err)
 	}
-	_ = tx.Rollback()
-	r.currentBuildWriteCache().publish(got)
-	benchEdges := edgesOf(ids...)
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		tx, err := r.Begin()
-		if err != nil {
-			b.Fatal(err)
-		}
-		if _, _, err := r.resolveNodeRefsCached(tx, benchEdges); err != nil {
-			b.Fatal(err)
-		}
-		_ = tx.Rollback()
+	if st := r.currentBuildWriteCache().snapshot(); st.Size > 4 {
+		t.Errorf("缓存规模 = %d, 不得超过容量 4", st.Size)
+	}
+	if _, cnt, err := r.Counts(); err != nil || cnt != len(edges) {
+		t.Errorf("超限后边数 = %d (err=%v), want %d（淘汰不得丢边）", cnt, err, len(edges))
+	}
+}
+
+// TestResolveEndpointCacheInvalidation：缓存只在构建生命周期内有效——
+// End 后再 Begin 不复用旧键（重建隔离，超限/失效同口径）。
+func TestResolveEndpointCacheInvalidation(t *testing.T) {
+	r := newTestRepo(t)
+	a := node("symbol:go:x:a", "function", "a", "a.go")
+	b := node("symbol:go:x:b", "function", "b", "b.go")
+	save(t, r, []*domain.CodeEntity{a, b}, nil)
+
+	r.BeginBuildWriteCache()
+	if _, err := r.SaveBatchStats(nil, edgesOf("symbol:go:x:a", "symbol:go:x:b"), nil); err != nil {
+		t.Fatal(err)
+	}
+	if st := r.EndBuildWriteCache(); st.Writes == 0 {
+		t.Fatal("第一次构建应写入缓存")
+	}
+	// 新构建：缓存键不得继承（即便 DB 行仍在，也必须回源）
+	r.BeginBuildWriteCache()
+	if st := r.EndBuildWriteCache(); st.Hits != 0 || st.Size != 0 {
+		t.Errorf("新构建不得复用旧缓存, got %+v", st)
 	}
 }
