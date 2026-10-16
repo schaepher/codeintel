@@ -6,7 +6,6 @@ import (
 	"context"
 	"os"
 	"runtime/debug"
-	"runtime/pprof"
 	"strconv"
 	"strings"
 
@@ -26,6 +25,8 @@ func main() {
 	if len(os.Args) > 1 {
 		sub = os.Args[1]
 	}
+	var profStop = func() {}
+	var profActive bool
 	if sub == "init" || sub == "reindex" || sub == "update" {
 		// Q221：GOGC 默认 40（构建内存兜底，串行实测峰值 RSS 降 28%）；
 		// 并行（--workers N）时 GC 扫描开销占比大，可 CODEINTEL_GOGC 调高
@@ -41,12 +42,8 @@ func main() {
 		// 详情见 memlimit.go
 		applyMemLimit(zap.L())
 		// 诊断：CODEINTEL_CPU_PROFILE=<file> 输出 CPU profile（Q221
-		// 构建期热点定位；os.Exit 前 Stop）
-		if prof := os.Getenv("CODEINTEL_CPU_PROFILE"); prof != "" {
-			if f, err := os.Create(prof); err == nil {
-				pprof.StartCPUProfile(f)
-			}
-		}
+		// 构建期热点定位；见 cpu_profile.go）
+		profStop, profActive = startCPUProfile(sub)
 	}
 	// 全局标志：任意位置出现 --verbose / --debug 时输出 Debug 级日志
 	// （默认 Info 级）——识别后从参数中移除，避免子命令 flag 解析报错
@@ -77,12 +74,9 @@ func main() {
 
 	// 注意：os.Exit 不执行 defer，span 与 tp 必须在退出前显式结束/冲刷
 	code := cli.Main(ctx, filtered)
-	if prof := os.Getenv("CODEINTEL_CPU_PROFILE"); prof != "" {
-		if f, err := os.Create(prof); err == nil {
-			pprof.StopCPUProfile()
-			_ = f.Close()
-			logger.Info("cpu profile saved", zap.String("file", prof))
-		}
+	profStop()
+	if profActive {
+		logger.Info("cpu profile saved", zap.String("file", os.Getenv("CODEINTEL_CPU_PROFILE")))
 	}
 	span.End()
 	if tp != nil {
