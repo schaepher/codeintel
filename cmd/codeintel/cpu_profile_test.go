@@ -20,12 +20,7 @@ func TestStartCPUProfileDecodable(t *testing.T) {
 	if !active {
 		t.Fatalf("startCPUProfile(init) active = false, want true")
 	}
-	deadline := time.Now().Add(250 * time.Millisecond)
-	x := 0
-	for time.Now().Before(deadline) {
-		x++
-	}
-	_ = x
+	burnCPU(250 * time.Millisecond)
 	stop()
 
 	data, err := os.ReadFile(path)
@@ -50,6 +45,47 @@ func TestStartCPUProfileDecodable(t *testing.T) {
 	}
 	if len(out) == 0 {
 		t.Fatalf("go tool pprof -raw 输出为空")
+	}
+}
+
+// burnCPU 消耗一段 CPU，保证 profile 有样本。
+func burnCPU(d time.Duration) {
+	deadline := time.Now().Add(d)
+	x := 0
+	for time.Now().Before(deadline) {
+		x++
+	}
+	_ = x
+}
+
+// TestStartCPUProfileFailureKeepsExisting：已有采样在跑时，第二次启动
+// （pprof 返回 already in use）必须 no-op——不得停止既有采样；既有采样
+// 正常结束后文件可用。
+func TestStartCPUProfileFailureKeepsExisting(t *testing.T) {
+	dir := t.TempDir()
+	pathA := filepath.Join(dir, "a.prof")
+	t.Setenv("CODEINTEL_CPU_PROFILE", pathA)
+	stopA, activeA := startCPUProfile("init")
+	if !activeA {
+		t.Fatalf("首个采样应 active")
+	}
+	// 第二个采样必然失败（同时只能有一个 CPU profile）
+	pathB := filepath.Join(dir, "b.prof")
+	t.Setenv("CODEINTEL_CPU_PROFILE", pathB)
+	stopB, activeB := startCPUProfile("init")
+	if activeB {
+		stopB()
+		t.Fatal("第二个采样不应 active（pprof already in use）")
+	}
+	stopB() // no-op：不得停止 A
+	burnCPU(220 * time.Millisecond)
+	stopA()
+	data, err := os.ReadFile(pathA)
+	if err != nil {
+		t.Fatalf("A profile 未生成: %v", err)
+	}
+	if len(data) < 2 || data[0] != 0x1f || data[1] != 0x8b {
+		t.Fatalf("A profile 不是 gzip（被第二次启动破坏？）：len=%d", len(data))
 	}
 }
 
