@@ -2511,249 +2511,49 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
 - 排障捷径：wiki 命令把 zap 日志写到目标仓库 .codeintel/codeintel.log
   ——ResolveSymbol 输入/成败一目了然（grep input 定位渲染路径）
 
-## 待办与已知不足（2026-09-20 合并去重，按优先级）
+## 待办与已知不足（按优先级，2026-10-16 重排）
 
-**维护说明**：本清单是**唯一待办来源**；条目末尾括注来源轮次。此前存在两套
-重叠的 P0/P1/P2（2026-08-27 R97 修订版 + 更早一版），本期合并去重：
-`--with-qa 实战验证`、`表字段类型剩余 10 列`、`新人实测演练`、`F2 非 DDD 效果`、
-`ER 500 边细分复用 / 实体对级 Top-N` 各并为一条。
+**维护说明**：本清单是**唯一待办来源**；**已实现项已移除**（历史见
+`docs/field_trace.md` 与 `docs/changelog4-checklist.md`）。源编号（#N / RN）
+保留以便交叉引用。**“需大仓/外部”= 依赖真实系统或大仓 profile 才能验收，
+当前不做**（用户 2026-10-16 指示）。
 
-**优先级重排（2026-10-16）**：P0 正确性 → P1 性能（需大仓 profile 的压后）
-→ P1 本机可做的补全/工程化 → P2 验证/覆盖（外部环境） → P3 候选。
-**依赖真实系统/大仓才能验收的项不做**（#1、P1 性能中需大仓 profile 的
-R13/R14/#14/emitValue/Stage2b/#13/#12 等只在有大仓数据时推进）。
+| 优先级 | ID | 事项 | 依赖 / 说明 |
+|---|---|---|---|
+| P0 | #1 | 真实业务系统端到端验证（grpc 识别形态/DI/字段流/`query grpc-routes`/wiki） | **需外部真实系统** |
+| P0 | #7 | `--with-qa` 实战验证（wiki --ai 参考资料生效） | 需真实问答/agent |
+| P0 | #8 | go2o domains.services 人工确认（30 服务归属） | 人在环 |
+| P0 | #9 | 术语表 24 条 / flows 5 条人工 review | 人在环 |
+| P1 性能 | R13 | 内存与 GC：无用调用记录/字段产物重复物化/暖缓存字符串/无指针记录 | **需大仓 profile** |
+| P1 性能 | R14 | 暖构建准备：分离别名/全局 init/派发所需数据，包缓存命中少建图 | **需大仓 profile** |
+| P1 性能 | #14 | 构建期内存线复测/收尾（gob 分配是否回退、SSA 剩余热点） | **需大仓** |
+| P1 性能 | cl4-P1 | `emitValue` 产物分配降低（属性 map/装箱/重复字符串） | **需大仓 profile** |
+| P1 性能 | #11 | Stage 2b：`summary`/`summary_origins`/`idx_nodes_func_id` 整数化 | **需大仓** |
+| P1 性能 | #13 | SCIP 重复加载依赖图 + 按包增量 | 需外部工具评估 |
+| P1 性能 | #12 | 写库/流水线单写者串行（flush p95） | **需大仓** |
+| P1 工程 | R1 | 超大图路径查询：按需查询 + 同构建版本复用规模判断（现超阈值不缓存、每次重扫） | 设计/重构 |
+| P1 工程 | #15 | 邻接表缓存推广到 4 处全扫边集消费者（`repo_chain`/`repo_flows`/`repo_unused`/`rg_bfs`） | 边 kind 集不同，需新视图/逐消费者验证 |
+| P1 工程 | #16 | cli → action 迁移收尾（~100 文件按 R89 模式） | 机械大批量 |
+| P1 工程 | ssa-cache | SSA 缓存余项：`instancePath`/`recoverVarName`/`allocTypeShort`/`marshalProps` | 低风险 |
+| P1 工程 | #20 | 表字段类型剩余 10 列（`~/.codeintel` 全局注册表） | 需全局 db/yaml |
+| P1 工程 | #18 | go2o 表别名 AI 补缺（缺 148 表） | 需 AI/网络 |
+| P2 验证 | #17 | 新人实测演练（陌生项目 wiki onboarding） | 需外部项目 |
+| P2 验证 | #19 | ext-chain 跨仓库递归 | 需多仓库 |
+| P2 验证 | #21 | F2 实体分组对非 DDD 项目效果 | 需外部项目 |
+| P2 验证 | plugin | VSIX 打包/安装（`make plugin`/`install-plugin`） | 需联网 |
+| P2 验证 | env | PlantUML jar/Git 身份配置后的全量验收 + chaincheck 历史基线 | 需环境 |
+| P3 候选 | #23 | analyzer 版本粒度（按适配器/功能细分哈希） | 复杂度高、收益边际 |
+| P3 候选 | #24 | ER 500 边细分复用 + 实体对级调用 Top-N | |
+| P3 候选 | #25 | 系统平台域人工拆分（100+ 包兜底） | |
+| P3 候选 | #26 | 测试基建：asttool split fixture 保护 | |
+| P3 候选 | #27 | 性能 profile 分布（SSA/SCIP/AST 各占比） | 并入 #13 |
+| P3 候选 | #28 | R50 残留：4 个空 mermaid pre（go2o 559 图中） | 极小影响 |
+| P3 候选 | #29 | 流程页深度：入口调用链 → 关键数据流（value-trace 串联） | |
+| P3 候选 | #30 | 服务归属静态兜底改进（排除服务实现包再投票） | |
+| P3 候选 | #31 | 外部依赖识别形态扩展（kafka 等，待真实项目） | |
+| P3 候选 | #32 | `precompute relations` 的 10% 打印统一到 `domain.Progress` | 现自打印 stdout |
+| P3 候选 | #33 | NDJSON 进度事件流（出现真实消费者再加） | 可选 |
 
-**已就近完成（本机可做，已提交）**：#2 dispatch 相关包只增不减 +
-无动态调用也记录注册点包（`ac81374`）；#19 `snakeCase` 缓存（`7ac777e`）；
-#23 HTTP 路由入口→代码级时序（`5a51251`）。另外核对确认**已实现**：#3 数据流
-具体化（构造器/变量链/条件分支，P0-3）、#4 动态 URL 前缀/Sprintf 部分解析
-（R71/R78）、#5 时序图“声明接口 → 数据流实现”双行（P0-5）、#6 http 请求对象
-判定（R100 条件② req_types）、#9 prompt 规模基准告知（requirement #10）。
-
-**P0——机制未闭环/影响正确性（先修这些）**：
-
-- 1. **真实业务系统端到端验证**（R90-R97 全部 grpc 识别形态在真实系统跑通：
-  外部 Register 定义 / DI 注入 / 自定义客户端 / 字段数据流；含
-  `query grpc-routes` 与 wiki 生成确认）。**价值最高**——用户系统多次暴露
-  测试未覆盖形态（R90–R97）
-- 2. **dispatch_to 边增量丢失根治**（R84）：注册点包（MakeInterface 所在包）
-  未 Load → 改 impl 包后每次丢 ~15 条/0.6%。方向：注册点包并入增量分析范围
-  （DB 无法定位——可从 dispatch 边 source 接口的 implements 反推），或增量后
-  从 implements 边重建
-- 3. **数据流具体化扩展**（R97-2 后续）：字段赋值目前只认字面量 `&impl{}`
-  ——构造器赋值（`s.manager = newManager()`）/跨包赋值/变量链赋值/条件分支
-  赋值（if 分支不同实现）都可能被真实 DI 系统踩到
-- 4. **动态 URL 出站调用识别盲区**（R45 实测）：出站 URL 是变量拼接/动态
-  （go2o 的 `sms/http_sms.go`、`alipay_wap.go`、`geo.go`）→ `httpURLString`
-  只认字面量 → `http_call` 边漏检 → external-interfaces 的 http 部分与模块间
-  调用对这类项目失效。方向：`extractStringArg` 支持"字面量+变量"部分解析
-  （至少 host/path 前缀）+ 常量拼接
-- 5. **时序图参与者类型准确性**（M P0-5）：`s.manager` 显示实现类型
-  （orderManagerImpl）vs 字段声明类型（接口）——R97 数据流后语义更清晰，
-  可展示"声明接口 + 数据流实现"双行
-- 6. **external-interfaces 的 http 请求对象判定缺失**（R45 已知局限）：
-  gin handler 无显式请求类型 → http 只按"路由未定义"判定（条件②仅对 grpc
-  生效）；可在 handler 参数绑定结构体（ShouldBind/参数类型）方向增强
-
-**P0——交付质量（人工确认 / prompt 一次成型）**：
-
-- 7. **`--with-qa` 实战验证**：qa_history 已积累真实问答（ask/serve 用过）
-  ——`wiki --ai --with-qa` 端到端确认参考资料生效（机制已有
-  TestWikiAIFillWithQA）
-- 8. **go2o domains.services 人工确认**（R38 写回 AI 初稿）：30 个服务归属
-  （ItemService→商品域 / OrderService→交易域…）维护者过目（git diff 可回滚）
-- 9. **术语表 24 条 / flows 5 条 review**：AI 初稿已入 wiki.yaml，人工最后
-  确认（wiki skill「人工是最后一道工序」）
-- 10. **渲染基准告知设计**（3 号待办；R70 起前置就绪）：prompt 告知 AI 渲染
-  基准（域内实体数 / 调用边上限 500），让 AI 输出 domains 时自带子域划分与
-  "过大"判断
-
-**P1——补全/验证/性能**：
-
-- 11. **真实库 6 项优化（Q254，按 Stage 推进）**：用户真实系统验证产出
-  （7.46M 边 / 13GB 库）——
-  **Stage 0 已完成**：`scripts/dbdiag.sh --size/--plans/--self-test`（§100）。
-  **Stage 1 已完成（Q254 §101）**：①索引裁剪（source/source_kind/target/
-  confidence 四个，go2o 实测 used 305.9→254.9MB；连带修 3 处 `INDEXED BY`）
-  ②`VacuumIfWorthwhile` 守卫（freelist 阈值 + 磁盘预检 + 原因可见 +
-  `CODEINTEL_VACUUM_MIN_MB`）③全量构建期 `foreign_keys=0` + 末尾
-  `DropDanglingEdges` 清理并计数（FK-on/off 产物逐项一致）④WAL
-  `journal_size_limit(64MB)` + 每 50 批 PASSIVE + 末尾 TRUNCATE（go2o -wal=0）。
-  原始计划：①索引裁剪——`idx_edges_source` /
-  `idx_edges_source_kind` / `idx_edges_target`（EXPLAIN 证明 UNIQUE 覆盖索引与
-  `idx_edges_target_kind` 可顶替；预计 ≈3.5GB）+ 一次**有守卫的 VACUUM** 回收
-  ②VACUUM 守卫（freelist×page_size 阈值 + 磁盘预检；init/update 共用；全量
-  构建路径不再无脑 VACUUM——今天那次纯重写 13GB/7 分钟）③构建期
-  `foreign_keys=0` + 末尾 set-based 清理悬挂边并计数（替换 20.7 万条边驻留
-  内存的 `retryFailedFK`）④WAL 收尾 `wal_checkpoint(TRUNCATE)` +
-  `journal_size_limit`（1.33GB → 百 MB 级）。
-  **Stage 2 已完成（Q254c §103）**：整数代理键——`nodes(id_int PRIMARY KEY,
-  id TEXT UNIQUE)` + `edges(source_ref/target_ref → nodes(id_int))` + 兼容视图
-  `edges_v`（冷路径零改动）+ 热路径整数空间；旧库 clean/reindex 即迁移
-  （reindex 已自动删不兼容旧库）。实测 go2o **308→114MB（-55%）**、本仓库
-  92.7→48.7MB、构建 ~21s→11-13s、flush 4.3s→0.5-1.5s；detcheck 四类全等。
-  **Stage 3 已实测否决（Q254d §104）**：Stage 2 后 flush 仅占构建 5-12%
-  （计算占大头），且多行批量 INSERT A/B 无收益（1.8-2.3s vs 预编译逐行
-  0.5-1.6s）→ 回滚批量实现；"两阶段导入/分片 DB"降级为**观察项**：
-  触发条件 = 出现 flush 占构建 >30% 的仓库（超大边集 + 弱 I/O）。
-  **可选后续（Stage 2b）**：`idx_nodes_func_id` 表达式索引（go2o 10.6MB）与
-  `function_field_summary.function_id`/`summary_origins.*` 仍存 canonical ID
-  ——按同法 int 化可再省（节点侧占比已升至 40%）。
-- 12. **写库/流水线层单写者仍串行**（Q252 新增，与第 11 条 Stage 3 合并推进）：`orch_adapters.go`
-  `ch(4096)` → 单 consume → `flushCh(2)` → 单 flusher → SQLite；4 个 SSA
-  worker 共享一个 channel，flush 慢时全堵在 `ch <- item`（实测单批 flush
-  2–68s 波动、中位 ~10s，源为机器 I/O）。方向：分片多 DB 文件再合并 / SSA
-  计算与写库两阶段（中间文件 + 导入前 drop 索引）。验收：wall + flush p95
-- 13. **SCIP 重复加载依赖图 + 按包增量**（Q252 新增 + R84 遗留合并）：
-  scip-go 内部 `go list -deps=true -export=true` 完整加载并自行类型检查一遍
-  （`--help` 无跳过依赖开关）；go2o `update` 40s 里 scip 仍全量扫描。方向：
-  把 `scip-go index <patterns>` 限定到变更模块/包；或评估替换 scip-go
-- 14. **构建期内存线复测/收尾**（Q252 新增）：`CODEINTEL_MEM_PROFILE` 峰值
-  live 复测；待评估 ①包缓存 gob 分配 +60%（§93）是否回退 ②SSA 剩余单项
-  ≤9.7% 无病态。验收：go2o 冷构建 wall + in-process 峰值 RSS 双数字
-- 15. **邻接表缓存推广到剩余"每次全扫边集"消费者**（Q252 新增）：
-  `repo_chain.go:18`、`repo_flows.go:200`、`repo_unused.go:165`、
-  `rg_bfs.go:33`；基础设施 `edge_graph.go` `adjacencyView` 已就绪，逐个迁移
-  各自带验证
-- 16. **cli → action 迁移收尾**（R89 起分批）：剩余命令（domains 事实包 /
-  packages / architecture / er / processes / module / unused / relations /
-  module-calls / export 等 ~100 文件）按 R89 模式批量迁移
-- 17. **新人实测演练**：挑一个陌生项目用 wiki 走通 onboarding，验证"新人
-  视角无死角"（覆盖度终极验证，需外部项目）
-- 18. **go2o 表别名 AI 补缺**（R93 后仍缺 148 表）：`wiki --ai` 重跑
-  （wiki.yaml 缺 tables 段——AI 从事实补全）
-- 19. **ext-chain 跨仓库**（M P1-7）：服务端实现在其他仓库的递归（当前只查
-  本仓库 grpc-routes——多仓库注册表扩展）
-- 20. **表字段类型剩余 10 列**：repos 全局注册表 schema 在 `~/.codeintel`
-  ——yaml 补或读全局 db
-- 21. **F2 实体分组对非 DDD 项目效果**：go2o 是 DDD 样例，普通项目待观察
-- 22. **wiki 流程页 HTTP 路由入口代码级时序**（M P1-8：grpc 已用，http 入口
-  同款）
-- **SSA 字段路径/摘要的“反复构建”缓存化**（2026-10-16）：已缓存一批——
-  调用点片段 `cc.String()`（原 `emitEntityFields` 每导出字段、`emitWhereFilter`
-  每 where 列各渲染一次）、`ownerTypesOf`（每调用点每实参递归展开，本机
-  13.6×/0 alloc）、`summaryKey`、签名节点类型串（改走构建级 `typeString`）。
-  **余项（有意保守，待大仓峰值 profile 证实收益/风险再动）**：`instancePath`/
-  `recoverVarName`/`allocTypeShort`（每次字段访问/值发射）、`nestedTypePath`
-  的 `singleStoredValue`（每次副本字段访问扫全函数块找 Store，宜按 Alloc
-  memo）、`snakeCase`（每字段，含 ~30 initialism 的 ReplaceAll，可按字段名
-  缓存）、`marshalProps` 的 `json.Marshal`（每节点写盘；等值节点已由
-  node_batch 跳过）。清单与基准见 `docs/codeintel-gc-investigation.md §4.1`。
-
-**P2——候选/边际收益**：
-
-- 23. **analyzer 版本粒度**（R92 后）：任何 ast 修改触发全量——按适配器/功能
-  细分哈希可减少不必要重建（复杂度高、收益边际）
-- 24. **ER 500 边细分复用 + 实体对级调用 Top-N**（R63 思路）：ER 域内图超限
-  时自动按表前缀/域再细分；facts 输出调用最热的 N 对实体（主信号已由
-  pkg_calls/热度覆盖）
-- 25. **系统平台域人工拆分**（100+ 包兜底）
-- 26. **测试基建：asttool split fixture 保护**（R95 教训：split 丢 fixture
-  import——拆后自动检查/回滚）
-- 27. **性能 profile 分布**（go2o 全量 24s：SSA/SCIP/AST 各占比；pkg_cache
-  已生效，剩余热点定位）——与第 13 条合并做
-- 28. **R50 残留：4 个空 mermaid pre**（go2o 559 图中 4 个空块，极小影响）
-- 29. **流程页深度**（候选）：入口调用链 → 关键数据流（value-trace 串联）
-- 30. **服务归属静态兜底改进**（R38 可选）：投票被基础设施兜底域污染——可
-  排除服务实现包再投票
-- 31. **外部依赖识别形态扩展**（候选）：kafka 对 go2o 无数据（其消息走
-  msq/events 非 sarama）待真实 kafka 项目验证；redis 命令式已覆盖（R36），
-  其他客户端库后置
-
-**远端待办（remote-todo.txt，2026-10-16 合并）**——执行结果见 `docs/changelog4-checklist.md` §E（R3/R5–R12/R15–R17 完成；R13/R14 评估待大仓 profile；R1/R2 既有）：
-
-- **R1 大图路径查询**（按需查询 + 同构建版本复用规模判断，保留深度限制）：
-  部分已做——Q252d `edge_graph.go` 按 build_id+视图**惰性**邻接表缓存
-  （非全边集），`GetPath` maxDepth=路径深度语义已修；“规模判断复用”待明确。
-- **R2 包缓存分块**（限制单块规模 + 减少编码临时容器 + 重放不变）：分块 v4
-  已做（chunkSize=200，拒绝截断/缺结束标记/尾随/旧格式）；编码临时分配已
-  评估（不换协议）；余项无。
-- **R3 匿名字段路径**：`077dbed` 已实现（最近具名类型/深层/容器/副本/来源
-  不明回退/结构相同不混淆）；**“避免重复扫描整个函数”待做**（`singleStoredValue`
-  按 Alloc memo，见上条 P1）。
-- **R4 构建级字符串缓存**：`6e82acb` 已做（并发首次/泛型/空结果/构建隔离/
-  命中零分配）。
-- **R5 写库保真测试**：端点缓存的回滚/后续新增/构建隔离/并发写入已覆盖
-  （`0af5f7f`/`c3d8940`）；**同节点多次不同贡献后的 DB 层合并结果待补断言**。
-- **R6 函数值调用测试**：`ast_misc_test.go` 覆盖注册集合/递归类型；**工厂
-  返回、遍历执行待核对补全**。
-- **R7 缓存与大图测试**：分块大小/截断/缺结束标记/尾随/旧格式已测；
-  **超限查询、缓存失效待补显式断言**。
-- **R8 性能采样测试**：启动失败 no-op + 结束后可解码已测（`cpu_profile_test.go`）；
-  **“启动失败不影响已有采样”待补**。
-- **R9 值身份**（闭包/多 init 作用域/临时槽位稳定标识；返回签名节点与同名
-  局部区分；别名发射不按访问次数加行号）：**P0 内容差异核心，待做**（需大仓
-  双冷构建验收）。
-- **R10 注册来源**（消除候选覆盖遍历顺序依赖/完整来源/多注册点/值与指针
-  共享方法的稳定选择）：**P0 `register_site` 核心，待做**。
-- **R11 摘要代表**（来源平局与传播更新规则/完整源位置/避免候选顺序决定
-  代表片段/环形调用 + 冷暖重放测试）：**P0 `code_snippet` 核心，待做**。
-- **R12 接收者摘要**（接口调用接收者与候选实现摘要匹配；直接调用 vs 经接口
-  一致）：待做。
-- **R13 内存与 GC**（不保留无用调用记录；字段产物重复物化；暖缓存字符串
-  重复；反查表及时释放；无指针记录）：部分对应 P1 `emitValue`；待做。
-- **R14 暖构建准备**（提前识别包缓存命中，减少类型图/SSA 准备；先分离别名/
-  全局初始化/派发所需数据）：待做。
-- **R15 日志测试**：关闭时跳过昂贵字段已测（`cf_call_debug_test.go`）；**开启时
-  字段一致性待补**。
-- **R16 检查脚本**：`scripts/detcheck.sh` 现比 nodes/edges(source,target,kind,
-  count)/summary，**未比 `edges.metadata` 与 `summary_origins` → 待补**（内容
-  差异可能被遗漏）。
-- **R17 扩展时序图**：区分图片预览/文本打开（不给文本编辑器 PNG）、保存可
-  编辑 PlantUML 源、两类产物打开方式回归——vscode-extension 功能，待做。
-
-**其它体验**：
-
-- **`git status` 型"过期"提示要换成内容指纹（已完成 Q254b §102）**：原按
-  `git status --porcelain` 行数统计 → 文档/脚本等不进索引的文件也报"未索引"，
-  且"改文件→重索引"后仍误报；现按 `.go` 变更集合 + 构建期工作区内容指纹比对。
-
-**进度/长任务体验（Q253 后续）**：
-
-- 32. **`precompute relations` 的 10% 打印统一到 `domain.Progress` 契约**
-  （现仍自打印，走 stdout）
-- 33. **NDJSON 进度事件流**（可选）：`--json`/MCP 目前用 `--progress plain`；
-  出现真实消费者（IDE 插件等）再加
-- 34. ~~**忽略目录**~~ → 已实现：`codeintel config ignore-dir add|rm|list`
-  写仓库级 `<repo>/codeintel.yaml`，init/update/reindex 自动应用
-  （DiscoverModules/loadPackages/scip/git/增量检测/指纹全链过滤）
-- 35. ~~**并行任务独立进度条**~~ → 已实现：TTY 多活动行（每个并行步骤各自一行
-  独立进度条，eraseBlock/drawBlock 原地重绘）
-- 36. ~~**SSA emitFunction 循环真实完成进度条**~~ → 已实现（Q253 已接 total=
-  模块函数总数，本轮补全其它主流程分母）
-
-**进度显示现状**：loadPackages/scip/ast/git/ssaBuild/dispatchRegs/emitFunction
-循环均有真实分母进度条；funcSnapshot 为心跳（无真实分母——AllFunctions
-原子调用不可分段，不编造百分比）；runAdapters/flush/finishIndex 为已用时行。
-`auto` 终端动态多行显示、`plain` 只输出阶段结束日志。
-
-**已完成（本清单最近轮次，详见 field_trace）**：
-- ~~构建/长任务进度条（codegraph 风格）~~ → **Q253**（§99）：`domain.Progress`
-  + `internal/progress` + `--progress auto|plain|none`；覆盖顶层 + 每适配器 +
-  SSA 6 子步骤，plain 与改动前逐字一致
-- ~~静默退化（ModuleDirs 空/零包加载 + 门槛静默 skip）~~ → **Q252f**（§98）
-- ~~SSA 阶段并行建图 + AllFunctions 排序 key + 阶段标记~~ → **Q252e**（§97）
-- ~~"verify.sh 偶发失败"~~ → 实为 Q252f 的长期真红（已消除）
-
-
-**已完成标注**（随轮次更新）：
-- ~~grpc 服务入口接口不停止解析~~ → R84（codeSequence 接口方法入口
-  具体化 + chainSymbols 链上接口具体化——(OrderServiceServer)
-  .SubmitOrder 全链展开；术语表英文格式 → R84 english/abbr 字段）
-- ~~多 workspace 每次全量重新分析~~ → R84 按包增量索引（变更文件
-  所在包 Load + 复用其他包索引；go2o 实测 9.9s → 3.4s）
-- ~~6 项高优先级待办（2026-08-24 用户提出）~~ → R29/R31/R32/R35/R36/
-  R37 全完成（grpc/http 路由、图双引擎、cli 命令树、redis/kafka、
-  grpc 枚举、流程页入口化）
-- ~~go2o AI 缺口清零~~ → R28（44 条补全，wiki-check 7/7）
-- ~~ana 自身索引 update~~ → R37 reindex；~~ana domains 补 services~~ →
-  R39 重跑（7 域 + services 写入）
-- ~~yaml 语义层/术语表接入/列说明带 rels/ask REPL~~ → R23/R24/R26
-- ~~facts 实体调用热度（out/in）~~ → R64（AI 领域划分参考 + prompt
-  指导内聚/均衡）；~~wiki 强制 domains/ai.fill 细分~~ → R57；
-  ~~全局配置自动初始化~~ → R58；~~验证提速~~ → R59；
-  ~~config default~~ → R60；~~domain-facts compact~~ → R61；
-  ~~设计诊断折叠/实体全展示/grpc 方法表格/包结构表格~~ → R62；
-  ~~领域 500 边自动细分~~ → R63；~~实体定义收敛~~ → R66；
-  ~~临时目录 .tmp~~ → R67；~~service 角色判定~~ → R68；
-  ~~edge count~~ → R69；~~facts 包规模/实体 service 区分~~ → R70
+**进度显示现状**（非待办，供参考）：loadPackages/scip/ast/git/ssaBuild/
+dispatchRegs/emitFunction 循环均有真实分母；funcSnapshot 为心跳（AllFunctions
+不可分段）；runAdapters/flush/finishIndex 为已用时行；`--progress auto|plain|none`。
