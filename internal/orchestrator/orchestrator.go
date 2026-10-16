@@ -105,6 +105,7 @@ type batchT struct {
 	edges     []*domain.Fact
 	summaries []*domain.FunctionFieldSummary
 	origins   []*domain.SummaryOrigin // Q161 摘要来源
+	dedup     *nodeDedup             // 同批次等价节点写入消除（node_batch.go）
 }
 
 func newBuildID() string {

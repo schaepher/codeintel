@@ -76,7 +76,9 @@ func (o *Orchestrator) runAdapters(ctx context.Context, pkgs []*packages.Package
 				continue
 			}
 			if item.Node != nil {
-				batch.nodes = append(batch.nodes, item.Node)
+				if batch.dedup.shouldAppend(item.Node) {
+					batch.nodes = append(batch.nodes, item.Node)
+				}
 			}
 			if item.Fact != nil {
 				batch.edges = append(batch.edges, item.Fact)

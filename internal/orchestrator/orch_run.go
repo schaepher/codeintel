@@ -115,7 +115,7 @@ func newBatch() *batchT {
 	logger := zap.L()
 	logger.Debug("enter newBatch")
 	defer logger.Debug("exit newBatch")
-	return &batchT{}
+	return &batchT{dedup: newNodeDedup()}
 }
 
 // flush 将当前批次写入数据库。
