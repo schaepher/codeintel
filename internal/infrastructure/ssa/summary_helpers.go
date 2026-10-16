@@ -142,6 +142,14 @@ func fieldValueOf(obj ssa.Value, idx int) ssa.Value {
 // 无标记时 fallback "id"。
 // gormColumnOf 提取 gorm:"column:x" 的列名（无则 snake_case 字段名）。
 
+// entityTypeOf 解析摘要的实体类型（表名/字段展开来源）。
+//
+// R12 接收者下标约定（go/ssa CallCommon.Args）：静态方法调用的 Args 含
+// receiver（Args[0]=receiver），接口 invoke 的 Args 不含（receiver 在
+// cc.Value）。故同一写方法的 spec 在两种形态下 ObjArg/WhereArg/IDArg
+// 下标不同：静态 spec 需 +1（见 summary_xorm.go 的 Func 条目），
+// 接口 spec 用声明参数下标（见 Interface 条目）；两条路径的表/列结果
+// 必须一致（回归：receiver_summary_test.go）。
 func entityTypeOf(cc *ssa.CallCommon, spec summarySpec) types.Type {
 	t := cc.Value.Type()
 	if p, ok := t.(*types.Pointer); ok {
