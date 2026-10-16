@@ -2617,6 +2617,16 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
 - 21. **F2 实体分组对非 DDD 项目效果**：go2o 是 DDD 样例，普通项目待观察
 - 22. **wiki 流程页 HTTP 路由入口代码级时序**（M P1-8：grpc 已用，http 入口
   同款）
+- **SSA 字段路径/摘要的“反复构建”缓存化**（2026-10-16）：已缓存一批——
+  调用点片段 `cc.String()`（原 `emitEntityFields` 每导出字段、`emitWhereFilter`
+  每 where 列各渲染一次）、`ownerTypesOf`（每调用点每实参递归展开，本机
+  13.6×/0 alloc）、`summaryKey`、签名节点类型串（改走构建级 `typeString`）。
+  **余项（有意保守，待大仓峰值 profile 证实收益/风险再动）**：`instancePath`/
+  `recoverVarName`/`allocTypeShort`（每次字段访问/值发射）、`nestedTypePath`
+  的 `singleStoredValue`（每次副本字段访问扫全函数块找 Store，宜按 Alloc
+  memo）、`snakeCase`（每字段，含 ~30 initialism 的 ReplaceAll，可按字段名
+  缓存）、`marshalProps` 的 `json.Marshal`（每节点写盘；等值节点已由
+  node_batch 跳过）。清单与基准见 `docs/codeintel-gc-investigation.md §4.1`。
 
 **P2——候选/边际收益**：
 
