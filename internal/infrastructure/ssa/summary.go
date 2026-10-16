@@ -201,58 +201,6 @@ type indirectSite struct {
 	c      callInfo
 }
 
-// emitSummaryRows 发射单个 access_kind 的摘要行（同字段路径去重）。
-// Q250：赢家按**内容**决定而非切片顺序——取最早行号，行号相同取
-// instance_path 字典序最小。原先"取首条"依赖 entries 的构造顺序（指令序
-// + 若干 map 驱动的补录路径），同一次构建两次运行会给出不同的
-// instance_path/行号/片段（go2o 双跑实测 90-136 行差异）。
-func emitSummaryRows(funcID domain.CanonicalID, accessKind domain.SummaryAccessKind, entries []fieldEntry,
-	emit domain.EmitFunc) error {
-	logger := zap.L()
-	logger.Debug("enter emitSummaryRows")
-	defer logger.Debug("exit emitSummaryRows")
-	best := map[string]fieldEntry{}
-	order := make([]string, 0, len(entries))
-	for _, e := range entries {
-		prev, ok := best[e.fieldPath]
-		if !ok {
-			best[e.fieldPath] = e
-			order = append(order, e.fieldPath)
-			continue
-		}
-		if earlierEntry(e, prev) {
-			best[e.fieldPath] = e
-		}
-	}
-	for _, path := range order {
-		e := best[path]
-		if err := emit(domain.Item{Summary: &domain.FunctionFieldSummary{
-			FunctionID:   funcID,
-			AccessKind:   accessKind,
-			FieldPath:    e.fieldPath,
-			InstancePath: e.instancePath,
-			LineStart:    e.line,
-			CodeSnippet:  e.snippet,
-		}}); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// earlierEntry 判断 a 是否比 b 更适合作为该字段路径的摘要代表：
-// 行号小者优先（行号相同或无行号时比 instance_path 字典序）。
-func earlierEntry(a, b fieldEntry) bool {
-	al, bl := a.line, b.line
-	switch {
-	case al > 0 && (bl == 0 || al < bl):
-		return true
-	case bl > 0 && (al == 0 || bl < al):
-		return false
-	}
-	return a.instancePath < b.instancePath
-}
-
 // calleeWrites 返回被调函数的全部写条目（direct + indirect）。
 func calleeWrites(data map[domain.CanonicalID]*funcData,
 	indirect map[domain.CanonicalID]map[indirectKey]fieldEntry, gID domain.CanonicalID) []fieldEntry {

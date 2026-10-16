@@ -118,3 +118,65 @@ func buildTwiceSnapshot(t *testing.T, files map[string]string, warmOnly bool) *d
 	}
 	return first
 }
+
+// TestEmitSummaryRowsSnippetTieBreak：行号 + instance_path 相同但片段不同
+// 时，代表片段必须由内容（snippet 字典序）决定——条目来自 map（valuesOf
+// 迭代顺序随机），平局不断定到底会"候选顺序决定代表片段"（R11）。
+func TestEmitSummaryRowsSnippetTieBreak(t *testing.T) {
+	e1 := fieldEntry{fieldPath: "m.T.X", instancePath: "o.X", line: 5, snippet: "zzz"}
+	e2 := fieldEntry{fieldPath: "m.T.X", instancePath: "o.X", line: 5, snippet: "aaa"}
+	pick := func(entries []fieldEntry) string {
+		var got string
+		err := emitSummaryRows("symbol:go:m:f", domain.SummaryIndirectWrite, entries,
+			func(item domain.Item) error {
+				if item.Summary != nil {
+					got = item.Summary.CodeSnippet
+				}
+				return nil
+			})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	if a, b := pick([]fieldEntry{e1, e2}), pick([]fieldEntry{e2, e1}); a != "aaa" || b != "aaa" {
+		t.Errorf("代表片段应稳定取字典序最小 aaa，got %q / %q", a, b)
+	}
+}
+
+// TestIndirectWriteCycleTerminates：环形调用（a→b→a）下间接写传播必须
+// 终止且两函数都得到该字段的间接写摘要（队列 + 已见键去重，不死循环）。
+func TestIndirectWriteCycleTerminates(t *testing.T) {
+	_, _, summaries := indexFixtureFull(t, map[string]string{
+		"go.mod": moduleGoMod,
+		"main.go": `package m
+
+type Order struct {
+	Fee float64
+}
+
+func a(o *Order) {
+	o.Fee = 1
+	b(o)
+}
+
+func b(o *Order) {
+	a(o)
+}
+
+func use(o *Order) { a(o) }
+`,
+	})
+	hasIndirect := func(funcID string) bool {
+		for _, s := range summaries {
+			if string(s.FunctionID) == funcID && s.AccessKind == domain.SummaryIndirectWrite &&
+				s.FieldPath == "example.com/mtest.Order.Fee" {
+				return true
+			}
+		}
+		return false
+	}
+	if !hasIndirect("symbol:go:example.com/mtest:b") {
+		t.Errorf("环形调用下 b 应得到 Order.Fee 间接写摘要")
+	}
+}
