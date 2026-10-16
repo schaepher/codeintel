@@ -29,6 +29,8 @@ func (ctx *fileCtx) emitCall(call *ast.CallExpr) {
 	// outer(g()...) 的 g() 返回函数集合时补 caller→g 的 CALLS 边
 	// （passes_result 由 handleNestedArg 建；内建 append 到达不了那里）。
 	ctx.emitFuncSetNestedCalls(call, caller, callerID, callerKind)
+	// 遍历函数集合注册表并执行（for _, v := range registry { v.F() }）
+	ctx.emitFuncSetTraversalCall(call, caller, callerID, callerKind)
 	// 内建 new(T)：callee 解析失败（builtin 无 Pkg）时单独处理
 	callee, ok := resolveCallee(pkg.TypesInfo, call.Fun)
 	if !ok {

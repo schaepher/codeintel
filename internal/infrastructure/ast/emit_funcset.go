@@ -110,3 +110,65 @@ func (ctx *fileCtx) emitFuncSetRegistry(call *ast.CallExpr, caller *types.Func, 
 		}
 	}
 }
+
+// enclosingRange 从 ast 栈里找最近的外层 for-range（不跨函数边界）。
+func enclosingRange(stack []ast.Node) *ast.RangeStmt {
+	for i := len(stack) - 1; i >= 0; i-- {
+		if rs, ok := stack[i].(*ast.RangeStmt); ok {
+			return rs
+		}
+		switch stack[i].(type) {
+		case *ast.FuncDecl, *ast.FuncLit:
+			return nil
+		}
+	}
+	return nil
+}
+
+// emitFuncSetTraversalCall 遍历函数集合注册表并执行其中函数：
+//
+//	for _, v := range registry { v.F() }
+//
+// → 遍历函数 → 每个注册函数 CALLS 边（置信度 0.8，带
+// registered_function_value + 行号）——上层查询能识别"谁遍历执行了注册集合"。
+// 仅当 range 表达式是函数集合、且被调用字段的基就是 range 值变量时触发。
+func (ctx *fileCtx) emitFuncSetTraversalCall(call *ast.CallExpr, caller *types.Func, callerID domain.CanonicalID, callerKind domain.EntityKind) {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return
+	}
+	base, ok := sel.X.(*ast.Ident)
+	if !ok || base == nil {
+		return
+	}
+	rs := enclosingRange(ctx.stack)
+	if rs == nil || !isFuncSetType(ctx.pkg.TypesInfo.TypeOf(rs.X)) {
+		return
+	}
+	rv, ok := rs.Value.(*ast.Ident)
+	if !ok || rv.Name != base.Name {
+		return
+	}
+	refs := collectFuncSetRefs(ctx.pkg, rs.X)
+	refs = append(refs, ctx.registryFuncRefs(rs.X)...)
+	line := ctx.pkg.Fset.PositionFor(call.Pos(), false).Line
+	for _, fn := range dedupSortFuncs(refs) {
+		if fn.Pkg() == nil || !isInModule(fn.Pkg().Path(), ctx.repo.Modules) {
+			continue
+		}
+		fid, fkind := fnID(fn)
+		if fid == "" || fid == callerID {
+			continue
+		}
+		_ = ctx.emit(domain.Item{Node: nodeFor(ctx.repo, ctx.pkg, caller, callerID, callerKind, ctx.serviceFlags[callerID])})
+		_ = ctx.emit(domain.Item{Node: nodeFor(ctx.repo, ctx.pkg, fn, fid, fkind, nil)})
+		_ = ctx.emit(domain.Item{Fact: &domain.Fact{
+			SourceID: callerID, TargetID: fid, Kind: domain.FactCalls,
+			ToolSource: domain.ToolCodeGraph, Confidence: 0.8,
+			Metadata: map[string]any{
+				"line_num":                  line,
+				"registered_function_value": true,
+			},
+		}})
+	}
+}
