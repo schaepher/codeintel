@@ -218,16 +218,30 @@ func encodeFlatSections(enc *gob.Encoder, nodes []*domain.CodeEntity, facts []*d
 }
 
 // encodeChunkSections 依次编码节点块/边块/摘要块/结束标记。
+// 传入块可能超过 chunkSize（包收集器块大小与缓存块大小无关）——**再次按
+// chunkSize 切分**，保证单条 gob 消息有界（todo3-2）。
 func encodeChunkSections(enc *gob.Encoder, nodeBlocks [][]*domain.CodeEntity,
 	factBlocks [][]*domain.Fact, fd map[string]*cachedFuncData) error {
 	for _, b := range nodeBlocks {
-		if err := enc.Encode(pkgCacheChunk{Kind: chunkNodes, Nodes: b}); err != nil {
-			return err
+		for i := 0; i < len(b); i += chunkSize {
+			end := i + chunkSize
+			if end > len(b) {
+				end = len(b)
+			}
+			if err := enc.Encode(pkgCacheChunk{Kind: chunkNodes, Nodes: b[i:end]}); err != nil {
+				return err
+			}
 		}
 	}
 	for _, b := range factBlocks {
-		if err := enc.Encode(pkgCacheChunk{Kind: chunkFacts, Facts: b}); err != nil {
-			return err
+		for i := 0; i < len(b); i += chunkSize {
+			end := i + chunkSize
+			if end > len(b) {
+				end = len(b)
+			}
+			if err := enc.Encode(pkgCacheChunk{Kind: chunkFacts, Facts: b[i:end]}); err != nil {
+				return err
+			}
 		}
 	}
 	return encodeFDSections(enc, fd)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/schaepher/codeintel/internal/domain"
@@ -95,5 +96,65 @@ func TestPkgCacheTruncatedMidStreamRejected(t *testing.T) {
 	}
 	if got := loadPkgCache(path, "h"); got != nil {
 		t.Errorf("中途截断的缓存应被拒绝，got %d nodes", len(got.Nodes))
+	}
+}
+
+// TestPkgCacheOversizedBlocksSplit（todo3-2）：调用方传入的节点/边块超过
+// chunkSize 时，编码前**再次切分**——单条 gob 消息条数有界，内容往返不变。
+func TestPkgCacheOversizedBlocksSplit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "big.json")
+	var nodes []*domain.CodeEntity
+	for i := 0; i < chunkSize*3+5; i++ {
+		nodes = append(nodes, &domain.CodeEntity{
+			ID: domain.CanonicalID(fmt.Sprintf("symbol:go:m:f%d", i)), Kind: domain.KindFunction, Name: fmt.Sprintf("f%d", i),
+		})
+	}
+	var facts []*domain.Fact
+	for i := 0; i < chunkSize*2+3; i++ {
+		facts = append(facts, &domain.Fact{
+			SourceID: domain.CanonicalID(fmt.Sprintf("symbol:go:m:a%d", i)), TargetID: domain.CanonicalID(fmt.Sprintf("symbol:go:m:b%d", i)),
+			Kind: domain.FactCalls, ToolSource: domain.ToolSSA, Confidence: 0.8,
+		})
+	}
+	// 单块（远超 chunkSize）
+	writePkgCacheBlocks(path, pkgCacheHeader{Version: pkgCacheFormat, Analyzer: analyzerVersionHash(), PkgHash: "h"},
+		[][]*domain.CodeEntity{nodes}, [][]*domain.Fact{facts}, map[string]*cachedFuncData{})
+
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec := gob.NewDecoder(f)
+	var hdr pkgCacheHeader
+	if err := dec.Decode(&hdr); err != nil {
+		t.Fatal(err)
+	}
+	blocks := 0
+	for {
+		var ch pkgCacheChunk
+		if err := dec.Decode(&ch); err != nil {
+			t.Fatalf("解码失败: %v", err)
+		}
+		if ch.Kind == chunkEnd {
+			break
+		}
+		blocks++
+		if len(ch.Nodes) > chunkSize || len(ch.Facts) > chunkSize {
+			t.Errorf("块超限: nodes=%d facts=%d (chunkSize=%d)", len(ch.Nodes), len(ch.Facts), chunkSize)
+		}
+	}
+	f.Close()
+	if blocks == 0 {
+		t.Fatal("应有多块")
+	}
+	got := loadPkgCache(path, "h")
+	if got == nil {
+		t.Fatal("超大块缓存应可命中")
+	}
+	if !reflect.DeepEqual(nodes, got.Nodes) {
+		t.Errorf("Nodes 往返不一致（%d 项）", len(nodes))
+	}
+	if !reflect.DeepEqual(facts, got.Facts) {
+		t.Errorf("Facts 往返不一致（%d 项）", len(facts))
 	}
 }
