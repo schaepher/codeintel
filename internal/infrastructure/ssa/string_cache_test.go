@@ -240,3 +240,29 @@ func TestStringCacheConcurrentFirstAccessComputesOnce(t *testing.T) {
 		t.Errorf("并发首次访问 String() 调用 %d 次, want 1", n)
 	}
 }
+
+// TestStringCacheConcurrentMixed（todo4-3）：并发混用类型串/候选键/snakeCase
+// 缓存（-race）结果仍与直接计算一致。
+func TestStringCacheConcurrentMixed(t *testing.T) {
+	s := &funcSnapshot{}
+	typesList := sampleTypes(t)
+	const workers = 8
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func(seed int) {
+			defer wg.Done()
+			for i := 0; i < 300; i++ {
+				tt := typesList[(seed+i)%len(typesList)]
+				_ = s.typeString(tt)
+				_ = s.snakeCase(tt.String())
+			}
+		}(w)
+	}
+	wg.Wait()
+	for _, tt := range typesList {
+		if got := s.typeString(tt); got != tt.String() {
+			t.Errorf("并发后 typeString = %q, want %q", got, tt.String())
+		}
+	}
+}

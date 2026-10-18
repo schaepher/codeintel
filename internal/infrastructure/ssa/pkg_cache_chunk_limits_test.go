@@ -158,3 +158,56 @@ func TestPkgCacheOversizedBlocksSplit(t *testing.T) {
 		t.Errorf("Facts 往返不一致（%d 项）", len(facts))
 	}
 }
+
+// TestPkgCacheSmallSummaryChunkRoundTrip（todo4-2）：摘要数不足一块时
+// （预分配容量 = 实际条数）分块协议与内容不变。
+func TestPkgCacheSmallSummaryChunkRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "small.json")
+	fd := map[string]*cachedFuncData{}
+	for i := 0; i < 3; i++ {
+		fd[fmt.Sprintf("symbol:go:m:f%d", i)] = &cachedFuncData{
+			Calls: []cachedCallInfo{{CalleeID: "symbol:go:m:g", CallLine: i, CallPos: i * 10}},
+		}
+	}
+	writePkgCacheFile(path, &pkgCacheFile{Version: pkgCacheFormat, Analyzer: analyzerVersionHash(), PkgHash: "h", FuncData: fd})
+	got := loadPkgCache(path, "h")
+	if got == nil {
+		t.Fatal("小摘要数缓存应命中")
+	}
+	if !reflect.DeepEqual(fd, got.FuncData) {
+		t.Errorf("摘要内容往返不一致（%d 项）", len(fd))
+	}
+}
+
+// TestPkgCacheCorruptedInputs（todo4-3）：损坏头 / 多点截断一律拒绝
+// （流式读取不得重放半截产物）。
+func TestPkgCacheCorruptedInputs(t *testing.T) {
+	good := seedChunkedCache(t)
+	data, err := os.ReadFile(good)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 损坏头
+	badPath := filepath.Join(t.TempDir(), "bad.json")
+	buf := append([]byte(nil), data...)
+	for i := 0; i < 16 && i < len(buf); i++ {
+		buf[i] = 0xFF
+	}
+	if err := os.WriteFile(badPath, buf, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := loadPkgCache(badPath, "h"); got != nil {
+		t.Errorf("损坏头应拒绝，got %d nodes", len(got.Nodes))
+	}
+	// 多点截断（含块边界前的截断）
+	for _, pct := range []int{5, 20, 40, 60, 80, 95} {
+		cut := len(data) * pct / 100
+		p := filepath.Join(t.TempDir(), fmt.Sprintf("cut%d.json", pct))
+		if err := os.WriteFile(p, data[:cut], 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := loadPkgCache(p, "h"); got != nil {
+			t.Errorf("%d%% 截断应拒绝，got %d nodes", pct, len(got.Nodes))
+		}
+	}
+}

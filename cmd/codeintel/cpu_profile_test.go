@@ -112,3 +112,29 @@ func TestStartCPUProfileInactive(t *testing.T) {
 		t.Error("无法创建的 profile 路径不应 active")
 	}
 }
+
+// TestStartCPUProfileFailureThenSuccess（todo4-3）：一次启动失败（坏路径）
+// 不影响后续命令/采样启动。
+func TestStartCPUProfileFailureThenSuccess(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEINTEL_CPU_PROFILE", dir) // 目录 → os.Create 失败
+	if stop, active := startCPUProfile("init"); active {
+		stop()
+		t.Fatal("坏路径不应 active")
+	}
+	path := filepath.Join(dir, "ok.prof")
+	t.Setenv("CODEINTEL_CPU_PROFILE", path)
+	stop, active := startCPUProfile("init")
+	if !active {
+		t.Fatal("坏启动不应影响后续采样启动")
+	}
+	burnCPU(150 * time.Millisecond)
+	stop()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("后续采样文件未生成: %v", err)
+	}
+	if len(data) < 2 || data[0] != 0x1f || data[1] != 0x8b {
+		t.Fatalf("后续采样文件不是 gzip: len=%d", len(data))
+	}
+}
