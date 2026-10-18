@@ -89,7 +89,9 @@ type allocStoreResult struct {
 }
 
 // singleStoredValue 返回只有一个 Store 写入的 Alloc 的来源值；否则 nil。
-// 结果按 Alloc 缓存在 extractor 上（同一函数内多次字段访问同一副本时不重扫）。
+// 结果按 Alloc 缓存在 extractor 上（同一函数内多次字段访问同一副本不重扫）。
+// 只扫描 **Alloc 的引用者**（Referrers），不扫描整个函数块——首次查询也不
+// 是 O(函数大小)（todo2-3）。
 func (ext *fieldExtractor) singleStoredValue(alloc *ssa.Alloc) ssa.Value {
 	if ext == nil || alloc == nil || ext.fn == nil {
 		return nil
@@ -98,9 +100,9 @@ func (ext *fieldExtractor) singleStoredValue(alloc *ssa.Alloc) ssa.Value {
 		return r.val
 	}
 	res := allocStoreResult{done: true}
-	n := 0
-	for _, b := range ext.fn.Blocks {
-		for _, instr := range b.Instrs {
+	if refs := alloc.Referrers(); refs != nil {
+		n := 0
+		for _, instr := range *refs {
 			st, ok := instr.(*ssa.Store)
 			if !ok || st.Addr != alloc {
 				continue
@@ -111,9 +113,6 @@ func (ext *fieldExtractor) singleStoredValue(alloc *ssa.Alloc) ssa.Value {
 				break
 			}
 			res.val = st.Val
-		}
-		if n > 1 {
-			break
 		}
 	}
 	if ext.allocStores == nil {
