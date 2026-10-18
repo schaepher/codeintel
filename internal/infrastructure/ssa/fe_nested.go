@@ -25,8 +25,9 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-// maxNestedDepth 防止字段/索引链异常时的无限回溯。
-const maxNestedDepth = 12
+// maxNestedDepth 防止字段/索引链异常时的无限回溯（todo3-3：提高到 32，
+// 容纳深层匿名嵌套 + 容器元素链）。
+const maxNestedDepth = 32
 
 // nestedTypePath 返回 v 对应值的类型限定路径（不含 v 自身字段）；无法恢复返回空。
 func (ext *fieldExtractor) nestedTypePath(v ssa.Value, depth int) string {

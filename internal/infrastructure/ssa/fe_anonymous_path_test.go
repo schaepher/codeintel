@@ -198,3 +198,66 @@ func TestAnonymousPathStandaloneFallback(t *testing.T) {
 		}
 	}
 }
+
+// TestAnonymousPathDeepNesting（todo3-3）：深层匿名嵌套 + 容器元素链
+// （Rows[*].Cells[*].Inner.Leafs[*].V）在提高后的回溯深度上限内完整恢复。
+func TestAnonymousPathDeepNesting(t *testing.T) {
+	nodes, _ := indexFixture(t, map[string]string{
+		"go.mod": moduleGoMod,
+		"main.go": `package m
+
+type Deep struct {
+	Rows []struct {
+		Cells []struct {
+			Inner struct {
+				Leafs []struct{ V int }
+			}
+		}
+	}
+}
+
+func deep(d Deep) {
+	for _, r := range d.Rows {
+		for _, c := range r.Cells {
+			for _, l := range c.Inner.Leafs {
+				_ = l.V
+			}
+		}
+	}
+}
+`,
+	})
+	const want = "example.com/mtest.Deep.Rows[*].Cells[*].Inner.Leafs[*].V"
+	found := false
+	for _, n := range nodes {
+		if n.Property("full_path") == want {
+			found = true
+		}
+	}
+	if !found {
+		var got []string
+		for _, n := range nodes {
+			if n.Kind == domain.KindFieldAccess {
+				got = append(got, n.Property("full_path"))
+			}
+		}
+		t.Errorf("缺少深层匿名路径 %q（实得 %v）", want, got)
+	}
+}
+
+// TestNestedTypePathNilSafe（todo3-3）：空值/空引用不得 panic（保护回退）。
+func TestNestedTypePathNilSafe(t *testing.T) {
+	ext := &fieldExtractor{}
+	if got := ext.nestedTypePath(nil, 0); got != "" {
+		t.Errorf("nil 值 typePath = %q, want 空", got)
+	}
+	if got := ext.singleStoredValue(nil); got != nil {
+		t.Errorf("nil Alloc singleStoredValue = %v", got)
+	}
+	if got := valueScopeTag(nil, "", nil); got != "" {
+		t.Errorf("nil 输入作用域后缀 = %q", got)
+	}
+	if got := ext.typeString(nil); got != "" {
+		t.Errorf("nil 类型串 = %q", got)
+	}
+}
