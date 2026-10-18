@@ -245,6 +245,12 @@ func (ext *fieldExtractor) recordCallInfo(cc *ssa.CallCommon, calleeID domain.Ca
 		}
 		argNames = append(argNames, name)
 	}
+	// todo2-9：无结构体实参 → 不可能匹配任何字段写（间接写按
+	// argStructPaths 匹配），不保留无用调用记录（省内存/缓存）。有结构体
+	// 但缺实参名（接收者信息缺失）仍保留——仍能匹配写。
+	if len(argPaths) == 0 {
+		return
+	}
 	ext.funcData.calls = append(ext.funcData.calls, callInfo{
 		calleeID:       calleeID,
 		argStructPaths: argPaths,
