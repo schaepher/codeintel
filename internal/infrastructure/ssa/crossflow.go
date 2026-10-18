@@ -35,5 +35,6 @@ type callInfo struct {
 	calleeID       domain.CanonicalID
 	argStructPaths []string
 	callLine       int      // 调用点行号（Q90 调用点级回连）
+	callPos        int      // 调用点 token.Pos 偏移（区分同一行的不同调用点，todo2-8）
 	argNames       []string // 非 const 实参变量名（Q90）
 }

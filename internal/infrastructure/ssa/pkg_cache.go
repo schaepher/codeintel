@@ -43,7 +43,7 @@ import (
 // 独立结束标记（truncated/缺结束标记/结束标记带数据/尾随消息一律拒绝）。
 // 动机（实测）：整包消息会在 gob 内部缓冲完整载荷（44.6MB/op）→ 分块后
 // 缓冲区复用，分配字节约 -92.9%、局部编码耗时约 -36.1%（不外推全量）。
-const pkgCacheFormat = 4
+const pkgCacheFormat = 5
 
 // pkgCacheFile 单包缓存文件。
 type pkgCacheFile struct {
@@ -128,6 +128,7 @@ type cachedCallInfo struct {
 	CalleeID       string   `json:"callee_id"`
 	ArgStructPaths []string `json:"arg_struct_paths"`
 	CallLine       int      `json:"call_line"`
+	CallPos        int      `json:"call_pos"`
 	ArgNames       []string `json:"arg_names"`
 }
 
@@ -162,7 +163,7 @@ func toCachedFD(fd *funcData) *cachedFuncData {
 	for _, cInfo := range fd.calls {
 		c.Calls = append(c.Calls, cachedCallInfo{
 			CalleeID: string(cInfo.calleeID), ArgStructPaths: cInfo.argStructPaths,
-			CallLine: cInfo.callLine, ArgNames: cInfo.argNames,
+			CallLine: cInfo.callLine, CallPos: cInfo.callPos, ArgNames: cInfo.argNames,
 		})
 	}
 	return c

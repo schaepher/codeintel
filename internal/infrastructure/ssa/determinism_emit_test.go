@@ -180,3 +180,56 @@ func use(o *Order) { a(o) }
 		t.Errorf("环形调用下 b 应得到 Order.Fee 间接写摘要")
 	}
 }
+
+// TestIndirectWriteSameLineCallSites：同一行的两个调用点（实参不同）——
+// 间接写传播按 (字段, 行号, 调用点 Pos) 区分，不按行号合并混用实参；
+// INDIRECT_WRITE 边的调用点元数据跨多次构建稳定（todo2-8）。
+func TestIndirectWriteSameLineCallSites(t *testing.T) {
+	files := map[string]string{
+		"go.mod": moduleGoMod,
+		"main.go": `package m
+
+type V struct {
+	F    func() bool
+	Seen int
+}
+
+func fill(vs []V) { vs[0].Seen = 1 }
+
+func call(xs []V, ys []V) {
+	fill(xs); fill(ys)
+}
+`,
+	}
+	var first string
+	for i := 0; i < 10; i++ {
+		_, facts := indexFixture(t, files)
+		var args string
+		line := -1
+		for _, f := range facts {
+			if f.Kind != domain.FactIndirectWrite {
+				continue
+			}
+			if v, ok := f.Metadata["call_args"].(string); ok {
+				args = v
+			}
+			switch v := f.Metadata["call_line"].(type) {
+			case int:
+				line = v
+			case float64:
+				line = int(v)
+			}
+		}
+		if line <= 0 {
+			t.Fatalf("第 %d 次：INDIRECT_WRITE 边缺 call_line", i)
+		}
+		if args != "xs" && args != "ys" {
+			t.Errorf("call_args = %q, want xs 或 ys（不得混用两调用点实参）", args)
+		}
+		if i == 0 {
+			first = args
+		} else if args != first {
+			t.Errorf("call_args 跨构建抖动：%q vs %q", first, args)
+		}
+	}
+}

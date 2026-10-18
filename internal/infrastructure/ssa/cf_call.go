@@ -249,6 +249,7 @@ func (ext *fieldExtractor) recordCallInfo(cc *ssa.CallCommon, calleeID domain.Ca
 		calleeID:       calleeID,
 		argStructPaths: argPaths,
 		callLine:       ext.prog.Fset.PositionFor(cc.Pos(), false).Line,
+		callPos:        int(cc.Pos()),
 		argNames:       argNames,
 	})
 }

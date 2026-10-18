@@ -35,6 +35,7 @@ func sortedFuncIDs(data map[domain.CanonicalID]*funcData) []domain.CanonicalID {
 type indirectKey struct {
 	fieldPath string
 	callLine  int
+	callPos   int // 同一行的不同调用点不合并（todo2-8）
 }
 
 // excluded（Q80 别名分析）：确认无别名的间接写候选，迭代时跳过。
@@ -84,7 +85,7 @@ func emitSummaries(data map[domain.CanonicalID]*funcData, alias *aliasResult, em
 		}
 		for _, site := range callers[g] {
 			for _, e := range newEntries {
-				key := indirectKey{e.fieldPath, site.c.callLine}
+				key := indirectKey{e.fieldPath, site.c.callLine, site.c.callPos}
 				if _, ok := indirect[site.caller][key]; ok {
 					continue
 				}
@@ -99,6 +100,11 @@ func emitSummaries(data map[domain.CanonicalID]*funcData, alias *aliasResult, em
 				// 多层闭包传播时覆盖为当前层
 				e.callLine = site.c.callLine
 				e.callArg = strings.Join(site.c.argNames, ", ")
+				// todo2-8：同 (字段, 调用点) 多来源时稳定保留代表（earlierEntry
+				// 全序），不按传播轮次覆盖；更差值不重复入队。
+				if prev, ok := indirect[site.caller][key]; ok && !earlierEntry(e, prev) {
+					continue
+				}
 				indirect[site.caller][key] = e
 				pending[site.caller] = append(pending[site.caller], e)
 				queue = append(queue, site.caller)
@@ -127,7 +133,7 @@ func emitSummaries(data map[domain.CanonicalID]*funcData, alias *aliasResult, em
 		// 合并外部摘要的间接写（虚拟节点，无调用点 → callLine=0）
 		if fd != nil {
 			for _, e := range fd.indirectWrites {
-				key := indirectKey{e.fieldPath, 0}
+				key := indirectKey{e.fieldPath, 0, 0}
 				if _, ok := ind[key]; !ok {
 					ind[key] = e
 				}
@@ -152,7 +158,7 @@ func emitSummaries(data map[domain.CanonicalID]*funcData, alias *aliasResult, em
 					if !contains(c.argStructPaths, structPathOf(e.fieldPath)) {
 						continue
 					}
-					got, ok := indirect[fID][indirectKey{e.fieldPath, c.callLine}]
+					got, ok := indirect[fID][indirectKey{e.fieldPath, c.callLine, c.callPos}]
 					if !ok {
 						continue
 					}
