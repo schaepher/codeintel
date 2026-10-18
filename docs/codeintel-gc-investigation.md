@@ -180,3 +180,14 @@
 | 9 | 内存与 GC | 安全子项已做：不保留无结构体实参的调用记录（间接写永不匹配）；其余需大仓 profile | `ae2e56c` |
 | 10 | 暖构建准备 | 评估（同 R14）——需大仓暖构建耗时/内存拆分，未盲改 | §7 |
 | 11 | 堆采样：GC 时点统一、构建隔离、峰值/累计分开 | `peakSampler`（GC 后 live 峰值 + 阶段 pre-GC 快照）+ `<profile>.stats.json`（TotalAlloc/NumGC/Pause）；Index 开始 reset | `5bfbb54` |
+
+## 9. remote-todo3（2026-10-16）执行结果
+
+| # | 事项 | 结果 | 提交 |
+|---|---|---|---|
+| 1 | 大图规模判断改**有界计数** | 子查询 `LIMIT 阈值+1`（达阈值即停，不再全量 count）；结论仍按 build_id 缓存；新增有界计数 + 并发按需查询（-race）测试 | `e617a14` |
+| 2 | 包缓存**超大输入块二次切分** | `encodeChunkSections` 对传入节点/边块再按 chunkSize 切（单条 gob 消息有界）；摘要容器容量上限 chunkSize；新增超大块往返测试 | `d4f8d53` |
+| 3 | 匿名路径回溯深度 + 空引用保护 | `maxNestedDepth` 12→32；新增深层嵌套（Rows[*].Cells[*].Inner.Leafs[*]）、nil 值/引用保护测试 | `44d4d08` |
+| 4 | 值身份：别名重复查询稳定 ID | `aliasPass.valueIDs` 按值缓存——同一值多次查询不再按槽位访问状态追加 `@行号`；变异验证（去掉缓存即 ID 漂移） | `a8a6c89` |
+| 5 | 调用点缓存保真：恢复 `CallPos` | `fromCachedFD` 补 `callPos`（原先暖重放丢失同行调用点区分）；不同 CallPos 往返断言 | `b26d2ab` |
+| 6 | 摘要重放预分配 | 按缓存已知条数预分配 calls/direct/indirect 切片，空输入保持 nil 语义；局部基准 2000 项 **5 allocs/op**（不宣称全量/GC 改善） | `b26d2ab` |
