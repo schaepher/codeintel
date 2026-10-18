@@ -89,3 +89,86 @@ func use(i Iface) { i.M() }
 		t.Errorf("值与指针共享方法应只产 1 条 dispatch_to，got %d", n)
 	}
 }
+
+// TestDispatchRegisterSiteFileStable：不同文件、同一行号的注册点——按
+// (文件, 行号) 字典序稳定取最小，并在 metadata 记录 register_file
+// （只有行号无法区分不同文件，todo2-7）。
+func TestDispatchRegisterSiteFileStable(t *testing.T) {
+	_, facts := indexFixture(t, map[string]string{
+		"go.mod": moduleGoMod,
+		"a.go": `package m
+
+func regA() Iface { return &Impl{} }
+
+type Iface interface{ M() }
+
+type Impl struct{}
+
+func (i Impl) M() {}
+`,
+		"b.go": `package m
+
+func regB() Iface { return Impl{} }
+
+func use(i Iface) { i.M() }
+`,
+	})
+	n := 0
+	var file string
+	var site int
+	for _, f := range facts {
+		if f.Kind != domain.FactDispatchTo || !strings.HasSuffix(string(f.TargetID), ":(Impl).M") {
+			continue
+		}
+		n++
+		if v, ok := f.Metadata["register_file"].(string); ok {
+			file = v
+		}
+		switch v := f.Metadata["register_site"].(type) {
+		case int:
+			site = v
+		case float64:
+			site = int(v)
+		}
+	}
+	if n != 1 {
+		t.Fatalf("值与指针共享方法应只产 1 条 dispatch_to，got %d", n)
+	}
+	// 两个注册点都在第 3 行；文件字典序 a.go < b.go
+	if file != "a.go" || site != 3 {
+		t.Errorf("register = (%q,%d), want (a.go,3)（稳定取文件字典序最小）", file, site)
+	}
+}
+
+// TestDispatchEmbeddedSharedMethod：不同注册类型通过**嵌入**共享同一方法
+// （Outer 提升 Base.M）——只产一条 dispatch_to，候选键按实际方法（Base.M）。
+func TestDispatchEmbeddedSharedMethod(t *testing.T) {
+	_, facts := indexFixture(t, map[string]string{
+		"go.mod": moduleGoMod,
+		"main.go": `package m
+
+type Base struct{}
+
+func (b Base) M() {}
+
+type Outer struct{ Base }
+
+type Iface interface{ M() }
+
+func regA() Iface { return &Outer{} }
+
+func regB() Iface { return Base{} }
+
+func use(i Iface) { i.M() }
+`,
+	})
+	n := 0
+	for _, f := range facts {
+		if f.Kind == domain.FactDispatchTo && strings.HasSuffix(string(f.TargetID), ":(Base).M") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("嵌入共享方法应只产 1 条 dispatch_to（(Base).M），got %d", n)
+	}
+}

@@ -17,8 +17,15 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-// dispatchReg 注册点：接口类型 → 动态类型 String → 注册行号。
-type dispatchReg map[*types.Named]map[string]int
+// dispatchSite 注册点位置（文件 + 行——多文件同号可区分，todo2-7）。
+type dispatchSite struct {
+	file string // 绝对路径（emitDispatches 转仓库相对）
+	line int
+}
+
+// dispatchReg 注册点：接口类型 → 动态类型 String → 注册位置**列表**
+// （保留完整来源；候选选择由 dispatch_emit 按 (file,line) 稳定取最小）。
+type dispatchReg map[*types.Named]map[string][]dispatchSite
 
 // regHits Q221：注册命中预处理（iface.String() → candidateKey → true）——
 // dispatchOriginOf 的 O(1) 判定表。原实现挂在 extractor（每函数新建）
@@ -55,7 +62,8 @@ type dispatchCandidate struct {
 	fn         *types.Func
 	origin     string // register / enum
 	confidence float64
-	site       int // 注册行号（register 时）
+	site       int    // 注册行号（register 时；稳定取最小）
+	file       string // 注册文件（仓库相对；register 时）
 }
 
 // collectDispatchRegistrations 收集模块内 MakeInterface 注册点：
@@ -95,17 +103,27 @@ func collectDispatchRegistrations(prog *ssa.Program, modFuncs []*ssa.Function, m
 					notePkg(fn.Pkg.Pkg.Path())
 				}
 				if regs[iface] == nil {
-					regs[iface] = map[string]int{}
+					regs[iface] = map[string][]dispatchSite{}
 				}
 				dyn := mi.X.Type().String()
-				if _, ok := regs[iface][dyn]; !ok {
-					// 注册点取动态值字面量（&Eng{}）的位置最准；
-					// MakeInterface.Pos 为合成位置
-					pos := mi.X.Pos()
-					if pos == 0 {
-						pos = mi.Pos()
+				// 注册点取动态值字面量（&Eng{}）的位置最准；MakeInterface.Pos
+				// 为合成位置。保留**全部**注册位置（文件+行）——多文件同号
+				// 或同类型多处注册时由候选选择稳定取最小。
+				pos := mi.X.Pos()
+				if pos == 0 {
+					pos = mi.Pos()
+				}
+				p := prog.Fset.PositionFor(pos, false)
+				site := dispatchSite{file: p.Filename, line: p.Line}
+				dup := false
+				for _, old := range regs[iface][dyn] {
+					if old.file == site.file && old.line == site.line {
+						dup = true
+						break
 					}
-					regs[iface][dyn] = prog.Fset.PositionFor(pos, false).Line
+				}
+				if !dup {
+					regs[iface][dyn] = append(regs[iface][dyn], site)
 				}
 			}
 		}

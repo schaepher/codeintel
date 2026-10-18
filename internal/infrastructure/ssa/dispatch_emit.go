@@ -74,27 +74,41 @@ func emitDispatches(repo *domain.Repository, prog *ssa.Program, pool *implTypePo
 		}
 
 		candidates := map[string]dispatchCandidate{}
-		for dyn, site := range regs[ck.iface] {
+		for dyn, sites := range regs[ck.iface] {
 			t := dynamicTypeOf(dyn, prog)
 			if t == nil {
 				continue
 			}
-			if fn := findMethod(t, ck.method); fn != nil {
-				key := candidateKey(fn)
-				// R10：同一候选方法可能由多个注册点（值/指针共享方法等）
-				// 命中——不能"map 迭代顺序最后者赢"（go2o 同一
-				// (ApprovalImpl).IsFinal 的 register_site 在 24/255 间抖动）。
-				// 稳定规则：取**最小注册行号**作代表（所有来源参与选择，
-				// site=0 视为未知不参选）。
-				if prev, ok := candidates[key]; ok {
-					if prev.origin == "register" && site > 0 && (prev.site == 0 || site < prev.site) {
-						prev.site = site
-						candidates[key] = prev
-					}
+			fn := findMethod(t, ck.method)
+			if fn == nil {
+				continue
+			}
+			key := candidateKey(fn)
+			// R10/todo2-7：同一候选方法可能由多个注册点（值/指针共享方法、
+			// 不同文件同号）命中——不能"map 迭代顺序最后者赢"（go2o 同一
+			// (ApprovalImpl).IsFinal 的 register_site 在 24/255 间抖动）。
+			// 稳定规则：按 (仓库相对文件, 行号) 字典序取最小（所有来源参与
+			// 选择；site=0 视为未知不参选）。
+			best := dispatchCandidate{fn: fn, origin: "register", confidence: 0.9}
+			for _, s := range sites {
+				if s.line <= 0 {
 					continue
 				}
-				candidates[key] = dispatchCandidate{fn: fn, origin: "register", confidence: 0.9, site: site}
+				f := relPath(repo.Path, s.file)
+				if best.site == 0 || earlierDispatchSite(f, s.line, best.file, best.site) {
+					best.file, best.site = f, s.line
+				}
 			}
+			if prev, ok := candidates[key]; ok {
+				if prev.origin == "register" && best.site > 0 {
+					if prev.site == 0 || earlierDispatchSite(best.file, best.site, prev.file, prev.site) {
+						prev.file, prev.site = best.file, best.site
+						candidates[key] = prev
+					}
+				}
+				continue
+			}
+			candidates[key] = best
 		}
 		for _, fn := range pool.methodsFor(ck.iface, ck.method) {
 			key := candidateKey(fn)
@@ -115,6 +129,9 @@ func emitDispatches(repo *domain.Repository, prog *ssa.Program, pool *implTypePo
 			}
 			if c.site > 0 {
 				meta["register_site"] = c.site
+				if c.file != "" {
+					meta["register_file"] = c.file
+				}
 			}
 			if err := emit(domain.Item{Fact: &domain.Fact{
 				SourceID:   ifaceID,
@@ -129,4 +146,12 @@ func emitDispatches(repo *domain.Repository, prog *ssa.Program, pool *implTypePo
 		}
 	}
 	return dispatchPkgs, nil
+}
+
+// earlierDispatchSite 注册点稳定序：(文件, 行号) 字典序最小者优先。
+func earlierDispatchSite(f1 string, l1 int, f2 string, l2 int) bool {
+	if f1 != f2 {
+		return f1 < f2
+	}
+	return l1 < l2
 }
