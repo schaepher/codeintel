@@ -62,7 +62,9 @@ type edgeNeighbor struct {
 // edgeAdjacency 某个视图的邻接表（构建后只读）。
 type edgeAdjacency map[int64][]edgeNeighbor
 
-// edgeVerdict 视图规模判断（边数 + 是否可缓存）。
+// edgeVerdict 视图规模判断（**有界**边数 + 是否可缓存）。
+// edges 是 count 的上界（最多 maxCachedEdgeCount+1），超阈值后不再精确统计
+// ——超大图首次全量 count(*) 本身也是一次全表扫（todo3-1）。
 type edgeVerdict struct {
 	edges    int
 	tooLarge bool
@@ -139,11 +141,14 @@ func (r *Repo) viewEdgeCount(label string) (edgeVerdict, error) {
 		}
 		r.edgeGraphMu.RUnlock()
 	}
+	// 有界计数：子查询 LIMIT 阈值+1，达到即停（不再为超大图做全量 count）。
+	limit := maxCachedEdgeCount + 1
 	var n int
-	if err := r.QueryRow(`SELECT count(*) FROM edges WHERE kind IN (` + edgeViewKindSQL(label) + `)`).Scan(&n); err != nil {
+	if err := r.QueryRow(`SELECT count(*) FROM (SELECT 1 FROM edges WHERE kind IN (`+
+		edgeViewKindSQL(label)+`) LIMIT ?)`, limit).Scan(&n); err != nil {
 		return edgeVerdict{}, err
 	}
-	v := edgeVerdict{edges: n, tooLarge: !shouldCacheEdgeGraph(n)}
+	v := edgeVerdict{edges: n, tooLarge: n > maxCachedEdgeCount}
 	if key == "" {
 		return v, nil
 	}

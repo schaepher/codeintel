@@ -165,3 +165,51 @@ func TestEdgeGraphOnDemandLargeView(t *testing.T) {
 		t.Fatalf("build 变更后按需查询仍应可达，err=%v len=%d", err, len(path))
 	}
 }
+
+// TestEdgeGraphBoundedCount（todo3-1）：超阈值后 count 有界（≤阈值+1），
+// 不再对超大图做全量统计。
+func TestEdgeGraphBoundedCount(t *testing.T) {
+	r := seedEdgeGraphRepo(t)
+	old := maxCachedEdgeCount
+	maxCachedEdgeCount = 1
+	t.Cleanup(func() { maxCachedEdgeCount = old })
+	// 加 4 条不同的 dataflow 边（UNIQUE(source,target,kind) 不可重复）
+	for _, p := range [][2]string{{"a", "c"}, {"a", "d"}, {"b", "d"}, {"c", "d"}} {
+		insertEdgeRawDirect(t, r,
+			domain.CanonicalID("symbol:go:example.com/m:"+p[0]),
+			domain.CanonicalID("symbol:go:example.com/m:"+p[1]), "data_flows_to")
+	}
+	v, err := r.viewEdgeCount(edgeViewDataFlow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !v.tooLarge {
+		t.Errorf("边数 %d > 阈值 1，应 tooLarge", v.edges)
+	}
+	if v.edges > maxCachedEdgeCount+1 {
+		t.Errorf("有界计数 = %d，应 ≤ 阈值+1=%d（不得全量统计）", v.edges, maxCachedEdgeCount+1)
+	}
+}
+
+// TestEdgeGraphConcurrentOnDemand（todo3-1）：小阈值（按需查询路径）下的
+// 并发 GetPath（-race 验证无共享状态竞态）。
+func TestEdgeGraphConcurrentOnDemand(t *testing.T) {
+	r := seedEdgeGraphRepo(t)
+	old := maxCachedEdgeCount
+	maxCachedEdgeCount = 1
+	t.Cleanup(func() { maxCachedEdgeCount = old })
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 5; j++ {
+				if p, err := r.GetPath("symbol:go:example.com/m:a", "symbol:go:example.com/m:c", 8, false); err != nil || len(p) != 3 {
+					t.Errorf("按需并发 GetPath: err=%v len=%d", err, len(p))
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+}
