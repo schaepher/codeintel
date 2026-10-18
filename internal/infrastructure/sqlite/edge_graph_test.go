@@ -120,3 +120,48 @@ func insertEdgeRawDirect(t *testing.T, r *Repo, src, dst domain.CanonicalID, kin
 		t.Fatal(err)
 	}
 }
+
+// TestEdgeGraphOnDemandLargeView（R1）：超阈值视图**不整表加载**，按需查询
+// 仍能找到路径并保留深度语义；规模判断（count+tooLarge）按 build_id 缓存。
+func TestEdgeGraphOnDemandLargeView(t *testing.T) {
+	r := seedEdgeGraphRepo(t)
+	old := maxCachedEdgeCount
+	maxCachedEdgeCount = 1 // 2 条 dataflow 边 > 1 → 走按需
+	t.Cleanup(func() { maxCachedEdgeCount = old })
+
+	if path, err := r.GetPath("symbol:go:example.com/m:a", "symbol:go:example.com/m:c", 8, false); err != nil || len(path) != 3 {
+		t.Fatalf("按需查询应找到 a→b→c（len=3），err=%v len=%d", err, len(path))
+	}
+	// 深度限制仍生效：maxDepth=1 时 2 跳不可达
+	if path, err := r.GetPath("symbol:go:example.com/m:a", "symbol:go:example.com/m:c", 1, false); err != nil || len(path) != 0 {
+		t.Errorf("maxDepth=1 时 2 跳应不可达，err=%v len=%d", err, len(path))
+	}
+	// 规模判断已缓存
+	r.edgeGraphMu.RLock()
+	var verdict edgeVerdict
+	var hasVerdict bool
+	if r.edgeGraphCache != nil {
+		verdict, hasVerdict = r.edgeGraphCache.verdict[edgeViewDataFlow]
+	}
+	r.edgeGraphMu.RUnlock()
+	if !hasVerdict || !verdict.tooLarge {
+		t.Errorf("规模判断应缓存 tooLarge=true，got %+v (ok=%v)", verdict, hasVerdict)
+	}
+	// 超大视图不整表加载
+	r.edgeGraphMu.RLock()
+	loaded := false
+	if r.edgeGraphCache != nil {
+		loaded = r.edgeGraphCache.views[edgeViewDataFlow] != nil
+	}
+	r.edgeGraphMu.RUnlock()
+	if loaded {
+		t.Errorf("超大视图不应整表加载到 views")
+	}
+	// build_id 变化 → 规模判断失效重算；按需查询仍可达
+	if _, err := r.Exec(`UPDATE build_metadata SET build_id = 'build-2'`); err != nil {
+		t.Fatal(err)
+	}
+	if path, err := r.GetPath("symbol:go:example.com/m:a", "symbol:go:example.com/m:c", 8, false); err != nil || len(path) != 3 {
+		t.Fatalf("build 变更后按需查询仍应可达，err=%v len=%d", err, len(path))
+	}
+}

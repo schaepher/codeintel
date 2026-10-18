@@ -28,15 +28,29 @@ func (r *Repo) GetPath(from, to domain.CanonicalID, maxDepth int, viaCalls bool)
 		}
 		return []*domain.TraceRow{{ID: from, Name: n.Name, Kind: n.Kind, Line: n.LineStart}}, nil
 	}
-	// Q252d：邻接表来自进程内缓存（按 build_id 复用，全表扫边只做一次），
-	// 按 kind 集合切视图——原先每次调用都全表扫边 + 建 map（77-110ms/次）
+	// Q252d / R1：邻接表来自进程内缓存（按 build_id 复用）；超大图不整表
+	// 加载，改为按需查询（见 edge_graph.go adjacencyFunc）。
 	view := edgeViewDataFlow
 	if viaCalls {
 		view = edgeViewCalls
 	}
-	adj, err := r.adjacencyView(view)
+	neighbors, err := r.adjacencyFunc(view)
 	if err != nil {
 		return nil, err
+	}
+	// 按需查询路径：同一次 BFS 内 memo（同一节点不重复查库）；小图路径
+	// 只是命中一个 slice，开销可忽略。
+	neighborMemo := map[int64][]edgeNeighbor{}
+	getNeighbors := func(ref int64) ([]edgeNeighbor, error) {
+		if v, ok := neighborMemo[ref]; ok {
+			return v, nil
+		}
+		v, err := neighbors(ref)
+		if err != nil {
+			return nil, err
+		}
+		neighborMemo[ref] = v
+		return v, nil
 	}
 	// Q254c Stage 2：邻接表在整数代理键空间 → 先把起点/终点解析成 id_int
 	// （两次唯一索引点查），BFS 只搬 int64；结果回填 canonical ID 供输出。
@@ -65,7 +79,11 @@ func (r *Repo) GetPath(from, to domain.CanonicalID, maxDepth int, viaCalls bool)
 	for len(queue) > 0 && !found && len(visited) < maxPathVisited {
 		cur := queue[0]
 		queue = queue[1:]
-		for _, e := range adj[cur] {
+		es, err := getNeighbors(cur)
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range es {
 			if visited[e.to] {
 				continue
 			}
