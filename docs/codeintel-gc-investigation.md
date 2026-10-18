@@ -156,3 +156,19 @@
   SSA 构建会让 dispatch/alias 缺失 → 需要“按包产物 + 共享收尾数据”的重构，
   并用冷暖保真（detcheck `scripts/detcheck.sh`）验证。
 - 缺大仓暖构建耗时/内存拆分 → 同 R13，先评估后动。
+
+## 8. remote-todo2（2026-10-16）执行结果
+
+| # | 事项 | 结果 | 提交 |
+|---|---|---|---|
+| 1 | 超大图按需查询 + 规模判断复用 | 超阈值视图**不整表加载**，逐节点 SQL 查边（BFS 内 memo）；count/tooLarge 按 build 缓存；保留深度与有向语义 | `abe4796` |
+| 2 | 包缓存分块：限制单块 + 减少编码临时容器 | FD 块 map 复用 + 平坦分块（协议不变、重放内容不变） | `ce8d9e1` |
+| 3 | 匿名字段路径：副本只扫相关引用、按 Alloc 缓存 | `singleStoredValue` 改扫 `Alloc.Referrers()`（首次也不扫整个函数） | `0d83ad8` |
+| 4 | 构建级字符串缓存：并发首次不重复计算 | 写锁内二次检查（RWMutex）；`countingType` 测试断言只渲染一次；命中零分配 | `f03d635` |
+| 5 | 缓存与大图测试 | 大图按需 + 规模判断缓存失效、每块条数 ≤ chunkSize、流中途截断拒绝 | `abe4796` / `1934941` |
+| 6 | 值身份：闭包/多 init 作用域、result 槽位、别名稳定 | 作用域后缀（`@closure:`/`@init:`）同时用于 `emitValue` 与 alias；闭包/多 init 回归 | `ba3770c` |
+| 7 | 注册来源：补文件 + 完整来源、嵌入共享方法 | metadata 增 `register_file`；按 (file,line) 稳定取最小；嵌入共享方法只产一条边 | `ec18dfc` |
+| 8 | 摘要来源与传播：完整源位置、候选覆盖、同行调用点 | `callPos` 进间接写键与缓存（格式 v5）；传播代表用 `earlierEntry` 全序；同行两调用点实参不混用 | `036def6` |
+| 9 | 内存与 GC | 安全子项已做：不保留无结构体实参的调用记录（间接写永不匹配）；其余需大仓 profile | `ae2e56c` |
+| 10 | 暖构建准备 | 评估（同 R14）——需大仓暖构建耗时/内存拆分，未盲改 | §7 |
+| 11 | 堆采样：GC 时点统一、构建隔离、峰值/累计分开 | `peakSampler`（GC 后 live 峰值 + 阶段 pre-GC 快照）+ `<profile>.stats.json`（TotalAlloc/NumGC/Pause）；Index 开始 reset | `5bfbb54` |

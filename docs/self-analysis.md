@@ -2524,14 +2524,13 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
 | P0 | #7 | `--with-qa` 实战验证（wiki --ai 参考资料生效） | 需真实问答/agent |
 | P0 | #8 | go2o domains.services 人工确认（30 服务归属） | 人在环 |
 | P0 | #9 | 术语表 24 条 / flows 5 条人工 review | 人在环 |
-| P1 性能 | R13 | 内存与 GC：无用调用记录/字段产物重复物化/暖缓存字符串/无指针记录 | **需大仓 profile** |
+| P1 性能 | R13 | 内存与 GC：无用调用记录/字段产物重复物化/暖缓存字符串/无指针记录（空结构实参调用记录已裁剪；其余需大仓 profile） | **需大仓 profile** |
 | P1 性能 | R14 | 暖构建准备：分离别名/全局 init/派发所需数据，包缓存命中少建图 | **需大仓 profile** |
 | P1 性能 | #14 | 构建期内存线复测/收尾（gob 分配是否回退、SSA 剩余热点） | **需大仓** |
 | P1 性能 | cl4-P1 | `emitValue` 产物分配降低（属性 map/装箱/重复字符串） | **需大仓 profile** |
 | P1 性能 | #11 | Stage 2b：`summary`/`summary_origins`/`idx_nodes_func_id` 整数化 | **需大仓** |
 | P1 性能 | #13 | SCIP 重复加载依赖图 + 按包增量 | 需外部工具评估 |
 | P1 性能 | #12 | 写库/流水线单写者串行（flush p95） | **需大仓** |
-| P1 工程 | R1 | 超大图路径查询：按需查询 + 同构建版本复用规模判断（现超阈值不缓存、每次重扫） | 设计/重构 |
 | P1 工程 | #15 | 邻接表缓存推广到 4 处全扫边集消费者（`repo_chain`/`repo_flows`/`repo_unused`/`rg_bfs`） | 边 kind 集不同，需新视图/逐消费者验证 |
 | P1 工程 | #16 | cli → action 迁移收尾（~100 文件按 R89 模式） | 机械大批量 |
 | P1 工程 | ssa-cache | SSA 缓存余项：`instancePath`/`recoverVarName`/`allocTypeShort`/`marshalProps` | 低风险 |
