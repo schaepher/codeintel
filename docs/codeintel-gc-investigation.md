@@ -156,6 +156,14 @@
   SSA 构建会让 dispatch/alias 缺失 → 需要“按包产物 + 共享收尾数据”的重构，
   并用冷暖保真（detcheck `scripts/detcheck.sh`）验证。
 - 缺大仓暖构建耗时/内存拆分 → 同 R13，先评估后动。
+- **todo2-10 代码审计结论（2026-10-16）**：包缓存命中检测发生在
+  `prog.Build()` **之后**（`adapter_index.go` 阶段 A 依赖 `byPkg` 的
+  `*ssa.Function`）。`ssautil.Packages` 只创建函数对象，`prog.Build()`
+  统一构建全部函数体；Go x/tools 没有“只构建部分包”的公开 API（
+  `ssautil.BuildPackage` 会新建 Program）。因此“减少类型图/SSA 准备”
+  要么改为按包独立 Program（会破坏跨包 `funcSnapshot`/dispatch/alias），
+  要么两阶段构建（先判断命中集合再选择性 Build）——两者都需大仓
+  暖构建数据与冷暖保真对照，**不盲改**。
 
 ## 8. remote-todo2（2026-10-16）执行结果
 
