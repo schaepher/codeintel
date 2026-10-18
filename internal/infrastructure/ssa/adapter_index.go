@@ -22,6 +22,9 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	logger := logging.FromContext(ctx)
 	logger.Debug("enter (Adapter).Index")
 	defer logger.Debug("exit (Adapter).Index")
+	// todo2-11：堆采样状态按构建隔离（reset 干净启动，结束落盘累计统计）。
+	resetPeakSampler()
+	defer finishPeakSampler()
 	packages.PrintErrors(pkgs)
 
 	// Q253：阶段上报（zap + 进度）抽到 stage_reporter.go；begin 在步骤前、

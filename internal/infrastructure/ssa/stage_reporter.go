@@ -64,6 +64,6 @@ func (s *stageReporter) stage(name string) {
 	// Q247：HeapAlloc 含**未回收垃圾**（阶段边界未 GC）只当趋势看，
 	// 真实 live 构成用 CODEINTEL_MEM_PROFILE 的 heap profile 归因。
 	s.rep.End(name, elapsed, nil)
-	dumpPeakHeapProfile(ms.HeapAlloc)
+	dumpPeakHeapProfile(name, ms.HeapAlloc)
 	s.start = time.Now()
 }
