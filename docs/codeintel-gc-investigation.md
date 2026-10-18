@@ -191,3 +191,13 @@
 | 4 | 值身份：别名重复查询稳定 ID | `aliasPass.valueIDs` 按值缓存——同一值多次查询不再按槽位访问状态追加 `@行号`；变异验证（去掉缓存即 ID 漂移） | `a8a6c89` |
 | 5 | 调用点缓存保真：恢复 `CallPos` | `fromCachedFD` 补 `callPos`（原先暖重放丢失同行调用点区分）；不同 CallPos 往返断言 | `b26d2ab` |
 | 6 | 摘要重放预分配 | 按缓存已知条数预分配 calls/direct/indirect 切片，空输入保持 nil 语义；局部基准 2000 项 **5 allocs/op**（不宣称全量/GC 改善） | `b26d2ab` |
+
+## 10. remote-todo4（2026-10-16）执行结果
+
+| # | 事项 | 结果 | 提交 |
+|---|---|---|---|
+| 1a | 匿名路径以**最近具名类型**为起点 + 深度 64 | `nestedTypePath` 开头先判 `namedStructPath(v.Type())`（`o.In.A.B` → `Inner.A.B`，不再回溯到 `Outer.In.A.B`）；`maxNestedDepth` 32→64 | `464e3cc` |
+| 1b | `singleStoredValue` 空引用直接返回 | `alloc.Referrers()==nil` 直接 return；不再要求 `ext.fn != nil`（轻量提取器可追溯）；新增 `fn==nil` 测试 | `464e3cc` |
+| 1c | 最近具名 / 深层容器 / 来源歧义测试 | `TestAnonymousPathNearestNamedType`、`DeepNesting`、`Outer/Other` 不同来源、独立匿名回退 | `464e3cc` |
+| 2 | 摘要分块预分配 `min(chunkSize, 实际条数)` | `encodeFDSections` 的 `capHint` 取 min；小摘要（<一块）往返内容不变 | `51cf1e0` |
+| 3 | 回归补齐 | SQLite 批量 vs 逐条写入逐项一致；包缓存损坏头/多点截断拒绝；字符串缓存并发混用（-race）；AST 嵌套字段选择器链；CPU 采样坏启动后仍可正常启动 | `8324e00` |
