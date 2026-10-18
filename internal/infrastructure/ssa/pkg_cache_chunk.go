@@ -255,7 +255,13 @@ func encodeFDSections(enc *gob.Encoder, fd map[string]*cachedFuncData) error {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	m := make(map[string]*cachedFuncData, chunkSize)
+	// todo4-2：预分配容量按 min(chunkSize, 实际摘要数)——不足一块时不分配
+	// 完整块容量（协议不变；map 复用仍保留）。
+	capHint := chunkSize
+	if len(keys) < capHint {
+		capHint = len(keys)
+	}
+	m := make(map[string]*cachedFuncData, capHint)
 	for i := 0; i < len(keys); i += chunkSize {
 		end := i + chunkSize
 		if end > len(keys) {
