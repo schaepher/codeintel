@@ -4,7 +4,9 @@ import (
 	"go/token"
 	"go/types"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // sampleTypes 覆盖基础/指针/切片/map/签名/结构体/接口/泛型实例化。
@@ -202,5 +204,39 @@ func TestSnakeCaseCacheZeroAllocOnHit(t *testing.T) {
 	s.snakeCase("CreatedAt")
 	if n := testing.AllocsPerRun(1000, func() { _ = s.snakeCase("CreatedAt") }); n != 0 {
 		t.Errorf("命中分配 = %v, want 0", n)
+	}
+}
+
+// countingType 统计 String() 调用次数（验证并发首次访问只计算一次）。
+type countingType struct{ calls *int32 }
+
+func (c countingType) Underlying() types.Type { return c }
+func (c countingType) String() string {
+	atomic.AddInt32(c.calls, 1)
+	time.Sleep(time.Millisecond) // 放大并发窗口
+	return "counting"
+}
+
+// TestStringCacheConcurrentFirstAccessComputesOnce：并发首次访问同一类型时
+// 只渲染一次（写锁内二次检查；旧实现锁外计算会重复 N 次——todo2-4）。
+func TestStringCacheConcurrentFirstAccessComputesOnce(t *testing.T) {
+	var calls int32
+	fake := countingType{calls: &calls}
+	s := &funcSnapshot{}
+	const workers = 32
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_ = s.typeString(fake)
+		}()
+	}
+	close(start)
+	wg.Wait()
+	if n := atomic.LoadInt32(&calls); n != 1 {
+		t.Errorf("并发首次访问 String() 调用 %d 次, want 1", n)
 	}
 }

@@ -23,19 +23,24 @@ func (s *funcSnapshot) typeString(t types.Type) string {
 	if s == nil {
 		return t.String()
 	}
-	s.strMu.Lock()
+	s.strMu.RLock()
 	v, ok := s.typeStrs[t]
-	s.strMu.Unlock()
+	s.strMu.RUnlock()
 	if ok {
 		return v
 	}
-	v = t.String()
+	// 未命中：写锁内二次检查后**在锁内**计算——避免并发首次访问重复渲染
+	// （todo2-4）。命中路径仍走 RLock（并发、零分配）。
 	s.strMu.Lock()
+	defer s.strMu.Unlock()
+	if v, ok := s.typeStrs[t]; ok {
+		return v
+	}
+	v = t.String()
 	if s.typeStrs == nil {
 		s.typeStrs = map[types.Type]string{}
 	}
 	s.typeStrs[t] = v
-	s.strMu.Unlock()
 	return v
 }
 
@@ -47,19 +52,22 @@ func (s *funcSnapshot) candidateKeyOf(fn *types.Func) string {
 	if s == nil {
 		return candidateKey(fn)
 	}
-	s.strMu.Lock()
+	s.strMu.RLock()
 	v, ok := s.candKeys[fn]
-	s.strMu.Unlock()
+	s.strMu.RUnlock()
 	if ok {
 		return v
 	}
-	v = candidateKey(fn)
 	s.strMu.Lock()
+	defer s.strMu.Unlock()
+	if v, ok := s.candKeys[fn]; ok {
+		return v
+	}
+	v = candidateKey(fn)
 	if s.candKeys == nil {
 		s.candKeys = map[*types.Func]string{}
 	}
 	s.candKeys[fn] = v
-	s.strMu.Unlock()
 	return v
 }
 
@@ -105,19 +113,22 @@ func (s *funcSnapshot) snakeCase(name string) string {
 	if s == nil {
 		return snakeCase(name)
 	}
-	s.snakeMu.Lock()
+	s.snakeMu.RLock()
 	v, ok := s.snakes[name]
-	s.snakeMu.Unlock()
+	s.snakeMu.RUnlock()
 	if ok {
 		return v
 	}
-	v = snakeCase(name)
 	s.snakeMu.Lock()
+	defer s.snakeMu.Unlock()
+	if v, ok := s.snakes[name]; ok {
+		return v
+	}
+	v = snakeCase(name)
 	if s.snakes == nil {
 		s.snakes = map[string]string{}
 	}
 	s.snakes[name] = v
-	s.snakeMu.Unlock()
 	return v
 }
 

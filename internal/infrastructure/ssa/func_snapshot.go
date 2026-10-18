@@ -57,7 +57,7 @@ type funcSnapshot struct {
 	sqlCacheFull bool
 
 	// 构建级字符串缓存（string_cache.go）：类型字符串 + 候选键。
-	strMu    sync.Mutex
+	strMu    sync.RWMutex
 	typeStrs map[types.Type]string
 	candKeys map[*types.Func]string
 
@@ -73,7 +73,7 @@ type funcSnapshot struct {
 	sk        map[*ssa.Function]string
 
 	// snakes = snakeCase 缓存（字段/类型名重复率高）
-	snakeMu sync.Mutex
+	snakeMu sync.RWMutex
 	snakes  map[string]string
 }
 
