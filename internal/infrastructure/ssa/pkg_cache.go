@@ -174,29 +174,48 @@ func fromCachedFD(c *cachedFuncData) *funcData {
 		return nil
 	}
 	fd := &funcData{}
-	for _, e := range c.DirectReads {
-		fd.directReads = append(fd.directReads, fieldEntry{
-			fieldPath: e.FieldPath, instancePath: e.InstancePath,
-			line: e.Line, snippet: e.Snippet, callLine: e.CallLine, callArg: e.CallArg,
-		})
+	// todo3-6：按缓存中已知条数预分配（避免逐项 append 反复扩容复制）；
+	// 空输入不分配——保持 nil 切片语义（空非 nil 与 nil 在 DeepEqual 下不等）。
+	if n := len(c.DirectReads); n > 0 {
+		fd.directReads = make([]fieldEntry, 0, n)
+		for _, e := range c.DirectReads {
+			fd.directReads = append(fd.directReads, fieldEntry{
+				fieldPath: e.FieldPath, instancePath: e.InstancePath,
+				line: e.Line, snippet: e.Snippet, callLine: e.CallLine, callArg: e.CallArg,
+			})
+		}
 	}
-	for _, e := range c.DirectWrites {
-		fd.directWrites = append(fd.directWrites, fieldEntry{
-			fieldPath: e.FieldPath, instancePath: e.InstancePath,
-			line: e.Line, snippet: e.Snippet, callLine: e.CallLine, callArg: e.CallArg,
-		})
+	if n := len(c.DirectWrites); n > 0 {
+		fd.directWrites = make([]fieldEntry, 0, n)
+		for _, e := range c.DirectWrites {
+			fd.directWrites = append(fd.directWrites, fieldEntry{
+				fieldPath: e.FieldPath, instancePath: e.InstancePath,
+				line: e.Line, snippet: e.Snippet, callLine: e.CallLine, callArg: e.CallArg,
+			})
+		}
 	}
-	for _, e := range c.IndirectWrites {
-		fd.indirectWrites = append(fd.indirectWrites, fieldEntry{
-			fieldPath: e.FieldPath, instancePath: e.InstancePath,
-			line: e.Line, snippet: e.Snippet, callLine: e.CallLine, callArg: e.CallArg,
-		})
+	if n := len(c.IndirectWrites); n > 0 {
+		fd.indirectWrites = make([]fieldEntry, 0, n)
+		for _, e := range c.IndirectWrites {
+			fd.indirectWrites = append(fd.indirectWrites, fieldEntry{
+				fieldPath: e.FieldPath, instancePath: e.InstancePath,
+				line: e.Line, snippet: e.Snippet, callLine: e.CallLine, callArg: e.CallArg,
+			})
+		}
 	}
-	for _, cInfo := range c.Calls {
-		fd.calls = append(fd.calls, callInfo{
-			calleeID: domain.CanonicalID(cInfo.CalleeID), argStructPaths: cInfo.ArgStructPaths,
-			callLine: cInfo.CallLine, argNames: cInfo.ArgNames,
-		})
+	if n := len(c.Calls); n > 0 {
+		fd.calls = make([]callInfo, 0, n)
+		for _, cInfo := range c.Calls {
+			fd.calls = append(fd.calls, callInfo{
+				calleeID:       domain.CanonicalID(cInfo.CalleeID),
+				argStructPaths: cInfo.ArgStructPaths,
+				callLine:       cInfo.CallLine,
+				// todo3-5：必须恢复 CallPos——否则暖重放丢掉“同一行不同调用点”
+				// 的区分，间接写实参元数据会重新合并。
+				callPos:  cInfo.CallPos,
+				argNames: cInfo.ArgNames,
+			})
+		}
 	}
 	return fd
 }
