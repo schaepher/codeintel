@@ -114,3 +114,71 @@ func f() {
 		}
 	}
 }
+
+// TestValueIdentityClosureScopes：同一外层函数里的多个闭包共享 outer
+// canonical ID，但临时槽位必须按**原始作用域**区分（不得合并成同一节点）。
+func TestValueIdentityClosureScopes(t *testing.T) {
+	nodes, _ := indexFixture(t, map[string]string{
+		"go.mod": moduleGoMod,
+		"main.go": `package m
+
+type T struct{ A int }
+
+func outer() {
+	f := func() {
+		x := &T{}
+		x.A = 1
+	}
+	g := func() {
+		x := &T{}
+		x.A = 2
+	}
+	f()
+	g()
+}
+`,
+	})
+	const funcID = "symbol:go:example.com/mtest:outer"
+	ids := map[string]bool{}
+	for _, n := range nodes {
+		if n.Kind == domain.KindSSAValue && n.Property("func_id") == funcID &&
+			strings.Contains(string(n.ID), "@closure:") {
+			ids[string(n.ID)] = true
+		}
+	}
+	if len(ids) < 2 {
+		t.Errorf("两个闭包的同槽位值应有 ≥2 个不同 ID，got %v", ids)
+	}
+}
+
+// TestValueIdentityInitScopes：同包多个 init 共享 canonical ID，临时槽位
+// 必须按 init 声明位置区分（不得合并）。
+func TestValueIdentityInitScopes(t *testing.T) {
+	nodes, _ := indexFixture(t, map[string]string{
+		"go.mod": moduleGoMod,
+		"main.go": `package m
+
+type T struct{ A int }
+
+func init() {
+	x := &T{}
+	x.A = 1
+}
+
+func init() {
+	x := &T{}
+	x.A = 2
+}
+`,
+	})
+	ids := map[string]bool{}
+	for _, n := range nodes {
+		if n.Kind == domain.KindSSAValue && strings.Contains(string(n.ID), ":init#") &&
+			strings.Contains(string(n.ID), "@init:") {
+			ids[string(n.ID)] = true
+		}
+	}
+	if len(ids) < 2 {
+		t.Errorf("两个 init 的同槽位值应有 ≥2 个不同 ID，got %v", ids)
+	}
+}

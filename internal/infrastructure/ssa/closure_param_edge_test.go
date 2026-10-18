@@ -55,7 +55,7 @@ func (s *Session) Find(beans interface{}, condiBeans ...interface{}) error { ret
 	// 1. 闭包形参 target 的节点应落库（run 函数命名空间，Parameter 分支 ID）
 	paramNode := false
 	for _, n := range nodes {
-		if strings.HasSuffix(string(n.ID), "#param.target") && n.Kind == domain.KindSSAValue {
+		if strings.Contains(string(n.ID), "#param.target") && n.Kind == domain.KindSSAValue {
 			paramNode = true
 		}
 	}
@@ -67,7 +67,7 @@ func (s *Session) Find(beans interface{}, condiBeans ...interface{}) error { ret
 	for _, f := range facts {
 		if f.Kind == domain.FactSummaryIO &&
 			strings.Contains(string(f.SourceID), "order_tab.") &&
-			strings.HasSuffix(string(f.TargetID), "#param.target") {
+			strings.Contains(string(f.TargetID), "#param.target") {
 			hasEdge = true
 		}
 	}
@@ -124,7 +124,7 @@ func (s *Session) Find(beans interface{}, condiBeans ...interface{}) error { ret
 	// 闭包形参 lastID（Where 条件值）的节点应落库
 	paramNode := false
 	for _, n := range nodes {
-		if strings.HasSuffix(string(n.ID), "#param.lastID") && n.Kind == domain.KindSSAValue {
+		if strings.Contains(string(n.ID), "#param.lastID") && n.Kind == domain.KindSSAValue {
 			paramNode = true
 		}
 	}

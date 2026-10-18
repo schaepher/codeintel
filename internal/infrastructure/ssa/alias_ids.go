@@ -52,12 +52,13 @@ func (p *aliasPass) valueNodeID(v ssa.Value) (domain.CanonicalID, bool) {
 		if !ok {
 			return "", false
 		}
+		tag := valueScopeTag(p.prog, p.repo.Path, fn)
 		if recv := fn.Signature.Recv(); recv != nil && len(fn.Params) > 0 && fn.Params[0] == prm {
 			name := recv.Name()
 			if name == "" {
 				name = "recv"
 			}
-			return domain.CanonicalID(string(funcID) + "#param.recv." + name), true
+			return domain.CanonicalID(string(funcID) + "#param.recv." + name + tag), true
 		}
 		name := prm.Object().Name()
 		if name == "" {
@@ -70,7 +71,7 @@ func (p *aliasPass) valueNodeID(v ssa.Value) (domain.CanonicalID, bool) {
 			}
 			name = fmt.Sprintf("arg%d", idx)
 		}
-		return domain.CanonicalID(string(funcID) + "#param." + name), true
+		return domain.CanonicalID(string(funcID) + "#param." + name + tag), true
 	}
 	fn := v.Parent()
 	if fn == nil {
@@ -80,10 +81,12 @@ func (p *aliasPass) valueNodeID(v ssa.Value) (domain.CanonicalID, bool) {
 	if !ok {
 		return "", false
 	}
-	slots := p.slotSeen[funcID]
+	tag := valueScopeTag(p.prog, p.repo.Path, fn)
+	scopeKey := string(funcID) + tag
+	slots := p.slotSeen[scopeKey]
 	if slots == nil {
 		slots = map[string]bool{}
-		p.slotSeen[funcID] = slots
+		p.slotSeen[scopeKey] = slots
 	}
 	slot := aliasSlot(v)
 	if slots[slot] {
@@ -92,7 +95,7 @@ func (p *aliasPass) valueNodeID(v ssa.Value) (domain.CanonicalID, bool) {
 	} else {
 		slots[slot] = true
 	}
-	id := domain.CanonicalID(string(funcID) + "#" + slot)
+	id := domain.CanonicalID(string(funcID) + "#" + slot + tag)
 	name := slot
 	// Q235-6/8/9：SSA 临时名回退类型短名（与 emitValue 一致）——Alloc
 	// （Q235-6 匿名分配）扩展到全部指令；phi 有声明时已恢复变量名
@@ -131,10 +134,12 @@ func (p *aliasPass) objectIDOf(obj ssa.Value) (domain.CanonicalID, bool) {
 	if !ok {
 		return "", false
 	}
-	slots := p.slotSeen[funcID]
+	tag := valueScopeTag(p.prog, p.repo.Path, fn)
+	scopeKey := string(funcID) + tag
+	slots := p.slotSeen[scopeKey]
 	if slots == nil {
 		slots = map[string]bool{}
-		p.slotSeen[funcID] = slots
+		p.slotSeen[scopeKey] = slots
 	}
 	slot := aliasSlot(obj)
 	if slots[slot] {
@@ -143,7 +148,7 @@ func (p *aliasPass) objectIDOf(obj ssa.Value) (domain.CanonicalID, bool) {
 	} else {
 		slots[slot] = true
 	}
-	id := domain.CanonicalID(string(funcID) + "#" + slot)
+	id := domain.CanonicalID(string(funcID) + "#" + slot + tag)
 	p.allocIDs[obj] = id
 	kind := "alloc"
 	if _, isMap := obj.(*ssa.MakeMap); isMap {

@@ -44,7 +44,7 @@ func (ext *fieldExtractor) emitValue(v ssa.Value) (domain.CanonicalID, error) {
 			if paramName == "" {
 				paramName = "recv"
 			}
-			id = domain.CanonicalID(string(funcID) + "#param.recv." + paramName)
+			id = domain.CanonicalID(string(funcID) + "#param.recv." + paramName + ext.scopeTagFor(v))
 		} else {
 			paramName = p.Object().Name()
 			if paramName == "" {
@@ -57,7 +57,7 @@ func (ext *fieldExtractor) emitValue(v ssa.Value) (domain.CanonicalID, error) {
 				}
 				paramName = fmt.Sprintf("arg%d", idx)
 			}
-			id = domain.CanonicalID(string(funcID) + "#param." + paramName)
+			id = domain.CanonicalID(string(funcID) + "#param." + paramName + ext.scopeTagFor(v))
 		}
 		ext.values[v] = id
 		// Q223：闭包参数（FuncLit 形参）无签名节点（emitSignatureNodes 只对
@@ -212,7 +212,10 @@ func (ext *fieldExtractor) emitValue(v ssa.Value) (domain.CanonicalID, error) {
 	} else {
 		slots[slot] = true
 	}
-	id := domain.CanonicalID(string(funcID) + "#" + slot)
+	// todo2-6：闭包/多 init 共享外层 funcID——按原始作用域加后缀，避免不同
+	// 值的临时槽位合并（显示名保持 slot，不加后缀）。
+	tag := ext.scopeTagFor(v)
+	id := domain.CanonicalID(string(funcID) + "#" + slot + tag)
 	ext.values[v] = id
 
 	// Q179：instancePath 已对叶子临时寄存器做 recoverVarName（tN → 变量名），

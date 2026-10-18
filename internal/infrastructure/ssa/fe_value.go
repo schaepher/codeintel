@@ -88,5 +88,5 @@ func (ext *fieldExtractor) valueIDByInstance(funcID domain.CanonicalID, v ssa.Va
 			slots[name] = true
 		}
 	}
-	return domain.CanonicalID(string(funcID) + "#" + display), display
+	return domain.CanonicalID(string(funcID) + "#" + display + ext.scopeTagFor(v)), display
 }

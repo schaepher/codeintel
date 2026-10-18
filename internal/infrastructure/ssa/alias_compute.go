@@ -30,7 +30,7 @@ func computeAliases(repo *domain.Repository, prog *ssa.Program,
 		callMay:     map[ssa.Value]map[ssa.Value]bool{},
 		excluded:    map[domain.CanonicalID]map[domain.CanonicalID]map[string]bool{},
 		fieldValues: map[domain.CanonicalID]map[ssa.Value]bool{},
-		slotSeen:    map[domain.CanonicalID]map[string]bool{},
+		slotSeen:    map[string]map[string]bool{},
 		funcData:    funcData,
 		lines:       lines,    // Q248：与 extractor 共用 Index 级行缓存
 		funcs:       funcSnap, // Q?：构建级 Return 操作数缓存

@@ -19,6 +19,8 @@ package ssa
 import (
 	"go/token"
 	"go/types"
+	"strconv"
+	"strings"
 
 	"golang.org/x/tools/go/ssa"
 )
@@ -120,4 +122,43 @@ func (ext *fieldExtractor) singleStoredValue(alloc *ssa.Alloc) ssa.Value {
 	}
 	ext.allocStores[alloc] = res
 	return res.val
+}
+
+// valueScopeTag 物理函数的作用域后缀（todo2-6）：闭包（Object()==nil）与
+// 同名多个 init 会共享外层 canonical ID，其临时槽位/参数节点必须按**原始
+// 作用域**区分——否则不同闭包/init 的 t0 会合并成同一节点（且 emitValue
+// 与 alias 两条发射路径会分裂）。普通具名函数返回空（保持既有 ID）。
+// 用函数声明位置（闭包 = func 字面量 / init = func 关键字）作稳定判别，
+// 不依赖遍历顺序。
+func valueScopeTag(prog *ssa.Program, repoPath string, fn *ssa.Function) string {
+	if prog == nil || fn == nil {
+		return ""
+	}
+	kind := ""
+	switch {
+	case fn.Object() == nil:
+		// 合成函数（包初始化器 init 无 Pos）没有源码作用域——不加后缀。
+		if !fn.Pos().IsValid() {
+			return ""
+		}
+		kind = "closure"
+	case strings.HasPrefix(fn.Name(), "init"):
+		kind = "init"
+	default:
+		return ""
+	}
+	p := prog.Fset.PositionFor(fn.Pos(), false)
+	if p.Filename == "" {
+		return ""
+	}
+	return "@" + kind + ":" + relPath(repoPath, p.Filename) + ":" + strconv.Itoa(p.Line)
+}
+
+// scopeTagFor 值所属物理函数的作用域后缀（v.Parent()，不是 ext.fn——跨函数
+// 发射形参时值属于被调函数）。
+func (ext *fieldExtractor) scopeTagFor(v ssa.Value) string {
+	if ext == nil || v == nil {
+		return ""
+	}
+	return valueScopeTag(ext.prog, ext.repo.Path, v.Parent())
 }

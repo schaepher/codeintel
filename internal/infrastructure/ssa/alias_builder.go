@@ -46,7 +46,7 @@ type aliasPass struct {
 	callMay     map[ssa.Value]map[ssa.Value]bool
 	excluded    map[domain.CanonicalID]map[domain.CanonicalID]map[string]bool
 	fieldValues map[domain.CanonicalID]map[ssa.Value]bool // 参与字段访问的值（alias 边范围）
-	slotSeen    map[domain.CanonicalID]map[string]bool
+	slotSeen    map[string]map[string]bool
 	funcData    map[domain.CanonicalID]*funcData    // 元素间接写条目（Q83）
 	lines       *lineCache                          // Q248：与 extractor 共用的 Index 级行缓存
 	funcs       *funcSnapshot                       // Q?：构建级 Return 操作数缓存
