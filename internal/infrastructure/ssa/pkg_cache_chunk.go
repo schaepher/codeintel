@@ -145,32 +145,19 @@ func savePkgCacheBlocks(path, hash string, nodeBlocks [][]*domain.CodeEntity,
 }
 
 // writePkgCacheFile 按内容写缓存文件（供 savePkgCache 与测试共用）：
-// 把整包切片按 chunkSize 切块后交给 writePkgCacheBlocks。
+// 直接按 chunkSize 切**平铺切片**编码——不再先建 nodeBlocks/factBlocks
+// 切片头数组（减少编码期临时容器，todo2-2；协议不变）。
 func writePkgCacheFile(path string, c *pkgCacheFile) {
-	var nodeBlocks [][]*domain.CodeEntity
-	for i := 0; i < len(c.Nodes); i += chunkSize {
-		end := i + chunkSize
-		if end > len(c.Nodes) {
-			end = len(c.Nodes)
-		}
-		nodeBlocks = append(nodeBlocks, c.Nodes[i:end])
-	}
-	var factBlocks [][]*domain.Fact
-	for i := 0; i < len(c.Facts); i += chunkSize {
-		end := i + chunkSize
-		if end > len(c.Facts) {
-			end = len(c.Facts)
-		}
-		factBlocks = append(factBlocks, c.Facts[i:end])
-	}
-	writePkgCacheBlocks(path, pkgCacheHeader{Version: c.Version, Analyzer: c.Analyzer, PkgHash: c.PkgHash},
-		nodeBlocks, factBlocks, c.FuncData)
+	writePkgCacheHeaderAndSections(path,
+		pkgCacheHeader{Version: c.Version, Analyzer: c.Analyzer, PkgHash: c.PkgHash},
+		func(enc *gob.Encoder) error {
+			return encodeFlatSections(enc, c.Nodes, c.Facts, c.FuncData)
+		})
 }
 
-// writePkgCacheBlocks 分块写入：头 → 节点块 → 边块 → 摘要块 → 结束标记；
-// 临时文件 + 关闭错误检查 + 原子替换。
-func writePkgCacheBlocks(path string, hdr pkgCacheHeader, nodeBlocks [][]*domain.CodeEntity,
-	factBlocks [][]*domain.Fact, fd map[string]*cachedFuncData) {
+// writePkgCacheHeaderAndSections 写头 → 调用 sections 编码 → 尾（临时文件 +
+// 关闭错误检查 + 原子替换）。
+func writePkgCacheHeaderAndSections(path string, hdr pkgCacheHeader, sections func(*gob.Encoder) error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return
 	}
@@ -183,7 +170,7 @@ func writePkgCacheBlocks(path string, hdr pkgCacheHeader, nodeBlocks [][]*domain
 	enc := gob.NewEncoder(f)
 	err = enc.Encode(hdr)
 	if err == nil {
-		err = encodeChunkSections(enc, nodeBlocks, factBlocks, fd)
+		err = sections(enc)
 	}
 	if cerr := f.Close(); err == nil {
 		err = cerr
@@ -197,8 +184,40 @@ func writePkgCacheBlocks(path string, hdr pkgCacheHeader, nodeBlocks [][]*domain
 	}
 }
 
-// encodeChunkSections 依次编码节点块/边块/摘要块/结束标记（摘要把 map 按
-// 排序键切块，保证确定性）。
+// writePkgCacheBlocks 分块写入：头 → 节点块 → 边块 → 摘要块 → 结束标记；
+// 临时文件 + 关闭错误检查 + 原子替换。
+func writePkgCacheBlocks(path string, hdr pkgCacheHeader, nodeBlocks [][]*domain.CodeEntity,
+	factBlocks [][]*domain.Fact, fd map[string]*cachedFuncData) {
+	writePkgCacheHeaderAndSections(path, hdr, func(enc *gob.Encoder) error {
+		return encodeChunkSections(enc, nodeBlocks, factBlocks, fd)
+	})
+}
+
+// encodeFlatSections 平铺切片直接分块编码（不建切片头数组）。
+func encodeFlatSections(enc *gob.Encoder, nodes []*domain.CodeEntity, facts []*domain.Fact,
+	fd map[string]*cachedFuncData) error {
+	for i := 0; i < len(nodes); i += chunkSize {
+		end := i + chunkSize
+		if end > len(nodes) {
+			end = len(nodes)
+		}
+		if err := enc.Encode(pkgCacheChunk{Kind: chunkNodes, Nodes: nodes[i:end]}); err != nil {
+			return err
+		}
+	}
+	for i := 0; i < len(facts); i += chunkSize {
+		end := i + chunkSize
+		if end > len(facts) {
+			end = len(facts)
+		}
+		if err := enc.Encode(pkgCacheChunk{Kind: chunkFacts, Facts: facts[i:end]}); err != nil {
+			return err
+		}
+	}
+	return encodeFDSections(enc, fd)
+}
+
+// encodeChunkSections 依次编码节点块/边块/摘要块/结束标记。
 func encodeChunkSections(enc *gob.Encoder, nodeBlocks [][]*domain.CodeEntity,
 	factBlocks [][]*domain.Fact, fd map[string]*cachedFuncData) error {
 	for _, b := range nodeBlocks {
@@ -211,17 +230,24 @@ func encodeChunkSections(enc *gob.Encoder, nodeBlocks [][]*domain.CodeEntity,
 			return err
 		}
 	}
+	return encodeFDSections(enc, fd)
+}
+
+// encodeFDSections 摘要段编码（键排序后每 chunkSize 一条消息）。
+// 复用同一个 map 容器（每块 clear 后重用）——避免每 chunk 新分配 map。
+func encodeFDSections(enc *gob.Encoder, fd map[string]*cachedFuncData) error {
 	keys := make([]string, 0, len(fd))
 	for k := range fd {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
+	m := make(map[string]*cachedFuncData, chunkSize)
 	for i := 0; i < len(keys); i += chunkSize {
 		end := i + chunkSize
 		if end > len(keys) {
 			end = len(keys)
 		}
-		m := make(map[string]*cachedFuncData, end-i)
+		clear(m)
 		for _, k := range keys[i:end] {
 			m[k] = fd[k]
 		}
