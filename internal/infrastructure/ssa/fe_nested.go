@@ -25,14 +25,20 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-// maxNestedDepth 防止字段/索引链异常时的无限回溯（todo3-3：提高到 32，
+// maxNestedDepth 防止字段/索引链异常时的无限回溯（todo4-1：64，
 // 容纳深层匿名嵌套 + 容器元素链）。
-const maxNestedDepth = 32
+const maxNestedDepth = 64
 
 // nestedTypePath 返回 v 对应值的类型限定路径（不含 v 自身字段）；无法恢复返回空。
 func (ext *fieldExtractor) nestedTypePath(v ssa.Value, depth int) string {
 	if v == nil || depth > maxNestedDepth {
 		return ""
+	}
+	// todo4-1：最近具名结构类型优先——值本身（或其指针）是具名结构体时
+	// 直接以它为路径起点，不再向外层匿名包裹回溯（否则 o.In.A.B 会得到
+	// Outer.In.A.B，而正确起点是最近的具名类型 Inner）。
+	if p := namedStructPath(v.Type()); p != "" {
+		return p
 	}
 	switch x := v.(type) {
 	case *ssa.FieldAddr:
@@ -65,7 +71,7 @@ func (ext *fieldExtractor) nestedTypePath(v ssa.Value, depth int) string {
 		}
 		return ""
 	}
-	return namedStructPath(v.Type())
+	return ""
 }
 
 // joinTypePath 拼接类型路径段；base/field 任一为空则不可恢复。
@@ -96,27 +102,31 @@ type allocStoreResult struct {
 // 只扫描 **Alloc 的引用者**（Referrers），不扫描整个函数块——首次查询也不
 // 是 O(函数大小)（todo2-3）。
 func (ext *fieldExtractor) singleStoredValue(alloc *ssa.Alloc) ssa.Value {
-	if ext == nil || alloc == nil || ext.fn == nil {
+	if ext == nil || alloc == nil {
+		return nil
+	}
+	// 空引用列表直接返回（todo4-1）：不再依赖 ext.fn 非空——引用扫描只需
+	// alloc.Referrers()，轻量提取器（fn 为空）也能正确回退。
+	refs := alloc.Referrers()
+	if refs == nil {
 		return nil
 	}
 	if r, ok := ext.allocStores[alloc]; ok && r.done {
 		return r.val
 	}
 	res := allocStoreResult{done: true}
-	if refs := alloc.Referrers(); refs != nil {
-		n := 0
-		for _, instr := range *refs {
-			st, ok := instr.(*ssa.Store)
-			if !ok || st.Addr != alloc {
-				continue
-			}
-			n++
-			if n > 1 {
-				res.val = nil
-				break
-			}
-			res.val = st.Val
+	n := 0
+	for _, instr := range *refs {
+		st, ok := instr.(*ssa.Store)
+		if !ok || st.Addr != alloc {
+			continue
 		}
+		n++
+		if n > 1 {
+			res.val = nil
+			break
+		}
+		res.val = st.Val
 	}
 	if ext.allocStores == nil {
 		ext.allocStores = map[*ssa.Alloc]allocStoreResult{}
