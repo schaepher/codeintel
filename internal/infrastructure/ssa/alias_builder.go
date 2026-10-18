@@ -42,6 +42,7 @@ type aliasPass struct {
 	// may[funcID]：函数内 值 → alloc 集（含跨函数注入）
 	may         map[domain.CanonicalID]map[ssa.Value]map[ssa.Value]bool
 	allocIDs    map[ssa.Value]domain.CanonicalID
+	valueIDs    map[ssa.Value]domain.CanonicalID // todo3-4：同一值多次查询返回相同 ID（不按槽位访问状态加 @行号）
 	paramMay    map[*ssa.Parameter]map[ssa.Value]bool
 	callMay     map[ssa.Value]map[ssa.Value]bool
 	excluded    map[domain.CanonicalID]map[domain.CanonicalID]map[string]bool

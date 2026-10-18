@@ -39,6 +39,11 @@ func aliasSlot(v ssa.Value) string {
 // 基值），此处保证端点存在（FK 约束）。
 
 func (p *aliasPass) valueNodeID(v ssa.Value) (domain.CanonicalID, bool) {
+	// todo3-4：同一值的多次查询必须返回相同标识——不能因槽位访问状态给
+	// 第二次查询追加 @行号（与 emitValue 路径不一致）。
+	if id, ok := p.valueIDs[v]; ok {
+		return id, true
+	}
 	// Q178：参数/接收者统一用签名参数节点（与 emitValue 一致）——此前
 	// alias 对参数生成 ssa_value 副本（funcID#m），与签名参数节点
 	// （#param.recv.m）双节点分裂，数据边挂两处。参数节点已由
@@ -58,7 +63,9 @@ func (p *aliasPass) valueNodeID(v ssa.Value) (domain.CanonicalID, bool) {
 			if name == "" {
 				name = "recv"
 			}
-			return domain.CanonicalID(string(funcID) + "#param.recv." + name + tag), true
+			id := domain.CanonicalID(string(funcID) + "#param.recv." + name + tag)
+			p.valueIDs[v] = id
+			return id, true
 		}
 		name := prm.Object().Name()
 		if name == "" {
@@ -71,7 +78,9 @@ func (p *aliasPass) valueNodeID(v ssa.Value) (domain.CanonicalID, bool) {
 			}
 			name = fmt.Sprintf("arg%d", idx)
 		}
-		return domain.CanonicalID(string(funcID) + "#param." + name + tag), true
+		id := domain.CanonicalID(string(funcID) + "#param." + name + tag)
+		p.valueIDs[v] = id
+		return id, true
 	}
 	fn := v.Parent()
 	if fn == nil {
@@ -96,6 +105,7 @@ func (p *aliasPass) valueNodeID(v ssa.Value) (domain.CanonicalID, bool) {
 		slots[slot] = true
 	}
 	id := domain.CanonicalID(string(funcID) + "#" + slot + tag)
+	p.valueIDs[v] = id
 	name := slot
 	// Q235-6/8/9：SSA 临时名回退类型短名（与 emitValue 一致）——Alloc
 	// （Q235-6 匿名分配）扩展到全部指令；phi 有声明时已恢复变量名
