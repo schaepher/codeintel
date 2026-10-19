@@ -244,3 +244,21 @@
 - **chaincheck**：一跳 500/500、多跳 408/408、alias 连通 328（= 基线），通过。
 - **dbdiag**：健康检查 0 异常。
 - **A/B（旧 `416c425` vs 新，交错 2 轮）**：wall 7.18/7.05s vs 7.15/7.11s（持平）；Max RSS 734/796MB vs 785/771MB（噪声内，无明确变化）；SSA 峰值 live 347/348MB vs 345/346MB；TotalAlloc 1571/1582MB vs 1578/1578MB；NumGC 51/51 vs 52/54。**结论**：todo6 为内容保持的微优化，局部基准明确（模块过滤首次 1.7µs→命中 10ns；动态类型首次 726→626ns、命中 22ns），但 go2o 端到端在噪声内，不宣称全量收益。
+
+## 13. remote-todo7（2026-10-16）执行结果
+
+| # | 事项 | 结果 | 提交 |
+|---|---|---|---|
+| 1 | 复用 init 阶段派发注册结果 | `emitDispatches` 改为接收 `regs`/`regPkgs`（由 `initFuncSnapshotDispatch` 收集），删除收尾阶段重复的 `collectDispatchRegistrations`。**nil = 未初始化 → 回退扫描一次；非 nil 空 map = 已初始化空注册表 → 不得再扫描**。注册包与动态调用包继续合并为完整 `DispatchPkgs`（只有注册时保留注册包）。全部注册位置/候选选择顺序/来源/置信度/边元数据不变；`releaseTransient` 在成功/错误/取消后释放瞬态引用 | `0f87c6f` |
+| 2 | 回归验收 | 见下 | — |
+
+**todo7-1 回归**：新增 `dispatch_reuse_test.go`——复用路径 vs 重新扫描的**派发边集合（含 metadata）与 DispatchPkgs 完全一致**（含多文件同行注册、多模块列表）；已初始化空注册表**不产生 register 边**（证明未重扫，enum 兜底边保留）；只有注册时保留注册包；输出错误传播；适配器连续两次 Index 的节点/边/DispatchPkgs 一致。
+
+### todo7-2 验收（GOGC=40 / GOMAXPROCS=8 / workers=1 / 同源码副本）
+
+- `verify.sh --quick` 全绿；`go test -race ./...` **13 包全绿**；`integration` 通过。
+- **detcheck**（go2o，冷1/冷2/暖3）：五类产物 **全等**（118574 / 136510 / 21158 / 3445）。
+- **内容隔离**：旧 `fc4a621` vs 当前 HEAD，两轮 DB 逐项比较 ids/nodes/edges(含 metadata)/summary/origins → **diff 全 0**。
+- **chaincheck**：一跳 500/500、多跳 408/408、alias 连通 328（= 基线），通过。
+- **dbdiag**：健康检查 0 异常。
+- **A/B（旧 vs 新，交错 2 轮）**：wall 7.03/7.19s vs 7.07/7.20s（持平）；Max RSS 759.5/758.9MB vs 769.8/769.3MB（约 +1.3%，小样本/噪声级）；峰值 live 345/349MB vs 347/346MB；TotalAlloc 1568/1574MB vs 1574/1575MB；NumGC 54/50 vs 53/53。**结论**：复用消除了收尾阶段的一次全程序注册扫描（逻辑重复），但该扫描在 go2o 上占比很小，端到端无可测收益；产物与 DispatchPkgs 逐项一致。
