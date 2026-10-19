@@ -254,7 +254,7 @@ func (ctx *fileCtx) emitSelectorCall(call *ast.CallExpr, callee *types.Func, sel
 	}
 	if objID, ok := ctx.objVars[xid.Name]; ok {
 		if methodID, methodKind := ctx.a.fnIDOf(callee); methodID != "" {
-			_ = ctx.emit(domain.Item{Node: nodeFor(ctx.repo, pkg, callee, methodID, methodKind, nil)})
+			_ = ctx.emit(domain.Item{Node: ctx.a.nodeFor(ctx.repo, pkg, callee, methodID, methodKind, nil)})
 			_ = ctx.emit(domain.Item{Fact: &domain.Fact{
 				SourceID:   objID,
 				TargetID:   methodID,

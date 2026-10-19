@@ -214,7 +214,7 @@ func (ctx *fileCtx) trackBindings(n ast.Node) {
 					callee.Pkg() != nil && isInModule(callee.Pkg().Path(), ctx.repo.Modules) {
 					calleeID, calleeKind := ctx.a.fnIDOf(callee)
 					if calleeID != "" {
-						_ = ctx.emit(domain.Item{Node: nodeFor(ctx.repo, ctx.pkg, callee, calleeID, calleeKind, nil)})
+						_ = ctx.emit(domain.Item{Node: ctx.a.nodeFor(ctx.repo, ctx.pkg, callee, calleeID, calleeKind, nil)})
 						_ = ctx.emit(domain.Item{Fact: &domain.Fact{
 							SourceID:   packageID(ctx.pkg.PkgPath),
 							TargetID:   calleeID,

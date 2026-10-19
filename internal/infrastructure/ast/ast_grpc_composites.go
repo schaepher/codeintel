@@ -81,12 +81,8 @@ func interfaceMethodsByTypes(pkg *packages.Package, ts *ast.TypeSpec) []string {
 	return methods
 }
 
-// methodSuperset 方法集 a ⊇ b（b 全部在 a 中）。
-func methodSuperset(a, b []string) bool {
-	set := map[string]bool{}
-	for _, m := range a {
-		set[m] = true
-	}
+// methodSetContains 方法集 set ⊇ b（b 全部在 set 中）。
+func methodSetContains(set map[string]bool, b []string) bool {
 	for _, m := range b {
 		if !set[m] {
 			return false
@@ -124,9 +120,15 @@ func (a *Adapter) emitInterfaceContainers(repo *domain.Repository, pkg *packages
 			if len(methods) == 0 {
 				continue
 			}
+			// todo10-2：方法集只建一次（原实现每个 pb server 都重建同一张
+			// set——接口数 × pb 服务数 次重复分配）
+			set := make(map[string]bool, len(methods))
+			for _, m := range methods {
+				set[m] = true
+			}
 			var contained []string
 			for name, sm := range a.pbServers {
-				if methodSuperset(methods, sm) {
+				if methodSetContains(set, sm) {
 					contained = append(contained, name)
 				}
 			}

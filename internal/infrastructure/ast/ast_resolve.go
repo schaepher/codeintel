@@ -193,45 +193,6 @@ func fnID(fn *types.Func) (domain.CanonicalID, domain.EntityKind) {
 	return canonicalizer.GoSymbolID(path, fn.Name()), domain.KindFunction
 }
 
-// nodeFor 为函数/方法生成轻量节点（ID 与 SCIP 一致，行号/文件来自位置信息，
-// signature 由 go/types 生成，与 SCIP 节点通过 properties 合并）。
-func nodeFor(repo *domain.Repository, pkg *packages.Package, fn *types.Func, id domain.CanonicalID,
-	kind domain.EntityKind, extra map[string]bool) *domain.CodeEntity {
-	logger := zap.L()
-	logger.Debug("enter nodeFor")
-	defer logger.Debug("exit nodeFor")
-	n := &domain.CodeEntity{ID: id, Kind: kind}
-	if fn != nil && fn.Pkg() != nil {
-		pos := pkg.Fset.PositionFor(fn.Pos(), false)
-		n.FilePath = relPath(repo.Path, pos.Filename)
-		n.LineStart = pos.Line
-		n.LineEnd = pos.Line
-
-		if kind == domain.KindMethod {
-			sig, _ := fn.Type().(*types.Signature)
-			if sig != nil && sig.Recv() != nil {
-				t := sig.Recv().Type()
-				if p, ok := t.(*types.Pointer); ok {
-					t = p.Elem()
-				}
-				if named, ok := t.(*types.Named); ok {
-					n.Name = canonicalizer.MethodName(named.Obj().Name(), fn.Name())
-				}
-			}
-		} else {
-			n.Name = fn.Name()
-		}
-		n.Properties = map[string]any{
-
-			"signature": types.ObjectString(fn, types.RelativeTo(pkg.Types)),
-		}
-		for flag := range extra {
-			n.Properties[flag] = "true"
-		}
-	}
-	return n
-}
-
 // ensurePackageNode 保障包节点存在（SCIP 已建则跳过）。
 // 注意：加载失败/无源码的包（pkg.Syntax 为空，如编译错误的包或测试变体）
 // 仍会创建节点，只是不带 file_path，避免 index out of range。

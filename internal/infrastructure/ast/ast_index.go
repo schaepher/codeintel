@@ -34,6 +34,7 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 
 	a.pkgsByPath = map[string]*packages.Package{}
 	a.resetFnIDCache()
+	a.resetNodeCache()
 	a.modules = repo.Modules
 	// 包级函数值注册表（Index 级扫描一次——[]WrapperValidator 里的
 	// Validator 字段等具名函数注册；emitCall 处按变量查表补 CALLS 边）
@@ -108,6 +109,10 @@ func (a *Adapter) processPackage(repo *domain.Repository, pkg *packages.Package,
 	logger := zap.L()
 	logger.Debug("enter (Adapter).processPackage")
 	defer logger.Debug("exit (Adapter).processPackage")
+	// todo10-1：节点缓存按包重置——同一包的调用点集中在一次
+	// processPackage 内，跨包缓存变体（限定符不同）无复用价值；
+	// 按包清空把驻留限制在单包工作集（避免全构建期累计节点常驻）。
+	a.resetNodeCache()
 	if err := ensurePackageNode(repo, pkg, emit); err != nil {
 		return err
 	}

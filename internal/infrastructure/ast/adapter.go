@@ -45,6 +45,9 @@ type Adapter struct {
 	// fnIDs 构建级 *types.Func → canonical ID 缓存（todo9-2；Index 入口
 	// 重置——不跨构建持有旧 Program 对象）
 	fnIDs sync.Map
+	// nodeCache 构建级函数节点缓存（todo10-1；Index 入口重置）
+	nodeMu    sync.Mutex
+	nodeCache map[astNodeKey]*domain.CodeEntity
 }
 
 // SetProgress 注入进度上报（orchestrator 转发）。

@@ -215,7 +215,7 @@ func (ctx *fileCtx) markServiceEntry(call *ast.CallExpr, callee *types.Func,
 		ctx.emitGrpcServiceEntry(call, callee, svcName)
 	}
 	if marked {
-		if err := ctx.emit(domain.Item{Node: nodeFor(ctx.repo, pkg, caller, callerID, callerKind, ctx.serviceFlags[callerID])}); err != nil {
+		if err := ctx.emit(domain.Item{Node: ctx.a.nodeFor(ctx.repo, pkg, caller, callerID, callerKind, ctx.serviceFlags[callerID])}); err != nil {
 			return
 		}
 	}

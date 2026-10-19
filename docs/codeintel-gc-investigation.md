@@ -334,6 +334,15 @@
 
 **验证**：内容隔离（旧 HEAD vs 新）五类产物 **diff 全 0**；detcheck 冷1/冷2/暖3 全等；chaincheck 一跳 500/500、多跳 408/408、alias 328；dbdiag 无异常。
 
+### 续查：todo10-1/10-2 AST 节点复用（2026-10-19）
+
+- **10-1 函数节点缓存**：`nodeFor` 在每个调用点都重建 caller/callee 节点（`types.ObjectString` 渲染 signature + 属性 map）——go2o 该路径累计 45.5MB。新增 `(*Adapter).nodeFor` 构建级缓存，键 = (函数, 限定符包, 服务标记位)；只缓存**模块内函数**（外部被调函数按"函数×调用方包"变体多，全缓存实测峰值 +20MB，不划算）；**按包重置**（`processPackage` 入口）——同包调用点集中，跨包限定符变体无复用价值，驻留压到单包工作集。节点只读共享（orchestrator 只比较/序列化），未知服务标记回退不缓存。
+- **10-2 方法集只建一次**：`methodSuperset(methods, sm)` 原在"接口 × pb server"双层循环内每次重建 methods 的 set；改为接口级建一次 + `methodSetContains(set, sm)`。
+
+**收益（同二进制 profile，旧 HEAD → 新）**：TotalAlloc **1368–1371MB → 1342–1348MB（-23MB，-1.7%）**；mallocs 19.81M → 19.58–19.63M（-1.2%）；峰值 live 345/342MB → 346/342MB（**无回退**）；RSS 762/756MB → 777/757MB；wall 6.94/6.94s → 6.95/6.92s（噪声内）。`ast.(*Adapter).nodeFor` 累计 **45.5MB → 26.6MB**。
+
+**验证**：内容隔离（旧 HEAD vs 新）五类产物 **diff 全 0**；detcheck 冷1/冷2/暖3 全等；chaincheck 一跳 500/500、多跳 408/408、alias 328；dbdiag 无异常。
+
 ### 剩余候选（本机可做，按证据排序，未动）
 
 - `database/sql.driverArgsConnLocked` 37.6MB：每行 Exec 的 `[]driver.NamedValue` + 装箱；要消除需绕开 `database/sql` 直用 `modernc` 连接（语义/错误映射/事务改动大，需单独 A/B）。

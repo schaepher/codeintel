@@ -39,8 +39,8 @@ func (ctx *fileCtx) emitCall(call *ast.CallExpr) {
 			// （callee 是局部变量无法解析），查 varFuncs 建 calls
 			if fnRef, hasF := ctx.varFuncs[id.Name]; hasF {
 				if fid, fkind := ctx.a.fnIDOf(fnRef); fid != "" {
-					_ = ctx.emit(domain.Item{Node: nodeFor(ctx.repo, pkg, caller, callerID, callerKind, ctx.serviceFlags[callerID])})
-					_ = ctx.emit(domain.Item{Node: nodeFor(ctx.repo, pkg, fnRef, fid, fkind, nil)})
+					_ = ctx.emit(domain.Item{Node: ctx.a.nodeFor(ctx.repo, pkg, caller, callerID, callerKind, ctx.serviceFlags[callerID])})
+					_ = ctx.emit(domain.Item{Node: ctx.a.nodeFor(ctx.repo, pkg, fnRef, fid, fkind, nil)})
 					_ = ctx.emit(domain.Item{Fact: &domain.Fact{
 						SourceID:   callerID,
 						TargetID:   fid,
@@ -110,7 +110,7 @@ func (ctx *fileCtx) emitCall(call *ast.CallExpr) {
 				objID, ok2 = ctx.a.createObject(pkg, arg, ctx.stack, ctx.emit, ctx.repo, ctx.objCache)
 			}
 			if ok2 && calleeID != "" && objID != calleeID {
-				_ = ctx.emit(domain.Item{Node: nodeFor(ctx.repo, pkg, callee, calleeID, calleeKind, nil)})
+				_ = ctx.emit(domain.Item{Node: ctx.a.nodeFor(ctx.repo, pkg, callee, calleeID, calleeKind, nil)})
 				_ = ctx.emit(domain.Item{Fact: &domain.Fact{
 					// 方向：接收函数 → 参数（用户确认：接收者指向参数）
 					SourceID:   calleeID,
@@ -154,8 +154,8 @@ func (ctx *fileCtx) emitCall(call *ast.CallExpr) {
 			if paramID == "" || paramID == calleeID {
 				continue
 			}
-			_ = ctx.emit(domain.Item{Node: nodeFor(ctx.repo, pkg, fn, paramID, paramKind, nil)})
-			_ = ctx.emit(domain.Item{Node: nodeFor(ctx.repo, pkg, callee, calleeID, calleeKind, nil)})
+			_ = ctx.emit(domain.Item{Node: ctx.a.nodeFor(ctx.repo, pkg, fn, paramID, paramKind, nil)})
+			_ = ctx.emit(domain.Item{Node: ctx.a.nodeFor(ctx.repo, pkg, callee, calleeID, calleeKind, nil)})
 			_ = ctx.emit(domain.Item{Fact: &domain.Fact{
 				// 方向：接收函数 → 参数函数（用户确认：run -参数→ callback）
 				SourceID:   calleeID,
@@ -215,7 +215,7 @@ func (ctx *fileCtx) emitCall(call *ast.CallExpr) {
 		// （NewService().DoSth()）仍要建调用边：静态分析接收者
 		// 表达式的实际类型——NewService 返回接口但 return 具体
 		// 类型 → 指向具体类型的实现方法；无法确定 → 指向接口类型
-		_ = ctx.emit(domain.Item{Node: nodeFor(ctx.repo, pkg, caller, callerID, callerKind, ctx.serviceFlags[callerID])})
+		_ = ctx.emit(domain.Item{Node: ctx.a.nodeFor(ctx.repo, pkg, caller, callerID, callerKind, ctx.serviceFlags[callerID])})
 		targetID, _, targetNode := ctx.a.concreteMethodFor(pkg, call, callee, ctx.repo)
 		if targetID == "" {
 			return
@@ -234,10 +234,10 @@ func (ctx *fileCtx) emitCall(call *ast.CallExpr) {
 		return
 	}
 	// 保障两端节点存在（INSERT OR IGNORE，不覆盖 SCIP 的完整节点）
-	if err := ctx.emit(domain.Item{Node: nodeFor(ctx.repo, pkg, caller, callerID, callerKind, ctx.serviceFlags[callerID])}); err != nil {
+	if err := ctx.emit(domain.Item{Node: ctx.a.nodeFor(ctx.repo, pkg, caller, callerID, callerKind, ctx.serviceFlags[callerID])}); err != nil {
 		return
 	}
-	if err := ctx.emit(domain.Item{Node: nodeFor(ctx.repo, pkg, callee, calleeID, calleeKind, nil)}); err != nil {
+	if err := ctx.emit(domain.Item{Node: ctx.a.nodeFor(ctx.repo, pkg, callee, calleeID, calleeKind, nil)}); err != nil {
 		return
 	}
 	_ = ctx.emit(domain.Item{Fact: &domain.Fact{

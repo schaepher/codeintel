@@ -36,8 +36,8 @@ func (ctx *fileCtx) emitFuncSetNestedCalls(call *ast.CallExpr, caller *types.Fun
 		if iid == "" || iid == callerID {
 			continue
 		}
-		_ = ctx.emit(domain.Item{Node: nodeFor(ctx.repo, ctx.pkg, caller, callerID, callerKind, ctx.serviceFlags[callerID])})
-		_ = ctx.emit(domain.Item{Node: nodeFor(ctx.repo, ctx.pkg, ic, iid, ikind, nil)})
+		_ = ctx.emit(domain.Item{Node: ctx.a.nodeFor(ctx.repo, ctx.pkg, caller, callerID, callerKind, ctx.serviceFlags[callerID])})
+		_ = ctx.emit(domain.Item{Node: ctx.a.nodeFor(ctx.repo, ctx.pkg, ic, iid, ikind, nil)})
 		_ = ctx.emit(domain.Item{Fact: &domain.Fact{
 			SourceID: callerID, TargetID: iid, Kind: domain.FactCalls,
 			ToolSource: domain.ToolCodeGraph, Confidence: 0.8,
@@ -86,8 +86,8 @@ func (ctx *fileCtx) emitFuncSetRegistry(call *ast.CallExpr, caller *types.Func, 
 			if fid == "" || fid == calleeID {
 				continue
 			}
-			_ = ctx.emit(domain.Item{Node: nodeFor(ctx.repo, ctx.pkg, callee, calleeID, calleeKind, nil)})
-			_ = ctx.emit(domain.Item{Node: nodeFor(ctx.repo, ctx.pkg, fn, fid, fkind, nil)})
+			_ = ctx.emit(domain.Item{Node: ctx.a.nodeFor(ctx.repo, ctx.pkg, callee, calleeID, calleeKind, nil)})
+			_ = ctx.emit(domain.Item{Node: ctx.a.nodeFor(ctx.repo, ctx.pkg, fn, fid, fkind, nil)})
 			// getter → 注册函数（changelog2）
 			_ = ctx.emit(domain.Item{Fact: &domain.Fact{
 				SourceID: calleeID, TargetID: fid, Kind: domain.FactCalls,
@@ -97,7 +97,7 @@ func (ctx *fileCtx) emitFuncSetRegistry(call *ast.CallExpr, caller *types.Func, 
 			// 当前调用者 → 注册函数（changelog3：集合参数传入 getter 时，
 			// 调用者也是注册函数的可见调用方；带行号与 registered_function_value 标记）
 			if callerID != "" && callerID != fid {
-				_ = ctx.emit(domain.Item{Node: nodeFor(ctx.repo, ctx.pkg, caller, callerID, callerKind, ctx.serviceFlags[callerID])})
+				_ = ctx.emit(domain.Item{Node: ctx.a.nodeFor(ctx.repo, ctx.pkg, caller, callerID, callerKind, ctx.serviceFlags[callerID])})
 				_ = ctx.emit(domain.Item{Fact: &domain.Fact{
 					SourceID: callerID, TargetID: fid, Kind: domain.FactCalls,
 					ToolSource: domain.ToolCodeGraph, Confidence: 0.8,
@@ -160,8 +160,8 @@ func (ctx *fileCtx) emitFuncSetTraversalCall(call *ast.CallExpr, caller *types.F
 		if fid == "" || fid == callerID {
 			continue
 		}
-		_ = ctx.emit(domain.Item{Node: nodeFor(ctx.repo, ctx.pkg, caller, callerID, callerKind, ctx.serviceFlags[callerID])})
-		_ = ctx.emit(domain.Item{Node: nodeFor(ctx.repo, ctx.pkg, fn, fid, fkind, nil)})
+		_ = ctx.emit(domain.Item{Node: ctx.a.nodeFor(ctx.repo, ctx.pkg, caller, callerID, callerKind, ctx.serviceFlags[callerID])})
+		_ = ctx.emit(domain.Item{Node: ctx.a.nodeFor(ctx.repo, ctx.pkg, fn, fid, fkind, nil)})
 		_ = ctx.emit(domain.Item{Fact: &domain.Fact{
 			SourceID: callerID, TargetID: fid, Kind: domain.FactCalls,
 			ToolSource: domain.ToolCodeGraph, Confidence: 0.8,

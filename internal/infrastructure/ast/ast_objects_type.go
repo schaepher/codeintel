@@ -33,7 +33,7 @@ func (a *Adapter) handleNestedArg(pkg *packages.Package, call *ast.CallExpr, rec
 	if calleeID == "" || calleeID == receiverID {
 		return
 	}
-	_ = emit(domain.Item{Node: nodeFor(repo, pkg, callee, calleeID, calleeKind, nil)})
+	_ = emit(domain.Item{Node: a.nodeFor(repo, pkg, callee, calleeID, calleeKind, nil)})
 	_ = emit(domain.Item{Fact: &domain.Fact{
 		SourceID:   receiverID,
 		TargetID:   calleeID,
@@ -63,7 +63,7 @@ func (a *Adapter) handleNestedArg(pkg *packages.Package, call *ast.CallExpr, rec
 		if paramID == "" || paramID == calleeID {
 			continue
 		}
-		_ = emit(domain.Item{Node: nodeFor(repo, pkg, fn, paramID, paramKind, nil)})
+		_ = emit(domain.Item{Node: a.nodeFor(repo, pkg, fn, paramID, paramKind, nil)})
 		_ = emit(domain.Item{Fact: &domain.Fact{
 			SourceID:   calleeID,
 			TargetID:   paramID,
@@ -112,7 +112,7 @@ func (a *Adapter) concreteMethodFor(pkg *packages.Package, call *ast.CallExpr, c
 		if mid == "" {
 			continue
 		}
-		return mid, mkind, nodeFor(repo, pkg, m, mid, mkind, nil)
+		return mid, mkind, a.nodeFor(repo, pkg, m, mid, mkind, nil)
 	}
 	return "", "", nil
 }

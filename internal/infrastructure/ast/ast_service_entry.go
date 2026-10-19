@@ -44,7 +44,7 @@ func handlerFuncNode(a *Adapter, pkg *packages.Package, call *ast.CallExpr, repo
 	if fnID == "" {
 		return nil
 	}
-	return nodeFor(repo, pkg, fn, fnID, fnKind, map[string]bool{"serves_http": true})
+	return a.nodeFor(repo, pkg, fn, fnID, fnKind, map[string]bool{"serves_http": true})
 }
 
 // serviceImplNodes 提取 RegisterXxxServer 调用的第二个参数（服务实现），
