@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // Q248：共享源码行缓存的等价性测试——缓存结果必须与"直接读文件 +
@@ -113,5 +115,93 @@ func TestAdapterSharesOneLineCache(t *testing.T) {
 	_ = c.line(rel, 3)
 	if c.reads != before {
 		t.Fatalf("共享缓存命中不应再读盘，before=%d after=%d", before, c.reads)
+	}
+}
+
+// TestLineCacheConcurrentFirstLoadOnce（todo8-12）：同一文件并发首次加载
+// 只读一次（entry.ready 同步；不依赖计时）。
+func TestLineCacheConcurrentFirstLoadOnce(t *testing.T) {
+	dir, file := lineCacheFixture(t)
+	c := newLineCache(dir)
+	var reads atomic.Int32
+	block := make(chan struct{})
+	c.readFile = func(p string) ([]byte, error) {
+		reads.Add(1)
+		<-block
+		return os.ReadFile(p)
+	}
+	const n = 8
+	var wg sync.WaitGroup
+	started := make(chan struct{}, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			started <- struct{}{}
+			if got := c.line(file, 4); got != "x := 1 // 缩进行" {
+				t.Errorf("line = %q", got)
+			}
+		}()
+	}
+	for i := 0; i < n; i++ {
+		<-started
+	}
+	close(block)
+	wg.Wait()
+	if reads.Load() != 1 {
+		t.Errorf("并发首次读盘 %d 次, want 1", reads.Load())
+	}
+	if c.reads != 1 {
+		t.Errorf("reads = %d, want 1", c.reads)
+	}
+}
+
+// TestLineCacheDifferentFilesParallel（todo8-12）：不同文件可并行读取
+// （不允许全局锁包住读盘）。
+func TestLineCacheDifferentFilesParallel(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "a.go"), "a1\n")
+	writeFile(t, filepath.Join(dir, "b.go"), "b1\n")
+	c := newLineCache(dir)
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	c.readFile = func(p string) ([]byte, error) {
+		started <- struct{}{}
+		<-release // 两个读必须同时进入（若串行会超时）
+		return os.ReadFile(p)
+	}
+	var wg sync.WaitGroup
+	for _, f := range []string{"a.go", "b.go"} {
+		wg.Add(1)
+		go func(f string) { defer wg.Done(); _ = c.line(f, 1) }(f)
+	}
+	for i := 0; i < 2; i++ {
+		select {
+		case <-started:
+		case <-time.After(2 * time.Second):
+			close(release)
+			t.Fatal("不同文件未并行读取（全局锁包住了读盘？）")
+		}
+	}
+	close(release)
+	wg.Wait()
+}
+
+// TestLineCacheReadFailureNegative（todo8-12）：读失败负缓存（只读一次）。
+func TestLineCacheReadFailureNegative(t *testing.T) {
+	c := newLineCache(t.TempDir())
+	var reads atomic.Int32
+	c.readFile = func(string) ([]byte, error) {
+		reads.Add(1)
+		return nil, os.ErrNotExist
+	}
+	if got := c.line("missing.go", 1); got != "" {
+		t.Errorf("读失败应返回空, got %q", got)
+	}
+	if got := c.line("missing.go", 1); got != "" {
+		t.Errorf("负缓存应返回空, got %q", got)
+	}
+	if reads.Load() != 1 {
+		t.Errorf("读失败应只读一次, got %d", reads.Load())
 	}
 }

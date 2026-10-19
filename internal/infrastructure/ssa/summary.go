@@ -54,9 +54,12 @@ func emitSummaries(data map[domain.CanonicalID]*funcData, alias *aliasResult, em
 	for id := range data {
 		indirect[id] = map[indirectKey]fieldEntry{}
 	}
+	// todo8-9：data 键集合不变——排序只做一次，反向索引/传播种子/最终
+	// 发射三个阶段复用同一顺序。
+	ids := sortedFuncIDs(data)
 	// 反向调用索引：calleeID → 调用点（caller + callInfo）
 	callers := map[domain.CanonicalID][]indirectSite{}
-	for _, fID := range sortedFuncIDs(data) {
+	for _, fID := range ids {
 		fd := data[fID]
 		for _, c := range fd.calls {
 			callers[c.calleeID] = append(callers[c.calleeID], indirectSite{fID, c})
@@ -65,7 +68,7 @@ func emitSummaries(data map[domain.CanonicalID]*funcData, alias *aliasResult, em
 	// pending[g] = g 的新增写条目（direct 初始 + 后续 indirect 增量）
 	pending := map[domain.CanonicalID][]fieldEntry{}
 	var queue []domain.CanonicalID
-	for _, id := range sortedFuncIDs(data) {
+	for _, id := range ids {
 		fd := data[id]
 		if len(fd.directWrites) > 0 {
 			pending[id] = append(pending[id], fd.directWrites...)
@@ -84,6 +87,9 @@ func emitSummaries(data map[domain.CanonicalID]*funcData, alias *aliasResult, em
 			continue
 		}
 		for _, site := range callers[g] {
+			// todo8-11：同一调用点的实参名只在首个成功传播的字段处拼接一次
+			callArg := ""
+			joined := false
 			for _, e := range newEntries {
 				key := indirectKey{e.fieldPath, site.c.callLine, site.c.callPos}
 				if _, ok := indirect[site.caller][key]; ok {
@@ -99,7 +105,11 @@ func emitSummaries(data map[domain.CanonicalID]*funcData, alias *aliasResult, em
 				// 调用点级回连（Q90/Q157）：每 (字段, 调用点) 一条，
 				// 多层闭包传播时覆盖为当前层
 				e.callLine = site.c.callLine
-				e.callArg = strings.Join(site.c.argNames, ", ")
+				if !joined {
+					callArg = strings.Join(site.c.argNames, ", ")
+					joined = true
+				}
+				e.callArg = callArg
 				// todo2-8：同 (字段, 调用点) 多来源时稳定保留代表（earlierEntry
 				// 全序），不按传播轮次覆盖；更差值不重复入队。
 				if prev, ok := indirect[site.caller][key]; ok && !earlierEntry(e, prev) {
@@ -121,7 +131,7 @@ func emitSummaries(data map[domain.CanonicalID]*funcData, alias *aliasResult, em
 	logger.Debug("indirect settled", zap.Int("total", addedTotal))
 
 	// 发射摘要行与 INDIRECT_WRITE 边
-	for _, fID := range sortedFuncIDs(data) {
+	for _, fID := range ids {
 		fd := data[fID]
 		if err := emitSummaryRows(fID, domain.SummaryDirectRead, fd.directReads, emit); err != nil {
 			return err
@@ -154,13 +164,15 @@ func emitSummaries(data map[domain.CanonicalID]*funcData, alias *aliasResult, em
 				// Tax）时每个字段都记 origins（此前只记第一个，其余字段
 				// 的间接写来源为空）；meta 的调用点信息只设一次（首个字段）
 				var origins []*domain.SummaryOrigin
-				for _, e := range calleeWrites(data, indirect, c.calleeID) {
+				// todo8-10：直接遍历直接写切片与间接写映射，去 calleeWrites/
+				// valuesOf 的中间拼接分配（直接写在前、匹配即继续）。
+				record := func(e fieldEntry) {
 					if !contains(c.argStructPaths, structPathOf(e.fieldPath)) {
-						continue
+						return
 					}
 					got, ok := indirect[fID][indirectKey{e.fieldPath, c.callLine, c.callPos}]
 					if !ok {
-						continue
+						return
 					}
 					if got.callLine > 0 {
 						if _, set := meta["call_line"]; !set {
@@ -179,6 +191,14 @@ func emitSummaries(data map[domain.CanonicalID]*funcData, alias *aliasResult, em
 						CallLine:   got.callLine,
 						CalleeID:   c.calleeID,
 					})
+				}
+				if g := data[c.calleeID]; g != nil {
+					for _, e := range g.directWrites {
+						record(e)
+					}
+				}
+				for _, e := range indirect[c.calleeID] {
+					record(e)
 				}
 				if len(origins) > 0 {
 					if err := emit(domain.Item{Origins: origins}); err != nil {
@@ -207,26 +227,19 @@ type indirectSite struct {
 	c      callInfo
 }
 
-// calleeWrites 返回被调函数的全部写条目（direct + indirect）。
-func calleeWrites(data map[domain.CanonicalID]*funcData,
-	indirect map[domain.CanonicalID]map[indirectKey]fieldEntry, gID domain.CanonicalID) []fieldEntry {
-	logger := zap.L()
-	logger.Debug("enter calleeWrites")
-	defer logger.Debug("exit calleeWrites")
-	g := data[gID]
-	var out []fieldEntry
-	if g != nil {
-		out = append(out, g.directWrites...)
-	}
-	out = append(out, valuesOf(indirect[gID])...)
-	return out
-}
-
-// calleeHasMatchingWrite 判断被调函数是否存在与实参类型匹配的写条目。
+// calleeHasMatchingWrite 判断被调函数是否存在与实参类型匹配的写条目
+// （todo8-10：直接遍历直接写切片与间接写映射，提前退出，不拼接临时切片）。
 func calleeHasMatchingWrite(data map[domain.CanonicalID]*funcData,
 	indirect map[domain.CanonicalID]map[indirectKey]fieldEntry, gID domain.CanonicalID,
 	argStructPaths []string) bool {
-	for _, e := range calleeWrites(data, indirect, gID) {
+	if g := data[gID]; g != nil {
+		for _, e := range g.directWrites {
+			if contains(argStructPaths, structPathOf(e.fieldPath)) {
+				return true
+			}
+		}
+	}
+	for _, e := range indirect[gID] {
 		if contains(argStructPaths, structPathOf(e.fieldPath)) {
 			return true
 		}
