@@ -85,26 +85,46 @@ func TestAdapterReleasesTransientOnError(t *testing.T) {
 	}
 }
 
-// TestAdapterReuseAfterIndex（todo5-3）：同一适配器连续两次 Index 产物一致
-// （不读取上次构建对象）。
+// TestAdapterReuseAfterIndex（todo5-3 / todo7-1）：同一适配器连续两次
+// Index 的节点/边（含派发元数据）与 DispatchPkgs 一致（不读取上次构建对象）。
 func TestAdapterReuseAfterIndex(t *testing.T) {
 	a, repo := newCleanupAdapter(t, cleanupFixture())
-	collect := func() []string {
-		var ids []string
+	type run struct {
+		nodes []string
+		facts []string
+		pkgs  []string
+	}
+	collect := func() run {
+		var r run
 		if err := runCleanupIndex(t, a, repo, func(item domain.Item) error {
 			if item.Node != nil {
-				ids = append(ids, string(item.Node.ID))
+				r.nodes = append(r.nodes, string(item.Node.ID))
+			}
+			if item.Fact != nil {
+				r.facts = append(r.facts, string(item.Fact.SourceID)+"|"+string(item.Fact.TargetID)+"|"+string(item.Fact.Kind))
 			}
 			return nil
 		}); err != nil {
 			t.Fatalf("Index: %v", err)
 		}
-		sort.Strings(ids)
-		return ids
+		r.pkgs = append(r.pkgs, a.dispatchPkgs...)
+		sort.Strings(r.nodes)
+		sort.Strings(r.facts)
+		sort.Strings(r.pkgs)
+		return r
 	}
 	first := collect()
 	second := collect()
-	if !reflect.DeepEqual(first, second) {
-		t.Errorf("两次 Index 产物不一致：%d vs %d", len(first), len(second))
+	if !reflect.DeepEqual(first.nodes, second.nodes) {
+		t.Errorf("两次 Index 节点不一致：%d vs %d", len(first.nodes), len(second.nodes))
+	}
+	if !reflect.DeepEqual(first.facts, second.facts) {
+		t.Errorf("两次 Index 边不一致：%d vs %d", len(first.facts), len(second.facts))
+	}
+	if !reflect.DeepEqual(first.pkgs, second.pkgs) {
+		t.Errorf("两次 DispatchPkgs 不一致：%v vs %v", first.pkgs, second.pkgs)
+	}
+	if len(first.pkgs) == 0 {
+		t.Error("fixture 应产出 DispatchPkgs")
 	}
 }

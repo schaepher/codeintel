@@ -11,6 +11,13 @@ import (
 
 // testFuncSnapshotFiles 用给定 fixture 构建 funcSnapshot。
 func testFuncSnapshotFiles(t *testing.T, files map[string]string) *funcSnapshot {
+	s, _ := testFuncSnapshotFilesAndProg(t, files)
+	return s
+}
+
+// testFuncSnapshotFilesAndProg 同 testFuncSnapshotFiles，额外返回 Program
+// （派发注册收集等需要 prog 的测试用）。
+func testFuncSnapshotFilesAndProg(t *testing.T, files map[string]string) (*funcSnapshot, *ssa.Program) {
 	t.Helper()
 	dir := t.TempDir()
 	for name, content := range files {
@@ -25,7 +32,7 @@ func testFuncSnapshotFiles(t *testing.T, files map[string]string) *funcSnapshot 
 		t.Fatal("ssautil.Packages 失败")
 	}
 	prog.Build() // 构建函数体（否则 Blocks 为空，静态调用点扫描不到）
-	return newFuncSnapshot(prog)
+	return newFuncSnapshot(prog), prog
 }
 
 // testFuncSnapshot 用 base fixture 构建 funcSnapshot 与一个具名函数对象。

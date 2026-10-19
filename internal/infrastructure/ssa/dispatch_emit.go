@@ -16,11 +16,17 @@ import (
 //
 // P0-2：返回 dispatch 相关模块内包路径（注册点包 ∪ 动态调用包）——
 // 增量构建补 Load 用（这些包未 Load 时 dispatch_to 边整体丢失）。
-func emitDispatches(repo *domain.Repository, prog *ssa.Program, pool *implTypePool, funcs *funcSnapshot, emit domain.EmitFunc) ([]string, error) {
+// todo7-1：regs/regPkgs 由 initFuncSnapshotDispatch 已收集的注册结果传入，
+// 避免收尾阶段重复全程序扫描。nil = 未初始化（直接调用/测试）→ 回退扫描
+// 一次；**非 nil 空 map** = 已初始化但无注册点 → 不得再次扫描。
+func emitDispatches(repo *domain.Repository, prog *ssa.Program, pool *implTypePool, funcs *funcSnapshot,
+	regs dispatchReg, regPkgs []string, emit domain.EmitFunc) ([]string, error) {
 	logger := zap.L()
 	logger.Debug("enter emitDispatches")
 	defer logger.Debug("exit emitDispatches")
-	regs, regPkgs := collectDispatchRegistrations(prog, funcs.moduleFuncs(repo.Modules), repo.Modules, nil)
+	if regs == nil {
+		regs, regPkgs = collectDispatchRegistrations(prog, funcs.moduleFuncs(repo.Modules), repo.Modules, nil)
+	}
 
 	// 接口方法调用集合：接口类型 → 方法名（map 去重；UNIQUE 边合并）
 	type callKey struct {
