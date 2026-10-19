@@ -95,16 +95,14 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, _ []*packa
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("scip-go index failed (%s): %v: %s", dir, err, string(out))
 		}
-		data, err := os.ReadFile(indexPath)
+		// todo5-1：逐文档解码（不再一次物化全部 Document/Occurrence）；
+		// todo9-3：从文件流式读取（不再 os.ReadFile 整份 index）；
+		// 损坏的尾部返回失败（不提交部分成功构建）。
+		err := forEachIndexFileDocument(ctx, indexPath, func(doc *scip.Document) error {
+			return a.processDocument(repo, doc, md.rel, emit)
+		})
 		os.Remove(indexPath)
 		if err != nil {
-			return fmt.Errorf("read scip index: %w", err)
-		}
-		// todo5-1：逐文档解码（不再一次物化全部 Document/Occurrence）；
-		// 损坏的尾部返回失败（不提交部分成功构建）。
-		if err := forEachIndexDocument(ctx, data, func(doc *scip.Document) error {
-			return a.processDocument(repo, doc, md.rel, emit)
-		}); err != nil {
 			return fmt.Errorf("parse scip index: %w", err)
 		}
 		p.Advance("scip index", i+1)
