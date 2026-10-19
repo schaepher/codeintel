@@ -79,6 +79,7 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 		}
 	}
 	implPool := newImplTypePool(typePkgs, repo.Modules)
+	implPool.SetFuncSnapshot(a.funcs) // todo8-5：共享构建级方法集缓存
 	logger.Info("impl type pool", zap.Int("types", implPool.Len()))
 
 	// Q211：orm.Mapping 实体类型→表名收集（发射前全量扫描——Mapping

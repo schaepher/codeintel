@@ -71,6 +71,10 @@ type funcSnapshot struct {
 	moduleMu    sync.RWMutex
 	moduleCache map[string][]*ssa.Function
 
+	// todo8-5：具名类型值/指针方法集（findMethod 构建级复用）。
+	msMu       sync.Mutex
+	methodSets map[*types.Named]*typeMethodSets
+
 	// 构建级字符串缓存（string_cache.go）：类型字符串 + 候选键。
 	strMu    sync.RWMutex
 	typeStrs map[types.Type]string

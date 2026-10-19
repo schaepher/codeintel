@@ -103,7 +103,7 @@ func (ext *fieldExtractor) instancePathDepth(v ssa.Value, depth int) string {
 		if _, isAlloc := v.(*ssa.Alloc); isAlloc {
 			// Q252b：与 alias pass 共用 aliasSlot（单一命名口径——两侧
 			// 不一致会让同一 SSA 值分裂成两个节点）
-			if tn := aliasSlot(v); tn != name {
+			if tn := ext.aliasSlot(v); tn != name {
 				return tn
 			}
 		}

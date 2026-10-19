@@ -19,6 +19,12 @@ import (
 // 非 Alloc 值保持 v.Name()——fe 公共分支同样用 v.Name()（回退类型短名只
 // 影响展示名 Name，不影响 ID）。
 func aliasSlot(v ssa.Value) string {
+	return aliasSlotWith(v, func(t types.Type) string { return t.String() })
+}
+
+// aliasSlotWith 同 aliasSlot，类型字符串由调用方缓存提供（todo8-3：
+// 别名分析与字段提取共享构建级 typeString）。
+func aliasSlotWith(v ssa.Value, typeString func(types.Type) string) string {
 	slot := v.Name()
 	if !isSSAName(slot) {
 		return slot
@@ -26,10 +32,20 @@ func aliasSlot(v ssa.Value) string {
 	if _, isAlloc := v.(*ssa.Alloc); !isAlloc {
 		return slot
 	}
-	if tn := allocTypeShort(v.Type().String()); tn != "" {
+	if tn := allocTypeShort(typeString(v.Type())); tn != "" {
 		return tn
 	}
 	return slot
+}
+
+// aliasSlot 提取器侧（共享 typeString 缓存）。
+func (ext *fieldExtractor) aliasSlot(v ssa.Value) string {
+	return aliasSlotWith(v, ext.typeString)
+}
+
+// aliasSlot aliasPass 侧（共享 typeString 缓存）。
+func (p *aliasPass) aliasSlot(v ssa.Value) string {
+	return aliasSlotWith(v, p.typeString)
 }
 
 // valueNodeID 生成并发射值节点的 canonical ID（funcID#slot，与 emitValue
@@ -97,7 +113,7 @@ func (p *aliasPass) valueNodeID(v ssa.Value) (domain.CanonicalID, bool) {
 		slots = map[string]bool{}
 		p.slotSeen[scopeKey] = slots
 	}
-	slot := aliasSlot(v)
+	slot := p.aliasSlot(v)
 	if slots[slot] {
 		line := p.prog.Fset.PositionFor(v.Pos(), false).Line
 		slot = fmt.Sprintf("%s@%d", slot, line)
@@ -151,7 +167,7 @@ func (p *aliasPass) objectIDOf(obj ssa.Value) (domain.CanonicalID, bool) {
 		slots = map[string]bool{}
 		p.slotSeen[scopeKey] = slots
 	}
-	slot := aliasSlot(obj)
+	slot := p.aliasSlot(obj)
 	if slots[slot] {
 		line := p.prog.Fset.PositionFor(obj.Pos(), false).Line
 		slot = fmt.Sprintf("%s@%d", slot, line)

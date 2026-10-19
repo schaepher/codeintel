@@ -35,6 +35,16 @@ type implTypePool struct {
 	computes atomic.Int64
 	// methodComputes 方法过滤次数（测试断言「同 (接口,方法) 只过滤一次」）。
 	methodComputes atomic.Int64
+	// funcs 构建级函数快照（todo8-5：方法集缓存；SetFuncSnapshot 注入，
+	// 未注入时 findMethodCached 回退直接构建）
+	funcs *funcSnapshot
+}
+
+// SetFuncSnapshot 注入构建级快照（findMethod 方法集缓存用）。
+func (p *implTypePool) SetFuncSnapshot(s *funcSnapshot) {
+	if p != nil {
+		p.funcs = s
+	}
 }
 
 // implMethodKey 候选方法缓存键（接口类型指针 + 方法名）。
@@ -101,7 +111,7 @@ func (p *implTypePool) methodsFor(iface *types.Named, method string) []*types.Fu
 	impls := p.implsFor(iface)
 	var res []*types.Func
 	for _, t := range impls {
-		if fn := findMethod(t.named, method); fn != nil {
+		if fn := findMethodCached(p.funcs, t.named, method); fn != nil {
 			res = append(res, fn)
 		}
 	}

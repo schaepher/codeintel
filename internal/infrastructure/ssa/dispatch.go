@@ -48,7 +48,7 @@ func buildRegHits(regs dispatchReg, funcs *funcSnapshot) regHits {
 				continue
 			}
 			for i := 0; i < named.NumMethods(); i++ {
-				hits[candidateKey(named.Method(i))] = true
+				hits[funcs.candidateKeyOf(named.Method(i))] = true
 			}
 		}
 		out[ifc.String()] = hits
@@ -69,11 +69,16 @@ type dispatchCandidate struct {
 // 具体值 → 接口值的转换指令（SSA 中注册/注入点的标准形态）。
 // P0-2：同时返回注册点所在模块内包路径（增量构建补 Load 用——注册
 // 点包未 Load 时 dispatch_to 边整体丢失）。
-func collectDispatchRegistrations(prog *ssa.Program, modFuncs []*ssa.Function, modules []string, onProgress func(done int)) (dispatchReg, []string) {
+// todo8-1/8-3：位置去重走 dispatchDedup（<32 线性 / ≥32 集合）；动态
+// 类型字符串走同次构建的 funcs.typeString 缓存（funcs 可为 nil → 直接
+// 渲染，测试/轻量路径）。
+func collectDispatchRegistrations(prog *ssa.Program, modFuncs []*ssa.Function, modules []string,
+	funcs *funcSnapshot, onProgress func(done int)) (dispatchReg, []string) {
 	logger := zap.L()
 	logger.Debug("enter collectDispatchRegistrations")
 	defer logger.Debug("exit collectDispatchRegistrations")
 	regs := dispatchReg{}
+	var dedup dispatchDedup // 构建局部；稀疏注册不创建集合
 	seenPkg := map[string]bool{}
 	var pkgs []string
 	notePkg := func(pkgPath string) {
@@ -101,10 +106,7 @@ func collectDispatchRegistrations(prog *ssa.Program, modFuncs []*ssa.Function, m
 				if fn.Pkg != nil {
 					notePkg(fn.Pkg.Pkg.Path())
 				}
-				if regs[iface] == nil {
-					regs[iface] = map[string][]dispatchSite{}
-				}
-				dyn := mi.X.Type().String()
+				dyn := funcs.typeString(mi.X.Type())
 				// 注册点取动态值字面量（&Eng{}）的位置最准；MakeInterface.Pos
 				// 为合成位置。保留**全部**注册位置（文件+行）——多文件同号
 				// 或同类型多处注册时由候选选择稳定取最小。
@@ -113,17 +115,7 @@ func collectDispatchRegistrations(prog *ssa.Program, modFuncs []*ssa.Function, m
 					pos = mi.Pos()
 				}
 				p := prog.Fset.PositionFor(pos, false)
-				site := dispatchSite{file: p.Filename, line: p.Line}
-				dup := false
-				for _, old := range regs[iface][dyn] {
-					if old.file == site.file && old.line == site.line {
-						dup = true
-						break
-					}
-				}
-				if !dup {
-					regs[iface][dyn] = append(regs[iface][dyn], site)
-				}
+				dedup.append(regs, iface, dyn, p.Filename, p.Line)
 			}
 		}
 	}

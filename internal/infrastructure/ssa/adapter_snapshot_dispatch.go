@@ -26,7 +26,7 @@ func (a *Adapter) initFuncSnapshotDispatch(prog *ssa.Program, repo *domain.Repos
 
 	stages.begin("dispatchRegs", len(modFuncs))
 	a.dispatchPkgs = nil
-	a.dispatchRegs, a.dispatchPkgs = collectDispatchRegistrations(prog, modFuncs, repo.Modules, func(done int) {
+	a.dispatchRegs, a.dispatchPkgs = collectDispatchRegistrations(prog, modFuncs, repo.Modules, a.funcs, func(done int) {
 		stages.rep.Advance("dispatchRegs", done)
 	})
 	a.regHits = buildRegHits(a.dispatchRegs, a.funcs)

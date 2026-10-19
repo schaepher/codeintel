@@ -25,7 +25,7 @@ func emitDispatches(repo *domain.Repository, prog *ssa.Program, pool *implTypePo
 	logger.Debug("enter emitDispatches")
 	defer logger.Debug("exit emitDispatches")
 	if regs == nil {
-		regs, regPkgs = collectDispatchRegistrations(prog, funcs.moduleFuncs(repo.Modules), repo.Modules, nil)
+		regs, regPkgs = collectDispatchRegistrations(prog, funcs.moduleFuncs(repo.Modules), repo.Modules, funcs, nil)
 	}
 
 	// 接口方法调用集合：接口类型 → 方法名（map 去重；UNIQUE 边合并）
@@ -73,6 +73,32 @@ func emitDispatches(repo *domain.Repository, prog *ssa.Program, pool *implTypePo
 		dispatchPkgs = append(dispatchPkgs, p)
 	}
 
+	// todo8-6：按 (接口, 动态类型) 预计算最佳注册位置（relPath 归一化 +
+	// (file,line) 字典序最小）。同一动态类型的不同方法复用该结果，不再
+	// 逐方法重扫位置并调用 relPath；完整 dispatchReg 位置列表保留不动。
+	type normSite struct {
+		file string
+		line int
+	}
+	bestSites := make(map[*types.Named]map[string]normSite, len(regs))
+	for iface, byDyn := range regs {
+		m := make(map[string]normSite, len(byDyn))
+		for dyn, sites := range byDyn {
+			var best normSite
+			for _, s := range sites {
+				if s.line <= 0 {
+					continue
+				}
+				f := relPath(repo.Path, s.file)
+				if best.line == 0 || earlierDispatchSite(f, s.line, best.file, best.line) {
+					best = normSite{file: f, line: s.line}
+				}
+			}
+			m[dyn] = best
+		}
+		bestSites[iface] = m
+	}
+
 	for ck := range calls {
 		ifaceID := interfaceID(ck.iface)
 		if ifaceID == "" {
@@ -80,30 +106,25 @@ func emitDispatches(repo *domain.Repository, prog *ssa.Program, pool *implTypePo
 		}
 
 		candidates := map[string]dispatchCandidate{}
-		for dyn, sites := range regs[ck.iface] {
+		for dyn := range regs[ck.iface] {
 			t := funcs.dynamicTypeOf(dyn)
 			if t == nil {
 				continue
 			}
-			fn := findMethod(t, ck.method)
+			fn := findMethodCached(funcs, t, ck.method)
 			if fn == nil {
 				continue
 			}
-			key := candidateKey(fn)
+			key := funcs.candidateKeyOf(fn)
 			// R10/todo2-7：同一候选方法可能由多个注册点（值/指针共享方法、
 			// 不同文件同号）命中——不能"map 迭代顺序最后者赢"（go2o 同一
 			// (ApprovalImpl).IsFinal 的 register_site 在 24/255 间抖动）。
 			// 稳定规则：按 (仓库相对文件, 行号) 字典序取最小（所有来源参与
-			// 选择；site=0 视为未知不参选）。
+			// 选择；site=0 视为未知不参选）。todo8-6：代表位置已按
+			// (接口,动态类型) 预计算。
 			best := dispatchCandidate{fn: fn, origin: "register", confidence: 0.9}
-			for _, s := range sites {
-				if s.line <= 0 {
-					continue
-				}
-				f := relPath(repo.Path, s.file)
-				if best.site == 0 || earlierDispatchSite(f, s.line, best.file, best.site) {
-					best.file, best.site = f, s.line
-				}
+			if bs := bestSites[ck.iface][dyn]; bs.line > 0 {
+				best.file, best.site = bs.file, bs.line
 			}
 			if prev, ok := candidates[key]; ok {
 				if prev.origin == "register" && best.site > 0 {
@@ -117,7 +138,7 @@ func emitDispatches(repo *domain.Repository, prog *ssa.Program, pool *implTypePo
 			candidates[key] = best
 		}
 		for _, fn := range pool.methodsFor(ck.iface, ck.method) {
-			key := candidateKey(fn)
+			key := funcs.candidateKeyOf(fn)
 			if _, ok := candidates[key]; ok {
 				continue
 			}

@@ -70,7 +70,7 @@ func TestEmitDispatchesReuseMatchesScan(t *testing.T) {
 	repo := &domain.Repository{Module: "example.com/mtest", Modules: []string{"example.com/mtest", "example.com/other"}}
 	pool := newImplTypePool(allTypePkgs(prog), repo.Modules)
 	modFuncs := s.moduleFuncs(repo.Modules)
-	regs, regPkgs := collectDispatchRegistrations(prog, modFuncs, repo.Modules, nil)
+	regs, regPkgs := collectDispatchRegistrations(prog, modFuncs, repo.Modules, s, nil)
 
 	scanFacts, scanPkgs, err := emitDispatchesOnce(t, repo, prog, pool, s, nil, nil, false)
 	if err != nil {
@@ -150,7 +150,7 @@ func TestEmitDispatchesOnlyRegistrations(t *testing.T) {
 	s, prog := testFuncSnapshotFilesAndProg(t, files)
 	repo := &domain.Repository{Module: "example.com/mtest", Modules: []string{"example.com/mtest"}}
 	pool := newImplTypePool(allTypePkgs(prog), repo.Modules)
-	regs, regPkgs := collectDispatchRegistrations(prog, s.moduleFuncs(repo.Modules), repo.Modules, nil)
+	regs, regPkgs := collectDispatchRegistrations(prog, s.moduleFuncs(repo.Modules), repo.Modules, s, nil)
 	facts, pkgs, err := emitDispatchesOnce(t, repo, prog, pool, s, regs, regPkgs, false)
 	if err != nil {
 		t.Fatal(err)
@@ -168,9 +168,60 @@ func TestEmitDispatchesOutputError(t *testing.T) {
 	s, prog := testFuncSnapshotFilesAndProg(t, dispatchReuseFixture())
 	repo := &domain.Repository{Module: "example.com/mtest", Modules: []string{"example.com/mtest"}}
 	pool := newImplTypePool(allTypePkgs(prog), repo.Modules)
-	regs, regPkgs := collectDispatchRegistrations(prog, s.moduleFuncs(repo.Modules), repo.Modules, nil)
+	regs, regPkgs := collectDispatchRegistrations(prog, s.moduleFuncs(repo.Modules), repo.Modules, s, nil)
 	_, _, err := emitDispatchesOnce(t, repo, prog, pool, s, regs, regPkgs, true)
 	if err == nil || err.Error() != "emit fail" {
 		t.Errorf("输出错误应传播, got %v", err)
+	}
+}
+
+// TestDispatchBestSiteReusedPerMethod（todo8-6）：同一动态类型的多个方法
+// 复用预计算的最佳注册位置（register_file/register_site 一致）。
+func TestDispatchBestSiteReusedPerMethod(t *testing.T) {
+	files := map[string]string{
+		"go.mod": moduleGoMod,
+		"a.go": `package m
+
+func regA() Iface { return &Impl{} }
+
+type Iface interface {
+	M()
+	N()
+}
+
+type Impl struct{}
+
+func (i Impl) M() {}
+func (i Impl) N() {}
+`,
+		"b.go": `package m
+
+func regB() Iface { return Impl{} }
+
+func use(i Iface) { i.M(); i.N() }
+`,
+	}
+	s, prog, dir := testFuncSnapshotFilesProgDir(t, files)
+	repo := &domain.Repository{Path: dir, Module: "example.com/mtest", Modules: []string{"example.com/mtest"}}
+	pool := newImplTypePool(allTypePkgs(prog), repo.Modules)
+	pool.SetFuncSnapshot(s)
+	regs, regPkgs := collectDispatchRegistrations(prog, s.moduleFuncs(repo.Modules), repo.Modules, s, nil)
+	facts, _, err := emitDispatchesOnce(t, repo, prog, pool, s, regs, regPkgs, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := 0
+	for _, f := range facts {
+		if v, _ := f.Metadata["origin"].(string); v != "register" {
+			continue
+		}
+		got++
+		if f.Metadata["register_file"] != "a.go" || f.Metadata["register_site"] != 3 {
+			t.Errorf("%s 代表位置 = (%v,%v), want (a.go,3)", f.TargetID,
+				f.Metadata["register_file"], f.Metadata["register_site"])
+		}
+	}
+	if got != 2 {
+		t.Errorf("register 边 = %d, want 2（M/N 各一条）", got)
 	}
 }
