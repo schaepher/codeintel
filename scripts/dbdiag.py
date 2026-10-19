@@ -30,18 +30,20 @@ DROP_CANDIDATES = {
 }
 
 # 热点查询（--plans）：名 → SQL（含 :ID: 占位，用库里真实 ID 替换）
+# Q254c：edges 已改整数代理键（source_ref/target_ref）——热路径按整数列
+# 查计划，canonical ID 相关查询走 edges_v 视图（todo5-4 修正旧列名）。
 PLAN_QUERIES = [
-    ("邻接-出边(source_id=?)", "SELECT target_id, kind FROM edges WHERE source_id = :EDGE:"),
-    ("邻接-出边+kind", "SELECT target_id, kind, confidence FROM edges "
-     "WHERE source_id = :EDGE: AND kind IN ('argument','returns')"),
-    ("邻接-入边(target_id=?)", "SELECT source_id, kind FROM edges WHERE target_id = :EDGE:"),
-    ("邻接-入边+kind", "SELECT source_id FROM edges WHERE target_id = :EDGE: AND kind = 'summary_io'"),
-    ("邻接加载器(kind IN)", "SELECT source_id, target_id, kind FROM edges WHERE kind IN "
+    ("邻接-出边(source_ref=?)", "SELECT target_ref, kind FROM edges WHERE source_ref = :EDGE_REF:"),
+    ("邻接-出边+kind", "SELECT target_ref, kind, confidence FROM edges "
+     "WHERE source_ref = :EDGE_REF: AND kind IN ('argument','returns')"),
+    ("邻接-入边(target_ref=?)", "SELECT source_ref, kind FROM edges WHERE target_ref = :EDGE_REF:"),
+    ("邻接-入边+kind", "SELECT source_ref FROM edges WHERE target_ref = :EDGE_REF: AND kind = 'summary_io'"),
+    ("邻接加载器(kind IN)", "SELECT source_ref, target_ref, kind FROM edges WHERE kind IN "
      "('calls','argument','returns','phi_operand','summary_io')"),
-    ("chain(implements 反查)", "SELECT target_id FROM edges WHERE kind = 'implements' "
+    ("chain(implements 反查)", "SELECT target_id FROM edges_v WHERE kind = 'implements' "
      "AND target_id NOT LIKE '%Unimplemented%'"),
-    ("dispatch(kind 全扫)", "SELECT target_id, confidence, metadata FROM edges WHERE kind = 'dispatch_to'"),
-    ("dispatch(source+kind)", "SELECT target_id FROM edges WHERE source_id = :EDGE: AND kind = 'indirect_write'"),
+    ("dispatch(kind 全扫)", "SELECT target_ref, confidence, metadata FROM edges WHERE kind = 'dispatch_to'"),
+    ("dispatch(source+kind)", "SELECT target_ref FROM edges WHERE source_ref = :EDGE_REF: AND kind = 'indirect_write'"),
     ("节点主键(id=?)", "SELECT id, kind, name FROM nodes WHERE id = :NODE:"),
     ("节点按 kind", "SELECT COUNT(*) FROM nodes WHERE kind = 'function'"),
     ("节点按 func_id(表达式索引)", "SELECT id FROM nodes WHERE json_extract(properties,'$.func_id') = :NODE:"),
@@ -49,21 +51,23 @@ PLAN_QUERIES = [
 ]
 
 MINIMAL_DDL = """
-CREATE TABLE nodes (id TEXT PRIMARY KEY, kind TEXT, name TEXT, file_path TEXT, properties JSON);
+CREATE TABLE nodes (
+  id_int INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, name TEXT NOT NULL,
+  file_path TEXT, line_start INTEGER, line_end INTEGER, properties JSON);
+CREATE INDEX idx_nodes_file_kind ON nodes(file_path, kind) WHERE file_path IS NOT NULL;
+CREATE INDEX idx_nodes_func_id ON nodes(json_extract(properties,'$.func_id'));
 CREATE TABLE edges (
-  id INTEGER PRIMARY KEY, source_id TEXT NOT NULL, target_id TEXT NOT NULL, kind TEXT NOT NULL,
-  tool_source TEXT NOT NULL, confidence REAL NOT NULL DEFAULT 0.5, metadata JSON,
-  count INTEGER NOT NULL DEFAULT 1, FOREIGN KEY (source_id) REFERENCES nodes(id) ON DELETE CASCADE,
-  FOREIGN KEY (target_id) REFERENCES nodes(id) ON DELETE CASCADE, UNIQUE(source_id, target_id, kind));
-CREATE INDEX idx_edges_source ON edges(source_id);
-CREATE INDEX idx_edges_target ON edges(target_id);
+  id INTEGER PRIMARY KEY, source_ref INTEGER NOT NULL, target_ref INTEGER NOT NULL,
+  kind TEXT NOT NULL, tool_source TEXT NOT NULL, confidence REAL NOT NULL DEFAULT 0.5,
+  metadata JSON, count INTEGER NOT NULL DEFAULT 1, UNIQUE(source_ref, target_ref, kind));
 CREATE INDEX idx_edges_kind ON edges(kind);
-CREATE INDEX idx_edges_confidence ON edges(confidence) WHERE confidence >= 0.8;
-CREATE INDEX idx_edges_source_kind ON edges(source_id, kind);
-CREATE INDEX idx_edges_target_kind ON edges(target_id, kind);
+CREATE INDEX idx_edges_target_kind ON edges(target_ref, kind);
+CREATE VIEW edges_v AS
+  SELECT e.id, e.source_ref, e.target_ref, e.kind, e.tool_source, e.confidence, e.metadata, e.count,
+         s.id AS source_id, t.id AS target_id
+  FROM edges e JOIN nodes s ON s.id_int = e.source_ref JOIN nodes t ON t.id_int = e.target_ref;
 CREATE TABLE build_metadata (build_id TEXT PRIMARY KEY, status TEXT, duration_ms INTEGER, error_message TEXT);
 """
-
 
 def connect_ro(db: str) -> sqlite3.Connection:
     return sqlite3.connect(f"file:{db}?mode=ro", uri=True)
@@ -180,13 +184,12 @@ def size_report(db: str, c: sqlite3.Cursor) -> None:
         print(f"  {'合计':<36} {mb(total):>9}")
 
     print("== canonical ID 体量（估算索引条目的关键输入）==")
-    for tbl, col in (("edges", "source_id"), ("edges", "target_id"), ("nodes", "id")):
-        try:
-            n, avg, mx = c.execute(
-                f"SELECT COUNT(*), AVG(LENGTH({col})), MAX(LENGTH({col})) FROM {tbl}").fetchone()
-            print(f"  {tbl}.{col}: {n} 行 平均 {avg:.0f}B 最长 {mx}B")
-        except sqlite3.Error as e:
-            print(f"  {tbl}.{col}: (err {e})")
+    print("  Q254c：edges 已用整数代理键（source_ref/target_ref），canonical ID 只存 nodes.id")
+    try:
+        n, avg, mx = c.execute("SELECT COUNT(*), AVG(LENGTH(id)), MAX(LENGTH(id)) FROM nodes").fetchone()
+        print(f"  nodes.id: {n} 行 平均 {avg:.0f}B 最长 {mx}B")
+    except sqlite3.Error as e:
+        print(f"  nodes.id: (err {e})")
 
     edge_rows = 0
     try:
@@ -223,11 +226,18 @@ def size_report(db: str, c: sqlite3.Cursor) -> None:
           + ("   ⚠ 不足，VACUUM 前先清理磁盘" if free < need else "   ✓ 充足"))
 
 
+# 整数样本（edges.source_ref/target_ref）不加引号
+NUMERIC_SAMPLES = {"EDGE_REF"}
+
+
 def plans_of(c: sqlite3.Cursor, queries: list[tuple[str, str]], samples: dict[str, str]) -> None:
     for name, sql in queries:
         q = sql
         for key, val in samples.items():
-            q = q.replace(f":{key}:", "'" + val.replace("'", "''") + "'")
+            if key in NUMERIC_SAMPLES:
+                q = q.replace(f":{key}:", str(val))
+            else:
+                q = q.replace(f":{key}:", "'" + val.replace("'", "''") + "'")
         try:
             rows = c.execute("EXPLAIN QUERY PLAN " + q).fetchall()
         except sqlite3.Error as e:
@@ -253,22 +263,25 @@ def mem_variant(con: sqlite3.Connection, drop: bool) -> sqlite3.Connection:
         if typ == "table" and not name.startswith("sqlite_"):
             mc.execute(sql)
     for typ, name, sql in rows:
+        if typ == "view" and not name.startswith("sqlite_"):
+            mc.execute(sql)
+    for typ, name, sql in rows:
         if typ != "index" or (drop and name in DROP_CANDIDATES):
             continue
         mc.execute(sql)
     for i in range(200):  # 少量样本行（计划选择主要看索引可用性）
         mc.execute("INSERT INTO nodes(id, kind, name, file_path) VALUES(?,?,?,?)",
                    (f"symbol:go:example.com/m:fn{i}", "function", f"fn{i}", f"f{i}.go"))
-        mc.execute("INSERT INTO edges(id, source_id, target_id, kind, tool_source, confidence)"
-                   " VALUES(?,?,?,?,?,?)",
-                   (i + 1, f"symbol:go:example.com/m:fn{i}", f"symbol:go:example.com/m:fn{(i + 1) % 200}",
-                    "calls", "ssa", 0.8))
+    for i in range(200):
+        mc.execute("INSERT INTO edges(source_ref, target_ref, kind, tool_source, confidence)"
+                   " VALUES(?,?,?,?,?)",
+                   (i + 1, (i + 1) % 200 + 1, "calls", "ssa", 0.8))
     return mem
 
 
 def plans(con: sqlite3.Connection, c: sqlite3.Cursor) -> None:
-    samples = {"EDGE": "symbol:go:example.com/m:main", "NODE": "symbol:go:example.com/m:main"}
-    for key, sql in (("EDGE", "SELECT source_id FROM edges LIMIT 1"),
+    samples = {"EDGE_REF": "1", "NODE": "symbol:go:example.com/m:main"}
+    for key, sql in (("EDGE_REF", "SELECT source_ref FROM edges LIMIT 1"),
                      ("NODE", "SELECT id FROM nodes LIMIT 1")):
         try:
             row = c.execute(sql).fetchone()
@@ -276,7 +289,7 @@ def plans(con: sqlite3.Connection, c: sqlite3.Cursor) -> None:
                 samples[key] = str(row[0])
         except sqlite3.Error:
             pass
-    print(f"== 查询计划（真实库；样本 EDGE={samples['EDGE'][:50]} NODE={samples['NODE'][:50]}）==")
+    print(f"== 查询计划（真实库；样本 EDGE_REF={samples['EDGE_REF']} NODE={samples['NODE'][:50]}）==")
     plans_of(c, PLAN_QUERIES, samples)
     print("== 查询计划（内存副本：去掉冗余索引候选后）==")
     try:
@@ -297,9 +310,9 @@ def self_test() -> int:
         for i in range(50):
             c.execute("INSERT INTO nodes(id, kind, name) VALUES(?,?,?)",
                       (f"symbol:go:x:fn{i}", "function", f"fn{i}"))
-            c.execute("INSERT INTO edges(id,source_id,target_id,kind,tool_source) "
-                      "VALUES(?,?,?,?,?)", (i + 1, f"symbol:go:x:fn{i}", f"symbol:go:x:fn{(i + 1) % 50}",
-                                            "calls", "ssa"))
+        for i in range(50):
+            c.execute("INSERT INTO edges(source_ref,target_ref,kind,tool_source) "
+                      "VALUES(?,?,?,?)", (i + 1, (i + 1) % 50 + 1, "calls", "ssa"))
         c.connection.commit()
         c.connection.close()
         con = connect_ro(db)
