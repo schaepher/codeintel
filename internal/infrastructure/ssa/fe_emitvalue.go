@@ -121,6 +121,8 @@ func (ext *fieldExtractor) emitValue(v ssa.Value) (domain.CanonicalID, error) {
 		}
 	}
 
+	var pathName string
+	pathNameSet := false
 	if uo, ok := v.(*ssa.UnOp); ok && uo.Op == token.MUL {
 
 		_, isAlloc := uo.X.(*ssa.Alloc)
@@ -128,6 +130,7 @@ func (ext *fieldExtractor) emitValue(v ssa.Value) (domain.CanonicalID, error) {
 		_, isFld := uo.X.(*ssa.FieldAddr)
 		// todo8-14：本次调用内只计算一次 instancePath（两个分支复用）
 		name := ext.instancePath(uo)
+		pathName, pathNameSet = name, true
 		nameIsSSA := isSSAName(name)
 		if isAlloc {
 			// Q205 双发射修复：*alloc（读整个 slice/对象变量）与 Alloc
@@ -223,7 +226,12 @@ func (ext *fieldExtractor) emitValue(v ssa.Value) (domain.CanonicalID, error) {
 
 	// Q179：instancePath 已对叶子临时寄存器做 recoverVarName（tN → 变量名），
 	// 仍为 SSA 临时名（phi/合成值无 Pos 匹配失败）时回退 slot
-	name := ext.instancePath(v)
+	// todo9-6：UnOp 分支已算过同一值的 instancePath，通用分支复用
+	// （否则解引用加载每次要重算两遍路径）。
+	name := pathName
+	if !pathNameSet {
+		name = ext.instancePath(v)
+	}
 	if isSSAName(name) {
 		// Q235-6/8/9：SSA 临时名回退类型短名（保留 * / [] 与末段包名：
 		// *proto.String / []*tndemo.Brand / orm.Orm）——用户视角 tN
