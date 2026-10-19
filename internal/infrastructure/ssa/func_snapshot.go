@@ -25,6 +25,7 @@ package ssa
 import (
 	"go/types"
 	"sort"
+	"strings"
 	"sync"
 
 	"golang.org/x/tools/go/ssa"
@@ -59,9 +60,16 @@ type funcSnapshot struct {
 	// todo5-2：动态类型查询（Mi.X.Type().String() → types.Type）。
 	// pkgs 为**排序后的包快照**（同名不同包时按路径稳定选择）；dynTypes
 	// 缓存成功与失败（nil）结果——按构建创建，随 funcSnapshot 释放。
-	pkgs     []*types.Package
-	dynMu    sync.RWMutex
-	dynTypes map[string]dynTypeEntry
+	pkgs       []*types.Package
+	pkgsByName map[string][]*types.Package
+	pkgsByPath map[string][]*types.Package
+	dynMu      sync.RWMutex
+	dynTypes   map[string]dynTypeEntry
+
+	// todo6-2：模块函数过滤结果复用（同一构建 + 同一模块集合只过滤一次；
+	// 只读切片，随 funcSnapshot 释放）。
+	moduleMu    sync.RWMutex
+	moduleCache map[string][]*ssa.Function
 
 	// 构建级字符串缓存（string_cache.go）：类型字符串 + 候选键。
 	strMu    sync.RWMutex
@@ -106,8 +114,21 @@ func newFuncSnapshot(prog *ssa.Program) *funcSnapshot {
 			pkgs = append(pkgs, ap.Pkg)
 		}
 	}
-	sort.Slice(pkgs, func(i, j int) bool { return pkgs[i].Path() < pkgs[j].Path() })
-	return &funcSnapshot{list: list, pkgs: pkgs}
+	// 排序键 (Path, Name)：同路径多个包对象时顺序稳定。
+	sort.SliceStable(pkgs, func(i, j int) bool {
+		if pkgs[i].Path() != pkgs[j].Path() {
+			return pkgs[i].Path() < pkgs[j].Path()
+		}
+		return pkgs[i].Name() < pkgs[j].Name()
+	})
+	// todo6-1：包索引（名字/路径 → 包对象，保持排序后的候选顺序）
+	byName := make(map[string][]*types.Package, len(pkgs))
+	byPath := make(map[string][]*types.Package, len(pkgs))
+	for _, p := range pkgs {
+		byName[p.Name()] = append(byName[p.Name()], p)
+		byPath[p.Path()] = append(byPath[p.Path()], p)
+	}
+	return &funcSnapshot{list: list, pkgs: pkgs, pkgsByName: byName, pkgsByPath: byPath}
 }
 
 // funcKeySorter 按预计算 key 排序（避免比较器内重复构造字符串）。
@@ -131,10 +152,24 @@ func (s *funcSnapshot) all() []*ssa.Function {
 	return s.list
 }
 
-// moduleFuncs 模块内函数（集中过滤一次，各消费者共享同一份只读切片）。
+// moduleFuncs 模块内函数（集中过滤一次，各消费者共享同一份只读切片；
+// todo6-2：结果按模块集合缓存——快照初始化/别名/全局初始化/派发分析复用）。
 func (s *funcSnapshot) moduleFuncs(modules []string) []*ssa.Function {
 	if s == nil {
 		return nil
+	}
+	key := moduleSetKey(modules)
+	s.moduleMu.RLock()
+	if v, ok := s.moduleCache[key]; ok {
+		s.moduleMu.RUnlock()
+		return v
+	}
+	s.moduleMu.RUnlock()
+	// 写锁内二次检查后过滤——并发首次访问只遍历一次
+	s.moduleMu.Lock()
+	defer s.moduleMu.Unlock()
+	if v, ok := s.moduleCache[key]; ok {
+		return v
 	}
 	out := make([]*ssa.Function, 0, len(s.list))
 	for _, fn := range s.list {
@@ -142,5 +177,23 @@ func (s *funcSnapshot) moduleFuncs(modules []string) []*ssa.Function {
 			out = append(out, fn)
 		}
 	}
+	if s.moduleCache == nil {
+		s.moduleCache = map[string][]*ssa.Function{}
+	}
+	s.moduleCache[key] = out
 	return out
+}
+
+// moduleSetKey 模块集合的稳定键（集合语义：顺序无关；不同集合不复用）。
+func moduleSetKey(modules []string) string {
+	// 单 module 仓库（绝大多数）零分配快路径。
+	switch len(modules) {
+	case 0:
+		return ""
+	case 1:
+		return modules[0]
+	}
+	cp := append([]string(nil), modules...)
+	sort.Strings(cp)
+	return strings.Join(cp, "\x00")
 }
