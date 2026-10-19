@@ -105,13 +105,13 @@ func BenchmarkDispatchDedupSparse(b *testing.B) {
 func BenchmarkDispatchDedupDenseLinear(b *testing.B) {
 	iface := testNamed(b, "I")
 	regs := dispatchReg{}
-	for i := 0; i < 64; i++ {
+	for i := 0; i < 256; i++ {
 		naiveAppend(regs, iface, "dyn", "a.go", i+1)
 	}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		naiveAppend(regs, iface, "dyn", "a.go", 64)
+		naiveAppend(regs, iface, "dyn", "a.go", 256)
 	}
 }
 
@@ -120,12 +120,12 @@ func BenchmarkDispatchDedupDense(b *testing.B) {
 	iface := testNamed(b, "I")
 	var dd dispatchDedup
 	regs := dispatchReg{}
-	for i := 0; i < 64; i++ {
+	for i := 0; i < 256; i++ {
 		dd.append(regs, iface, "dyn", "a.go", i+1)
 	}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		dd.append(regs, iface, "dyn", "a.go", 64)
+		dd.append(regs, iface, "dyn", "a.go", 256)
 	}
 }
