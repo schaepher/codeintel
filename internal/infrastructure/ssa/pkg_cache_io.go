@@ -3,6 +3,8 @@ package ssa
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"hash"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -38,16 +40,36 @@ func pkgCachePath(repoDir, pkgPath string) string {
 	return filepath.Join(repoDir, ".codeintel", "cache", hex.EncodeToString(sum[:])+".json")
 }
 
+// hashFilePool 复用分块读取缓冲（todo9-1）：原来每文件 os.ReadFile 一次
+// 整文件副本（go2o 约 17MB 分配），改为 32KB 分块写入 hash。
+var hashFilePool = sync.Pool{New: func() any { b := make([]byte, 32<<10); return &b }}
+
+// hashFile 把文件内容 + 分隔符 0x00 写入 h（与 os.ReadFile + Write 逐字节等价）。
+func hashFile(h hash.Hash, path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	// 包一层隐藏 *os.File 的 WriteTo（否则 io.CopyBuffer 忽略我们的
+	// 缓冲，改用 WriteTo 内部自建缓冲 → 每文件多次分配）。
+	buf := hashFilePool.Get().(*[]byte)
+	_, err = io.CopyBuffer(h, struct{ io.Reader }{f}, *buf)
+	hashFilePool.Put(buf)
+	if err != nil {
+		return err
+	}
+	_, err = h.Write([]byte{0})
+	return err
+}
+
 // pkgContentHash 包源码内容 hash（CompiledGoFiles 拼接 sha256）。
 func pkgContentHash(files []string) (string, error) {
 	h := sha256.New()
 	for _, f := range files {
-		data, err := os.ReadFile(f)
-		if err != nil {
+		if err := hashFile(h, f); err != nil {
 			return "", err
 		}
-		h.Write(data)
-		h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
@@ -62,12 +84,9 @@ func pkgCacheKeyHash(pkg *packages.Package, depMemo map[string]string) (string, 
 		files = pkg.GoFiles
 	}
 	for _, f := range files {
-		data, err := os.ReadFile(f)
-		if err != nil {
+		if err := hashFile(h, f); err != nil {
 			return "", err
 		}
-		h.Write(data)
-		h.Write([]byte{0})
 	}
 	deps := make([]string, 0, len(pkg.Imports))
 	for path := range pkg.Imports {
