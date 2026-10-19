@@ -201,3 +201,27 @@
 | 1c | 最近具名 / 深层容器 / 来源歧义测试 | `TestAnonymousPathNearestNamedType`、`DeepNesting`、`Outer/Other` 不同来源、独立匿名回退 | `464e3cc` |
 | 2 | 摘要分块预分配 `min(chunkSize, 实际条数)` | `encodeFDSections` 的 `capHint` 取 min；小摘要（<一块）往返内容不变 | `51cf1e0` |
 | 3 | 回归补齐 | SQLite 批量 vs 逐条写入逐项一致；包缓存损坏头/多点截断拒绝；字符串缓存并发混用（-race）；AST 嵌套字段选择器链；CPU 采样坏启动后仍可正常启动 | `8324e00` |
+
+## 11. remote-todo5（2026-10-16）执行结果
+
+| # | 事项 | 结果 | 提交 |
+|---|---|---|---|
+| 1 | 逐文档解码 SCIP index | 新增 `scip/decode.go`：用 `protowire` 逐字段消费，documents(2) 单独 Unmarshal→处理→释放；metadata(1)/external_symbols(3) 仍完整解码校验；未知字段按 wire 校验跳过。截断/非法长度/非法嵌套/输出错误/ctx 取消全部返回失败。与原 `proto.Unmarshal` 逐文档 `proto.Equal` 一致，节点/边产物一致 | `853895a` |
+| 2 | 动态类型查询去重 | `funcSnapshot` 增加**排序包快照** + `dynamicTypeOf` 缓存（成功/失败都缓存，RWMutex 写锁内二次检查）；按构建创建、随快照释放、不跨 Program。基准：建索引 13.0ms/851 allocs（一次），首次查询 726ns/8 allocs，命中 36ns/0 allocs | `38e3ffd` |
+| 3 | Index 结束释放瞬态引用 | `Adapter.releaseTransient`（funcs/lines/typeMapping/dispatchRegs/regHits）由 `Index` defer 调用（成功/错误/取消）；`DispatchPkgs` 保留；worker emit 错误与 `ctx` 取消现在会传播（原先只打 stderr）。新增成功/错误/复用测试 | `8ff1790` |
+| 4a | 数据库健康检查修正 | `scripts/dbdiag.py` 的 `--plans/--size` 适配 Q254c 整数代理键（`source_ref/target_ref` + `edges_v`），内存副本按当前 schema 建表/视图/样本行；`--self-test` 通过 | 本文件同提交 |
+| 4b | 验收（见下） | detcheck 五类全等；chaincheck 328/500/408 通过；A/B 与旧版内容零差异 | — |
+
+**todo2-6 补修**（验收中发现）：`valueScopeTag` 原用 `HasPrefix("init")` 把
+`initPages/initConfig/(T).init` 等普通函数误判为包级 init → 加作用域后缀 →
+与 alias 路径标识分裂，go2o **alias 连通 318（基线 328）**。改为“`types.Func`
+名为 init 且无接收者”后恢复 **328**，并补回归（非包级 init 不得带后缀）。
+
+### todo5-4 验收记录（固定环境：GOGC=40 / GOMAXPROCS=8 / workers=1 / 同源码副本）
+
+- `scripts/verify.sh --quick` 全绿；`go test -race ./...` 13 包全绿；`integration` 通过。
+- **detcheck**：fixtureapp 与 go2o 副本（冷1/冷2/暖3）均为 节点/边(含来源/置信度/元数据)/摘要/摘要来源 **五类全等**；go2o 节点 118574 / 边 136510 / 摘要 21158 / 来源 3445。
+- **内容隔离（todo5 本身零差异）**：构建 “`74e70f6` + init 修正” 对照二进制 vs 当前 HEAD，逐项比较 ids/nodes/edges(含 metadata)/summary/origins —— **差异全 0**（118574/136510/21158/3445）。
+- **chaincheck**：一跳 500/500、多跳 408/408、alias 连通 328（= 基线），通过。
+- **dbdiag**：健康检查 0 异常；`--plans`（真实库 + 内存副本）全部走预期索引（出边 `sqlite_autoindex_edges_1`、入边 `idx_edges_target_kind`、kind `idx_edges_kind`、id `sqlite_autoindex_nodes_1`）。
+- **A/B（旧 `74e70f6` vs 新，交错 2 轮）**：wall 7.12/7.11s vs 7.11/7.17s（持平）；Max RSS 779/817MB vs **735/768MB（约 -5~6%）**；SSA 峰值 live 348MB（两侧相同）；TotalAlloc 1586/1592MB vs **1570/1580MB（约 -0.7~1.0%）**；mallocs 22.37/22.54M vs 22.29/22.41M；NumGC 54/52 vs 53/51。单机单次对照，仅作趋势证据，不宣称稳定全量收益。
