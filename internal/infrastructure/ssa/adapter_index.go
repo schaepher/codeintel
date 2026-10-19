@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"go/types"
 	"os"
-	"sort"
 	"sync"
 	"time"
 
@@ -22,6 +21,8 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	logger := logging.FromContext(ctx)
 	logger.Debug("enter (Adapter).Index")
 	defer logger.Debug("exit (Adapter).Index")
+	// todo5-3：Index 结束（成功/错误/取消）释放瞬态分析引用；DispatchPkgs 保留。
+	defer a.releaseTransient()
 	// todo2-11：堆采样状态按构建隔离（reset 干净启动，结束落盘累计统计）。
 	resetPeakSampler()
 	defer finishPeakSampler()
@@ -96,13 +97,7 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	const emitStep = "emitFunction 循环（全库函数块池 + 缓存）"
 	begin(emitStep, totalFuncs)
 
-	pkgOrder := make([]string, 0, len(byPkg))
-	for pkgPath := range byPkg {
-		pkgOrder = append(pkgOrder, pkgPath)
-	}
-	sort.Slice(pkgOrder, func(i, j int) bool {
-		return len(byPkg[pkgOrder[i]]) > len(byPkg[pkgOrder[j]])
-	})
+	pkgOrder := sortedPkgOrder(byPkg)
 
 	workers := a.workers
 	if workers < 1 {
@@ -207,6 +202,10 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	// 换页/OOM）。落盘在锁外（写文件不阻塞其他块）。
 	var collectMu sync.Mutex
 	colSet := newPkgCollectSet(repo.Path, pkgBlockCount, pkgHashes)
+	// todo5-3：worker 内的 emit 错误此前只打 stderr（Index 仍返回 nil）——
+	// 记录并在 wg.Wait 后传播，错误路径才能被上层感知并触发清理。
+	var emitErr error
+	var emitErrMu sync.Mutex
 	blockStart := time.Now()
 	for _, blk := range blocks {
 		wg.Add(1)
@@ -232,6 +231,11 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 				owner, fd, err := emitFunction(repo, prog, fn, idents, assignTargets, specs, fallbackAgg, pkgEmit, implPool, a.lines, a.funcs, &a.dispatchRegs, a.regHits, a.typeMapping)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "emitFunction %s: %v\n", fn.Name(), err)
+					emitErrMu.Lock()
+					if emitErr == nil {
+						emitErr = err
+					}
+					emitErrMu.Unlock()
 					return
 				}
 				if owner != "" && fd != nil {
@@ -273,6 +277,12 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 		}(blk)
 	}
 	wg.Wait()
+	if emitErr != nil {
+		return emitErr
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	logger.Info("pkg cache", zap.Int("hits", cacheHits), zap.Int("total", len(pkgOrder)))
 	stage(emitStep)
 

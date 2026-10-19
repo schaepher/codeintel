@@ -52,6 +52,21 @@ type Adapter struct {
 	dispatchPkgs []string
 }
 
+// releaseTransient 释放 Index 结束后的瞬态分析引用（todo5-3）：函数快照、
+// 行缓存、类型映射、派发分析临时引用。DispatchPkgs 保留（Index 返回后
+// orchestrator 需读取）。成功/错误/取消路径均由 Index 的 defer 调用。
+// fd/aliasRes 由 finishIndex 内已有清理负责，不在此重复。
+func (a *Adapter) releaseTransient() {
+	if a == nil {
+		return
+	}
+	a.funcs = nil
+	a.lines = nil
+	a.typeMapping = nil
+	a.dispatchRegs = nil
+	a.regHits = nil
+}
+
 // SetProgress 注入进度上报（Q253：orchestrator/cli 传入）。
 //
 // 逐行（plain）模式下换用自己的保底实现：这样 SSA 子步骤保持改动前的
