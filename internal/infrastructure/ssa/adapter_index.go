@@ -121,16 +121,12 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	// 阶段 A（串行）：包 hash + 缓存命中直接加载产物
 	pkgHashes := map[string]string{} // Q221：块处理完后保存缓存用
 	cachedPkgs := map[string]bool{}
+	// todo8-8：包路径索引一次，删除每包重新遍历 pkgs 的内层查找
+	pkgByPath := indexPkgsByPath(pkgs)
 	var pkg *packages.Package
 	for _, pkgPath := range pkgOrder {
 		// Q176：包级缓存——hash 命中直接加载产物
-		pkg = nil
-		for i := range pkgs {
-			if pkgs[i].PkgPath == pkgPath {
-				pkg = pkgs[i]
-				break
-			}
-		}
+		pkg = pkgByPath[pkgPath]
 		if pkg != nil {
 			// Q213：缓存键 = 本包 hash + 直接依赖包 hash（依赖 API 变化
 			// → 本包缓存失效）；depHashes memo 复用依赖包 hash

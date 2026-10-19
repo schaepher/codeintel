@@ -1,9 +1,9 @@
 package ssa
 
 import (
-	"fmt"
 	"go/token"
 	"go/types"
+	"reflect"
 	"strings"
 
 	"go.uber.org/zap"
@@ -138,8 +138,18 @@ func originKind(v ssa.Value) string {
 }
 
 // ssaOp 返回 SSA 指令类型名（如 field / fieldaddr / store）。
+// ssaOp SSA 操作名（类型信息直取，避免每个值一次 fmt.Sprintf——todo8-7）。
+// 与旧实现 `TrimPrefix(fmt.Sprintf("%T", v), "*ssa.")` 逐字一致：指针取
+// 元素类型名；无类型 nil 保留 "<nil>"；大小写不变。
 func ssaOp(v ssa.Value) string {
-	return strings.TrimPrefix(fmt.Sprintf("%T", v), "*ssa.")
+	t := reflect.TypeOf(v)
+	if t == nil {
+		return "<nil>"
+	}
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	return t.Name()
 }
 
 // isSSAName 判断是否为 SSA 临时名（t0、t91 等），用于决定展示名回退。

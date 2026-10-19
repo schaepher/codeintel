@@ -126,6 +126,9 @@ func (ext *fieldExtractor) emitValue(v ssa.Value) (domain.CanonicalID, error) {
 		_, isAlloc := uo.X.(*ssa.Alloc)
 		_, isIdx := uo.X.(*ssa.IndexAddr)
 		_, isFld := uo.X.(*ssa.FieldAddr)
+		// todo8-14：本次调用内只计算一次 instancePath（两个分支复用）
+		name := ext.instancePath(uo)
+		nameIsSSA := isSSAName(name)
 		if isAlloc {
 			// Q205 双发射修复：*alloc（读整个 slice/对象变量）与 Alloc
 			// 是同一逻辑值——统一用变量名 ID（applyScanOut/load 分支的
@@ -138,7 +141,7 @@ func (ext *fieldExtractor) emitValue(v ssa.Value) (domain.CanonicalID, error) {
 				return id, nil
 			}
 			if fid, ok := ext.funcIDOf(uo.X); ok {
-				if name := ext.instancePath(uo); !isSSAName(name) {
+				if !nameIsSSA {
 					id, _ := ext.valueIDByInstance(fid, uo, name)
 					ext.values[uo.X] = id
 					ext.values[v] = id
@@ -151,7 +154,7 @@ func (ext *fieldExtractor) emitValue(v ssa.Value) (domain.CanonicalID, error) {
 			}
 		}
 		if isAlloc || isIdx || isFld {
-			if name := ext.instancePath(uo); !isSSAName(name) {
+			if !nameIsSSA {
 				fid, ok2 := ext.funcIDOf(uo)
 				if ok2 {
 					id, display := ext.valueIDByInstance(fid, uo, name)

@@ -59,19 +59,41 @@ func itoaPad(n int) string {
 	return s
 }
 
-// sortedValues 返回按确定键升序排列的副本。
+// valueKeySorter 预计算键的排序器（比较器只读键——todo8-2：避免每次
+// 比较都执行 Name/itoaPad/String 渲染）。
+type valueKeySorter struct {
+	values []ssa.Value
+	keys   []string
+}
+
+func (s *valueKeySorter) Len() int           { return len(s.values) }
+func (s *valueKeySorter) Less(i, j int) bool { return s.keys[i] < s.keys[j] }
+func (s *valueKeySorter) Swap(i, j int) {
+	s.values[i], s.values[j] = s.values[j], s.values[i]
+	s.keys[i], s.keys[j] = s.keys[j], s.keys[i]
+}
+
+// sortedValues 返回按确定键升序排列的副本（输入切片不变）。
 func sortedValues(vs []ssa.Value) []ssa.Value {
 	out := make([]ssa.Value, len(vs))
 	copy(out, vs)
-	sort.Slice(out, func(i, j int) bool { return valueOrderKey(out[i]) < valueOrderKey(out[j]) })
+	keys := make([]string, len(out))
+	for i, v := range out {
+		keys[i] = valueOrderKey(v)
+	}
+	sort.Sort(&valueKeySorter{values: out, keys: keys})
 	return out
 }
 
 // sortedValueKeys 取出 map 的键并排序（键为 ssa.Value 的 map）。
+// 新建的切片直接原地排序——不再经 sortedValues 二次复制。
 func sortedValueKeys[V any](m map[ssa.Value]V) []ssa.Value {
 	out := make([]ssa.Value, 0, len(m))
+	keys := make([]string, 0, len(m))
 	for v := range m {
 		out = append(out, v)
+		keys = append(keys, valueOrderKey(v))
 	}
-	return sortedValues(out)
+	sort.Sort(&valueKeySorter{values: out, keys: keys})
+	return out
 }

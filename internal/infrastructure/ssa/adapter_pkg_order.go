@@ -5,6 +5,7 @@ package ssa
 import (
 	"sort"
 
+	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/ssa"
 )
 
@@ -18,4 +19,19 @@ func sortedPkgOrder(byPkg map[string][]*ssa.Function) []string {
 		return len(byPkg[order[i]]) > len(byPkg[order[j]])
 	})
 	return order
+}
+
+// indexPkgsByPath 包路径索引（todo8-8）：同一路径多个包对象时保留**原切片
+// 第一个**（与旧内层线性查找的 first-match 一致）；缺失路径查不到（nil）。
+func indexPkgsByPath(pkgs []*packages.Package) map[string]*packages.Package {
+	idx := make(map[string]*packages.Package, len(pkgs))
+	for _, p := range pkgs {
+		if p == nil {
+			continue
+		}
+		if _, ok := idx[p.PkgPath]; !ok {
+			idx[p.PkgPath] = p
+		}
+	}
+	return idx
 }
