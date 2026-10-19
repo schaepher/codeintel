@@ -295,3 +295,34 @@
 - **dbdiag**：健康检查 0 异常。
 - **稀疏/密集注册基准**：`BenchmarkCollectDispatchSparse` 612ns/786B/8allocs；`BenchmarkCollectDispatchDense`（40 位置）7.66µs/6729B/23allocs（增量来自更多注册位置本身；去重集合不产生逐次分配）。
 - **A/B（旧 vs 新，交错 2 轮）**：wall 7.95/7.52s vs 7.75/7.49s；Max RSS 774/732MB vs 740/769MB（噪声内）；峰值 live 347/347 vs 349/349MB；**TotalAlloc 1579/1565MB → 1449/1449MB（约 -8%）**；mallocs 22.47/22.21M → 20.25/20.26M（约 -9%）；NumGC 48/52 → 50/51。分配下降明确且两轮一致；wall/RSS 在噪声内，不宣称提速。
+
+
+## 15. 性能点续查（2026-10-19，todo9）
+
+按 §14 的方法（现状核对 → 调用关系/消费者 → 频率×工作量 → 峰值 profile 定位）继续挖，落 7 项（均先写等价测试再改）：
+
+| # | 事项 | 结果 | 提交 |
+|---|---|---|---|
+| 1 | 包缓存哈希整文件读入 | `hashFile` 改 32KB 分块 + `sync.Pool`（并包一层隐藏 `*os.File` 的 `WriteTo`，否则缓冲被忽略）；hash 逐字节等价（含空文件/顺序敏感）。局部基准 40×64KB：**2.97MB→10.7KB alloc/op（-99.6%）**，2.01ms→1.33ms | `dfda5ea` |
+| 2 | AST `fnID` 重复生成 canonical ID | `Adapter.fnIDOf` 构建级 `sync.Map`（Index 入口重置，不跨构建持有旧 Program 对象）；纯函数 `fnID` 保留为未命中路径。`canonicalizer.GoSymbolID` 摊还 11.5MB→8.5MB，fnID 路径 8.5MB→~1MB | `f904ef8` |
+| 3 | SCIP index 整份 `os.ReadFile` | 新增 `forEachIndexFileDocument`：`bufio` + `protowire` 逐字段消费（文档仍逐文档 Unmarshal；metadata/external_symbols 仍完整解码校验；未知字段按 wire 类型跳过、group 校验 end-group）。文件版与切片版逐文档 `proto.Equal`，截断/非法长度/非法消息/取消/大文档各有测试 | `9f52103` |
+| 4 | 端点解析每批多建同规模 seen map | `resolveNodeRefsCached` 用 `refs` 兼作 seen（哨兵 0，rowid 从 1 起），miss 后删除哨兵；`resolveNodeRefsCached` 摊还 32.0MB→20.7MB | `20b82ca` |
+| 5 | `mergeFuncData` 首次合并 append 增长复制 | 新 owner 按来源切片长度预分配；语义（顺序/空贡献不建条目）测试锁定 | `94fc7a9` |
+| 6 | `emitValue` 的 UnOp 分支与通用分支各算一次 `instancePath` | 同一值的路径只算一次（局部变量复用）；解引用加载的命名/ID 不变（既有命名回归覆盖） | `0b9989b` |
+| 7 | 批次对象每批重建（4 个切片 + 去重表增长） | `sync.Pool` 复用批次（flush 后归还；切片 `[:0]` 保留容量 + `clear` 去重表）；批次语义测试（复用后切片空、去重表清空、A→B→A 不变） | `f953d85` |
+
+### 验证（GOGC=40 / GOMAXPROCS=8 / workers=1 / 同源码副本）
+
+- 内容隔离：`4af284d`（todo8 终）vs 本批 HEAD，go2o 两轮 DB 逐项比较 ids/nodes/edges(含 metadata)/summary/origins → **diff 全 0**（118574 / 136510 / 21158 / 3445）。
+- **detcheck**（冷1/冷2/暖3）五类产物全等；**chaincheck** 一跳 500/500、多跳 408/408、alias 328（= 基线）；**dbdiag** 无异常。
+- `verify.sh --quick`、`-race ./...`（13 包）、`integration` 全绿。
+- **A/B（旧=4af284d vs 新，交错 2 轮）**：wall 7.87/7.69s vs 7.99/7.54s（噪声内）；Max RSS 812/802MB vs 831/788MB（噪声内）。
+- **同二进制 profile 汇总（旧 → 新）**：TotalAlloc **1448MB → 1381MB（-4.6%）**；mallocs **20.24M → 19.92M（-1.6%）**；峰值 live 346MB → 354MB（+2.3%，批次池保留容量与 fnID 缓存，属有意的小额驻留）。分项：`os.ReadFile` 55.1MB→13.0MB、`SaveBatchStats` 累计 157.7MB→135.3MB、`resolveNodeRefsCached` 32.0MB→20.7MB、`nodeDedup` 11.8MB→6.2MB、`GoSymbolID` 11.5MB→8.5MB。**wall/RSS 未宣称收益**（噪声内）。
+
+### 剩余候选（本机可做，按证据排序，未动）
+
+- `database/sql.driverArgsConnLocked` 37.6MB：每行 Exec 的 `[]driver.NamedValue` + 装箱；要消除需绕开 `database/sql` 直用 `modernc` 连接（语义/错误映射/事务改动大，需单独 A/B）。
+- `emitValue`（35MB flat）/`emitSignatureNodes`（27MB cum）：每个 ssa_value/参数节点的 `map[string]any` 与实体结构，属数据模型成本；共享只读属性 map 会引入可变性风险，暂不动。
+- `buildIdentIndex` 17.5MB：全局 `Pos→标识符名` 表；改按需/按函数懒建理论上更低，但内联值的 `Pos` 属于被内联函数（跨函数），需证明等价后才可做。
+- `newFuncSnapshot` 的 `fn.String()` 排序键（约 20MB，一次性）：换复合键可省渲染，但会改变函数遍历顺序，需先证明代表选择/边序完全不受顺序影响。
+- `encoding/json`（v2 实现）`bytes.Clone` 21MB、`go/types`/`x/tools` 内部（`recordTypeAndValue` 69MB、`typeWriter` 55MB、`NewMethodSet` 等）：第三方/标准库路径，改动风险大于收益。
