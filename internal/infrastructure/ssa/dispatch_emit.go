@@ -75,7 +75,7 @@ func emitDispatches(repo *domain.Repository, prog *ssa.Program, pool *implTypePo
 
 		candidates := map[string]dispatchCandidate{}
 		for dyn, sites := range regs[ck.iface] {
-			t := dynamicTypeOf(dyn, prog)
+			t := funcs.dynamicTypeOf(dyn)
 			if t == nil {
 				continue
 			}

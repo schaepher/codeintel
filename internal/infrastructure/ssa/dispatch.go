@@ -10,7 +10,6 @@ package ssa
 
 import (
 	"go/types"
-	"strings"
 
 	"github.com/schaepher/codeintel/internal/domain"
 	"go.uber.org/zap"
@@ -35,12 +34,12 @@ type regHits map[string]map[string]bool
 
 // buildRegHits Q221：构建注册命中预处理表（Index 级一次，原 extractor
 // 懒构建每函数重复全量遍历注册点方法）。
-func buildRegHits(regs dispatchReg, prog *ssa.Program) regHits {
+func buildRegHits(regs dispatchReg, funcs *funcSnapshot) regHits {
 	out := regHits{}
 	for ifc, ifcRegs := range regs {
 		hits := map[string]bool{}
 		for dyn := range ifcRegs {
-			t := dynamicTypeOf(dyn, prog)
+			t := funcs.dynamicTypeOf(dyn)
 			if ptr, ok := t.(*types.Pointer); ok {
 				t = ptr.Elem()
 			}
@@ -155,27 +154,6 @@ func interfaceID(named *types.Named) domain.CanonicalID {
 
 // dynamicTypeOf 从类型字符串反查类型池中的类型（"*example.com/m.Eng"
 // → *Eng）。仅匹配模块内类型；用末段标识符 Lookup 后校验完整路径。
-func dynamicTypeOf(typeStr string, prog *ssa.Program) types.Type {
-	ptr := strings.HasPrefix(typeStr, "*")
-	full := strings.TrimPrefix(typeStr, "*")
-	name := full
-	if i := strings.LastIndex(full, "."); i >= 0 {
-		name = full[i+1:]
-	}
-	for _, pkg := range prog.AllPackages() {
-		obj := pkg.Pkg.Scope().Lookup(name)
-		if obj == nil || obj.Type() == nil || obj.Type().String() != full {
-			continue
-		}
-		if ptr {
-			if named, ok := obj.Type().(*types.Named); ok {
-				return types.NewPointer(named)
-			}
-		}
-		return obj.Type()
-	}
-	return nil
-}
 
 // findMethod 查找类型的方法（值与指针方法集都查）。
 func findMethod(t types.Type, name string) *types.Func {

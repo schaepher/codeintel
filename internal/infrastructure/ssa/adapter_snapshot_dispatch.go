@@ -29,7 +29,7 @@ func (a *Adapter) initFuncSnapshotDispatch(prog *ssa.Program, repo *domain.Repos
 	a.dispatchRegs, a.dispatchPkgs = collectDispatchRegistrations(prog, modFuncs, repo.Modules, func(done int) {
 		stages.rep.Advance("dispatchRegs", done)
 	})
-	a.regHits = buildRegHits(a.dispatchRegs, prog)
+	a.regHits = buildRegHits(a.dispatchRegs, a.funcs)
 	// Q252e：此标记把「建图」与「函数全集/派发注册」分开——日志停在
 	// ssautil.Packages 时无法区分卡在串行建图还是 AllFunctions（必须 sample）。
 	stages.stage("dispatchRegs")

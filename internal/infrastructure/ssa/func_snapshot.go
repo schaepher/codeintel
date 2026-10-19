@@ -56,6 +56,13 @@ type funcSnapshot struct {
 	sqlCache     map[string]sqlParseEntry
 	sqlCacheFull bool
 
+	// todo5-2：动态类型查询（Mi.X.Type().String() → types.Type）。
+	// pkgs 为**排序后的包快照**（同名不同包时按路径稳定选择）；dynTypes
+	// 缓存成功与失败（nil）结果——按构建创建，随 funcSnapshot 释放。
+	pkgs     []*types.Package
+	dynMu    sync.RWMutex
+	dynTypes map[string]dynTypeEntry
+
 	// 构建级字符串缓存（string_cache.go）：类型字符串 + 候选键。
 	strMu    sync.RWMutex
 	typeStrs map[types.Type]string
@@ -91,7 +98,16 @@ func newFuncSnapshot(prog *ssa.Program) *funcSnapshot {
 		keys = append(keys, fn.String())
 	}
 	sort.Sort(&funcKeySorter{list: list, keys: keys})
-	return &funcSnapshot{list: list}
+	// 包快照（排序保证同名不同包时的选择稳定）
+	all := prog.AllPackages()
+	pkgs := make([]*types.Package, 0, len(all))
+	for _, ap := range all {
+		if ap != nil && ap.Pkg != nil {
+			pkgs = append(pkgs, ap.Pkg)
+		}
+	}
+	sort.Slice(pkgs, func(i, j int) bool { return pkgs[i].Path() < pkgs[j].Path() })
+	return &funcSnapshot{list: list, pkgs: pkgs}
 }
 
 // funcKeySorter 按预计算 key 排序（避免比较器内重复构造字符串）。
