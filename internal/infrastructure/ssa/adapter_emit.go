@@ -141,7 +141,14 @@ func mergeFuncData(fdMu *sync.Mutex, data map[domain.CanonicalID]*funcData,
 	defer fdMu.Unlock()
 	d := data[owner]
 	if d == nil {
-		d = &funcData{}
+		// todo9-5：首次合并按来源长度预分配（多数函数只有一份贡献，
+		// 直接定容避免 append 增长复制）
+		d = &funcData{
+			directReads:    make([]fieldEntry, 0, len(fd.directReads)),
+			directWrites:   make([]fieldEntry, 0, len(fd.directWrites)),
+			calls:          make([]callInfo, 0, len(fd.calls)),
+			indirectWrites: make([]fieldEntry, 0, len(fd.indirectWrites)),
+		}
 		data[owner] = d
 	}
 	d.directReads = append(d.directReads, fd.directReads...)
