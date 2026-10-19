@@ -319,10 +319,25 @@
 - **A/B（旧=4af284d vs 新，交错 2 轮）**：wall 7.87/7.69s vs 7.99/7.54s（噪声内）；Max RSS 812/802MB vs 831/788MB（噪声内）。
 - **同二进制 profile 汇总（旧 → 新）**：TotalAlloc **1448MB → 1381MB（-4.6%）**；mallocs **20.24M → 19.92M（-1.6%）**；峰值 live 346MB → 354MB（+2.3%，批次池保留容量与 fnID 缓存，属有意的小额驻留）。分项：`os.ReadFile` 55.1MB→13.0MB、`SaveBatchStats` 累计 157.7MB→135.3MB、`resolveNodeRefsCached` 32.0MB→20.7MB、`nodeDedup` 11.8MB→6.2MB、`GoSymbolID` 11.5MB→8.5MB。**wall/RSS 未宣称收益**（噪声内）。
 
+### 续查：todo9-8 模块内函数采集（2026-10-19）
+
+`ssautil.AllFunctions(prog)` 会遍历**全部包（含依赖）**的函数体并物化所有运行时类型的方法包装（go2o：分配 85MB / CPU 约 320ms），而下游 `moduleFuncs` 随后只保留模块函数。新增 `moduleFunctions(prog, modules)` 复刻同样的可达性规则、只从模块包出发：
+
+- 模块包 `Members`（函数/init）为根 → 指令操作数里的 `*ssa.Function`（静态调用/泛型实例/闭包）；
+- 导出具名类型（非泛型）的 `T`/`*T` 方法集（`exportedTypeHack`）；
+- `RuntimeTypes()` 中**具名声明属于模块**的类型方法集（泛型实例方法由此进入）；
+- 依赖包函数不遍历；但 `Pkg == nil` 的合成包装（提升方法 `$bound`/thunk）必须遍历——go2o 有 12 个 `BaseRepository[M]` 泛型 origin 方法只能经由它到达。
+
+等价性：go2o 一次性核对 `AllFunctions` 模块子集 **11996/11996，missing=0 extra=0**；fixture 单测（泛型类型/实例、闭包、方法值/方法表达式、提升方法、RuntimeTypes、外部包）锁定同一断言。
+
+**收益（同二进制 profile，旧 HEAD → 新）**：TotalAlloc **1397MB → 1370MB（-27MB，-1.9%）**；mallocs 20.23M → 19.73M（-2.5%）；峰值 live 351MB → 346MB；`newFuncSnapshot` CPU **320ms → 250ms（-70ms）**。交错 2 轮 wall/RSS：6.69/6.75s vs 6.67/6.93s、787/828MB vs 780/781MB（噪声内，不宣称提速）。
+
+**验证**：内容隔离（旧 HEAD vs 新）五类产物 **diff 全 0**；detcheck 冷1/冷2/暖3 全等；chaincheck 一跳 500/500、多跳 408/408、alias 328；dbdiag 无异常。
+
 ### 剩余候选（本机可做，按证据排序，未动）
 
 - `database/sql.driverArgsConnLocked` 37.6MB：每行 Exec 的 `[]driver.NamedValue` + 装箱；要消除需绕开 `database/sql` 直用 `modernc` 连接（语义/错误映射/事务改动大，需单独 A/B）。
 - `emitValue`（35MB flat）/`emitSignatureNodes`（27MB cum）：每个 ssa_value/参数节点的 `map[string]any` 与实体结构，属数据模型成本；共享只读属性 map 会引入可变性风险，暂不动。
 - `buildIdentIndex` 17.5MB：全局 `Pos→标识符名` 表；改按需/按函数懒建理论上更低，但内联值的 `Pos` 属于被内联函数（跨函数），需证明等价后才可做。
-- `newFuncSnapshot` 的 `fn.String()` 排序键（约 20MB，一次性）：换复合键可省渲染，但会改变函数遍历顺序，需先证明代表选择/边序完全不受顺序影响。
+- `newFuncSnapshot` 的 `fn.String()` 排序键（约 20MB，一次性）：换复合键可省渲染，但会改变函数遍历顺序，需先证明代表选择/边序完全不受顺序影响（todo9-8 已把候选集缩到模块函数，键渲染量随之下降）。
 - `encoding/json`（v2 实现）`bytes.Clone` 21MB、`go/types`/`x/tools` 内部（`recordTypeAndValue` 69MB、`typeWriter` 55MB、`NewMethodSet` 等）：第三方/标准库路径，改动风险大于收益。

@@ -20,7 +20,7 @@ import (
 //   - Q253：dispatchRegs 分母 = 模块函数总数（逐函数回报真实 %）。
 func (a *Adapter) initFuncSnapshotDispatch(prog *ssa.Program, repo *domain.Repository, stages *stageReporter) []*ssa.Function {
 	beat := stages.beginHeartbeat("funcSnapshot")
-	a.funcs = newFuncSnapshot(prog)
+	a.funcs = newFuncSnapshotForModules(prog, repo.Modules)
 	modFuncs := a.funcs.moduleFuncs(repo.Modules)
 	beat()
 

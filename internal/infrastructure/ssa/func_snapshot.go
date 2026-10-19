@@ -96,17 +96,33 @@ type funcSnapshot struct {
 	snakes  map[string]string
 }
 
-// newFuncSnapshot 采集一次（内部即 ssautil.AllFunctions）。
+// newFuncSnapshot 采集一次（测试/未指定模块：ssautil.AllFunctions 全集）。
 func newFuncSnapshot(prog *ssa.Program) *funcSnapshot {
 	set := ssautil.AllFunctions(prog)
+	list := make([]*ssa.Function, 0, len(set))
+	for fn := range set {
+		list = append(list, fn)
+	}
+	return newFuncSnapshotFromList(prog, list)
+}
+
+// newFuncSnapshotForModules 生产路径：只采集模块内函数（todo9-8，避免
+// AllFunctions 遍历全部依赖函数体）。
+func newFuncSnapshotForModules(prog *ssa.Program, modules []string) *funcSnapshot {
+	if len(modules) == 0 {
+		return newFuncSnapshot(prog)
+	}
+	return newFuncSnapshotFromList(prog, moduleFunctions(prog, modules))
+}
+
+// newFuncSnapshotFromList 排序 + 包索引（list 顺序需确定性）。
+func newFuncSnapshotFromList(prog *ssa.Program, list []*ssa.Function) *funcSnapshot {
 	// 实验：排序消除 map 迭代顺序依赖（跨函数处理顺序影响 slot 归属）
 	// Q252e：比较器里现算 String()（内部 RelString 拼字符串）在
 	// AllFunctions 量级（含依赖，百万级）是 O(n log n) 次字符串构造——
 	// 预计算 key 后是 O(n)。只减分配，不是热点（采样仅 0.13% 栈顶）。
-	list := make([]*ssa.Function, 0, len(set))
-	keys := make([]string, 0, len(set))
-	for fn := range set {
-		list = append(list, fn)
+	keys := make([]string, 0, len(list))
+	for _, fn := range list {
 		keys = append(keys, fn.String())
 	}
 	sort.Sort(&funcKeySorter{list: list, keys: keys})
