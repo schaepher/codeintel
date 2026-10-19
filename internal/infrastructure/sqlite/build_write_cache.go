@@ -172,24 +172,28 @@ func (r *Repo) resolveNodeRefsCached(tx *sql.Tx, edges []*domain.Fact) (refs map
 		}
 		return refs, refs, nil
 	}
-	// 单遍去重：seen 查重，uniq 同时作为缓存查询输入（避免 edgeEndpointIDs 中间切片）
+	// todo9-4：单遍去重（refs 兼作 seen，哨兵 0——rowid 从 1 起，
+	// 不会与真实引用冲突）；未命中的哨兵在 partition 后删除。
+	// 原来每批多建一张同规模 seen map（go2o 约 5-7MB 分配）。
 	n := len(edges) * 2
-	seen := make(map[string]struct{}, n)
+	refs = make(map[string]int64, n)
 	uniq := make([]string, 0, n)
 	for _, e := range edges {
 		for _, id := range [2]string{string(e.SourceID), string(e.TargetID)} {
 			if id == "" {
 				continue
 			}
-			if _, ok := seen[id]; ok {
+			if _, ok := refs[id]; ok {
 				continue
 			}
-			seen[id] = struct{}{}
+			refs[id] = 0
 			uniq = append(uniq, id)
 		}
 	}
-	refs = make(map[string]int64, len(uniq))
 	miss := cache.partition(refs, uniq)
+	for _, id := range miss {
+		delete(refs, id)
+	}
 	if len(miss) == 0 {
 		return refs, nil, nil
 	}

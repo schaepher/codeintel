@@ -221,3 +221,28 @@ func TestResolveEndpointCacheInvalidation(t *testing.T) {
 		t.Errorf("新构建不得复用旧缓存, got %+v", st)
 	}
 }
+
+// TestResolveNodeRefsCachedOmitsUnresolved（todo9-4）：refs 兼作 seen 后，
+// 未解析端点（哨兵 0）必须从结果里删除——否则调用方会把 0 当有效 rowid。
+func TestResolveNodeRefsCachedOmitsUnresolved(t *testing.T) {
+	r := newTestRepo(t)
+	r.BeginBuildWriteCache()
+	defer r.EndBuildWriteCache()
+	save(t, r, []*domain.CodeEntity{node("a", "function", "A", "a.go")}, nil)
+
+	tx, err := r.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	refs, _, err := r.resolveNodeRefsCached(tx, edgesOf("a", "missing", "a", "a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := refs["missing"]; ok {
+		t.Fatalf("未解析端点不应留在 refs（哨兵 0）: %v", refs)
+	}
+	if refs["a"] == 0 {
+		t.Fatalf("已解析端点 rowid 异常: %v", refs)
+	}
+}
