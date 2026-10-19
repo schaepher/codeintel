@@ -71,6 +71,7 @@ func (o *Orchestrator) runAdapters(ctx context.Context, pkgs []*packages.Package
 			if err := o.flush(b, &mu, &skipped); err != nil {
 				fmt.Fprintf(os.Stderr, "write batch: %v\n", err)
 			}
+			putBatch(b)
 		}
 	}()
 
@@ -79,7 +80,7 @@ func (o *Orchestrator) runAdapters(ctx context.Context, pkgs []*packages.Package
 	batches := 0
 	go func() {
 		defer close(flushed)
-		batch := newBatch()
+		batch := getBatch()
 		for item := range ch {
 			if keep != nil && !keep(item) {
 				continue
@@ -105,7 +106,7 @@ func (o *Orchestrator) runAdapters(ctx context.Context, pkgs []*packages.Package
 			}
 			if len(batch.nodes) >= BatchSize || len(batch.edges) >= BatchSize || len(batch.summaries) >= BatchSize || len(batch.origins) >= BatchSize {
 				flushCh <- batch
-				batch = newBatch()
+				batch = getBatch()
 				batches++
 				// Q254：每 50 批做一次非阻塞 checkpoint（WAL 小时是廉价空操作，
 				// 防构建期 WAL 无限增长；有读者持快照时返回 busy 不报错）

@@ -125,6 +125,26 @@ func newBatch() *batchT {
 	return &batchT{dedup: newNodeDedup()}
 }
 
+// batchPool 批次对象复用（todo9-7）：每批 4 个切片会增长到 BatchSize，
+// 构建期多批重复分配；flush 完成后归还（切片保留容量 + 去重表 clear）。
+var batchPool = sync.Pool{New: func() any { return newBatch() }}
+
+// getBatch 取一个已清空的批次对象。
+func getBatch() *batchT {
+	b := batchPool.Get().(*batchT)
+	b.reset()
+	return b
+}
+
+// putBatch 归还批次对象（flush 之后调用；切片内容不再被任何方持有）。
+func putBatch(b *batchT) {
+	if b == nil {
+		return
+	}
+	b.reset()
+	batchPool.Put(b)
+}
+
 // mergeDispatchPkgs dispatch 相关包**只增不减**（P0-2 根治）：先去重 current
 // （保持其顺序），再追加 prev 中未出现项。纯函数，便于单测。
 func mergeDispatchPkgs(current, prev []string) []string {

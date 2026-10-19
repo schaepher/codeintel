@@ -105,7 +105,20 @@ type batchT struct {
 	edges     []*domain.Fact
 	summaries []*domain.FunctionFieldSummary
 	origins   []*domain.SummaryOrigin // Q161 摘要来源
-	dedup     *nodeDedup             // 同批次等价节点写入消除（node_batch.go）
+	dedup     *nodeDedup              // 同批次等价节点写入消除（node_batch.go）
+}
+
+// reset 清空批次内容但保留切片容量与去重表（批次对象复用，todo9-7）。
+func (b *batchT) reset() {
+	b.nodes = b.nodes[:0]
+	b.edges = b.edges[:0]
+	b.summaries = b.summaries[:0]
+	b.origins = b.origins[:0]
+	if b.dedup == nil {
+		b.dedup = newNodeDedup()
+		return
+	}
+	b.dedup.reset()
 }
 
 func newBuildID() string {

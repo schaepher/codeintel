@@ -33,6 +33,19 @@ func newNodeDedup() *nodeDedup {
 	return &nodeDedup{last: map[domain.CanonicalID]*domain.CodeEntity{}}
 }
 
+// reset 清空去重表但保留桶（todo9-7：批次对象复用；Go 的 clear 原地
+// 清空，避免每批重新建表/增长复制）。
+func (d *nodeDedup) reset() {
+	if d == nil {
+		return
+	}
+	if d.last == nil {
+		d.last = map[domain.CanonicalID]*domain.CodeEntity{}
+		return
+	}
+	clear(d.last)
+}
+
 // shouldAppend 判断节点是否写入：与同 ID 上一次贡献不同（或首次出现）
 // 返回 true 并记录为新的上一次贡献；完全相同返回 false（跳过写入）。
 // nil 节点直接写入（由下游处理，不在此吞掉）。
