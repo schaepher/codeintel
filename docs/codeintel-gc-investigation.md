@@ -262,3 +262,36 @@
 - **chaincheck**：一跳 500/500、多跳 408/408、alias 连通 328（= 基线），通过。
 - **dbdiag**：健康检查 0 异常。
 - **A/B（旧 vs 新，交错 2 轮）**：wall 7.03/7.19s vs 7.07/7.20s（持平）；Max RSS 759.5/758.9MB vs 769.8/769.3MB（约 +1.3%，小样本/噪声级）；峰值 live 345/349MB vs 347/346MB；TotalAlloc 1568/1574MB vs 1574/1575MB；NumGC 54/50 vs 53/53。**结论**：复用消除了收尾阶段的一次全程序注册扫描（逻辑重复），但该扫描在 go2o 上占比很小，端到端无可测收益；产物与 DispatchPkgs 逐项一致。
+
+## 14. remote-todo8（2026-10-16）执行结果
+
+按 todo8 的 14 项逐项实现（第 16 节为方法论，不新增代码任务）：
+
+| # | 事项 | 结果 | 提交 |
+|---|---|---|---|
+| 1 | 注册位置去重平方级消除 | 新增 `dispatchDedup`：<32 线性；≥32 为分组建 `(文件整数编号, 行号)` 集合（值类型、无指针/哈希），首次出现顺序追加；集合/编号表按需创建（稀疏零额外分配）。基准（256 位置）：线性 200.9ns → 集合 **34.3ns**；稀疏 22.8ns；均 0 alloc | `394d5cc` |
+| 2 | 排序键只算一次 | `sortedValues` 预计算 `valueOrderKey` 后排序（比较器只读键），输入切片不变；`sortedValueKeys` 新建切片原地排序不再二次复制 | `a08848e` |
+| 3 | 类型字符串缓存复用 | `collectDispatchRegistrations` 的 `mi.X.Type().String()` 走 `funcSnapshot.typeString`；`aliasSlot` 的匿名 Alloc 短名路径经 `aliasSlotWith` 复用 extractor/aliasPass 的 `typeString`（单一槽位命名规则不变） | `394d5cc` |
+| 4 | 候选键缓存复用 | `buildRegHits` / `emitDispatches` 的 `candidateKey` 改走 `funcSnapshot.candidateKeyOf`（纯函数兼容路径保留；无跨构建全局缓存） | `394d5cc` |
+| 5 | 值/指针方法集复用 | `funcSnapshot.methodSetOf` 构建级缓存 + `findMethodCached`（先值后指针、`Lookup(nil,name)`，不直接用 `Named.Method`）；`implTypePool.SetFuncSnapshot` 共享 | `394d5cc` |
+| 6 | 代表注册位置只归一次 | `emitDispatches` 按 (接口, 动态类型) 预计算最佳位置（relPath + (file,line) 最小），同 dyn 的不同方法复用；完整 `dispatchReg` 列表保留 | `394d5cc` |
+| 7 | `ssaOp` 去格式化 | `reflect.TypeOf` + `Elem().Name()`；带类型 nil 指针/无类型 nil 与旧 `%T` 逐字一致 | `a08848e` |
+| 8 | 包缓存准备按路径查找 | `indexPkgsByPath` 一次建索引（重复路径保留原切片第一个），删除每包内层线性查找 | `a08848e` |
+| 9 | 摘要排序复用 | `emitSummaries` 的 `sortedFuncIDs` 一次，反向索引/传播种子/最终发射复用 | `b5426af` |
+| 10 | 摘要写条目不物化临时切片 | 删除 `calleeWrites`；`calleeHasMatchingWrite` 与来源收集直接遍历直接写切片 + 间接写映射（直接写优先、提前退出、来源完整） | `b5426af` |
+| 11 | 实参名只拼一次 | 传播循环对同一 `indirectSite` 在首个成功传播字段处 `strings.Join` 一次，后续字段复用；无传播不拼接 | `b5426af` |
+| 12 | 行缓存并发首次合并 | `lineCache` 每文件 `entry.ready` 单飞（同文件只读一次；不同文件并行；读盘不在全局锁内；错误负缓存不变）；可注入 `readFile` 做可控并发测试 | `b5426af` |
+| 13 | 实现类型池并发首次合并 | `implTypePool` 的 `cached`/`methods` 改为 entry+ready 单飞（同键只计算/过滤一次；不同接口并行；两层缓存不持锁互相等待，避免死锁） | `b5426af` |
+| 14 | emitValue 实例路径局部复用 | 解引用分支 `instancePath` 只算一次，两个判断分支与命名共用 | `a08848e` |
+
+**方法论落地（todo8 §16）**：先核对现状（非旧提交调用点）→ 用 codeintel/调用关系确认消费者 → 按频率×工作量定位；对“比较器/稳定集合/循环不变量/查找结构/临时物化/并发首次/容器生命周期”逐类排查。负面/边界结论：64 位置时集合去重相对线性无明显优势（哈希开销抵消），256 位置才显著（5.9×）——基准按密度分档避免把“小样本无收益”写成结论；todo8 §16.7 明确否决的两项（字段用途递归 map 缓存、源码行偏移索引）**不作为实现任务**。
+
+### todo8-15 验收（GOGC=40 / GOMAXPROCS=8 / workers=1 / 同源码副本）
+
+- `verify.sh --quick` 全绿；`go test -race ./...` **13 包全绿**；`integration` 通过。
+- **detcheck**（go2o，冷1/冷2/暖3）：五类产物 **全等**（118574 / 136510 / 21158 / 3445）。
+- **内容隔离**：旧 `8c84844` vs HEAD，两轮 DB 逐项比较 ids/nodes/edges(含 metadata)/summary/origins → **diff 全 0**。
+- **chaincheck**：一跳 500/500、多跳 408/408、alias 连通 328（= 基线），通过。
+- **dbdiag**：健康检查 0 异常。
+- **稀疏/密集注册基准**：`BenchmarkCollectDispatchSparse` 612ns/786B/8allocs；`BenchmarkCollectDispatchDense`（40 位置）7.66µs/6729B/23allocs（增量来自更多注册位置本身；去重集合不产生逐次分配）。
+- **A/B（旧 vs 新，交错 2 轮）**：wall 7.95/7.52s vs 7.75/7.49s；Max RSS 774/732MB vs 740/769MB（噪声内）；峰值 live 347/347 vs 349/349MB；**TotalAlloc 1579/1565MB → 1449/1449MB（约 -8%）**；mallocs 22.47/22.21M → 20.25/20.26M（约 -9%）；NumGC 48/52 → 50/51。分配下降明确且两轮一致；wall/RSS 在噪声内，不宣称提速。
