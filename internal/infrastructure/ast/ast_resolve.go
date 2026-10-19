@@ -5,6 +5,7 @@ import (
 	"go/types"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/schaepher/codeintel/internal/canonicalizer"
 	"github.com/schaepher/codeintel/internal/domain"
@@ -137,6 +138,32 @@ func isInterfaceMethod(fn *types.Func) bool {
 	_, ok = named.Underlying().(*types.Interface)
 	return ok
 }
+
+// fnIDEntry 缓存值（ID + 种类；两者都由 *types.Func 唯一决定）。
+type fnIDEntry struct {
+	id   domain.CanonicalID
+	kind domain.EntityKind
+}
+
+// fnIDOf 构建级缓存版 fnID（todo9-2）：同一 *types.Func 在大量调用点被
+// 反复解析（fnID 每次都要拼 canonical ID 字符串），go2o 实测该路径分配
+// 约 8.5MB。缓存随 Adapter 生命周期（Index 开始时重置），不跨构建。
+func (a *Adapter) fnIDOf(fn *types.Func) (domain.CanonicalID, domain.EntityKind) {
+	if fn == nil {
+		return "", ""
+	}
+	if v, ok := a.fnIDs.Load(fn); ok {
+		e := v.(fnIDEntry)
+		return e.id, e.kind
+	}
+	id, kind := fnID(fn)
+	a.fnIDs.Store(fn, fnIDEntry{id: id, kind: kind})
+	return id, kind
+}
+
+// resetFnIDCache 清空 fnID 缓存（Index 入口调用——避免跨构建持有旧
+// Program 的 *types.Func / 无限增长）。
+func (a *Adapter) resetFnIDCache() { a.fnIDs = sync.Map{} }
 
 // fnID 计算函数/方法的 canonical ID 与领域种类。
 // 返回值 (id, kind, ok)。

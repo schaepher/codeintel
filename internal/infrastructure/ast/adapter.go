@@ -9,6 +9,7 @@ import (
 	"go/token"
 	"go/types"
 	"path/filepath"
+	"sync"
 
 	"golang.org/x/tools/go/packages"
 
@@ -41,6 +42,9 @@ type Adapter struct {
 	funcSetVars map[*types.Var][]*types.Func
 	// prog 进度上报（orchestrator 注入；nil → 静默）
 	prog domain.Progress
+	// fnIDs 构建级 *types.Func → canonical ID 缓存（todo9-2；Index 入口
+	// 重置——不跨构建持有旧 Program 对象）
+	fnIDs sync.Map
 }
 
 // SetProgress 注入进度上报（orchestrator 转发）。

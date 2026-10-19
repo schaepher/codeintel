@@ -192,7 +192,7 @@ func (ctx *fileCtx) markServiceEntry(call *ast.CallExpr, callee *types.Func,
 	// HTTP handler 函数：http.Handle / http.HandleFunc / mux.Handle 的
 	// handler 参数（具名函数或 http.HandlerFunc(f) 包装），作为入口
 	if p == "net/http" && (callee.Name() == "Handle" || callee.Name() == "HandleFunc") {
-		if hf := handlerFuncNode(pkg, call, ctx.repo); hf != nil {
+		if hf := handlerFuncNode(ctx.a, pkg, call, ctx.repo); hf != nil {
 			if err := ctx.emit(domain.Item{Node: hf}); err != nil {
 				return
 			}

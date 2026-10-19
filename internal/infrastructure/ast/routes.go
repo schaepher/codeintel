@@ -129,7 +129,7 @@ func (a *Adapter) resolveRouteHandler(repo *domain.Repository, handler string) (
 			if !ok || obj == nil {
 				continue
 			}
-			id, _ := fnID(obj)
+			id, _ := a.fnIDOf(obj)
 			if id != "" {
 				return id, true
 			}

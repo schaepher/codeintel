@@ -17,7 +17,7 @@ import (
 //	http.HandleFunc("/", home)            // 具名函数
 //
 // 返回标记 serves_http 的节点；匿名函数（FuncLit）与外部函数返回 nil。
-func handlerFuncNode(pkg *packages.Package, call *ast.CallExpr, repo *domain.Repository) *domain.CodeEntity {
+func handlerFuncNode(a *Adapter, pkg *packages.Package, call *ast.CallExpr, repo *domain.Repository) *domain.CodeEntity {
 	if len(call.Args) < 2 {
 		return nil
 	}
@@ -40,7 +40,7 @@ func handlerFuncNode(pkg *packages.Package, call *ast.CallExpr, repo *domain.Rep
 	if !ok || fn.Pkg() == nil || !isInModule(fn.Pkg().Path(), repo.Modules) {
 		return nil
 	}
-	fnID, fnKind := fnID(fn)
+	fnID, fnKind := a.fnIDOf(fn)
 	if fnID == "" {
 		return nil
 	}

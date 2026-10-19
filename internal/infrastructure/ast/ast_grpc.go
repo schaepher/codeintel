@@ -33,7 +33,7 @@ func (ctx *fileCtx) emitGrpcServiceEntry(call *ast.CallExpr, callee *types.Func,
 	}})
 	// R30：注册函数节点打 registers_service 属性（nodeFor 的 extra 只
 	// 支持 bool 标记，服务名是字符串——直构）
-	if cid, ckind := fnID(callee); cid != "" {
+	if cid, ckind := ctx.a.fnIDOf(callee); cid != "" {
 		pos := pkg.Fset.PositionFor(callee.Pos(), false)
 		_ = ctx.emit(domain.Item{Node: &domain.CodeEntity{
 			ID: cid, Kind: ckind, Name: callee.Name(),
@@ -253,7 +253,7 @@ func (ctx *fileCtx) emitSelectorCall(call *ast.CallExpr, callee *types.Func, sel
 		}
 	}
 	if objID, ok := ctx.objVars[xid.Name]; ok {
-		if methodID, methodKind := fnID(callee); methodID != "" {
+		if methodID, methodKind := ctx.a.fnIDOf(callee); methodID != "" {
 			_ = ctx.emit(domain.Item{Node: nodeFor(ctx.repo, pkg, callee, methodID, methodKind, nil)})
 			_ = ctx.emit(domain.Item{Fact: &domain.Fact{
 				SourceID:   objID,

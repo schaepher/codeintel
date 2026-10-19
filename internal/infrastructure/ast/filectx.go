@@ -212,7 +212,7 @@ func (ctx *fileCtx) trackBindings(n ast.Node) {
 			if call, isCall := vs.Values[0].(*ast.CallExpr); isCall {
 				if callee, ok2 := resolveCallee(ctx.pkg.TypesInfo, call.Fun); ok2 &&
 					callee.Pkg() != nil && isInModule(callee.Pkg().Path(), ctx.repo.Modules) {
-					calleeID, calleeKind := fnID(callee)
+					calleeID, calleeKind := ctx.a.fnIDOf(callee)
 					if calleeID != "" {
 						_ = ctx.emit(domain.Item{Node: nodeFor(ctx.repo, ctx.pkg, callee, calleeID, calleeKind, nil)})
 						_ = ctx.emit(domain.Item{Fact: &domain.Fact{

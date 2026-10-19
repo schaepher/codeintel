@@ -21,7 +21,7 @@ func (ctx *fileCtx) emitCall(call *ast.CallExpr) {
 	if !ok {
 		return
 	}
-	callerID, callerKind := fnID(caller)
+	callerID, callerKind := ctx.a.fnIDOf(caller)
 	if callerID == "" {
 		return
 	}
@@ -38,7 +38,7 @@ func (ctx *fileCtx) emitCall(call *ast.CallExpr) {
 			// P2-1：函数值调用 f()——f 由本函数 f := g 赋值
 			// （callee 是局部变量无法解析），查 varFuncs 建 calls
 			if fnRef, hasF := ctx.varFuncs[id.Name]; hasF {
-				if fid, fkind := fnID(fnRef); fid != "" {
+				if fid, fkind := ctx.a.fnIDOf(fnRef); fid != "" {
 					_ = ctx.emit(domain.Item{Node: nodeFor(ctx.repo, pkg, caller, callerID, callerKind, ctx.serviceFlags[callerID])})
 					_ = ctx.emit(domain.Item{Node: nodeFor(ctx.repo, pkg, fnRef, fid, fkind, nil)})
 					_ = ctx.emit(domain.Item{Fact: &domain.Fact{
@@ -84,7 +84,7 @@ func (ctx *fileCtx) emitCall(call *ast.CallExpr) {
 	// P2-2：外部接收者（如 fmt.Errorf("%v", joinIDs(x))）也处理——
 	// 否则 joinIDs 无入边被 unused 误报。
 	if callee.Pkg() != nil {
-		calleeID, _ := fnID(callee)
+		calleeID, _ := ctx.a.fnIDOf(callee)
 		for i, arg := range call.Args {
 			if inner, isCall := arg.(*ast.CallExpr); isCall {
 				// Q185：argName = 接收者签名第 i 个参数名（信息栏
@@ -99,7 +99,7 @@ func (ctx *fileCtx) emitCall(call *ast.CallExpr) {
 	}
 	// 对象去处：f(x) / f(&T{}) → passes_to 边（对象 → 接收函数）
 	if callee.Pkg() != nil && isInModule(callee.Pkg().Path(), ctx.repo.Modules) {
-		calleeID, calleeKind := fnID(callee)
+		calleeID, calleeKind := ctx.a.fnIDOf(callee)
 		for _, arg := range call.Args {
 			var objID domain.CanonicalID
 			var ok2 bool
@@ -128,7 +128,7 @@ func (ctx *fileCtx) emitCall(call *ast.CallExpr) {
 	if callee.Pkg() != nil {
 		ctx.markServiceEntry(call, callee, caller, callerID, callerKind)
 	}
-	calleeID, calleeKind := fnID(callee)
+	calleeID, calleeKind := ctx.a.fnIDOf(callee)
 	// 函数集合注册表：callee 是"函数集合入参 + 函数集合返回"的 getter 时，
 	// 为 callee → 实参里注册的每个函数补 CALLS 边（默认可见；不按签名
 	// 猜测全部候选函数）。
@@ -150,7 +150,7 @@ func (ctx *fileCtx) emitCall(call *ast.CallExpr) {
 			if fn == nil || fn.Pkg() == nil || !isInModule(fn.Pkg().Path(), ctx.repo.Modules) {
 				continue // 参数函数必须是项目内符号（有节点）
 			}
-			paramID, paramKind := fnID(fn)
+			paramID, paramKind := ctx.a.fnIDOf(fn)
 			if paramID == "" || paramID == calleeID {
 				continue
 			}

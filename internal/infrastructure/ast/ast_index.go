@@ -33,6 +33,7 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	astDone := 0
 
 	a.pkgsByPath = map[string]*packages.Package{}
+	a.resetFnIDCache()
 	a.modules = repo.Modules
 	// 包级函数值注册表（Index 级扫描一次——[]WrapperValidator 里的
 	// Validator 字段等具名函数注册；emitCall 处按变量查表补 CALLS 边）

@@ -39,7 +39,7 @@ func (a *Adapter) emitMethodReceiver(repo *domain.Repository, pkg *packages.Pack
 		if !ok {
 			continue
 		}
-		methodID, _ := fnID(method)
+		methodID, _ := a.fnIDOf(method)
 		if methodID == "" {
 			continue
 		}
@@ -114,7 +114,7 @@ func (a *Adapter) createObject(pkg *packages.Package, expr ast.Expr, stack []ast
 	if !ok {
 		return "", false
 	}
-	callerID, _ := fnID(caller)
+	callerID, _ := a.fnIDOf(caller)
 	if callerID == "" {
 		return "", false
 	}

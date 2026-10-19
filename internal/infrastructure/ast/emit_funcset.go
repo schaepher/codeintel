@@ -32,7 +32,7 @@ func (ctx *fileCtx) emitFuncSetNestedCalls(call *ast.CallExpr, caller *types.Fun
 		if !ok || ic.Pkg() == nil || !isInModule(ic.Pkg().Path(), ctx.repo.Modules) {
 			continue
 		}
-		iid, ikind := fnID(ic)
+		iid, ikind := ctx.a.fnIDOf(ic)
 		if iid == "" || iid == callerID {
 			continue
 		}
@@ -82,7 +82,7 @@ func (ctx *fileCtx) emitFuncSetRegistry(call *ast.CallExpr, caller *types.Func, 
 			if fn.Pkg() == nil || !isInModule(fn.Pkg().Path(), ctx.repo.Modules) {
 				continue
 			}
-			fid, fkind := fnID(fn)
+			fid, fkind := ctx.a.fnIDOf(fn)
 			if fid == "" || fid == calleeID {
 				continue
 			}
@@ -156,7 +156,7 @@ func (ctx *fileCtx) emitFuncSetTraversalCall(call *ast.CallExpr, caller *types.F
 		if fn.Pkg() == nil || !isInModule(fn.Pkg().Path(), ctx.repo.Modules) {
 			continue
 		}
-		fid, fkind := fnID(fn)
+		fid, fkind := ctx.a.fnIDOf(fn)
 		if fid == "" || fid == callerID {
 			continue
 		}

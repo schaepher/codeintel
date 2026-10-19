@@ -29,7 +29,7 @@ func (a *Adapter) handleNestedArg(pkg *packages.Package, call *ast.CallExpr, rec
 		return
 	}
 
-	calleeID, calleeKind := fnID(callee)
+	calleeID, calleeKind := a.fnIDOf(callee)
 	if calleeID == "" || calleeID == receiverID {
 		return
 	}
@@ -59,7 +59,7 @@ func (a *Adapter) handleNestedArg(pkg *packages.Package, call *ast.CallExpr, rec
 		if fn == nil || fn.Pkg() == nil || !isInModule(fn.Pkg().Path(), repo.Modules) {
 			continue
 		}
-		paramID, paramKind := fnID(fn)
+		paramID, paramKind := a.fnIDOf(fn)
 		if paramID == "" || paramID == calleeID {
 			continue
 		}
@@ -108,7 +108,7 @@ func (a *Adapter) concreteMethodFor(pkg *packages.Package, call *ast.CallExpr, c
 		if m.Name() != callee.Name() {
 			continue
 		}
-		mid, mkind := fnID(m)
+		mid, mkind := a.fnIDOf(m)
 		if mid == "" {
 			continue
 		}
