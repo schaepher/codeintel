@@ -17,12 +17,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/scip-code/scip/bindings/go/scip"
-	"google.golang.org/protobuf/proto"
-
 	"github.com/schaepher/codeintel/internal/canonicalizer"
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/logging"
+	"github.com/scip-code/scip/bindings/go/scip"
 	"go.uber.org/zap"
 	"golang.org/x/tools/go/packages"
 )
@@ -102,14 +100,12 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, _ []*packa
 		if err != nil {
 			return fmt.Errorf("read scip index: %w", err)
 		}
-		idx := &scip.Index{}
-		if err := proto.Unmarshal(data, idx); err != nil {
+		// todo5-1：逐文档解码（不再一次物化全部 Document/Occurrence）；
+		// 损坏的尾部返回失败（不提交部分成功构建）。
+		if err := forEachIndexDocument(ctx, data, func(doc *scip.Document) error {
+			return a.processDocument(repo, doc, md.rel, emit)
+		}); err != nil {
 			return fmt.Errorf("parse scip index: %w", err)
-		}
-		for _, doc := range idx.Documents {
-			if err := a.processDocument(repo, doc, md.rel, emit); err != nil {
-				return err
-			}
 		}
 		p.Advance("scip index", i+1)
 	}
