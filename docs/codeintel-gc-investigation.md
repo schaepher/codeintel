@@ -225,3 +225,22 @@
 - **chaincheck**：一跳 500/500、多跳 408/408、alias 连通 328（= 基线），通过。
 - **dbdiag**：健康检查 0 异常；`--plans`（真实库 + 内存副本）全部走预期索引（出边 `sqlite_autoindex_edges_1`、入边 `idx_edges_target_kind`、kind `idx_edges_kind`、id `sqlite_autoindex_nodes_1`）。
 - **A/B（旧 `74e70f6` vs 新，交错 2 轮）**：wall 7.12/7.11s vs 7.11/7.17s（持平）；Max RSS 779/817MB vs **735/768MB（约 -5~6%）**；SSA 峰值 live 348MB（两侧相同）；TotalAlloc 1586/1592MB vs **1570/1580MB（约 -0.7~1.0%）**；mallocs 22.37/22.54M vs 22.29/22.41M；NumGC 54/52 vs 53/51。单机单次对照，仅作趋势证据，不宣称稳定全量收益。
+
+## 12. remote-todo6（2026-10-16）执行结果
+
+| # | 事项 | 结果 | 提交 |
+|---|---|---|---|
+| 1 | 动态类型首次查询按包路径索引 | 排序包快照上建 `pkgsByPath`/`pkgsByName` 索引；首次查询先用类型串限定符收窄候选包，再按原匹配规则（`Scope().Lookup(name)` + `Type().String()` 全等、指针 `NewPointer`）解析；收窄未命中**回退全量扫描**（保证别名等跨包语义等价）；成功/失败结果仍缓存。基准：快照/索引构建 12.5ms（一次）、首次查询 626ns/14allocs、命中 21.8ns/**0 allocs** | `4011f8e` |
+| 2 | 模块函数过滤复用 | `moduleFuncs` 按**模块集合**缓存只读切片（写锁内二次检查，并发首次只过滤一次）；单 module 快路径零分配；随 funcSnapshot 释放。5 个消费者（快照初始化/别名/全局 init/派发×2）复用。基准：首次 1.13µs/3allocs、命中 **9.9ns/0 allocs** | `4011f8e` |
+| 3 | 回归验收 | 见下 | — |
+
+**关键事实（todo6-1 设计依据）**：Go 1.26 的 `types.Type.String()` 对具名类型的限定符是**包路径**（`example.com/m/a.T`），不是包名——与旧代码注释假设不同。故索引以 **path** 为主；同时保留 name 收窄（兼容自定义 Qualifier/旧版本）；两者都未命中再回退全量扫描。
+
+### todo6-3 验收（固定环境：GOGC=40 / GOMAXPROCS=8 / workers=1 / 同源码副本）
+
+- `verify.sh --quick` 全绿；`go test -race ./...` **13 包全绿**；`integration` 通过。
+- **detcheck**（go2o 副本，冷1/冷2/暖3）：节点/边(含来源/置信度/元数据)/摘要/摘要来源 **五类全等**（118574 / 136510 / 21158 / 3445）。
+- **内容隔离（todo6 零差异）**：旧 `416c425` vs 当前 HEAD，两轮 DB 逐项比较 ids/nodes/edges(含 metadata)/summary/origins —— **diff 全 0**。
+- **chaincheck**：一跳 500/500、多跳 408/408、alias 连通 328（= 基线），通过。
+- **dbdiag**：健康检查 0 异常。
+- **A/B（旧 `416c425` vs 新，交错 2 轮）**：wall 7.18/7.05s vs 7.15/7.11s（持平）；Max RSS 734/796MB vs 785/771MB（噪声内，无明确变化）；SSA 峰值 live 347/348MB vs 345/346MB；TotalAlloc 1571/1582MB vs 1578/1578MB；NumGC 51/51 vs 52/54。**结论**：todo6 为内容保持的微优化，局部基准明确（模块过滤首次 1.7µs→命中 10ns；动态类型首次 726→626ns、命中 22ns），但 go2o 端到端在噪声内，不宣称全量收益。
