@@ -182,3 +182,38 @@ func init() {
 		t.Errorf("两个 init 的同槽位值应有 ≥2 个不同 ID，got %v", ids)
 	}
 }
+
+// TestValueScopeTagExcludesInitPrefix：以 init 开头的普通函数/方法
+// （initPages、initConfig、(T).init）**不得**被当作包级 init 加作用域后缀
+// （否则与别名路径标识分裂——go2o 别名连通回退即此因）。
+func TestValueScopeTagExcludesInitPrefix(t *testing.T) {
+	nodes, _ := indexFixture(t, map[string]string{
+		"go.mod": moduleGoMod,
+		"main.go": `package m
+
+type T struct{ A int }
+
+type M struct{}
+
+func initPages() {
+	x := &T{}
+	x.A = 1
+}
+
+func (m *M) initConfig() {
+	y := &T{}
+	y.A = 2
+}
+
+func (m *M) init() {
+	z := &T{}
+	z.A = 3
+}
+`,
+	})
+	for _, n := range nodes {
+		if strings.Contains(string(n.ID), "@init:") {
+			t.Errorf("非包级 init 不应带作用域后缀: %s", n.ID)
+		}
+	}
+}

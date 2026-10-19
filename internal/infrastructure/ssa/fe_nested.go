@@ -20,7 +20,6 @@ import (
 	"go/token"
 	"go/types"
 	"strconv"
-	"strings"
 
 	"golang.org/x/tools/go/ssa"
 )
@@ -153,7 +152,17 @@ func valueScopeTag(prog *ssa.Program, repoPath string, fn *ssa.Function) string 
 			return ""
 		}
 		kind = "closure"
-	case strings.HasPrefix(fn.Name(), "init"):
+	case fn.Object() != nil:
+		// 仅**包级 init**（types.Func 名为 init 且无接收者）——不能用
+		// HasPrefix("init")：initPages/initConfig/(T).init 等普通函数会被
+		// 误加后缀，导致 alias 与 emitValue 标识分裂。
+		obj, _ := fn.Object().(*types.Func)
+		if obj == nil || obj.Name() != "init" {
+			return ""
+		}
+		if sig, _ := obj.Type().(*types.Signature); sig != nil && sig.Recv() != nil {
+			return ""
+		}
 		kind = "init"
 	default:
 		return ""
