@@ -67,12 +67,35 @@ type Orchestrator struct {
 	// stale 判定——"改文件→重索引"之后不该再报过期）。
 	worktreeFP string
 
+	// adapterTimeout 适配器级超时（todo9-1：默认 AdapterTimeout，可显式
+	// 覆盖——大仓可传更长；<=0 非法）。每个适配器仍各自独立 context。
+	adapterTimeout time.Duration
+
 	// P2 跨批 FK 收集：flush 时端点节点尚未落库的边/摘要/来源，构建尾部
 	// （全部节点落库后）统一重试——原实现静默跳过导致非确定性丢边。
 	// 仅 flush 协程写、finish 阶段读（flushCh 关闭 + flushWg.Wait 同步）。
 	failedEdges     []*domain.Fact
 	failedSummaries []*domain.FunctionFieldSummary
 	failedOrigins   []*domain.SummaryOrigin
+}
+
+// SetAdapterTimeout 覆盖适配器级超时（默认 AdapterTimeout = 10m）。
+// 必须为正——拒绝 0/负值（否则 context.WithTimeout 立即超时，构建必
+// 降级）；错误由调用方反馈给用户。
+func (o *Orchestrator) SetAdapterTimeout(d time.Duration) error {
+	if d <= 0 {
+		return fmt.Errorf("adapter timeout must be positive, got %s", d)
+	}
+	o.adapterTimeout = d
+	return nil
+}
+
+// adapterTimeoutOrDefault 适配器超时（零值 = 默认，兼容直接构造的测试）。
+func (o *Orchestrator) adapterTimeoutOrDefault() time.Duration {
+	if o.adapterTimeout > 0 {
+		return o.adapterTimeout
+	}
+	return AdapterTimeout
 }
 
 // SetProgress 注入进度上报，并转达给支持进度上报的适配器（ssa）。

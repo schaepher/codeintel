@@ -122,12 +122,13 @@ func (o *Orchestrator) runAdapters(ctx context.Context, pkgs []*packages.Package
 	}()
 
 	// 并行跑适配器（独立超时，失败不中断他人）
+	adapterTimeout := o.adapterTimeoutOrDefault()
 	var wg sync.WaitGroup
 	for _, a := range o.Adapters {
 		wg.Add(1)
 		go func(adapter domain.IndexerPort) {
 			defer wg.Done()
-			adapterCtx, cancel := context.WithTimeout(ctx, AdapterTimeout)
+			adapterCtx, cancel := context.WithTimeout(ctx, adapterTimeout)
 			defer cancel()
 			r := AdapterResult{Name: adapter.Name()}
 			adapterStart := time.Now()

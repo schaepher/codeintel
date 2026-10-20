@@ -29,6 +29,7 @@ func cmdInit(ctx context.Context, args []string) int {
 	repoPath := fs.String("repo", ".", "仓库根目录（含 go.mod；默认当前目录）")
 	workers := fs.Int("workers", defaultBuildWorkers(), "SSA 分析并发数（Q221/Q252e：默认 min(NumCPU, 8)——同时约束 ①模块包级 SSA 建图（Q252e 前逐包串行）②函数级发射；峰值内存与并发度正相关，小内存机器可调小，如 1）")
 	progressMode := fs.String("progress", progress.ModeAuto, "构建进度显示（Q253：只写 stderr，stdout 仍只承载结果）：auto=stderr 是终端时用进度条、否则逐行；plain=逐行（agent/日志抓取）；none=不显示")
+	adapterTimeout := fs.Duration("adapter-timeout", orchestrator.AdapterTimeout, "每个适配器独立超时（默认 10m；大仓可显式调大，必须为正时长）")
 	fs.Parse(args)
 	*repoPath = ResolveRepoRef(*repoPath) // Q238：注册表短名/后缀/module
 
@@ -69,8 +70,16 @@ func cmdInit(ctx context.Context, args []string) int {
 	}
 	defer db.Close()
 
+	if *adapterTimeout <= 0 {
+		fmt.Fprintf(os.Stderr, "error: --adapter-timeout 必须为正时长（收到 %s）\n", *adapterTimeout)
+		return 1
+	}
 	orch := orchestrator.New(repo, db)
 	orch.SetWorkers(*workers)
+	if err := orch.SetAdapterTimeout(*adapterTimeout); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
 	// Q254b：记录构建时的工作区变更指纹（stale 判定用——"改文件→重索引"
 	// 之后不该再报过期）
 	if dirtyGo, cerr := dirtyGoFiles(abs); cerr == nil {

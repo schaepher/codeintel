@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
+	"github.com/schaepher/codeintel/internal/orchestrator"
 	"github.com/schaepher/codeintel/internal/progress"
 )
 
@@ -21,6 +22,7 @@ func cmdReindex(ctx context.Context, args []string) int {
 	repoPath := fs.String("repo", ".", "仓库根目录（含 go.mod；默认当前目录）")
 	fs.Int("workers", defaultBuildWorkers(), "SSA 分析并发数（Q221/Q252e：默认 min(NumCPU, 8)；透传给 init）")
 	fs.String("progress", progress.ModeAuto, "构建进度显示（Q253：auto|plain|none；透传给 init）")
+	fs.Duration("adapter-timeout", orchestrator.AdapterTimeout, "每个适配器独立超时（默认 10m；透传给 init）")
 	fs.Parse(args)
 	*repoPath = ResolveRepoRef(*repoPath) // Q238：注册表短名/后缀/module
 
