@@ -2,7 +2,6 @@ package ssa
 
 import (
 	"go/ast"
-	"go/token"
 	"strings"
 	"time"
 
@@ -13,7 +12,7 @@ import (
 
 // computeAliases 执行轻量别名分析，返回间接写排除集（emitSummaries 消费）。
 func computeAliases(repo *domain.Repository, prog *ssa.Program,
-	idents map[token.Pos]string, funcData map[domain.CanonicalID]*funcData,
+	idents *identIndex, funcData map[domain.CanonicalID]*funcData,
 	lines *lineCache, funcSnap *funcSnapshot, modFuncs []*ssa.Function, emit domain.EmitFunc) (*aliasResult, error) {
 	logger := zap.L()
 	logger.Debug("enter computeAliases")
@@ -187,7 +186,7 @@ func callArgNames(p *aliasPass, cc *ssa.CallCommon) string {
 		}
 		name := arg.Name()
 		if alloc, ok := arg.(*ssa.Alloc); ok {
-			if n, ok2 := p.idents[alloc.Pos()]; ok2 {
+			if n, ok2 := p.idents.lookup(alloc.Pos()); ok2 {
 				name = n
 			}
 		}

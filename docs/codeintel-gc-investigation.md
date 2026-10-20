@@ -343,10 +343,24 @@
 
 **验证**：内容隔离（旧 HEAD vs 新）五类产物 **diff 全 0**；detcheck 冷1/冷2/暖3 全等；chaincheck 一跳 500/500、多跳 408/408、alias 328；dbdiag 无异常。
 
+### 续查：todo10-3 标识符索引按声明惰性构建（2026-10-19）
+
+`buildIdentIndex` 原先把模块包所有 AST 的 `Pos→标识符名` 装进一张全局 map（go2o 约 26MB 分配），但只被 `recoverVarName`/`instancePath` 的少量查询使用。改为 `identIndex`：
+
+- 建索引时**只登记文件**（`*token.File → *ast.File`），查询时按**包含该位置的声明**（`FuncDecl`/`GenDecl`，二分定位）惰性建 `Pos→名` 表；包名标识符单独短路；
+- 并发安全（锁内发布、构建在锁外；同一声明并发首次只保留先建表）；
+- **NoPos 兼容**：旧全局 map 在 go2o 上含一个"合成 Ident（Pos=0，名字为空）"→ 任何 `Pos==0` 的值查询都命中空串（表现为节点名为空、ID 带 `#.Field`）。惰性索引首次遇到 `Pos==0` 查询时按旧构建顺序（pkgs→Syntax→Inspect）补扫一次、复刻"最后一个 NoPos 标识符名"的覆盖语义。**没有这一步时，go2o 产物差 4 节点/6 摘要/1730 个同名不同内容节点、962 条边**——这正是"只比标识符位置等价"会漏掉的隐藏语义。
+
+**等价性核对（go2o，一次性诊断）**：全部 eager 标识符位置 0 mismatch；全部 SSA 指令操作数位置（192390 个）0 mismatch。
+
+**收益（同二进制 profile，旧 HEAD → 新，交错 2 轮）**：TotalAlloc **1346–1350MB → 1327–1329MB（-20MB，-1.5%）**；峰值 live **345/341MB → 334/334MB（-11MB，-3.2%）**；RSS 760/758MB → 756/762MB、wall 6.83/6.87s → 6.94/6.79s（噪声内）。
+
+**验证**：内容隔离五类产物 **diff 全 0**；detcheck 冷1/冷2/暖3 全等；chaincheck 一跳 500/500、多跳 408/408、alias 328；dbdiag 无异常。
+
 ### 剩余候选（本机可做，按证据排序，未动）
 
 - `database/sql.driverArgsConnLocked` 37.6MB：每行 Exec 的 `[]driver.NamedValue` + 装箱；要消除需绕开 `database/sql` 直用 `modernc` 连接（语义/错误映射/事务改动大，需单独 A/B）。
 - `emitValue`（35MB flat）/`emitSignatureNodes`（27MB cum）：每个 ssa_value/参数节点的 `map[string]any` 与实体结构，属数据模型成本；共享只读属性 map 会引入可变性风险，暂不动。
-- `buildIdentIndex` 17.5MB：全局 `Pos→标识符名` 表；改按需/按函数懒建理论上更低，但内联值的 `Pos` 属于被内联函数（跨函数），需证明等价后才可做。
+- `buildIdentIndex` 已改按声明惰性（todo10-3，-20MB alloc / -11MB 峰值）；进一步的"完全不扫描"不可行——NoPos 兼容语义需要一次遍历。
 - `newFuncSnapshot` 的 `fn.String()` 排序键（约 20MB，一次性）：换复合键可省渲染，但会改变函数遍历顺序，需先证明代表选择/边序完全不受顺序影响（todo9-8 已把候选集缩到模块函数，键渲染量随之下降）。
 - `encoding/json`（v2 实现）`bytes.Clone` 21MB、`go/types`/`x/tools` 内部（`recordTypeAndValue` 69MB、`typeWriter` 55MB、`NewMethodSet` 等）：第三方/标准库路径，改动风险大于收益。

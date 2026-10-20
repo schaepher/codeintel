@@ -2,7 +2,6 @@ package ssa
 
 import (
 	"fmt"
-	"go/token"
 	"io"
 	"os"
 
@@ -15,7 +14,7 @@ var stderr io.Writer = os.Stderr
 
 // finishIndex 构建收尾（Q231 拆分自 Adapter.Index 尾部）：alias 分析 +
 // 摘要/全局初始化/动态派发发射 + 内存释放。
-func finishIndex(repo *domain.Repository, prog *ssa.Program, idents map[token.Pos]string,
+func finishIndex(repo *domain.Repository, prog *ssa.Program, idents *identIndex,
 	a *Adapter, pool *implTypePool, fallbackAgg *fallbackAgg, emit domain.EmitFunc) error {
 	logger := zap.L()
 	logger.Debug("enter finishIndex")

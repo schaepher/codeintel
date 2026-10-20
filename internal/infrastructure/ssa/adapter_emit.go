@@ -2,7 +2,6 @@ package ssa
 
 import (
 	"go/ast"
-	"go/token"
 	"go/types"
 	"path/filepath"
 	"strings"
@@ -11,31 +10,8 @@ import (
 	"github.com/schaepher/codeintel/internal/canonicalizer"
 	"github.com/schaepher/codeintel/internal/domain"
 	"go.uber.org/zap"
-	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/ssa"
 )
-
-// buildIdentIndex 收集项目内文件的所有标识符（位置 → 名字），供 Alloc 反查源码变量名。
-func buildIdentIndex(pkgs []*packages.Package, modules []string) map[token.Pos]string {
-	logger := zap.L()
-	logger.Debug("enter buildIdentIndex")
-	defer logger.Debug("exit buildIdentIndex")
-	idents := map[token.Pos]string{}
-	for _, p := range pkgs {
-		if !isInModule(p.PkgPath, modules) {
-			continue
-		}
-		for _, f := range p.Syntax {
-			ast.Inspect(f, func(n ast.Node) bool {
-				if id, ok := n.(*ast.Ident); ok {
-					idents[id.Pos()] = id.Name
-				}
-				return true
-			})
-		}
-	}
-	return idents
-}
 
 // isModuleFunction 判断 SSA 函数是否属于项目内包。
 func isModuleFunction(fn *ssa.Function, modules []string) bool {
@@ -51,7 +27,7 @@ func isModuleFunction(fn *ssa.Function, modules []string) bool {
 // 仅处理有 FuncDecl 源码的顶层函数/方法——闭包（FuncLit）与合成 wrapper 跳过；
 // 闭包内字段访问在 Phase 2 归入外层函数（field_trace.md Q14 适配）。
 func emitFunction(repo *domain.Repository, prog *ssa.Program, fn *ssa.Function,
-	idents map[token.Pos]string, assignTargets []assignTarget,
+	idents *identIndex, assignTargets []assignTarget,
 	specs map[string]summarySpec, fallbackAgg *fallbackAgg, emit domain.EmitFunc,
 	pool *implTypePool, lines *lineCache, funcs *funcSnapshot, dispatchRegs *dispatchReg,
 	regHits regHits, typeMapping map[*types.Named]string) (domain.CanonicalID, *funcData, error) {

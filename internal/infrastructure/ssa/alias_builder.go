@@ -36,7 +36,7 @@ type callSite struct {
 type aliasPass struct {
 	repo    *domain.Repository
 	prog    *ssa.Program
-	idents  map[token.Pos]string
+	idents  *identIndex
 	emit    domain.EmitFunc
 	funcIDs map[*ssa.Function]domain.CanonicalID
 	// may[funcID]：函数内 值 → alloc 集（含跨函数注入）

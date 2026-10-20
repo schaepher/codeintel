@@ -82,7 +82,7 @@ func (ext *fieldExtractor) instancePathDepth(v ssa.Value, depth int) string {
 			return ext.instancePathDepth(x.X, depth+1)
 		}
 	case *ssa.Alloc:
-		if name, ok := ext.idents[x.Pos()]; ok {
+		if name, ok := ext.idents.lookup(x.Pos()); ok {
 			// Q235-6：预声明标识符（make/new 等关键字位置）不是变量名——
 			// 某些 go/ssa 版本 make 分配的 Pos 指向 make 关键字
 			switch name {
@@ -129,7 +129,7 @@ func (ext *fieldExtractor) recoverVarName(v ssa.Value) string {
 	// := 5, 0 的 phi）——idents 直接反查恢复；合成 phi（无声明位置）
 	// 查不到保持 SSA 名。对 Call（Pos=Lparen）/Alloc（Pos='{'）等非
 	// Ident 位置天然不命中，不影响既有路径
-	if dn, ok := ext.idents[v.Pos()]; ok && !isSSAName(dn) {
+	if dn, ok := ext.idents.lookup(v.Pos()); ok && !isSSAName(dn) {
 		return dn
 	}
 	orig, start, callPos := ext.lookupAssignTargetStart(v.Pos())
@@ -149,8 +149,8 @@ type fieldExtractor struct {
 	implPool      *implTypePool // ⑮ 接口动态派发候选枚举（Q246 池/memo——Index 级共享）
 	fn            *ssa.Function
 	funcID        domain.CanonicalID
-	idents        map[token.Pos]string // 源码标识符索引（Alloc 反查变量名）
-	assignTargets []assignTarget       // 赋值表达式区间（按 start 排序）→ 目标变量名（MakeMap/MakeSlice 恢复）
+	idents        *identIndex    // 源码标识符索引（惰性按文件构建，todo10-3）
+	assignTargets []assignTarget // 赋值表达式区间（按 start 排序）→ 目标变量名（MakeMap/MakeSlice 恢复）
 	emit          domain.EmitFunc
 	// Q223：本次处理的函数签名节点是否已发射（仅顶层函数 FuncDecl 调
 	// emitSignatureNodes）。闭包（FuncLit）不发射签名节点——emitValue

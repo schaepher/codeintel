@@ -11,7 +11,7 @@ import (
 
 // emitFunctionFields 发射单个函数内的字段访问节点与数据流边。
 func emitFunctionFields(repo *domain.Repository, prog *ssa.Program, fn *ssa.Function,
-	funcID domain.CanonicalID, idents map[token.Pos]string, assignTargets []assignTarget,
+	funcID domain.CanonicalID, idents *identIndex, assignTargets []assignTarget,
 	funcData *funcData, specs map[string]summarySpec, fallbackAgg *fallbackAgg, emit domain.EmitFunc,
 	pool *implTypePool, lines *lineCache, funcs *funcSnapshot, dispatchRegs *dispatchReg,
 	regHits regHits, typeMapping map[*types.Named]string, sigEmitted bool) error {
