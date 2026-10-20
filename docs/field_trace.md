@@ -5077,3 +5077,45 @@ changelog4 描述的一批优化来自另一套环境，本仓库并不存在对
 冷构建内容与旧版 **五类产物 diff 全 0**（118574/136510/21158/3445），
 detcheck 冷1/冷2/暖3 全等、chaincheck 一跳 500/500 / 多跳 408/408 / alias 328、
 dbdiag 无异常；go2o 全量构建 wall ≈ 5.7s（默认超时下 success）。
+
+## §? 全仓 Go 注释体检：拆分残留的孤立/过期注释（2026-10-21）
+
+背景：`docs/DoD.md` 要求文档与实现一致，但 300 行拆分（dev-line-limit）
+实施多轮后，**doc comment 常留在原文件、函数搬到新文件**——原文件只剩
+一串"孤立注释块"（注释后紧跟空行 + 另一个注释块），新文件里的同名函数
+没有注释或被截断成半句。这类残留在编译/测试里完全看不出来。
+
+体检手法（可复用，脚本在 `tmp/`，不进仓库）：
+1. **孤立注释块检测**（最高产）：column-0 注释块后紧跟空行，且下一段
+   非空内容是**另一段注释**或 EOF → 该注释没有附着任何声明；再看注释
+   首个标识符是否在**别的文件**里声明（=`DECL@other-file`）→ 拆残留。
+   本轮命中 ~40 处（`action_seq_code.go`、`action_wiki.go`、`wiki_tables.go`、
+   `wiki_enums.go`、`ast_grpc_register.go`、`summary_helpers.go`、`update.go`
+   等），全部删除并确认目标文件已有完整注释。
+2. **doc comment 首词 ≠ 声明名**（说明注释是别处的）：修掉 `enumEntry`
+   → `EnumEntry`、`extractEnums` → `Enums`、`resolveParamAtCalls` →
+   `resolveParamCandidates`、`ExprName`/`StrconvUnquote` 的重复首行、
+   `TableRelation` 注释重复挂在 `RelationRule`、`wikiTableConfig` 注释挂在
+   `wikiTableColumn`、`dispatchJSON` 注释挂在 `edgeCandidateJSON`、
+   `isSSAName` 注释挂在 `allocTypeShort`、`handleValueTrace` 注释挂在
+   `handleContext`、`AddRelationRule` 前半段是 `RelationRule` 的说明。
+3. **注释里的标识符/文件/flag 已不存在**：全仓词表比对（CamelCase +
+   反引号 token + `name(`）→ 0 命中；`--flag` 与真实解析分支比对 →
+   命中 `--ignore-dir`（8ff4e99 起改为 `codeintel config ignore-dir`）、
+   `--mermaid`（改为 `--format mermaid`）、`query path --kind`（改为
+   `--format calls`）；`design-q23x.md`/`docs/design-q247.md` 已归档删除
+   → 全部改指 `docs/field_trace.md §77/§78/§88`。
+4. **数字/默认值类断言逐个对代码**：`sequence --code` 默认 depth 1（非 3）、
+   `query er` 的 500 边降级只发生在 wiki 渲染（CLI 不截断）、
+   `DefaultRelationHops` write=0（旧注释"默认 4"）、orchestrator
+   分批 `BatchSize=20000`（包注释旧写 1000）、MCP 工具 30 个（旧写 20）、
+   MCP 注释 `pkgCacheFormat` 缺 v5、`relationsAlgoVersion` 注释缺 q209/q210、
+   模块页区块从"六区块"扩到职责/入口/核心符号/模块间调用/相关表/数据流/
+   包间图/流程时序、`vtRender` 三格式（旧写四种）、usage 里 `wiki`
+   漏 `--init/--seq-depth`、`domains` 已改为可选（`wiki.yaml` 缺 domains
+   走纯自动模式）。
+
+纪律沉淀：**拆文件时把 doc comment 一起搬**（新文件函数必须有注释），
+搬完 grep 原文件的注释块；pre-commit 只拦行数，不拦"注释与实现脱节"，
+所以交付前仍需人工/脚本过一遍。验收：`scripts/verify.sh --quick` 全绿
+（13 包），gofmt 无新增未格式化文件（原有 5 个历史文件未动）。

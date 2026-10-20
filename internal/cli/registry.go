@@ -12,7 +12,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// Q238 全局注册表接入（design-q238.md §3.2）：init/reindex 成功注册、
+// Q238 全局注册表接入（docs/field_trace.md §77）：init/reindex 成功注册、
 // update 成功刷新、clean 注销（级联 worktree）。注册失败仅警告——
 // 注册表从不作为命令必需前置（Q12）。
 
@@ -114,7 +114,7 @@ func unregisterRepoAfterClean(abs string) {
 	}
 }
 
-// ResolveRepoRef --repo 参数解析（Q238，design-q238.md §3.3）：
+// ResolveRepoRef --repo 参数解析（Q238，docs/field_trace.md §77）：
 //  1. 文件系统存在（现行语义，路径优先）→ 原样返回
 //  2. 注册表绝对路径后缀匹配（唯一）→ 返回匹配路径
 //  3. 注册表目录名精确匹配（唯一）→ 返回

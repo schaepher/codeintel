@@ -8,7 +8,7 @@ import (
 	"github.com/schaepher/codeintel/internal/domain"
 )
 
-// printRelationsAllMermaid 全库列级 mermaid 图（query relations --all --mermaid）：
+// printRelationsAllMermaid 全库列级 mermaid 图（query relations --all --format mermaid）：
 // 表为子图（列节点），关联为列到列的边（query 类型粗线）。
 func printRelationsAllMermaid(rels []*domain.TableRelation) int {
 	var sb strings.Builder

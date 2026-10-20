@@ -262,8 +262,6 @@ func shortNameOf(id string) string {
 	return id
 }
 
-// diagnoseEntities 4 类设计诊断（固定阈值起步，Q6）。
-
 // pkgOfEntityID canonical ID → 包路径（symbol:go:<pkg>:<name>）。
 func pkgOfEntityID(id string) string {
 	rest := strings.TrimPrefix(id, "symbol:go:")

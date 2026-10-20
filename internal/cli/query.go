@@ -47,7 +47,6 @@ type queryFlags struct {
 	out              string   // R100：sequence --out——输出写文件（plantuml → PNG；否则文本）
 }
 
-// dispatchJSON 候选派发标注（Q157 P1：value-trace --json 输出）。
 // edgeCandidateJSON 边级候选标注（Q161：动态 argument/returns 边元数据）。
 type edgeCandidateJSON struct {
 	Iface      string  `json:"interface"`
@@ -55,6 +54,7 @@ type edgeCandidateJSON struct {
 	Confidence float64 `json:"confidence"`
 }
 
+// dispatchJSON 候选派发标注（Q157 P1：value-trace --json 输出）。
 type dispatchJSON struct {
 	Origin     string  `json:"origin"`
 	Confidence float64 `json:"confidence"`

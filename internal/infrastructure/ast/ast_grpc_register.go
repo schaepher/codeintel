@@ -159,26 +159,6 @@ func inGrpcPackage(t types.Type) bool {
 	return n.Obj().Pkg() != nil && n.Obj().Pkg().Path() == "google.golang.org/grpc"
 }
 
-// collectRegisterServers 遍历项目内包，按**签名**识别 gRPC 注册函数
-// （R30：不限 .pb.go 文件、不限 RegisterXxxServer 命名——手写注册
-// 同样识别）：① 第一个参数类型是 grpc.ServiceRegistrar 接口或
-// *grpc.Server；② 函数体调用 RegisterService 方法（protoc 生成与
-// 手写通用，最强信号）。返回 map[string]string：pkgPath:funcName →
-// 服务名（参数 2 类型名或 RegisterService 第一实参 desc 名提取）。
-
-// isGrpcRegistrar 参数类型是 grpc.ServiceRegistrar 接口或 *grpc.Server。
-
-// callsRegisterService 函数体调用 RegisterService 方法（选择器
-// x.RegisterService——注册动作的强信号）。
-
-// registerServiceName 从注册函数提取服务名：
-// ① 参数 2 类型名去 Server 后缀（QueryServiceServer → QueryService）；
-// ② 否则函数体内 RegisterService 第一实参 desc 名（&QueryService_
-// ServiceDesc → QueryService；手写常用形态）。
-
-// svcFromType 类型名去 Server 后缀（QueryServiceServer → QueryService；
-// XxxServer → Xxx；非 Server 结尾返回空——impl struct 形态回退 desc）。
-
 // ---- R86 外部注册场景：从 Register 函数定义发射（不依赖调用点） ----
 
 // grpcRegisterDef Register 函数定义（.pb.go 签名识别）提取的服务注册
@@ -192,17 +172,3 @@ type grpcRegisterDef struct {
 	line    int
 	file    string
 }
-
-// collectRegisterDefs 扫描模块内 Register 函数定义（与
-// collectRegisterServers 同签名识别——isGrpcRegistrar/RegisterService
-// 调用），额外提取 srv 接口类型。函数定义在 proto 生成代码
-// （.pb.go）——外部仓库注册时定义仍在。
-
-// interfaceImplsInModule 全模块扫描实现接口的具体类型（types.Implements
-// 指针/值方法集任一；排除接口自身与 Unimplemented 桩——注册实现才是
-// 契约要的）。
-
-// emitGrpcServicesFromRegisters 从 Register 函数定义发射 grpc_service
-// 节点 + registers_service 属性 + grpc_impl 边（实现类型 = 接口的
-// types.Implements 实现——不依赖注册调用点；调用点路径发射的同名
-// 节点/边 UPSERT 幂等合并）。

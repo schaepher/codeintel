@@ -8,7 +8,7 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-// Q239 动态 SQL 拼接还原（design-q239.md §3.4）：fmt.Sprintf 模板 +
+// Q239 动态 SQL 拼接还原（docs/field_trace.md §78）：fmt.Sprintf 模板 +
 // %s 实参值流追溯（常量 / 嵌套 Sprintf / 跨函数参数）→ 还原 SQL 模板
 // → 走统一 parseSQLStmt。深度上限 3；部分还原（可还原的占位符还原，
 // 剩余保留——不误报）；追溯不到返回 ""（保持现状不解析）。
@@ -176,7 +176,7 @@ type paramCalls struct {
 	callers [][]ssa.Value // 每个静态调用点的实参列表
 }
 
-// resolveParamAtCalls 函数参数 → 静态调用点实参追溯（多个调用点取首个
+// resolveParamCandidates 函数参数 → 静态调用点实参追溯（多个调用点取首个
 // 可还原的；实参索引 = 参数在签名中的位置——方法调用 Args[0]=receiver
 // 偏移 1）。
 func (ext *fieldExtractor) resolveParamCandidates(p *ssa.Parameter, depth int) []string {

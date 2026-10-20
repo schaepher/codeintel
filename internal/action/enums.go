@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-// enumEntry 一个枚举常量。
+// EnumEntry 一个枚举常量。
 type EnumEntry struct {
 	Pkg     string `json:"pkg"`     // 包路径（短名）/ proto package
 	Type    string `json:"type"`    // 枚举类型（空 = 无类型 const 组）
@@ -26,7 +26,7 @@ type EnumEntry struct {
 	Source  string `json:"source"`  // 来源：go | proto（R29 grpc 枚举）
 }
 
-// extractEnums 提取仓库内字符串枚举常量（类型化或 const 块内字符串
+// Enums 提取仓库内字符串枚举常量（类型化或 const 块内字符串
 // 字面量）——排除 _test.go 与外部目录（R29：全仓扫，不再限 internal/；
 // 跳过 _pb.go 生成代码——枚举由 .proto 源提供）。onlyTyped=true 时
 // 只返回有显式类型的枚举（无类型字符串常量多为展示标签——默认过滤；
@@ -118,7 +118,6 @@ func Enums(repoAbs string, onlyTyped bool) []EnumEntry {
 	return out
 }
 
-// exprName AST 表达式短名（*ast.Ident / SelectorExpr 末段）。
 // ExprName AST 表达式短名（*ast.Ident / SelectorExpr 末段）。
 func ExprName(e ast.Expr) string {
 	switch t := e.(type) {
@@ -130,7 +129,6 @@ func ExprName(e ast.Expr) string {
 	return ""
 }
 
-// strconvUnquote 去掉字符串字面量引号（含反引号）。
 // StrconvUnquote 去掉字符串字面量引号（含反引号）。
 func StrconvUnquote(s string) (string, error) {
 	if len(s) >= 2 && s[0] == '`' && s[len(s)-1] == '`' {

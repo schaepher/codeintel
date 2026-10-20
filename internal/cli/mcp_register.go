@@ -9,7 +9,7 @@ import (
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
 
-// Q252：registerMCPTools 按工具组拆分（行数治理）——20 个工具
+// Q252：registerMCPTools 按工具组拆分（行数治理）——30 个工具
 // 注册分三组，每组一个 helper（参数同 registerMCPTools）。
 
 // registerQueryTools 注册工具子集（Q252：registerMCPTools 按组拆分——行数治理 ≤300）。
@@ -243,5 +243,3 @@ func registerTableTools(server *mcp.Server, env *mcpEnv, r *sqlite.Repo, repoAbs
 	// #228 写操作工具（不包 staleWrap——写后索引即最新，无需标注）。
 	// batch_symbols：批量概览（复用 action.BatchSymbols，契约同 CLI batch --json）。
 }
-
-// registerAdminTools 注册工具子集（Q252：registerMCPTools 按组拆分——行数治理 ≤300）。

@@ -148,7 +148,7 @@ func (a *Adapter) processDocument(repo *domain.Repository, doc *scip.Document, m
 	defer logger.Debug("exit (Adapter).processDocument")
 	filePath := repoRelPath(moduleRel, doc.RelativePath)
 	if domain.IsIgnoredPath(filePath, repo.IgnoreDirs) {
-		return nil // --ignore-dir：忽略目录不入图
+		return nil // 忽略目录（Repository.IgnoreDirs）：不入图
 	}
 
 	// FILE 节点：ID 为 file:<relpath>

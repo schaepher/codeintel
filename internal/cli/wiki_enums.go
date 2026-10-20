@@ -16,18 +16,6 @@ import (
 	"sort"
 )
 
-// enumEntry 一个枚举常量。
-
-// extractEnums 提取仓库内字符串枚举常量（类型化或 const 块内字符串
-// 字面量）——排除 _test.go 与外部目录（R29：全仓扫，不再限 internal/；
-// 跳过 _pb.go 生成代码——枚举由 .proto 源提供）。onlyTyped=true 时
-// 只返回有显式类型的枚举（无类型字符串常量多为展示标签——默认过滤；
-// --include-untyped 放开）。R29：并入 .proto 源枚举（Source=proto）。
-
-// exprName AST 表达式短名（*ast.Ident / SelectorExpr 末段）。
-
-// strconvUnquote 去掉字符串字面量引号（含反引号）。
-
 // cmdEnums 实现 `codeintel query enums [--repo <path>] [--json]`——
 // 源码枚举权威清单（不依赖索引；AI Agent 直接获取避免重定义）。
 func cmdEnums(repoAbs string, f queryFlags) int {

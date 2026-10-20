@@ -160,7 +160,7 @@ func New(repo Reader) *Actions {
 }
 
 // 写锚点跳板限界（④ 超时防护）：读节点数上限 + 子追溯深度——避免
-// 同字段大量读节点各自跑一遍深度 8 双向全链。
+// 同字段大量读节点各自跑一遍深度 trampolineDepth 的双向全链。
 const (
 	trampolineMaxReads = 8
 	trampolineDepth    = 4

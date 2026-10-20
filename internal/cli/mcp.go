@@ -11,13 +11,7 @@ import (
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
 
-// 工具参数结构体（json tag = inputSchema 字段名，snake_case）。
-
-// #228 写操作工具参数：batch_symbols 批量概览；update/init 重建索引
-// （stale 自愈——Agent 一条消息从「过期」到「可用」）。
-
-// #229 file:line 定位参数。
-
+// getRepo 各工具参数共用的仓库 ref（#232 多仓库：空 = 默认仓库）。
 func (p symbolParams) getRepo() string      { return p.Repo }
 func (p fieldsParams) getRepo() string      { return p.Repo }
 func (p graphParams) getRepo() string       { return p.Repo }
@@ -32,8 +26,6 @@ func (p moduleCallsParams) getRepo() string { return p.Repo }
 func (p batchParams) getRepo() string       { return p.Repo }
 func (p fileSymbolsParams) getRepo() string { return p.Repo }
 func (p updateParams) getRepo() string      { return p.Repo }
-
-// #232 多仓库：mcpEnv 持有默认仓库 + 已解析仓库缓存（ref → 条目）。
 
 // registerMCPTools 注册全部工具（handler 闭包捕获 env；staleWrap 追加
 // [stale] 标注——Q243 新鲜度显式化；mcpRepo 支持 #232 多仓库）。

@@ -1,7 +1,7 @@
 package main
 
 // Q247 §2.2：构建期内存上限兜底——小内存机器上把 Go 的 GC 目标钉住，
-// 用"更多 GC、更少换页"换不 OOM（docs/design-q247.md）。
+// 用"更多 GC、更少换页"换不 OOM（docs/field_trace.md §88）。
 //
 // 优先级（高→低）：
 //  1. GOMEMLIMIT：Go 运行时原生支持且**启动时已生效**——我们绝不覆盖

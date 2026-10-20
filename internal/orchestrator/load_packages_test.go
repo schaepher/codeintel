@@ -3,7 +3,7 @@ package orchestrator
 // Q247 契约测试：loadPackages 的依赖信息契约——**模块内包给
 // Syntax+TypesInfo，依赖包只给 Types（AST/TypesInfo 不保证）**。
 //
-// 背景（docs/design-q247.md §1）：Mode 里带 packages.NeedDeps 会让
+// 背景（docs/field_trace.md §88）：Mode 里带 packages.NeedDeps 会让
 // go/packages 把整个传递依赖图的 AST/TypesInfo 也解析并常驻——go2o
 // 实测 774 个 reachable 包全部带 AST（3718 语法文件）/ 存活堆 955MB，
 // 去掉后 137 包 / 526 文件 / 148MB；紧随其后的「释放依赖 AST」循环只

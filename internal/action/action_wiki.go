@@ -1,6 +1,7 @@
 package action
 
-// #238 wiki 数据聚合：六区块（职责/入口/核心符号/模块间调用/相关表）。
+// #238 wiki 数据聚合：模块页区块（职责/入口/核心符号/模块间调用/相关表
+// + 关键数据流/包间调用/流程时序）。
 
 import (
 	"path/filepath"
@@ -146,8 +147,6 @@ func modDir(mod string) string {
 	return mod
 }
 
-// readPackageDoc 读目录下 doc.go（若有）或首个 .go 的 package 注释。
-
 // extractPackageDoc 提取 "package X" 前的注释块（Go 惯例）。
 func extractPackageDoc(src string) string {
 	idx := strings.Index(src, "package ")
@@ -161,12 +160,6 @@ func extractPackageDoc(src string) string {
 	return strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(head, "\\r", ""), "\\n", " "))
 }
 
-// moduleEntries 模块内入口（roots 节点 ID 前缀匹配）。
-// moduleEntries 模块入口：只取 main（去重）——启动入口语义清晰；
-// serves_http/grpc 标记过宽（辅助函数也被标），不适合 wiki 入口展示。
-
-// tableNames 列名（表.列）→ 表名去重排序。
-
 func containsStr(xs []string, s string) bool {
 	for _, x := range xs {
 		if x == s {
@@ -175,8 +168,6 @@ func containsStr(xs []string, s string) bool {
 	}
 	return false
 }
-
-// moduleEntryID 模块入口（main）的 canonical ID（roots 中第一个 main）。
 
 // wikiSequenceByID 锚点调用链分组（#242 每个流程单独画）：入口的每条
 // 一级调用 = 一条流程（一个命令/服务），各自一张图；组内 = 锚点 →
@@ -273,8 +264,6 @@ func factLineNum(f *domain.Fact) int {
 	}
 	return -1
 }
-
-// seqShort canonical ID → 短名（保留方法形态 (T).m）。
 
 // TableSchemas 表 schema 事实源（R19）：sqlite_master CREATE TABLE
 // 全量——列类型/默认值权威（不借助 AI 填类型）。

@@ -84,7 +84,7 @@ func cmdWiki(args []string) int {
 		case strings.HasPrefix(a, "--max-entries="):
 			maxEntries, _ = strconv.Atoi(strings.TrimPrefix(a, "--max-entries="))
 		case a == "--help" || a == "-h":
-			fmt.Println("用法: codeintel wiki [--repo <path>] [--out <dir=docs/wiki>] [--yaml <file>] [--format md|html] [--init] [--ai] [--agent codex|claude|auto] [--with-qa] [--diagram plantuml|mermaid] [--max-entries <N>]\n  从代码生成业务 wiki（Markdown 或单文件 HTML）——wiki.yaml 可补充业务描述/别名/隐藏符号；--init 生成 wiki.yaml 骨架；--ai 用 AI 增量补缺（无描述模块/无别名表/无说明列/术语表 → 写回 wiki.yaml 标注 # AI 初稿；ai.fill 可细分到类别 modules/tables/columns/glossary）；--with-qa 从历史问答（ask/serve 对话收集）读取相关 Q&A 作为参考资料；--diagram 图引擎（默认 plantuml——HTML 渲染 PNG 嵌入；mermaid 浏览器端渲染）；--max-entries 流程页每节/每页入口展开上限（默认 15，超出折叠为清单）；wiki.yaml 必须配置 domains（业务域）才能生成——先跑 `codeintel domains --prompt \"<用户约束>\"`（可预先指定部分域）生成 AI 初稿并确认；AI 使用点可用配置关闭（wiki.yaml 或 ~/.codeintel/config.yaml 的 ai: {domains, fill, ask: auto|off}，fill 可细分）")
+			fmt.Println("用法: codeintel wiki [--repo <path>] [--out <dir=docs/wiki>] [--yaml <file>] [--format md|html] [--init] [--ai] [--agent codex|claude|auto] [--with-qa] [--diagram plantuml|mermaid] [--max-entries <N>] [--seq-depth <N>]\n  从代码生成业务 wiki（Markdown 或单文件 HTML）——wiki.yaml 可补充业务描述/别名/隐藏符号；--init 生成 wiki.yaml 骨架；--ai 用 AI 增量补缺（无描述模块/无别名表/无说明列/术语表 → 写回 wiki.yaml 标注 # AI 初稿；ai.fill 可细分到类别 modules/tables/columns/glossary）；--with-qa 从历史问答（ask/serve 对话收集）读取相关 Q&A 作为参考资料；--diagram 图引擎（默认 plantuml——HTML 渲染 PNG 嵌入；mermaid 浏览器端渲染）；--max-entries 流程页每节/每页入口展开上限（默认 15，超出折叠为清单）；domains（业务域）可选——未配置时纯自动模式生成（代码事实分组降级）；建议先跑 `codeintel domains --prompt \"<用户约束>\"`（可预先指定部分域）生成 AI 初稿并确认；AI 使用点可用配置关闭（wiki.yaml 或 ~/.codeintel/config.yaml 的 ai: {domains, fill, ask: auto|off}，fill 可细分）")
 			return 0
 		default:
 			fmt.Fprintf(os.Stderr, "error: 未知参数 %q\n", a)
@@ -262,9 +262,6 @@ type wikiRenderCtx struct {
 }
 
 // diagramMD/diagramHTML 已拆到 wiki_diagram.go（行数治理）。
-
-// renderWiki 生成 index.md + 模块页 + tables.md + er.md + commands.md +
-// api.md（全量覆盖）。
 
 // tableCfgsFrom 从 yaml 构建表配置索引（name → 配置）。
 func tableCfgsFrom(cfg wikiConfig) map[string]wikiTableConfig {

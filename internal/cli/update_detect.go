@@ -18,7 +18,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// filterIgnoredFiles 过滤掉落在忽略目录（--ignore-dir）内的变更文件
+// filterIgnoredFiles 过滤掉落在忽略目录（codeintel.yaml 的 ignore_dirs）内的变更文件
 // （不入索引的文件不该参与增量分析与 stale 指纹）。
 func filterIgnoredFiles(files []string, ignore []string) []string {
 	if len(ignore) == 0 || len(files) == 0 {

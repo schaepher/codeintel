@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// Q238 worktree 检测（design-q238.md §3.2）：注册时判定目标仓库是否
+// Q238 worktree 检测（docs/field_trace.md §77）：注册时判定目标仓库是否
 // git worktree 及主仓库路径。
 //
 // 形态：

@@ -11,7 +11,7 @@ import (
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
 
-// Q238 codeintel list：全局注册台账（design-q238.md §3.4）。
+// Q238 codeintel list：全局注册台账（docs/field_trace.md §77）。
 // 输出：短名(=目录名) 路径 module 状态 worktree归属(⊢主仓库) workspace。
 // 状态机（Q15）：[missing]（目录不存在）> 未构建（build_id 空）>
 // 过期（已构建但 HEAD 变）> 已构建（head 一致）。--stale 只筛过期，

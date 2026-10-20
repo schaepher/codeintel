@@ -145,24 +145,6 @@ func isRegisterServerName(name string) bool {
 		strings.HasSuffix(name, "Server")
 }
 
-// handlerFuncNode 提取 http.Handle/HandleFunc 的 handler 参数（第二个参数），
-// 支持形态：
-//
-//	http.Handle("/", myHandler)          // 变量（具名函数）
-//	http.Handle("/", http.HandlerFunc(f)) // HandlerFunc 包装
-//	http.HandleFunc("/", home)            // 具名函数
-//
-// 返回标记 serves_http 的节点；匿名函数（FuncLit）与外部函数返回 nil。
-
-// serviceImplNode 提取 RegisterXxxServer 调用的第二个参数（服务实现），
-// 生成标记 serves_grpc 的节点（作为顶层服务入口）。参数形态支持：
-//
-//	pb.RegisterGreeterServer(s, &greeterImpl{})   // 复合字面量
-//	pb.RegisterGreeterServer(s, newGreeterServer()) // 构造函数
-//	pb.RegisterGreeterServer(s, impl)               // 变量
-//
-// 返回 nil 表示无法解析为项目内类型。
-
 // markServiceEntry 服务入口标记：net/http / grpc 调用、HTTP handler
 // 注册、gRPC RegisterXxxServer → caller 节点带 serves_http/serves_grpc。
 

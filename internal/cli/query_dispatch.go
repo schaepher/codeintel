@@ -181,5 +181,3 @@ func cmdQuery(args []string) int {
 		return 2
 	}
 }
-
-// parseQueryFlags 手动解析 query 参数（flags 与位置参数任意顺序）。

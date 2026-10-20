@@ -263,10 +263,6 @@ func (r *Repo) InterfaceMethodImpl(methodID string) (string, bool) {
 	return "", false
 }
 
-// orderImplsByGrpc grpc 服务实现排后（R97：接口方法具体化优先业务
-// 实现——grpc 实现内部调接口时避免具体化回自身造成时序图自环；
-// grpc 实现 = grpc_impl 边 source，内存集合判定）。
-
 // interfaceImpls 接口的 implements 实现类型列表（校验接口 kind；排除
 // Unimplemented 桩）。
 func (r *Repo) interfaceImpls(ifaceID string) []string {

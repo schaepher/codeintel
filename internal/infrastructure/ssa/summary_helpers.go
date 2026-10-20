@@ -134,14 +134,6 @@ func fieldValueOf(obj ssa.Value, idx int) ssa.Value {
 	return nil
 }
 
-// entityTypeOf 取接口摘要的实体类型：泛型接口实例化（Repository[M]）的
-// 类型实参优先；fallback 按 kind 从对象实参/返回值类型取。
-// tableNameOf 实体类型表名：TableName() 方法（SSA Return 常量）优先，
-// fallback snakeCase(类型名)（GORM 默认命名）。
-// pkColumnOf 主键列名：字段 pk:"yes" tag（gorm column 优先）→ 该字段列名；
-// 无标记时 fallback "id"。
-// gormColumnOf 提取 gorm:"column:x" 的列名（无则 snake_case 字段名）。
-
 // entityTypeOf 解析摘要的实体类型（表名/字段展开来源）。
 //
 // R12 接收者下标约定（go/ssa CallCommon.Args）：静态方法调用的 Args 含

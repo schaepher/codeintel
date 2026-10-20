@@ -14,6 +14,8 @@ import (
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
 
+// askREPL 交互模式：逐行读 stdin，多轮追问复用同一会话（resume 机制
+// 自动带 --resume——AI 记住前文，追问无需重复上下文）。每轮回答
 // 收集进 qa_history（W2）。repoAbs：agent 子进程 cwd（仓库内文件读取免权限）。
 func askREPL(acts *action.Actions, repo *sqlite.Repo, agent string, timeout time.Duration, repoAbs string) int {
 	fmt.Println("codeintel ask 交互模式——多轮追问复用同一会话（输入 exit/quit 退出，Ctrl-D 结束）")
@@ -55,6 +57,7 @@ func saveQA(repo *sqlite.Repo, question, answer, context, agent string) {
 	})
 }
 
+// askContextNames 问题中命中项目事实的符号/表名（qa_history context
 // 字段——参考资料按此相关性匹配）。
 func askContextNames(acts *action.Actions, question string) string {
 	known := knownTablesOf(acts)

@@ -2,8 +2,6 @@ package sqlite
 
 import "github.com/schaepher/codeintel/internal/domain"
 
-// isDataKind 是否为 BFS 数据流边。
-
 // mergeRelation 同 key 去重合并（Q234 规则 B 用，内存/SQL 路径共享）：
 // 已有同 key 行时保留 rank 更高类型 + 更小 hops；否则追加。
 func mergeRelation(seen map[string]*domain.TableRelation, all []*domain.TableRelation,
@@ -21,6 +19,7 @@ func mergeRelation(seen map[string]*domain.TableRelation, all []*domain.TableRel
 	return append(all, rel)
 }
 
+// isDataKind 是否为 BFS 数据流边。
 func isDataKind(kind string) bool {
 	switch kind {
 	case "data_flows_to", "argument", "returns", "summary_io", "alias", "phi_operand":

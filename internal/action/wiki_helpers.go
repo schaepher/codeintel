@@ -35,7 +35,6 @@ func readPackageDoc(dir string) string {
 	return ""
 }
 
-// moduleEntries 模块内入口（roots 节点 ID 前缀匹配）。
 // moduleEntries 模块入口：只取 main（去重）——启动入口语义清晰；
 // serves_http/grpc 标记过宽（辅助函数也被标），不适合 wiki 入口展示。
 func moduleEntries(roots []*domain.CodeEntity, mod string) []string {

@@ -8,7 +8,8 @@ import (
 	"github.com/schaepher/codeintel/internal/domain"
 )
 
-// relationHopsFromFlags 组装三类跳数上限（Q197）：默认 4；
+// relationHopsFromFlags 组装三类跳数上限（Q197）：默认取
+// domain.DefaultRelationHops（query 4 / write 0 不限制 / read 4，Q208）；
 // 显式传 0 = 不限制；--include-long-query 等价 --query-max-hops 0。
 func relationHopsFromFlags(f *queryFlags) domain.RelationHops {
 	h := domain.DefaultRelationHops

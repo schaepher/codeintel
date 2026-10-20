@@ -13,7 +13,7 @@ import (
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
 
-// Q238 workspace（design-q238.md §3.4）：把已注册仓库按需求创建 git
+// Q238 workspace（docs/field_trace.md §77）：把已注册仓库按需求创建 git
 // worktree 到 workspace 目录。
 //
 //	codeintel workspace init --dir <目录> [--repo <子集>...] [--build] [--branch <b>]

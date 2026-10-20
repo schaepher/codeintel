@@ -65,34 +65,6 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	return root, nil
 }
 
-// codeSeqForSymbol 按符号 ID 解析函数体（递归入口——嵌套展开用
-// canonical ID 直接解析；depth = 当前剩余嵌套层级）。
-
-// recvTypeName receiver 类型 AST → 类型名（*T / T → T；跨包形态
-// pkg.T → T——同包字段写入常见）。
-
-// walkStmts 遍历语句列表生成步骤（调用语句 / 分支 / 循环 / 块递归）。
-// f = 当前函数所在文件（局部变量 DI 注入数据流查询用）；curPkg = 当前
-// 函数包路径（P0-6）。tgts = 调用点 → 被调符号映射（R99-3：offset
-// 优先——同行多调用区分）。
-
-// walkStmt 单条语句 → 步骤（可能多条：赋值内多个调用）。
-
-// receiverFieldSel 调用 fun（s.manager.SubmitOrder）是否为 receiver
-// 字段方法调用——s 是当前方法 receiver 名（recvType 对应）、X 是
-// SelectorExpr（s.manager）→ 返回字段名 manager。
-
-// receiverFieldImpl 数据流具体化（R97-2）：receiver 字段（s.manager）
-// 的赋值来源类型——查摘要 direct_write 写入函数 → 读源码 AST 找
-// 赋值表达式（x.manager = &orderManagerImpl{}）的具体类型 → 构造
-// (Impl).Method。找不到（无写入摘要/赋值形态不支持）返回空——
-// 调用方 fallback 接口类型匹配（InterfaceMethodImpl）。
-
-// fieldWriteType 读写入函数源码，找 "x.<field> = <X>" 赋值中 X 的
-// 类型名（&orderManagerImpl{} → orderManagerImpl；构造器调用
-// newOrderManager() → newOrderManager 的返回？MVP：字面量与同包
-// Ident）。返回 (类型名, 包路径)。
-
 // exprTypeName 类型表达式 → 短名（Ident → 名；SelectorExpr pkg.T → T）
 // ——P0-5 receiver 字段声明类型提取。
 func exprTypeName(t ast.Expr) string {
@@ -113,5 +85,3 @@ type SeqFilter struct {
 	Fns   []string // 调用名（label 精确或末段 .Method 匹配）
 	Regex []string // label 正则
 }
-
-// seqFilterHit 检查调用是否命中过滤（任一维度命中即过滤）。

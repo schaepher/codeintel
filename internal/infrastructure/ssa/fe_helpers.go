@@ -152,7 +152,6 @@ func ssaOp(v ssa.Value) string {
 	return t.Name()
 }
 
-// isSSAName 判断是否为 SSA 临时名（t0、t91 等），用于决定展示名回退。
 // allocTypeShort 匿名分配的类型短名（Q235-6）：取最后一个 '/' 之后
 // 并**补回 * / [] 前缀**——* 与 [] 在包路径之前，直接取 '/' 后会丢
 // （*example.com/mtest.Inner → *mtest.Inner；[]int → []int；
@@ -169,6 +168,7 @@ func allocTypeShort(ts string) string {
 	return ts
 }
 
+// isSSAName 判断是否为 SSA 临时名（t0、t91 等），用于决定展示名回退。
 func isSSAName(name string) bool {
 	if len(name) < 2 || name[0] != 't' {
 		return false

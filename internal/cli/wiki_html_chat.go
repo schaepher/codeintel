@@ -1,7 +1,6 @@
 package cli
 
-// W1 对话面板（serve wiki 版）：固定右侧可折叠 chat——浏览时随时
-// 追问（POST /wiki/ask）。独立文件（行数治理）。
+// W1 对话面板（serve wiki 版，独立文件——行数治理）。
 
 // chatPanelHTML W1 对话面板（serve 版）：固定右侧可折叠——浏览 wiki
 // 时随时追问项目问题（POST /wiki/ask，回答收集进 qa_history 作

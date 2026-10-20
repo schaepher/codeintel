@@ -2,7 +2,7 @@ package cli
 
 // R76 `codeintel query sequence <symbol>`——任意函数/方法时序图：
 // 调用链接口具体化（CalleesConcrete——wiki 流程页同款数据源）→ 步骤
-// 列表（含调用行号）+ mermaid sequenceDiagram（--mermaid）。
+// 列表（含调用行号）+ mermaid sequenceDiagram（--format mermaid）。
 // 独立于 wiki——任何符号可查。
 
 import (
@@ -14,7 +14,7 @@ import (
 	"github.com/schaepher/codeintel/internal/domain"
 )
 
-// cmdQuerySequence 实现 `query sequence <symbol> [--depth N] [--mermaid]`。
+// cmdQuerySequence 实现 `query sequence <symbol> [--depth N] [--format mermaid]`。
 func cmdQuerySequence(acts *action.Actions, target string, depth int, mermaid bool, jsonOut bool) int {
 	n, err := acts.ResolveSymbol(target)
 	if err != nil {

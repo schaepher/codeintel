@@ -92,7 +92,7 @@ func (o *Orchestrator) FullBuild(ctx context.Context) (*BuildResult, error) {
 //     带 NeedDeps 会让 go/packages 把**整个传递依赖图的 AST/TypesInfo
 //     也解析并常驻**：go2o 实测 774 个 reachable 包全部带 AST（3718 个
 //     语法文件）/ load 后存活堆 955MB → 137 包 526 文件 / 148MB；本仓库
-//     1095MB → 55MB（3GB 机器换页的主因，docs/design-q247.md §1）。
+//     1095MB → 55MB（3GB 机器换页的主因，docs/field_trace.md §88）。
 //     契约由 TestLoadPackagesDependencyContract 锁定（含外部包 Types
 //     可达性回归护栏）。
 //
@@ -148,7 +148,7 @@ func (o *Orchestrator) loadPackages(ctx context.Context, patterns pkgPatterns) (
 		}
 	}
 	o.prog().Advance("loadPackages", len(o.Repo.ModuleDirs))
-	// --ignore-dir：丢弃落在忽略目录内的包（AST/SSA 不再分析；依赖包
+	// 忽略目录（Repository.IgnoreDirs）：丢弃落在其中的包（AST/SSA 不再分析；依赖包
 	// 保留——只是不做图分析，Types 仍供导入方使用）
 	out = filterIgnoredPackages(out, o.Repo.Path, o.Repo.IgnoreDirs)
 	// 全量构建（patterns==nil）却一个包都没加载到 = 配置/路径错，不是“空仓库”
@@ -159,7 +159,7 @@ func (o *Orchestrator) loadPackages(ctx context.Context, patterns pkgPatterns) (
 	return out, nil
 }
 
-// filterIgnoredPackages 丢弃文件落在忽略目录内的包（--ignore-dir）。
+// filterIgnoredPackages 丢弃文件落在忽略目录（Repository.IgnoreDirs）内的包。
 func filterIgnoredPackages(pkgs []*packages.Package, repoPath string, ignore []string) []*packages.Package {
 	if len(ignore) == 0 {
 		return pkgs

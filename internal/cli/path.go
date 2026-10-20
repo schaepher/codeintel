@@ -9,7 +9,7 @@ import (
 )
 
 // queryPath 节点间最短路径（field_trace.md §17.3）：
-// query path <from> <to> [--max-depth N] [--kind data|calls] [--json]
+// query path <from> <to> [--max-depth N] [--format calls] [--json]
 func queryPath(acts *action.Actions, from, to string, f queryFlags) int {
 	viaCalls := false
 	if f.format == "calls" {

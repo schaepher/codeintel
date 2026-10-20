@@ -34,7 +34,8 @@ type vtNode struct {
 }
 
 // vtRender 渲染 value-trace 行（去掉锚点自身后的来源/去向树）。
-// 返回四种格式的统一中间结构 + 格式选择输出。
+// 返回分组后的统一中间结构 + 按 format 输出：tree / mermaid / 默认分组
+// 文本（json 由调用方更早处序列化，不进本函数）。
 func vtRender(rows []*domain.TraceRow, repoDir, format string) string {
 	if len(rows) == 0 {
 		return "无数据流（节点不存在或无数据流边）"

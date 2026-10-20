@@ -150,9 +150,6 @@ func interfaceID(named *types.Named) domain.CanonicalID {
 	return domain.CanonicalID("symbol:go:" + obj.Pkg().Path() + ":" + obj.Name())
 }
 
-// dynamicTypeOf 从类型字符串反查类型池中的类型（"*example.com/m.Eng"
-// → *Eng）。仅匹配模块内类型；用末段标识符 Lookup 后校验完整路径。
-
 // findMethod 查找类型的方法（值与指针方法集都查）。
 func findMethod(t types.Type, name string) *types.Func {
 	if p, ok := t.(*types.Pointer); ok {

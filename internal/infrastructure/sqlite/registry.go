@@ -14,7 +14,7 @@ import (
 // Q238 全局注册表：~/.codeintel/codeintel.db（目录由调用方决定，默认
 // home/.codeintel）。纯台账（repos 表）——记录所有 init 过的仓库：
 // 路径/module/HEAD/build/时间戳/worktree 归属/workspace 归属。
-// 语义（design-q238.md）：
+// 语义（docs/field_trace.md §77）：
 //   - 库缺失自动重建（纯台账丢失无副作用，Q12）
 //   - schema 列变更自动重建表 + 迁移数据（repos 小，避免手动删库丢台账，Q16）
 //   - 单写者 + busy_timeout=5000（与仓库内 db 同模式）
@@ -45,7 +45,7 @@ CREATE INDEX IF NOT EXISTS idx_repos_module ON repos(module);
 var registryCols = []string{"id", "path", "module", "go_mod_count", "head_commit",
 	"build_id", "last_built_at", "is_worktree", "worktree_of", "workspace", "registered_at"}
 
-// RegistryRepo 注册表条目（design-q238.md §3.1）。
+// RegistryRepo 注册表条目（docs/field_trace.md §77）。
 type RegistryRepo struct {
 	Path         string
 	Module       string

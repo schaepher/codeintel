@@ -1,6 +1,6 @@
 // Package orchestrator 实现 Index Orchestrator（TD.md 6.1 全量构建流程）：
 //   - 并行启动所有适配器 goroutine，每个独立超时（默认 10 分钟）
-//   - 适配器流式数据 → 分批（1000 条/事务）写入 SQLite
+//   - 适配器流式数据 → 分批写入 SQLite（BatchSize = 2 万条/事务，见下）
 //   - 某适配器失败：已提交数据保留，构建标记降级
 //   - SCIP 失败：构建失败（符号权威缺失）
 package orchestrator

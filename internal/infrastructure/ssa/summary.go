@@ -29,7 +29,6 @@ func sortedFuncIDs(data map[domain.CanonicalID]*funcData) []domain.CanonicalID {
 	return out
 }
 
-// emitSummaries 计算并发射全部函数的 function_field_summary 行与 INDIRECT_WRITE 边。
 // indirectKey 间接写条目键（Q157）：字段 × 调用点粒度——同字段多处
 // 调用点各自保留 callLine/callArg（此前按字段去重复用首次保存的
 // 调用点，INDIRECT_WRITE 边回连错位）。
@@ -39,7 +38,8 @@ type indirectKey struct {
 	callPos   int // 同一行的不同调用点不合并（todo2-8）
 }
 
-// excluded（Q80 别名分析）：确认无别名的间接写候选，迭代时跳过。
+// emitSummaries 计算并发射全部函数的 function_field_summary 行与 INDIRECT_WRITE 边。
+// alias（Q80 别名分析）非 nil 时，alias.excluded 标记的候选在传播时跳过。
 func emitSummaries(ctx context.Context, data map[domain.CanonicalID]*funcData, alias *aliasResult, emit domain.EmitFunc) error {
 	logger := zap.L()
 	logger.Debug("enter emitSummaries")

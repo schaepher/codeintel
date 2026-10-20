@@ -117,9 +117,6 @@ const usageText = `codeintel - Go 代码库智能索引与查询（MVP）
                                   字段后续使用正向追踪
   codeintel export [--out json]   导出双层索引 JSON（字段 → 产生者/消费者）
   codeintel clean --repo <path>    删除仓库的索引数据库
-  codeintel query table-path <A> <B> [--max-hops N] [--json]
-                                  表 A → 表 B 数据通路（跨 mapping 表，
-                                  每步 表.列 → [类型] → 表.列）
   codeintel query enums [--include-untyped] [--repo <path>]
                                   枚举权威清单（默认只返回有类型枚举）
   codeintel query entities [--format mermaid] [--json]
@@ -144,13 +141,14 @@ const usageText = `codeintel - Go 代码库智能索引与查询（MVP）
                                   外部系统调用链（递归 grpc 服务端方法
                                   再查 grpc/http 直到没有）
   codeintel query sequence <sym> [--code] [--depth N] [--format mermaid]
-                                  调用时序图；--code 代码级（AST 分支/循环/
-                                  switch 嵌套展开，默认 depth 3）
+                                  调用时序图（默认 depth 2）；--code 代码级
+                                  （AST 分支/循环/switch 嵌套展开，默认 depth 1）
   codeintel query packages [--json]
                                   包结构清单（包路径/职责/符号数）
   codeintel query architecture [--json]
                                   模块间调用架构图（mermaid）
-  codeintel query er [--json]     ER 图（表间键关联，mermaid，500 边降级）
+  codeintel query er [--json]     ER 图（表间键关联，mermaid；wiki 页超
+                                  500 边才降级，本命令不截断）
   codeintel query processes [--json] [--max-entries N]
                                   系统流程（进程/入口调用链）
   codeintel query module <包路径> [--json]
@@ -181,8 +179,9 @@ const usageText = `codeintel - Go 代码库智能索引与查询（MVP）
                                   无问题参数进入交互模式——多轮追问
                                   复用同一会话）
   codeintel wiki [--repo <path>] [--out <dir=docs/wiki>] [--yaml <file>]
-                 [--format md|html] [--diagram plantuml|mermaid]
-                 [--ai] [--agent codex|claude|auto] [--with-qa] [--max-entries N]
+                 [--format md|html] [--diagram plantuml|mermaid] [--init]
+                 [--ai] [--agent codex|claude|auto] [--with-qa]
+                 [--max-entries N] [--seq-depth N]
                                   生成业务 wiki（wiki.yaml 补充业务描述/
                                   别名/隐藏符号；--ai 增量补缺写回标注
                                   # AI 初稿；plantuml 渲染 PNG 嵌入）

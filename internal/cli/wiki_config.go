@@ -114,8 +114,6 @@ func glossaryLabel(g wikiGlossaryItem) string {
 	return fmt.Sprintf("%s %s", g.English, g.Term)
 }
 
-// wikiTableConfig 表结构契约（#243 表详情：字段定义/索引/建表语句——
-// 业务表 schema 在外部库，代码分析不出，AI 调研产出 + 人工确认）。
 // wikiTableColumn 表列配置（yaml tables.columns；Hidden 为 R3 列级
 // 噪音隐藏——解析噪音列等不渲染）。
 type wikiTableColumn struct {
@@ -126,6 +124,8 @@ type wikiTableColumn struct {
 	Hidden  bool   `yaml:"hidden"`
 }
 
+// wikiTableConfig 表结构契约（#243 表详情：字段定义/索引/建表语句——
+// 业务表 schema 在外部库，代码分析不出，AI 调研产出 + 人工确认）。
 type wikiTableConfig struct {
 	Name    string            `yaml:"name"`
 	Alias   string            `yaml:"alias"`

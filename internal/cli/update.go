@@ -85,7 +85,7 @@ func cmdUpdate(ctx context.Context, args []string) int {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
-	// --ignore-dir：忽略目录内的变更不入增量分析
+	// 忽略目录（codeintel.yaml 的 ignore_dirs）：其中的变更不入增量分析
 	changed = filterIgnoredFiles(changed, repo.IgnoreDirs)
 	if len(changed) == 0 && baseAbs == "" {
 		fmt.Println("无变更的 .go 文件（索引已是最新）")
@@ -210,21 +210,3 @@ func cmdUpdate(ctx context.Context, args []string) int {
 	refreshRepoAfterUpdate(abs, result.CommitSHA)
 	return 0
 }
-
-// repoCommitSHA 返回目录的 git HEAD commit（--base 变更基准）。
-
-// detectChangedGoFilesSince 检测相对指定 commit 的变更 Go 源文件
-// （R85 --base 场景：diff base..HEAD + 工作区 + 未跟踪；返回 .go 与
-// go.mod/go.work，module 级变更由调用方处理）。
-
-// detectChangedGoFiles 检测仓库中变更的 Go 源文件（相对路径）：
-//   - 索引 commit 落后于 HEAD（build_metadata 最新 commit_sha ≠ HEAD）：
-//     git diff --name-only <buildSHA> HEAD——提交内变更（工作区干净时
-//     git diff HEAD 检测不到，索引基于旧 commit 的场景）
-//   - git diff --name-only HEAD：已跟踪文件的修改/删除/新增
-//   - git ls-files --others --exclude-standard：未跟踪文件（含新文件）
-//
-// 返回 .go 文件与 go.mod/go.work（module 级变更由调用方处理）。
-
-// indexCommitSHA 返回索引最新构建的 commit_sha（build_metadata 最新记录）。
-// 索引不存在 / 无构建记录 / 读取失败 → 空串（回退工作区检测）。

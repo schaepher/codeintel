@@ -134,21 +134,6 @@ type tableColRow struct {
 	comment string
 }
 
-// schemaCol 一个列的 schema 事实（R19：sqlite_master 解析）。
-
-// parseCreateTableSchema 解析 CREATE TABLE DDL → 每表列类型/默认值
-// （R19：不借助 AI 填类型——SQLite schema 是权威事实源）。
-// 跳过 FOREIGN KEY/PRIMARY KEY/UNIQUE/CHECK 等约束行；列定义
-// `name TYPE [NOT NULL] [DEFAULT x]`——取第一个 token 为类型，
-// DEFAULT 后（去注释）为默认值。
-
-// mergeTableColumnsWithSchema 列合并（R19）：类型/默认值填充优先级
-// yaml > sqlite schema > gorm tag——schema 事实自动补全，yaml 人工可覆盖。
-
-// mergeTableColumns 表字段合并（#243 自动初稿 + yaml 覆盖）：
-// 自动列（ER 表列虚拟节点：列名 + gorm tag 类型）为底，yaml columns
-// 覆盖同名（type/default/comment 各自覆盖），自动列未列出的补全。
-
 // wikiSchemas 表 schema 事实（R19）：sqlite_master CREATE TABLE 解析
 // 为 列类型/默认值 映射（不借助 AI——SQLite 是权威）。
 func wikiSchemas(acts *action.Actions) map[string]map[string]schemaCol {

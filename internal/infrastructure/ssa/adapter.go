@@ -34,8 +34,9 @@ type Adapter struct {
 	// 发射前全量扫描——规避按包处理顺序：Mapping 可能在包 A 注册、
 	// 包 B 使用）
 	typeMapping map[*types.Named]string
-	// workers 按包并发数（Q169/Q170）：默认 1=串行；命令行 --workers N
-	// 指定（orchestrator SetWorkers 注入）
+	// workers 按包并发数（Q169/Q170）：0/1 = 串行（适配器自身默认）；
+	// 命令行 --workers N（缺省 min(NumCPU,8)，见 cli.defaultBuildWorkers）
+	// 经 orchestrator SetWorkers 注入
 	workers int
 	// progress 进度上报（Q253，orchestrator 注入）；nil = 逐行打到 stderr
 	progress      domain.Progress

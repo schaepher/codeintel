@@ -1,7 +1,8 @@
 package domain
 
-// #238 wiki 生成数据：模块页六区块（职责/入口/核心符号/模块间调用/
-// 相关表）。WikiData 由 action 聚合，cli 渲染 Markdown。
+// #238 wiki 生成数据：模块页区块（职责/入口/核心符号/模块间调用（出/入）/
+// 相关表 + R17 关键数据流 + Q251-A 包间架构图 + 流程时序）。
+// WikiData 由 action 聚合，cli 渲染 Markdown。
 
 // WikiModule 一个模块的 wiki 数据。
 type WikiModule struct {

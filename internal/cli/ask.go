@@ -136,8 +136,6 @@ func cmdAsk(args []string) int {
 	return 0
 }
 
-// askContextNames 问题中命中项目事实的符号/表名（qa_history context
-
 // buildAskPrompt 组装 prompt：系统提示 + 项目事实上下文 + 问题。
 func buildAskPrompt(acts *action.Actions, syms, tbls []string, question string) string {
 	ctxText := packAskContext(acts, syms, tbls, question)
@@ -149,9 +147,6 @@ func buildAskPrompt(acts *action.Actions, syms, tbls []string, question string) 
 	b.WriteString("\n用户问题: " + question + "\n")
 	return b.String()
 }
-
-// askREPL 交互模式：逐行读 stdin，多轮追问复用同一会话（resume 机制
-// 自动带 --resume——AI 记住前文，追问无需重复上下文）。每轮回答
 
 // askTokenRe 问题中候选符号/表名 token：canonical ID、方法名 (T).m、
 // 普通标识符/点路径。

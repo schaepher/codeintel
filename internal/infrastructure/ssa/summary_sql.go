@@ -4,11 +4,6 @@ import (
 	"regexp"
 )
 
-// whereColsOf 从 where 条件串提取列名：AND/OR 拆分 + 占位符剥离
-// （IN (?) 先处理；其余形态截到最后一个 ? 再 TrimRight 运算符——
-// 兼容 " = ?" / "=?" / " <?" / " LIKE ?" 等有无空格写法，以及多行
-// 条件串（AND/OR 前后为换行/制表符——pay_order 实测整串未被拆分）。
-
 // whereCondRe AND/OR 条件拆分（大小写不敏感，\s 覆盖换行/制表符）。
 var whereCondRe = regexp.MustCompile(`(?i)\s+(AND|OR)\s+`)
 

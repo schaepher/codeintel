@@ -2,7 +2,7 @@ package cli
 
 // 仓库级忽略目录配置（`<repo>/codeintel.yaml`）：`codeintel config
 // ignore-dir add|rm|list` 管理；init/update/reindex 与所有读取路径经
-// buildRepo 自动加载（不再需要命令行 --ignore-dir）。文件在 .codeintel/
+// buildRepo 自动加载（无对应的命令行选项）。文件在 .codeintel/
 // 之外，clean 不会删除。
 
 import (

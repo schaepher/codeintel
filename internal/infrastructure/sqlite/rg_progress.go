@@ -220,5 +220,3 @@ func (r *Repo) StartRelationComputeIfNeeded() (bool, error) {
 	}
 	return r.beginRelationCompute(len(g.tables()))
 }
-
-// MaxRelationHops 关系跳数上限默认值（Q195/Q196：6-10 跳长链为噪音失真）。
