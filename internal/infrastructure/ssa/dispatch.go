@@ -9,6 +9,7 @@
 package ssa
 
 import (
+	"context"
 	"go/types"
 
 	"github.com/schaepher/codeintel/internal/domain"
@@ -72,7 +73,7 @@ type dispatchCandidate struct {
 // todo8-1/8-3：位置去重走 dispatchDedup（<32 线性 / ≥32 集合）；动态
 // 类型字符串走同次构建的 funcs.typeString 缓存（funcs 可为 nil → 直接
 // 渲染，测试/轻量路径）。
-func collectDispatchRegistrations(prog *ssa.Program, modFuncs []*ssa.Function, modules []string,
+func collectDispatchRegistrations(ctx context.Context, prog *ssa.Program, modFuncs []*ssa.Function, modules []string,
 	funcs *funcSnapshot, onProgress func(done int)) (dispatchReg, []string) {
 	logger := zap.L()
 	logger.Debug("enter collectDispatchRegistrations")
@@ -89,6 +90,11 @@ func collectDispatchRegistrations(prog *ssa.Program, modFuncs []*ssa.Function, m
 		pkgs = append(pkgs, pkgPath)
 	}
 	for i, fn := range modFuncs { // Q249：共享快照（不再 AllFunctions）
+		if i%256 == 0 {
+			if ctx.Err() != nil {
+				break
+			}
+		}
 		// Q253：按模块函数总数回报真实百分比（分母 = len(modFuncs)）
 		if onProgress != nil {
 			onProgress(i + 1)

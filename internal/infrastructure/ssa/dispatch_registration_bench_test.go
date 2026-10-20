@@ -1,6 +1,7 @@
 package ssa
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -54,7 +55,7 @@ func benchCollectDispatchRegistrations(b *testing.B, n int) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		regs, pkgs := collectDispatchRegistrations(prog, modFuncs, mods, s, nil)
+		regs, pkgs := collectDispatchRegistrations(context.Background(), prog, modFuncs, mods, s, nil)
 		if len(pkgs) == 0 {
 			b.Fatal("no reg pkgs")
 		}

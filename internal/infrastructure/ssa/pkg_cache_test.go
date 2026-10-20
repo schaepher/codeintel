@@ -116,7 +116,7 @@ func Run(name string) string { return lib.Greet(name) }
 		t.Fatalf("app 包未加载（pkgs=%d）", len(pkgs))
 	}
 	memo := map[string]string{}
-	h1, err := pkgCacheKeyHash(appPkg, memo)
+	h1, err := pkgCacheKeyHash(context.Background(), appPkg, memo)
 	if err != nil || h1 == "" {
 		t.Fatalf("pkgCacheKeyHash = %q, %v", h1, err)
 	}
@@ -126,7 +126,7 @@ func Run(name string) string { return lib.Greet(name) }
 func Greet(name string) string { return "hello " + name }
 `)
 	// 改依赖包源码（模拟新构建：depMemo 每次 Index 新建）
-	h2, err := pkgCacheKeyHash(appPkg, map[string]string{})
+	h2, err := pkgCacheKeyHash(context.Background(), appPkg, map[string]string{})
 	if err != nil {
 		t.Fatalf("after dep change: %v", err)
 	}
@@ -138,7 +138,7 @@ func Greet(name string) string { return "hello " + name }
 
 func Greet(name string) string { return "hi " + name }
 `)
-	h3, err := pkgCacheKeyHash(appPkg, map[string]string{})
+	h3, err := pkgCacheKeyHash(context.Background(), appPkg, map[string]string{})
 	if err != nil {
 		t.Fatalf("after restore: %v", err)
 	}
@@ -146,7 +146,7 @@ func Greet(name string) string { return "hi " + name }
 		t.Fatal("依赖包源码恢复后缓存键应恢复（确定性）")
 	}
 	// 同一构建内 memo 复用（依赖未变 hash 一致）
-	h4, err := pkgCacheKeyHash(appPkg, map[string]string{})
+	h4, err := pkgCacheKeyHash(context.Background(), appPkg, map[string]string{})
 	if err != nil || h4 != h3 {
 		t.Fatalf("memo 复用后 hash 应一致，got %q vs %q, %v", h4, h3, err)
 	}

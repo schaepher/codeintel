@@ -134,9 +134,18 @@ func (o *Orchestrator) runAdapters(ctx context.Context, pkgs []*packages.Package
 			adapterStart := time.Now()
 			rep.Begin(r.Name, 1, 0)
 			r.Err = adapter.Index(adapterCtx, o.Repo, pkgs, func(item domain.Item) error {
+				// todo9-2：适配器超时后必须停止接收发射——否则超时的
+				// 适配器仍会继续投递（外层 ctx 未取消时永远阻塞/写入）。
+				// 先显式查 Err：select 在 channel 可写时会随机选中发送，
+				// 不能保证 Done 优先。
+				if err := adapterCtx.Err(); err != nil {
+					return err
+				}
 				select {
 				case ch <- item:
 					return nil
+				case <-adapterCtx.Done():
+					return adapterCtx.Err()
 				case <-ctx.Done():
 					return ctx.Err()
 				}

@@ -1,6 +1,7 @@
 package ssa
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
@@ -45,7 +46,7 @@ func TestPkgContentHashMatchesNaive(t *testing.T) {
 	if err := os.WriteFile(files[2], big, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err := pkgContentHash(files)
+	got, err := pkgContentHash(context.Background(), files)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +58,7 @@ func TestPkgContentHashMatchesNaive(t *testing.T) {
 		t.Fatalf("hash 不等价: got %s want %s", got, want)
 	}
 	// 顺序敏感（旧实现按文件顺序拼接）
-	rev, err := pkgContentHash([]string{files[2], files[0]})
+	rev, err := pkgContentHash(context.Background(), []string{files[2], files[0]})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +69,7 @@ func TestPkgContentHashMatchesNaive(t *testing.T) {
 
 // TestPkgContentHashMissingFile：错误路径保持（返回 error，不 panic）。
 func TestPkgContentHashMissingFile(t *testing.T) {
-	if _, err := pkgContentHash([]string{filepath.Join(t.TempDir(), "nope.go")}); err == nil {
+	if _, err := pkgContentHash(context.Background(), []string{filepath.Join(t.TempDir(), "nope.go")}); err == nil {
 		t.Fatal("缺失文件应返回 error")
 	}
 }
@@ -88,7 +89,7 @@ func BenchmarkPkgContentHashStream(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := pkgContentHash(files); err != nil {
+		if _, err := pkgContentHash(context.Background(), files); err != nil {
 			b.Fatal(err)
 		}
 	}

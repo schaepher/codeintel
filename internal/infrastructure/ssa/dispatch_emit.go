@@ -1,6 +1,7 @@
 package ssa
 
 import (
+	"context"
 	"go/types"
 
 	"github.com/schaepher/codeintel/internal/domain"
@@ -19,13 +20,13 @@ import (
 // todo7-1：regs/regPkgs 由 initFuncSnapshotDispatch 已收集的注册结果传入，
 // 避免收尾阶段重复全程序扫描。nil = 未初始化（直接调用/测试）→ 回退扫描
 // 一次；**非 nil 空 map** = 已初始化但无注册点 → 不得再次扫描。
-func emitDispatches(repo *domain.Repository, prog *ssa.Program, pool *implTypePool, funcs *funcSnapshot,
+func emitDispatches(ctx context.Context, repo *domain.Repository, prog *ssa.Program, pool *implTypePool, funcs *funcSnapshot,
 	regs dispatchReg, regPkgs []string, emit domain.EmitFunc) ([]string, error) {
 	logger := zap.L()
 	logger.Debug("enter emitDispatches")
 	defer logger.Debug("exit emitDispatches")
 	if regs == nil {
-		regs, regPkgs = collectDispatchRegistrations(prog, funcs.moduleFuncs(repo.Modules), repo.Modules, funcs, nil)
+		regs, regPkgs = collectDispatchRegistrations(ctx, prog, funcs.moduleFuncs(repo.Modules), repo.Modules, funcs, nil)
 	}
 
 	// 接口方法调用集合：接口类型 → 方法名（map 去重；UNIQUE 边合并）
@@ -39,6 +40,9 @@ func emitDispatches(repo *domain.Repository, prog *ssa.Program, pool *implTypePo
 		callPkgSet[p] = true
 	}
 	for _, fn := range funcs.moduleFuncs(repo.Modules) { // Q249：共享快照
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		for _, b := range fn.Blocks {
 			for _, instr := range b.Instrs {
 				var cc *ssa.CallCommon

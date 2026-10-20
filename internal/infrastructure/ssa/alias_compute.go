@@ -1,6 +1,7 @@
 package ssa
 
 import (
+	"context"
 	"go/ast"
 	"strings"
 	"time"
@@ -11,7 +12,7 @@ import (
 )
 
 // computeAliases 执行轻量别名分析，返回间接写排除集（emitSummaries 消费）。
-func computeAliases(repo *domain.Repository, prog *ssa.Program,
+func computeAliases(ctx context.Context, repo *domain.Repository, prog *ssa.Program,
 	idents *identIndex, funcData map[domain.CanonicalID]*funcData,
 	lines *lineCache, funcSnap *funcSnapshot, modFuncs []*ssa.Function, emit domain.EmitFunc) (*aliasResult, error) {
 	logger := zap.L()
@@ -40,6 +41,9 @@ func computeAliases(repo *domain.Repository, prog *ssa.Program,
 	// 项目内函数（FuncDecl 过滤，与 emitFunction 一致）
 	var funcs []*ssa.Function
 	for _, fn := range modFuncs { // Q249：共享快照（不再 AllFunctions）
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		if _, ok := fn.Syntax().(*ast.FuncDecl); !ok {
 			continue
 		}

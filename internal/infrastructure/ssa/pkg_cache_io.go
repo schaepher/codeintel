@@ -1,6 +1,7 @@
 package ssa
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"hash"
@@ -45,7 +46,11 @@ func pkgCachePath(repoDir, pkgPath string) string {
 var hashFilePool = sync.Pool{New: func() any { b := make([]byte, 32<<10); return &b }}
 
 // hashFile 把文件内容 + 分隔符 0x00 写入 h（与 os.ReadFile + Write 逐字节等价）。
-func hashFile(h hash.Hash, path string) error {
+// todo9-2：缓存准备阶段检查适配器 ctx（取消后不再继续读文件/算 hash）。
+func hashFile(ctx context.Context, h hash.Hash, path string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -59,15 +64,18 @@ func hashFile(h hash.Hash, path string) error {
 	if err != nil {
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	_, err = h.Write([]byte{0})
 	return err
 }
 
 // pkgContentHash 包源码内容 hash（CompiledGoFiles 拼接 sha256）。
-func pkgContentHash(files []string) (string, error) {
+func pkgContentHash(ctx context.Context, files []string) (string, error) {
 	h := sha256.New()
 	for _, f := range files {
-		if err := hashFile(h, f); err != nil {
+		if err := hashFile(ctx, h, f); err != nil {
 			return "", err
 		}
 	}
@@ -77,14 +85,14 @@ func pkgContentHash(files []string) (string, error) {
 // pkgCacheKeyHash Q213：本包缓存键 = 本包源码 hash + 直接依赖包源码
 // hash 列表（按包路径排序拼接保证确定性）。depMemo 复用依赖包 hash
 // （每包重读依赖文件是 O(包数×依赖文件总量)，memo 后降为每包一次）。
-func pkgCacheKeyHash(pkg *packages.Package, depMemo map[string]string) (string, error) {
+func pkgCacheKeyHash(ctx context.Context, pkg *packages.Package, depMemo map[string]string) (string, error) {
 	h := sha256.New()
 	files := pkg.CompiledGoFiles
 	if len(files) == 0 {
 		files = pkg.GoFiles
 	}
 	for _, f := range files {
-		if err := hashFile(h, f); err != nil {
+		if err := hashFile(ctx, h, f); err != nil {
 			return "", err
 		}
 	}
@@ -105,7 +113,7 @@ func pkgCacheKeyHash(pkg *packages.Package, depMemo map[string]string) (string, 
 				dfiles = dp.GoFiles
 			}
 			var err error
-			dh, err = pkgContentHash(dfiles)
+			dh, err = pkgContentHash(ctx, dfiles)
 			if err != nil {
 				return "", err
 			}
@@ -123,13 +131,14 @@ func pkgCacheKeyHash(pkg *packages.Package, depMemo map[string]string) (string, 
 // 即整包写缓存并释放——原实现把全量包产物留到构建尾部统一写，go2o
 // 实测占了峰值堆近 1GB）。
 type pkgCollect struct {
-	path   string // 缓存文件路径（hash 为空时仍写出但不会被命中）
-	hash   string // 包缓存键（空 = 不做缓存）
-	blocks [][]*domain.CodeEntity
-	facts  [][]*domain.Fact
-	fd     []map[domain.CanonicalID]*funcData
-	total  int
-	done   int
+	path    string // 缓存文件路径（hash 为空时仍写出但不会被命中）
+	hash    string // 包缓存键（空 = 不做缓存）
+	blocks  [][]*domain.CodeEntity
+	facts   [][]*domain.Fact
+	fd      []map[domain.CanonicalID]*funcData
+	total   int
+	done    int
+	aborted bool // 取消/失败：禁止落盘半包缓存
 }
 
 // pkgCollectSet 包产物收集器集合（并发访问由调用方持 collectMu）。
@@ -161,11 +170,18 @@ func (s *pkgCollectSet) get(pkgPath string) *pkgCollect {
 // release 删出集合（整包已写完——释放引用）。
 func (s *pkgCollectSet) release(pkgPath string) { delete(s.cols, pkgPath) }
 
+// abort 标记包产物不完整（取消/worker 失败）——后续不再落盘缓存。
+func (s *pkgCollectSet) abort(pkgPath string) {
+	if pc := s.cols[pkgPath]; pc != nil {
+		pc.aborted = true
+	}
+}
+
 // save 按块序号拼接产物并落盘缓存（并发下写文件不持收集锁）。Q?：节点/
 // 边块**直接交给分块写入器**（避免先拼接整包指针切片）；摘要仍按追加语义
 // 合并后分块。
 func (pc *pkgCollect) save() {
-	if pc == nil || pc.hash == "" {
+	if pc == nil || pc.hash == "" || pc.aborted {
 		return
 	}
 	// Q?：复用第一个非空块 map 作为合并目标（避免再分配一个整包 map）；

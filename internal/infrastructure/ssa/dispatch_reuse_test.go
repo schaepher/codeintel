@@ -1,6 +1,7 @@
 package ssa
 
 import (
+	"context"
 	"errors"
 	"go/types"
 	"reflect"
@@ -50,7 +51,7 @@ func emitDispatchesOnce(t *testing.T, repo *domain.Repository, prog *ssa.Program
 	s *funcSnapshot, regs dispatchReg, regPkgs []string, failEmit bool) (map[string]*domain.Fact, []string, error) {
 	t.Helper()
 	facts := map[string]*domain.Fact{}
-	pkgs, err := emitDispatches(repo, prog, pool, s, regs, regPkgs, func(item domain.Item) error {
+	pkgs, err := emitDispatches(context.Background(), repo, prog, pool, s, regs, regPkgs, func(item domain.Item) error {
 		if failEmit {
 			return errors.New("emit fail")
 		}
@@ -70,7 +71,7 @@ func TestEmitDispatchesReuseMatchesScan(t *testing.T) {
 	repo := &domain.Repository{Module: "example.com/mtest", Modules: []string{"example.com/mtest", "example.com/other"}}
 	pool := newImplTypePool(allTypePkgs(prog), repo.Modules)
 	modFuncs := s.moduleFuncs(repo.Modules)
-	regs, regPkgs := collectDispatchRegistrations(prog, modFuncs, repo.Modules, s, nil)
+	regs, regPkgs := collectDispatchRegistrations(context.Background(), prog, modFuncs, repo.Modules, s, nil)
 
 	scanFacts, scanPkgs, err := emitDispatchesOnce(t, repo, prog, pool, s, nil, nil, false)
 	if err != nil {
@@ -150,7 +151,7 @@ func TestEmitDispatchesOnlyRegistrations(t *testing.T) {
 	s, prog := testFuncSnapshotFilesAndProg(t, files)
 	repo := &domain.Repository{Module: "example.com/mtest", Modules: []string{"example.com/mtest"}}
 	pool := newImplTypePool(allTypePkgs(prog), repo.Modules)
-	regs, regPkgs := collectDispatchRegistrations(prog, s.moduleFuncs(repo.Modules), repo.Modules, s, nil)
+	regs, regPkgs := collectDispatchRegistrations(context.Background(), prog, s.moduleFuncs(repo.Modules), repo.Modules, s, nil)
 	facts, pkgs, err := emitDispatchesOnce(t, repo, prog, pool, s, regs, regPkgs, false)
 	if err != nil {
 		t.Fatal(err)
@@ -168,7 +169,7 @@ func TestEmitDispatchesOutputError(t *testing.T) {
 	s, prog := testFuncSnapshotFilesAndProg(t, dispatchReuseFixture())
 	repo := &domain.Repository{Module: "example.com/mtest", Modules: []string{"example.com/mtest"}}
 	pool := newImplTypePool(allTypePkgs(prog), repo.Modules)
-	regs, regPkgs := collectDispatchRegistrations(prog, s.moduleFuncs(repo.Modules), repo.Modules, s, nil)
+	regs, regPkgs := collectDispatchRegistrations(context.Background(), prog, s.moduleFuncs(repo.Modules), repo.Modules, s, nil)
 	_, _, err := emitDispatchesOnce(t, repo, prog, pool, s, regs, regPkgs, true)
 	if err == nil || err.Error() != "emit fail" {
 		t.Errorf("输出错误应传播, got %v", err)
@@ -205,7 +206,7 @@ func use(i Iface) { i.M(); i.N() }
 	repo := &domain.Repository{Path: dir, Module: "example.com/mtest", Modules: []string{"example.com/mtest"}}
 	pool := newImplTypePool(allTypePkgs(prog), repo.Modules)
 	pool.SetFuncSnapshot(s)
-	regs, regPkgs := collectDispatchRegistrations(prog, s.moduleFuncs(repo.Modules), repo.Modules, s, nil)
+	regs, regPkgs := collectDispatchRegistrations(context.Background(), prog, s.moduleFuncs(repo.Modules), repo.Modules, s, nil)
 	facts, _, err := emitDispatchesOnce(t, repo, prog, pool, s, regs, regPkgs, false)
 	if err != nil {
 		t.Fatal(err)

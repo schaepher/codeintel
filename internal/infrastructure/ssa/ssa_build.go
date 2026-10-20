@@ -1,6 +1,7 @@
 package ssa
 
 import (
+	"context"
 	"sync"
 
 	"golang.org/x/tools/go/packages"
@@ -21,7 +22,7 @@ import (
 //  2. **上界用 --workers 而非 GOMAXPROCS**：并行建图同时持有多个包的
 //     SSA 中间产物，并发度直接换内存；小内存机器可 `--workers 1` 退回
 //     原串行行为。
-func buildModuleSSA(pkgs []*packages.Package, ssaPkgs []*ssa.Package, modules []string, workers int, onProgress func(done, total int)) int {
+func buildModuleSSA(ctx context.Context, pkgs []*packages.Package, ssaPkgs []*ssa.Package, modules []string, workers int, onProgress func(done, total int)) int {
 	targets := moduleSSATargets(pkgs, ssaPkgs, modules)
 	total := len(targets)
 	if onProgress != nil {
@@ -30,6 +31,9 @@ func buildModuleSSA(pkgs []*packages.Package, ssaPkgs []*ssa.Package, modules []
 	var mu sync.Mutex
 	done := 0
 	runBounded(workers, total, func(i int) {
+		if ctx.Err() != nil {
+			return // 取消后不再建新包（已开始的 Build 无法中断，结束后返回）
+		}
 		targets[i].Build()
 		mu.Lock()
 		done++

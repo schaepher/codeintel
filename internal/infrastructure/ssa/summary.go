@@ -6,6 +6,7 @@
 package ssa
 
 import (
+	"context"
 	"sort"
 	"strings"
 	"time"
@@ -39,7 +40,7 @@ type indirectKey struct {
 }
 
 // excluded（Q80 别名分析）：确认无别名的间接写候选，迭代时跳过。
-func emitSummaries(data map[domain.CanonicalID]*funcData, alias *aliasResult, emit domain.EmitFunc) error {
+func emitSummaries(ctx context.Context, data map[domain.CanonicalID]*funcData, alias *aliasResult, emit domain.EmitFunc) error {
 	logger := zap.L()
 	logger.Debug("enter emitSummaries")
 	defer logger.Debug("exit emitSummaries")

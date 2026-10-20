@@ -1,6 +1,7 @@
 package ssa
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -14,7 +15,7 @@ var stderr io.Writer = os.Stderr
 
 // finishIndex 构建收尾（Q231 拆分自 Adapter.Index 尾部）：alias 分析 +
 // 摘要/全局初始化/动态派发发射 + 内存释放。
-func finishIndex(repo *domain.Repository, prog *ssa.Program, idents *identIndex,
+func finishIndex(ctx context.Context, repo *domain.Repository, prog *ssa.Program, idents *identIndex,
 	a *Adapter, pool *implTypePool, fallbackAgg *fallbackAgg, emit domain.EmitFunc) error {
 	logger := zap.L()
 	logger.Debug("enter finishIndex")
@@ -29,23 +30,32 @@ func finishIndex(repo *domain.Repository, prog *ssa.Program, idents *identIndex,
 			fmt.Fprintf(stderr, "warning: 字段访问静态类型解析失败（回退源码字面量）: %s\n", d)
 		}
 	}
-	aliasRes, err := computeAliases(repo, prog, idents, a.fd, a.lines, a.funcs, a.funcs.moduleFuncs(repo.Modules), emit)
+	aliasRes, err := computeAliases(ctx, repo, prog, idents, a.fd, a.lines, a.funcs, a.funcs.moduleFuncs(repo.Modules), emit)
 	if err != nil {
 		return fmt.Errorf("alias analysis: %w", err)
 	}
 	idents = nil
 
-	if err := emitSummaries(a.fd, aliasRes, emit); err != nil {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := emitSummaries(ctx, a.fd, aliasRes, emit); err != nil {
 		return err
 	}
 	a.fd, aliasRes = nil, nil
 
-	if err := emitGlobalInit(repo, prog, a.funcs, a.funcs.moduleFuncs(repo.Modules), emit); err != nil {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := emitGlobalInit(ctx, repo, prog, a.funcs, a.funcs.moduleFuncs(repo.Modules), emit); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	// P0-2：dispatch 相关包（注册点 ∪ 动态调用，emitDispatches 内合并
 	// 去重）——增量补 Load 持久化
-	dispatchPkgs, err := emitDispatches(repo, prog, pool, a.funcs, a.dispatchRegs, a.dispatchPkgs, emit)
+	dispatchPkgs, err := emitDispatches(ctx, repo, prog, pool, a.funcs, a.dispatchRegs, a.dispatchPkgs, emit)
 	if err != nil {
 		return err
 	}

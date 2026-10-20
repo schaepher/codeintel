@@ -88,3 +88,50 @@ func TestAdapterTimeoutDegradesBuild(t *testing.T) {
 		t.Fatalf("metadata = %+v, err %v", meta, gerr)
 	}
 }
+
+// lateEmitAdapter 等 ctx 结束后再 emit：回调必须立即拒绝（不能因 channel
+// 未满而继续投递）。
+type lateEmitAdapter struct {
+	name string
+	got  chan error
+}
+
+func (l *lateEmitAdapter) Name() string { return l.name }
+
+func (l *lateEmitAdapter) Index(ctx context.Context, _ *domain.Repository, _ []*packages.Package, emit domain.EmitFunc) error {
+	<-ctx.Done()
+	err := emit(domain.Item{Node: &domain.CodeEntity{
+		ID: "symbol:go:example.com/m:late", Kind: domain.KindFunction, Name: "late",
+	}})
+	l.got <- err
+	return err
+}
+
+// TestEmitAfterAdapterCancelRejected（todo9-2）：适配器超时后 emit 回调
+// 立即返回 ctx 错误（不能只监听外层 ctx）。
+func TestEmitAfterAdapterCancelRejected(t *testing.T) {
+	late := &lateEmitAdapter{name: "late", got: make(chan error, 1)}
+	o, repo := newTestOrchestrator(t, []domain.IndexerPort{late})
+	if err := o.SetAdapterTimeout(30 * time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	res, err := o.FullBuild(context.Background())
+	if err != nil {
+		t.Fatalf("FullBuild: %v", err)
+	}
+	select {
+	case emitErr := <-late.got:
+		if !errors.Is(emitErr, context.DeadlineExceeded) {
+			t.Fatalf("emit 错误 = %v, want deadline exceeded", emitErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("emit 未返回（取消未传递）")
+	}
+	if res.Status != domain.BuildDegraded {
+		t.Fatalf("status = %s, want degraded", res.Status)
+	}
+	if res.Nodes != 0 {
+		t.Fatalf("超时后 emit 的节点不应写入: nodes=%d", res.Nodes)
+	}
+	_ = repo
+}

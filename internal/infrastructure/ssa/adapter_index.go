@@ -6,7 +6,6 @@ import (
 	"go/types"
 	"os"
 	"sync"
-	"time"
 
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/logging"
@@ -45,16 +44,22 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	// 8 核只用 1 核，且日志停在 ssautil.Packages 时无法区分卡在哪）。照抄
 	// go/ssa `Program.Build` 的信号量结构，但只对模块包生效、上界用
 	// --workers（理由见 ssa_build.go 注释）。
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	begin("ssaBuild", len(moduleSSATargets(pkgs, ssaPkgs, repo.Modules)))
-	built := buildModuleSSA(pkgs, ssaPkgs, repo.Modules, a.workers, func(done, total int) {
+	built := buildModuleSSA(ctx, pkgs, ssaPkgs, repo.Modules, a.workers, func(done, total int) {
 		rep.Advance("ssaBuild", done)
 	})
 	logger.Info("ssa build", zap.Int("module_pkgs", built), zap.Int("workers", a.workers))
 	stage("ssaBuild")
 
 	// Q247：原「释放依赖 AST」循环已删（NeedDeps 关闭后依赖无 AST；返回切片全是模块包——恒空操作）。
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// Q249/Q253：函数全集快照 + 派发注册（拆到 adapter_snapshot_dispatch.go）。
-	modFuncs := a.initFuncSnapshotDispatch(prog, repo, stages)
+	modFuncs := a.initFuncSnapshotDispatch(ctx, prog, repo, stages)
 
 	begin("buildIdentIndex", 0)
 	idents := buildIdentIndex(pkgs, repo.Modules)
@@ -106,7 +111,7 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	}
 	const blockSize = 200
 	sem := make(chan struct{}, workers)
-	var wg sync.WaitGroup
+	// 阶段 B 的 worker 池/信号量在 adapter_emit_phase.go（todo9-2）。
 	var fdMu sync.Mutex // 合并保护（mergeFuncData）
 	doneFuncs := 0
 	var doneMu sync.Mutex
@@ -125,12 +130,15 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	pkgByPath := indexPkgsByPath(pkgs)
 	var pkg *packages.Package
 	for _, pkgPath := range pkgOrder {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		// Q176：包级缓存——hash 命中直接加载产物
 		pkg = pkgByPath[pkgPath]
 		if pkg != nil {
 			// Q213：缓存键 = 本包 hash + 直接依赖包 hash（依赖 API 变化
 			// → 本包缓存失效）；depHashes memo 复用依赖包 hash
-			if h, err := pkgCacheKeyHash(pkg, depHashes); err == nil {
+			if h, err := pkgCacheKeyHash(ctx, pkg, depHashes); err == nil {
 				pkgHashes[pkgPath] = h
 			} else {
 				logger.Warn("pkg cache key hash failed", zap.String("pkg", pkgPath), zap.Error(err))
@@ -142,12 +150,23 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 		}
 		fns := byPkg[pkgPath]
 		if cached := loadPkgCache(pkgCachePath(repo.Path, pkgPath), hash); cached != nil {
-			for _, n := range cached.Nodes {
+			// todo9-2：缓存重放期间检查 ctx（取消后立即停止继续投递）。
+			for i, n := range cached.Nodes {
+				if i%256 == 0 {
+					if err := ctx.Err(); err != nil {
+						return err
+					}
+				}
 				if err := emit(domain.Item{Node: n}); err != nil {
 					return err
 				}
 			}
-			for _, f := range cached.Facts {
+			for i, f := range cached.Facts {
+				if i%256 == 0 {
+					if err := ctx.Err(); err != nil {
+						return err
+					}
+				}
 				if err := emit(domain.Item{Fact: f}); err != nil {
 					return err
 				}
@@ -170,114 +189,13 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 		}
 	}
 	// 阶段 B（并行）：未命中包拆块 → 全局 worker 池
-	type fnBlock struct {
-		pkgPath string
-		idx     int // 包内块序号（块产物按序拼接写入缓存——并发完成顺序不定）
-		fns     []*ssa.Function
+	st := &blockEmitState{
+		repo: repo, prog: prog, idents: idents, assignTargets: assignTargets,
+		specs: specs, fallbackAgg: fallbackAgg, pool: implPool, emit: emit,
+		sem: sem, fdMu: &fdMu, pkgHashes: pkgHashes, totalFuncs: totalFuncs,
+		emitStep: emitStep, rep: rep, doneFuncs: &doneFuncs, doneMu: &doneMu,
 	}
-	var blocks []fnBlock
-	pkgBlockCount := map[string]int{}
-	for _, pkgPath := range pkgOrder {
-		if cachedPkgs[pkgPath] {
-			continue
-		}
-		fns := byPkg[pkgPath]
-		n := 0
-		for start := 0; start < len(fns); start += blockSize {
-			end := start + blockSize
-			if end > len(fns) {
-				end = len(fns)
-			}
-			blocks = append(blocks, fnBlock{pkgPath: pkgPath, idx: n, fns: fns[start:end]})
-			n++
-		}
-		pkgBlockCount[pkgPath] = n
-	}
-	// 包级产物收集（写缓存用）：map[pkgPath] → 该包全部块产物。Q246：
-	// 每个包**最后一块**完成即落盘写缓存并释放（原实现把全量产物留到
-	// wg.Wait() 后统一写——go2o 实测占了峰值堆的近 1GB，3GB 机器上直接
-	// 换页/OOM）。落盘在锁外（写文件不阻塞其他块）。
-	var collectMu sync.Mutex
-	colSet := newPkgCollectSet(repo.Path, pkgBlockCount, pkgHashes)
-	// todo5-3：worker 内的 emit 错误此前只打 stderr（Index 仍返回 nil）——
-	// 记录并在 wg.Wait 后传播，错误路径才能被上层感知并触发清理。
-	var emitErr error
-	var emitErrMu sync.Mutex
-	blockStart := time.Now()
-	for _, blk := range blocks {
-		wg.Add(1)
-		go func(blk fnBlock) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			var blkNodes []*domain.CodeEntity
-			var blkFacts []*domain.Fact
-			blkFD := map[domain.CanonicalID]*funcData{}
-			var blkFDMu sync.Mutex // Q252：块内合并（闭包归外层 → 同 owner 多次）
-			pkgEmit := func(item domain.Item) error {
-				// 块内单 goroutine 顺序收集（无锁）
-				if item.Node != nil {
-					blkNodes = append(blkNodes, item.Node)
-				}
-				if item.Fact != nil {
-					blkFacts = append(blkFacts, item.Fact)
-				}
-				return emit(item)
-			}
-			for _, fn := range blk.fns {
-				owner, fd, err := emitFunction(repo, prog, fn, idents, assignTargets, specs, fallbackAgg, pkgEmit, implPool, a.lines, a.funcs, &a.dispatchRegs, a.regHits, a.typeMapping)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "emitFunction %s: %v\n", fn.Name(), err)
-					emitErrMu.Lock()
-					if emitErr == nil {
-						emitErr = err
-					}
-					emitErrMu.Unlock()
-					return
-				}
-				if owner != "" && fd != nil {
-					// Q252：缓存收集必须与全局 a.fd **同一合并语义**（追加）——
-					// 原先 `blkFD[owner] = fd` 是覆盖：闭包归到外层函数时同一
-					// owner 被 emitFunction 返回多次，缓存只留最后一份 →
-					// 缓存文件缺条目（go2o 暖构建实测少 1100 条 direct_write、
-					// 660 条 calls、1313 行摘要）
-					mergeFuncData(&blkFDMu, blkFD, owner, fd)
-					mergeFuncData(&fdMu, a.fd, owner, fd)
-				}
-			}
-			// 块产物按块序号存入包收集器；该包最后一块到达 → 整包写缓存
-			collectMu.Lock()
-			pc := colSet.get(blk.pkgPath)
-			pc.blocks[blk.idx] = blkNodes
-			pc.facts[blk.idx] = blkFacts
-			pc.fd[blk.idx] = blkFD
-			pc.done++
-			ready := pc.done == pc.total
-			if ready {
-				colSet.release(blk.pkgPath) // 释放：后续块不会再引用
-			}
-			collectMu.Unlock()
-			if ready {
-				pc.save()
-			}
-			doneMu.Lock()
-			doneFuncs += len(blk.fns)
-			done := doneFuncs
-			percent := done * 100 / totalFuncs
-			doneMu.Unlock()
-			logger.Info("build progress",
-				zap.String("pkg", blk.pkgPath), zap.Int("funcs", len(blk.fns)),
-				zap.Int("done", done), zap.Int("total", totalFuncs),
-				zap.Int("percent", percent),
-				zap.Duration("elapsed", time.Since(blockStart)))
-			rep.Advance(emitStep, done)
-		}(blk)
-	}
-	wg.Wait()
-	if emitErr != nil {
-		return emitErr
-	}
-	if err := ctx.Err(); err != nil {
+	if err := st.run(ctx, a, pkgOrder, byPkg, cachedPkgs); err != nil {
 		return err
 	}
 	logger.Info("pkg cache", zap.Int("hits", cacheHits), zap.Int("total", len(pkgOrder)))
@@ -285,7 +203,7 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 
 	// Q231：构建收尾（alias/摘要/全局/动态派发）抽到 adapter_finish.go
 	begin("finishIndex", 0)
-	if err := finishIndex(repo, prog, idents, a, implPool, fallbackAgg, emit); err != nil {
+	if err := finishIndex(ctx, repo, prog, idents, a, implPool, fallbackAgg, emit); err != nil {
 		return err
 	}
 	stage("finishIndex")

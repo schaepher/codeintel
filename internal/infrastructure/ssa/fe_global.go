@@ -1,6 +1,7 @@
 package ssa
 
 import (
+	"context"
 	"go/token"
 	"sort"
 	"strings"
@@ -39,7 +40,7 @@ func (ext *fieldExtractor) lookupAssignTargetStart(pos token.Pos) (string, token
 // var G = T{...} 结构体初始化是字段级 Store（&G.A），经 FieldAddr 分支
 // 处理。Global 节点跨函数共享（symbol:go:<pkg>:var.<name>），value-trace
 // 从使用处反向可达初始化表达式。
-func emitGlobalInit(repo *domain.Repository, prog *ssa.Program, funcs *funcSnapshot, modFuncs []*ssa.Function, emit domain.EmitFunc) error {
+func emitGlobalInit(ctx context.Context, repo *domain.Repository, prog *ssa.Program, funcs *funcSnapshot, modFuncs []*ssa.Function, emit domain.EmitFunc) error {
 	logger := zap.L()
 	logger.Debug("enter emitGlobalInit")
 	defer logger.Debug("exit emitGlobalInit")
@@ -54,6 +55,9 @@ func emitGlobalInit(repo *domain.Repository, prog *ssa.Program, funcs *funcSnaps
 	}
 
 	for _, fn := range modFuncs { // Q249：共享快照（不再 AllFunctions）
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 
 		ext.funcID = domain.CanonicalID("symbol:go:" + fn.Pkg.Pkg.Path() + ":init")
 		for _, b := range fn.Blocks {
