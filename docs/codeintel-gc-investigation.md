@@ -357,6 +357,24 @@
 
 **验证**：内容隔离五类产物 **diff 全 0**；detcheck 冷1/冷2/暖3 全等；chaincheck 一跳 500/500、多跳 408/408、alias 328；dbdiag 无异常。
 
+### 续查：todo11-1 全量构建延后非关键索引（2026-10-19）
+
+CPU profile 显示 `SaveBatchStats` 占构建 CPU **38%**（VDBE 30%），其中大量时间在逐条维护查询索引——尤其两个 `json_extract` 表达式索引（`idx_nodes_func_id`、`idx_nodes_field_path`）对每个节点插入都要重算 JSON 路径并随机插入 B 树。
+
+改为**两阶段 bulk load**（仅全量构建 `FullBuild`）：
+
+- `BeginBulkLoad`（`ResetGraphTables` 之后）：DROP 8 个非关键查询索引（nodes 的 file/name/func_id/full_path、edges 的 kind/target_kind、summary 的两个）；
+- 写路径只依赖唯一键索引（nodes.id、edges UNIQUE、摘要 UNIQUE），插入/合并语义不变；
+- `EndBulkLoad`（defer，失败/panic 也会执行）：一次 `CREATE INDEX` 排序建树；
+- 增量 `update` 不触发（索引保持存在）；进程被杀则下次 `Open` 的幂等 schema 重建索引。
+
+**收益（go2o，同二进制，交错 2 轮）**：
+
+- **wall 7.64/7.76s → 6.57/6.59s（-1.1s，-14%）**；
+- `SaveBatchStats` CPU **5.99s → 3.85s（-36%）**，`_sqlite3VdbeExec` 阶段 4.76s → 2.60s；
+- TotalAlloc/峰值 live/Max RSS 与旧版持平（1325–1336MB / 336–339MB / 752–768MB）；
+- 内容隔离五类产物 **diff 全 0**；detcheck 冷1/冷2/暖3 全等；chaincheck 一跳 500/500、多跳 408/408、alias 328；dbdiag 无异常；sqlite/orchestrator 单测通过（新增 `TestBulkLoadIndexes`：Begin 后索引缺失、写路径可用、End 后索引齐全且 func_id/full_path 查询正确）。
+
 ### 剩余候选（本机可做，按证据排序，未动）
 
 - `database/sql.driverArgsConnLocked` 37.6MB：每行 Exec 的 `[]driver.NamedValue` + 装箱；要消除需绕开 `database/sql` 直用 `modernc` 连接（语义/错误映射/事务改动大，需单独 A/B）。

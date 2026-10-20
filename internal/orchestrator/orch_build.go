@@ -27,6 +27,21 @@ func (o *Orchestrator) FullBuild(ctx context.Context) (*BuildResult, error) {
 	if err := o.RepoImpl.ResetGraphTables(); err != nil {
 		return nil, fmt.Errorf("reset graph tables: %w", err)
 	}
+	// todo11-1：全量构建期延后非关键查询索引（写路径只需唯一键索引）；
+	// 写完后排序建树，避免 12 万+ 节点逐条维护 json_extract 索引。
+	// 失败/panic 仍由 defer 重建（进程被杀则下次 Open 的 schema 重建）。
+	if err := o.RepoImpl.BeginBulkLoad(); err != nil {
+		logger.Warn("begin bulk load (继续构建，索引保留)", zap.Error(err))
+	} else {
+		defer func() {
+			t0 := time.Now()
+			if err := o.RepoImpl.EndBulkLoad(); err != nil {
+				logger.Warn("end bulk load (索引可能缺失)", zap.Error(err))
+				return
+			}
+			logger.Info("bulk load indexes rebuilt", zap.Duration("elapsed", time.Since(t0)))
+		}()
+	}
 
 	orchestraStart := time.Now()
 	rep := o.prog()
