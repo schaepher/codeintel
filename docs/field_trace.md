@@ -5119,3 +5119,14 @@ dbdiag 无异常；go2o 全量构建 wall ≈ 5.7s（默认超时下 success）�
 搬完 grep 原文件的注释块；pre-commit 只拦行数，不拦"注释与实现脱节"，
 所以交付前仍需人工/脚本过一遍。验收：`scripts/verify.sh --quick` 全绿
 （13 包），gofmt 无新增未格式化文件（原有 5 个历史文件未动）。
+
+补充（同批次，2026-10-21）：`seq.depth` 全局配置项此前**只在代码里读**
+（`loadSeqDepth`），模板 `internal/cli/config_example.yaml` 没写 → 用户无法
+从 `codeintel config default` 发现。补进模板（注释说明"只作用于 wiki 流程页，
+`query sequence --code` 用自己的 `--depth`"），顺手修 `config merge` 的插入
+位置：新键曾落在**下一个顶层键的前导注释**之下（新增 `seq.depth` 后
+`# S4：plantuml.jar` 的注释变成 depth 的说明）——`insertBlock` 现回退越过
+属于下一个键的注释块，插到父块末尾。测试：`TestConfigMergeNestedScalarPlacement`
+（位置 + YAML 层级 + 解析值）、`TestConfigMergeNoDuplicateComments`（幂等）。
+`config merge` 仍是**按缩进扫描文本**而非解析结构：稀疏旧配置（缺整个
+`ai:`/`seq:` 父块）合并后顶层块可能交错，已记入 runbook #25。

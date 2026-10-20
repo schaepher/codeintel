@@ -7,7 +7,7 @@
 - [`docs/DoD.md`](docs/DoD.md)：交付验收清单（10 条）+ 五轴自检——**每个
   改动交付前逐项自查**（Q235）
 - [`docs/runbook.md`](docs/runbook.md)：故障模式速查表（/tmp 满、WAL、
-  端口冲突、schema 迁移等 14 条，Q235）
+  端口冲突、schema 迁移等 24 条，Q235 起持续追加）
 - [`docs/troubleshooting-tree.md`](docs/troubleshooting-tree.md)：**事后树**——
   排障思路树（五步定位法 + 症状分支，怎么找到问题；Q242–Q244 沉淀）
 - [`docs/prevention-tree.md`](docs/prevention-tree.md)：**事前树**——
@@ -398,17 +398,32 @@ go build -o codeintel ./cmd/codeintel
 #                                         #   codeintel.yaml，init/update/reindex 自动应用）
 #   codeintel update --repo <path>        # 增量更新（同样支持 --progress）
 #   codeintel reindex --repo <path>       # 重建（事务重置派生图表，保留人工规则/问答）
-#   codeintel query symbol|callers|callees|impact|table|grpc-routes|http-routes|cli-routes|external-deps ...
-#   codeintel wiki --yaml wiki.yaml [--diagram plantuml|mermaid] [--max-entries N]
+#   codeintel before|trace <符号|字段|表>   # 意图命令（Q244：影响预判 / 数据来龙去脉）
+#   codeintel batch <符号…>                # 批量符号概览（--json）
+#   codeintel query symbol|callers|callees|impact|fields|table|relations|table-path|
+#     value-trace|context|path|unused|summary|sequence|enums|entities|helpers|
+#     grpc-routes|http-routes|cli-routes|external-deps|external-interfaces|
+#     kafka-topics|grpc-composites|grpc-callers|http-callers|ext-chain|
+#     packages|architecture|er|processes|module|module-calls
+#                                          # 全部支持 --json；codeintel help 看参数与默认值
+#   codeintel wiki --yaml wiki.yaml [--init] [--diagram plantuml|mermaid]
+#                 [--max-entries N] [--seq-depth N]
 #                                          # 业务 wiki 生成（--ai 增量补缺写回 yaml 标注 # AI 初稿；
-#                                          # 流程页 gRPC 服务子页按领域分目录）
+#                                          # --init 出骨架；流程页 gRPC 服务子页按领域分目录）
 #   codeintel domains --yaml wiki.yaml     # AI 业务域分析（R34/R38：事实包→agent 读文件→写回
 #                                          # domains 区块含 services——重跑整体替换）
 #   codeintel ask "<问题>"                # 项目上下文问答（无参数进入 REPL 多轮追问）
-#   codeintel mcp --repo <path>           # stdio MCP server（Agent 接入）
+#   codeintel mcp --repo <path>           # stdio MCP server（30 个工具，输出 schema 自描述）
+#   codeintel list|workspace init         # 全局注册台账 / 按需创建 git worktree（Q238）
+#   codeintel rule add|list|remove        # 表间关联人工规则（query relations 合并）
+#   codeintel precompute relations        # 全量 relations 预计算（serve 首次请求也自动兜底）
+#   codeintel export graph --type <类型>   # mermaid/dot 导出（callees/value-trace/lifecycle/modules）
+#   codeintel config default|merge|ignore-dir  # 全局配置模板/补齐/仓库级忽略目录
+# scripts/verify.sh [--quick|--changed]    # 提交前验证（pre-commit hook 自动跑 --changed）
 # scripts/detcheck.sh <repo> [workers]     # 确定性 + 缓存保真度双（三）跑比对
 # scripts/chaincheck.sh --repo <已索引仓库> --label go2o
 #                                          # 跨函数链完整性（0 容忍 + 基线，§95）
+# scripts/dbdiag.sh [--size|--plans|--self-test]  # sqlite 库健康诊断（Q254）
 # 完整命令清单见 codeintel-cli skill（~/.claude/skills/codeintel-cli/SKILL.md）
 ```
 
@@ -429,16 +444,41 @@ grep 仅用于字面文本（字符串/注释/日志）。
 - 改 `assets/web/` 前端后须重新 `go build -o codeintel ./cmd/codeintel`
   （go:embed 打包，旧二进制嵌旧页面；用 `strings codeintel | grep Q230` 验证）
 
-## 解析新项目的配置（目标仓库根目录的可选 YAML）
+## 配置（全部可选）
 
-全部可选（不配置也能 init），配置后 `init`/`reindex` 生效；示例见本仓库根
-`*.example.yaml`（复制为目标仓库根目录的对应文件名）：
+**全局配置 `~/.codeintel/config.yaml`**（`codeintel config default` 出完整
+模板、`config merge` 补缺失项；模板即 `internal/cli/config_example.yaml`，
+仓库根 `config.yaml.example` 为同步副本）：
+
+| 键 | 作用 |
+|---|---|
+| `agent` | 默认 AI agent（codex / claude / auto；`--agent` 优先） |
+| `ai.{domains,fill,ask}` | AI 使用点开关（auto / off；`fill` 可细分 modules/tables/columns/glossary），仓库级 `wiki.yaml` 的 `ai:` 段可覆盖 |
+| `helpers.min_packages` | `query helpers` 跨包调用数阈值（默认 3） |
+| `seq.depth` / `seq.stop_packages` | wiki 流程页代码级时序嵌套层级（默认 3；`wiki --seq-depth` 优先）/ 命中即不深入展开的包 |
+| `seq.filter_{pkgs,files,fns,regex}` | 时序图导出过滤（命中不生成节点） |
+| `plantuml_jar` | plantuml.jar 路径（也读 `PLANTUML_JAR`，最后试 `/opt/plantuml/plantuml.jar`） |
+
+**仓库级配置（放目标仓库根）**：
 
 | 文件 | 作用 | 何时配置 |
 |---|---|---|
+| `codeintel.yaml` | 忽略目录 `ignore_dirs`（`codeintel config ignore-dir add/rm/list` 维护） | 有 vendor/生成目录等不该进索引的目录 |
+| `wiki.yaml` | wiki 业务描述/别名/隐藏符号/tables/domains（`wiki --ai`、`domains` 写回 `# AI 初稿`）；也供 `query architecture/er/processes` 读 | 要生成业务 wiki 或按业务域分组 |
 | `field-summary.yaml` | 外部函数/接口调用的读写语义（→ 表.列 虚拟节点） | query table/relations 缺表或缺写入方（自研 ORM/DAO、非 GORM 框架） |
 | `modules.yaml` | 多模块 monorepo 模块划分（模块图） | 多 go.mod 或需模块级调用图 |
 | `routes.yaml` | HTTP 路由人工表（模块图 http 边） | 需 HTTP 调用识别 |
+
+示例见本仓库根 `field-summary.example.yaml` / `modules.example.yaml` /
+`routes.example.yaml` 与 `config.yaml.example`（全局配置模板的同步副本）；
+`codeintel.yaml` 与 `wiki.yaml` 无 example——前者由 `config ignore-dir`
+维护，后者由 `codeintel wiki --init` 生成骨架。
+
+**`config merge` 的已知局限**（Q?）：插入锚点按缩进扫描文本而非解析
+YAML 结构——**稀疏旧配置**（整个 `ai:`/`seq:` 父块缺失）合并后顶层块可能
+交错、注释错位；整理办法是 `codeintel config default` 重新生成模板后手工
+搬回自定义值。新增的**嵌套标量**键（如 `seq.depth`）会插到父块末尾
+（注释留在它自己上方，位置正确——见 `TestConfigMergeNestedScalarPlacement`）。
 
 关键点：
 - `field-summary.yaml` 两类条目：`func`（静态调用：`orm_write`/`orm_read`/
@@ -456,27 +496,42 @@ grep 仅用于字面文本（字符串/注释/日志）。
 六边形架构：`internal/domain`（内核，零外部依赖）通过 Port 接口与适配器解耦。
 
 ```
-internal/domain/          领域模型：CodeEntity/Fact/CanonicalID、IndexerPort/CodeRepository 端口
+internal/domain/          领域模型：CodeEntity/Fact/CanonicalID、IndexerPort/CodeRepository 端口、
+                          Progress 进度契约（Q253）
+internal/action/          查询用例层（R89）：CLI/HTTP/MCP 共享的业务逻辑，类型化
+                          Request/结构化返回值；cli 只做参数解析与渲染
 internal/canonicalizer/   Canonical ID 生成、SCIP symbol 解析（FromScipSymbol）
 internal/logging/         ctx ↔ *zap.Logger + OpenTelemetry 链路追踪初始化。
                           Setup() 建 development logger（debug 级，stdout）与
                           stdouttrace 导出器；FromContext 在 span context 有效时
                           附加 trace_id/span_id 字段（entrylog 注入的日志用）
-internal/orchestrator/    全量构建编排：并行适配器、独立超时 10min、分批 1000 条事务、降级报告
+internal/orchestrator/    全量构建编排：并行适配器、独立超时 10min（可配 --adapter-timeout）、
+                          分批写入（BatchSize=2 万条/事务）、降级报告
 internal/infrastructure/
   scip/                   调用 scip-go 生成 SCIP 索引 → 符号节点 + IMPLEMENTS 边（conf 1.0）
   ast/                    go/packages AST 分析 → CALLS + IMPORTS 边（conf 0.8）+
                           服务入口标记（serves_http / serves_grpc）
   git/                    git log → COMMIT 节点 + MODIFIED_BY 边（conf 1.0）
+  ssa/                    字段追溯核心：go/ssa → field_access/ssa_value 节点、
+                          data_flows_to 等值流边、function_field_summary 摘要、
+                          接口派发候选（dispatch_to）、ORM/SQL 摘要、包级缓存
   sqlite/                 nodes/edges/build_metadata 仓储；SaveBatchStats 分批提交；
-                          GetRoots / Expand（图探索）
+                          GetRoots / Expand（图探索）+ relations 推断/缓存、
+                          整数代理键与 edges_v 兼容视图（Q254c）
+internal/progress/        进度渲染（Q253）：TTY 多活动行 / 逐行 / 静默三实现
 internal/server/          HTTP API：/api/roots（顶层入口）、/api/expand（点击展开）、
                           /wiki/ wiki 网页版（cli 注入，P2b）
-internal/cli/             init / update / serve / query / wiki（--ai 增量补缺、--with-qa）/
-                          mcp / ask（REPL 交互问答）/ before / trace / batch /
-                          export / precompute relations / rule / workspace / list 命令
+internal/cli/             init / update / reindex / serve / query / wiki（--ai 增量补缺、
+                          --with-qa）/ domains / mcp / ask（REPL 交互问答）/ before /
+                          trace / batch / export / precompute relations / rule /
+                          workspace / list / config / clean 命令（只做参数解析与渲染）
 assets/web/               AntV G6 v5 前端（go:embed 嵌入；index.html + app.js）
-scripts/entrylog/         AST 日志注入工具（见下）
+scripts/                  校验/门槛脚本（verify.sh、check-file-size.sh、detcheck.sh、
+                          chaincheck.sh、dbdiag.sh、assert_replace.py）+ entrylog（AST
+                          日志注入工具，见下）
+integration/              -tags integration 真实 CLI 全管道测试 + fixtureapp 固定形态库
+e2e/                      playwright 前端回归（make e2e）
+vscode-extension/         VS Code 插件（Activity Bar 查询视图/调用链/时序图）
 ```
 
 ## 链路追踪（OpenTelemetry）
@@ -707,9 +762,13 @@ defer logger.Debug("exit <name>")
   清理 e2e 进程用 `pkill -x codeintel-e2e`（精确进程名）；杀完 sleep 0.5 再起新进程。
 - **git 命令务必在 codeintel 仓库目录执行**：曾在 `/home/schaepher/Codes/验证仓库`（验证仓库）
   误执行 `git add -A` 把 `.codeintel/` 文件提交进 验证仓库（已撤销）。验证仓库只读不改。
-- **schema 无自动迁移**（`PRAGMA user_version=4`）：改动表结构后验证仓库必须
-  `codeintel clean` + `init` 重建，否则旧库 schema 不匹配报错或数据形态过时
-  （曾因旧库缺 GORM 虚拟节点误判功能未生效）。
+- **schema 演进分两类**（Q235-3/Q254）：**加法**（新表/新索引）打开时幂等
+  执行 `CREATE IF NOT EXISTS` 自动补建，无需重建；**列/类型变更**由
+  `verifySchema` 报错（幂等无法表达减法），此时 `codeintel reindex` 自动
+  `RebuildDerivedSchema`（事务内重置派生图表，保留 relation_rules /
+  qa_history），不再需要 `clean`。验证仓库做语义/形态变更后仍应 `reindex`
+  全量重建（增量 update 只更新变更文件，旧形态数据会残留——曾因旧库缺
+  GORM 虚拟节点误判功能未生效）。
 - **日志已切文件**：所有带 `--repo` 的命令日志写入 `.codeintel/codeintel.log`，
   stdout 只承载查询结果——排查问题看日志文件，不要从 stdout 找日志。
 - **TMPDIR 指向仓库 .tmp/**（R67：不再写 /tmp——tmpfs 配额小；.gitignore
@@ -718,7 +777,7 @@ defer logger.Debug("exit <name>")
   全量 cli 测试 -count=1 通过）问题未复发（当时修复已根治）。Makefile/
   verify.sh 自动设置（目录存在才设——CI 保持默认）；**手动跑 go 命令
   同样带 TMPDIR=$PWD/.tmp**。
-- **验证矩阵**：make test（-race 全量，13 包）/ make it（integration，需 scip-go）/
+- **验证矩阵**：make test（-race 全量，14 包）/ make it（integration，需 scip-go）/
   make e2e（playwright 前端回归，端口 8096，E2E_REPO 指定）——改完代码三件套都要过。
 - **工作流约定**（用户明确）：每个功能先写测试再实现（测试先行）；开发中的
   疑问必须先向用户确认（设计树访谈模式）；改完验证后必须 git push。
@@ -732,9 +791,10 @@ defer logger.Debug("exit <name>")
   适配器改动后须跑它验证（CLI 全管道回归）。
 - **schema 与语义变更需重建验证**：适配器改动后验证仓库必须 `init` 全量重建
   （增量 update 只更新变更文件，可能残留旧形态数据）。
-- **relations 推断变更必须递增 relationsAlgoVersion**（rg_cache.go，当前 q208）：
+- **relations 推断变更必须递增 relationsAlgoVersion**（rg_cache.go，当前 q210）：
   缓存键 = build_id + 版本，改 rg_*.go/relationsFor* 不递增会残留旧缓存
-  （Q199 教训；Q205/Q208 各复发一次）。快速验证手段：
+  （Q199 教训；Q205/Q208 各复发一次，q209=Q218 fk 类型、q210=Q220b 跳过
+  error 值链）。快速验证手段：
   `sqlite3 <repo>/.codeintel/codeintel.db "DELETE FROM relation_candidates"`
   强制重算；缓存存**未过滤全量**（Q208），hops 过滤是读取期行为——窄参数
   查询不会污染缓存，放宽参数始终可见长链。
@@ -748,8 +808,9 @@ defer logger.Debug("exit <name>")
 - **多 go.mod 已支持**（2026-08-15 P2-3）：递归扫描根下所有 go.mod，
   每 module 独立加载/独立 scip-go；go.work 根（无根 go.mod）仍不支持
   （报错提示进入模块目录）
-- sqlite-vec 向量表未创建（Semble 未接入）；schema 版本由 PRAGMA user_version=4 管理，
-  版本不匹配时报错提示 `codeintel clean` 重建
+- sqlite-vec 向量表未创建（Semble 未接入）；schema 版本 `PRAGMA user_version=4`
+  仅作初次建库标记——加法变更自动补建，列变更报错后用 `reindex`
+  （自动重置派生图表，保留人工规则/问答）
 - 未实现：LLM 摘要、Semble。MCP 的 query 能力经 `codeintel mcp --repo <path>`
   stdio server 暴露（Q243：tools/list + tools/call，Agent 直接调用）；serve
   内嵌 MCP 方案已取消（2026-08-15 Q135 定）——AI 亦可直接用 CLI 查询命令，
@@ -757,7 +818,7 @@ defer logger.Debug("exit <name>")
 
 ## 测试
 
-测试先行（先写失败测试再实现）；验证矩阵：make test（-race 全量，13 包）/ make it（-tags integration，需 scip-go）/ make e2e（playwright 前端回归，端口 8096，E2E_REPO 指定）。
+测试先行（先写失败测试再实现）；验证矩阵：make test（-race 全量，14 包）/ make it（-tags integration，需 scip-go）/ make e2e（playwright 前端回归，端口 8096，E2E_REPO 指定）。
 
 **基建速查**（写测试前先读对应包）：
 - ssa：`indexFixture(t, files)` → (nodes, facts)；`indexFixtureFull` → (nodes, facts, summaries)——临时 module（`moduleGoMod`）跑完整 Adapter.Index（含别名/摘要/派发），fixture 可加 `external/` 子包与 `field-summary.yaml`；helper `findFieldAccess`/`findSSAValue`（slot 前缀匹配）/`factsFrom`

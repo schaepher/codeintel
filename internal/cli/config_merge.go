@@ -233,6 +233,17 @@ func insertBlock(lines []string, keyPath []string, block string) []string {
 		}
 		if countIndent(lines[j]) <= curIndent {
 			parentEnd = j
+			// 回退越过"属于下一个键"的注释块（缩进 <= 父缩进）——否则
+			// 插入的键会落在那个注释块之下，读起来像它的说明（实测：
+			// 新增 seq.depth 后 `# S4：plantuml.jar` 注释变成 depth 的）。
+			for parentEnd > curStart+1 {
+				prev := lines[parentEnd-1]
+				pt := strings.TrimSpace(prev)
+				if pt != "" && (!strings.HasPrefix(pt, "#") || countIndent(prev) > curIndent) {
+					break
+				}
+				parentEnd--
+			}
 			break
 		}
 		parentEnd = j + 1

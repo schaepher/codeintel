@@ -37,6 +37,10 @@ helpers:
 # 封装/样板包（内部调用无业务信息，图更聚焦；节点仍显示在图上）
 # 支持完整路径或包短名（如 internal/impl/repo 或 repo）
 seq:
+  # wiki 流程页代码级时序（grpc 方法）递归展开层级——默认 3；
+  # wiki --seq-depth 参数优先于本项（query sequence --code 用自己的
+  # --depth，不受本项影响）
+  depth: 3
   stop_packages: []
   # S5：时序图导出过滤（命中不生成节点，如 log 调用）——按包/文件/
   # 函数/正则匹配
