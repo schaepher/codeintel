@@ -5046,3 +5046,34 @@ changelog4 描述的一批优化来自另一套环境，本仓库并不存在对
 未完成（需大仓副本，本机无）：P0 内容差异（节点名称 / `register_site` /
 `code_snippet`）、P1 `emitValue` 与端点解析临时容器、P2 缓存淘汰与 gob 编码
 分配、统一测量条件与大仓冷/暖保真 + chaincheck 历史基线。
+
+## §? todo9 适配器超时/取消传递/包缓存范围隔离（2026-10-20）
+
+- **适配器超时可配置**（`orchestrator/orchestrator.go` + `cli/{init,update,reindex}.go`）：
+  `SetAdapterTimeout` 拒绝 0/负值；零值退默认 10m（兼容直接构造的
+  Orchestrator）；`init/reindex/update --adapter-timeout` 显式传入。
+  每个适配器仍独立 `context.WithTimeout`（一个超时不取消其他）。
+  测试：默认/覆盖/非法值 + 阻塞适配器 40ms 超时 → `BuildDegraded`、
+  快适配器数据保留、`build_metadata.error_message` 记录。
+- **取消及时传递**（`orch_adapters.go` + SSA 缓存/发射路径）：
+  - 适配器 emit 回调先 `adapterCtx.Err()`（select 在 channel 可写时会随机
+    选中发送，不能只靠 Done 分支），再 select `ch`/`adapterCtx`/`ctx`；
+  - SSA：缓存准备（`hashFile`/`pkgCacheKeyHash` 分块读与 hash 后检查）、
+    缓存重放（每 256 条）、worker 令牌等待（select ctx）、逐函数/逐发射
+    检查；取消或 `emitFunction` 失败的包标记 `aborted`，**不落盘半包缓存**；
+  - `buildModuleSSA`/`collectDispatchRegistrations`/`finishIndex` 各收尾
+    pass（alias/摘要/全局/dispatch）按函数检查 ctx，错误向上返回。
+  测试：发射阻塞、worker 令牌等待、暖重放取消（缓存文件字节/mtime 不变）、
+  超时后 `emit` 立即返回 deadline、无缓存残留。
+- **包缓存按分析范围隔离**（`ssa/pkg_cache_scope.go`）：构建级范围指纹 =
+  模块集合（排序）+ 加载包集合（按 PkgPath 排序）+ 各包源码 hash（复用
+  memo）+ 语法树数量 + 编译文件数 + Errors/TypeErrors 计数 + IllTyped；
+  与原包键 `combineScopeKey` 组合后用于读写（缓存文件协议/schema 不变，
+  旧键自然失效）。指纹失败 → 警告 + 本次禁用包缓存、继续分析。
+  测试：输入顺序不变/不修改调用方切片、源码/语法/类型错误变化、
+  读取失败、单包↔整仓切换不共享缓存、整仓暖重放不重写文件且产物一致。
+
+验收：`verify.sh --quick` / `-race ./...`（13 包）/ `integration` 全绿；go2o
+冷构建内容与旧版 **五类产物 diff 全 0**（118574/136510/21158/3445），
+detcheck 冷1/冷2/暖3 全等、chaincheck 一跳 500/500 / 多跳 408/408 / alias 328、
+dbdiag 无异常；go2o 全量构建 wall ≈ 5.7s（默认超时下 success）。
