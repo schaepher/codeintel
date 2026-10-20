@@ -116,7 +116,12 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	doneFuncs := 0
 	var doneMu sync.Mutex
 	cacheHits := 0
-	depHashes := map[string]string{} // Q213：直接依赖包 hash memo（每包一次）
+	// todo9-3：构建级分析范围指纹（模块/加载包集合/源码/语法/类型错误）。
+	// 计算失败 → 禁用本次构建的包缓存（继续实际分析）。
+	scope, scopeErr := buildAnalysisScopeFn(ctx, pkgs, repo.Modules)
+	if scopeErr != nil {
+		logger.Warn("analysis scope fingerprint failed; package cache disabled for this build", zap.Error(scopeErr))
+	}
 	// Q221：包间并行——原实现包循环串行 + 包内分块并行：小包（<200
 	// 函数）只有 1 块，同一时刻仅 1 个 goroutine 干活（go2o 135 包
 	// 平均 95 函数/包 → 8 核只用了 1 核，3m22s 仅加速 1.56 倍）。
@@ -135,11 +140,12 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 		}
 		// Q176：包级缓存——hash 命中直接加载产物
 		pkg = pkgByPath[pkgPath]
-		if pkg != nil {
+		if pkg != nil && scope != nil {
 			// Q213：缓存键 = 本包 hash + 直接依赖包 hash（依赖 API 变化
-			// → 本包缓存失效）；depHashes memo 复用依赖包 hash
-			if h, err := pkgCacheKeyHash(ctx, pkg, depHashes); err == nil {
-				pkgHashes[pkgPath] = h
+			// → 本包缓存失效）；todo9-3：再与范围指纹组合——单包/整仓
+			// 分析不共享缓存。
+			if h, err := pkgCacheKeyHash(ctx, pkg, scope.contentMemo); err == nil {
+				pkgHashes[pkgPath] = combineScopeKey(scope.fingerprint, h)
 			} else {
 				logger.Warn("pkg cache key hash failed", zap.String("pkg", pkgPath), zap.Error(err))
 			}

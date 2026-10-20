@@ -83,19 +83,16 @@ func pkgContentHash(ctx context.Context, files []string) (string, error) {
 }
 
 // pkgCacheKeyHash Q213：本包缓存键 = 本包源码 hash + 直接依赖包源码
-// hash 列表（按包路径排序拼接保证确定性）。depMemo 复用依赖包 hash
-// （每包重读依赖文件是 O(包数×依赖文件总量)，memo 后降为每包一次）。
-func pkgCacheKeyHash(ctx context.Context, pkg *packages.Package, depMemo map[string]string) (string, error) {
+// hash 列表（按包路径排序拼接保证确定性）。contentMemo 复用包源码 hash
+// （范围指纹已算过本包/依赖；每包重读是 O(包数×依赖文件总量)）。
+func pkgCacheKeyHash(ctx context.Context, pkg *packages.Package, contentMemo map[string]string) (string, error) {
 	h := sha256.New()
-	files := pkg.CompiledGoFiles
-	if len(files) == 0 {
-		files = pkg.GoFiles
+	self, err := pkgSourceHash(ctx, pkg, contentMemo)
+	if err != nil {
+		return "", err
 	}
-	for _, f := range files {
-		if err := hashFile(ctx, h, f); err != nil {
-			return "", err
-		}
-	}
+	h.Write([]byte(self))
+	h.Write([]byte{0})
 	deps := make([]string, 0, len(pkg.Imports))
 	for path := range pkg.Imports {
 		deps = append(deps, path)
@@ -106,18 +103,9 @@ func pkgCacheKeyHash(ctx context.Context, pkg *packages.Package, depMemo map[str
 		if dp == nil {
 			continue
 		}
-		dh, ok := depMemo[path]
-		if !ok {
-			dfiles := dp.CompiledGoFiles
-			if len(dfiles) == 0 {
-				dfiles = dp.GoFiles
-			}
-			var err error
-			dh, err = pkgContentHash(ctx, dfiles)
-			if err != nil {
-				return "", err
-			}
-			depMemo[path] = dh
+		dh, err := pkgSourceHash(ctx, dp, contentMemo)
+		if err != nil {
+			return "", err
 		}
 		h.Write([]byte(path))
 		h.Write([]byte{0})
