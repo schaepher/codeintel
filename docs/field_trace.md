@@ -5130,3 +5130,22 @@ dbdiag 无异常；go2o 全量构建 wall ≈ 5.7s（默认超时下 success）�
 （位置 + YAML 层级 + 解析值）、`TestConfigMergeNoDuplicateComments`（幂等）。
 `config merge` 仍是**按缩进扫描文本**而非解析结构：稀疏旧配置（缺整个
 `ai:`/`seq:` 父块）合并后顶层块可能交错，已记入 runbook #25。
+
+## §? todo10：流程证据与代码级时序语义（2026-10-21）
+
+用户交付一批 9 项任务（todo10）；先按设计树访谈对齐后分批实施（每项一个
+提交）。本轮（批 ①/②）覆盖 1、9、2、3、4、8；5/6/7（业务条件约束、异步
+因果、副作用摘要）留批 ③ 单独访谈判据。
+
+### 1. reindex 的 `--adapter-timeout` 校验前置
+
+根因：`cmdReindex` 用 `fs.Duration(...)` **注册但不取值**（注释写着"透传
+给 init"），而它自己先 `sqlite.Open` → 可能 `RebuildDerivedSchema`（重置
+派生图表）再调 `cmdInit`——`--adapter-timeout 0s` 会先动库才发现参数非法。
+修法：抽 `parseReindexArgs`（flagset 默认值 0 = 未指定，用 `fs.Visit` 区分
+"显式传 0"与"没传"；显式 ≤0 → error），`cmdReindex` 解析后**立即**返回
+exit 2，早于 `filepath.Abs`/`Open`；合法值经 `initArgs` 追加规范化写法
+`--adapter-timeout=<v>` 透传 init（不依赖原始形式二次解析）。
+测试：`TestParseReindexArgsAdapterTimeout`（0/负/合法/未传）、
+`TestReindexInvalidAdapterTimeoutTouchesNothing`（库文件 sha256 不变、
+无 `.codeintel` 新建、exit 2）。

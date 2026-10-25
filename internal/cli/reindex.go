@@ -7,9 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
-	"github.com/schaepher/codeintel/internal/orchestrator"
 	"github.com/schaepher/codeintel/internal/progress"
 )
 
@@ -17,13 +17,13 @@ import (
 // 与 init 相同走全量构建（FullBuild 清空图数据表 DROP+CREATE 重建，
 // 保留 build_metadata 与配置表），语义明确为"重建"。
 func cmdReindex(ctx context.Context, args []string) int {
-	fs := flag.NewFlagSet("reindex", flag.ExitOnError)
-	// Q237：--repo 缺省当前工作目录
-	repoPath := fs.String("repo", ".", "仓库根目录（含 go.mod；默认当前目录）")
-	fs.Int("workers", defaultBuildWorkers(), "SSA 分析并发数（Q221/Q252e：默认 min(NumCPU, 8)；透传给 init）")
-	fs.String("progress", progress.ModeAuto, "构建进度显示（Q253：auto|plain|none；透传给 init）")
-	fs.Duration("adapter-timeout", orchestrator.AdapterTimeout, "每个适配器独立超时（默认 10m；透传给 init）")
-	fs.Parse(args)
+	repoPath, adapterTimeout, err := parseReindexArgs(args)
+	if err != nil {
+		// todo10-1：非法参数在任何库操作之前拒绝——否则会先
+		// RebuildDerivedSchema（重置派生图表）才发现参数错。
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 2
+	}
 	*repoPath = ResolveRepoRef(*repoPath) // Q238：注册表短名/后缀/module
 
 	abs, err := filepath.Abs(*repoPath)
@@ -50,5 +50,45 @@ func cmdReindex(ctx context.Context, args []string) int {
 	} else {
 		db.Close()
 	}
-	return cmdInit(ctx, args)
+	return cmdInit(ctx, initArgs(args, adapterTimeout))
+}
+
+// parseReindexArgs 解析 reindex 参数（repo/workers/progress/adapter-timeout）。
+// 除 --repo 外的参数只用于**校验与透传**（构建由 cmdInit 执行）。
+// adapter-timeout 返回 0 表示未显式指定（沿用 orchestrator 默认 10m）；
+// 显式传 0/负值返回错误（todo10-1：非法值不得进入库操作）。
+func parseReindexArgs(args []string) (repoPath *string, adapterTimeout time.Duration, err error) {
+	fs := flag.NewFlagSet("reindex", flag.ExitOnError)
+	// Q237：--repo 缺省当前工作目录
+	repoPath = fs.String("repo", ".", "仓库根目录（含 go.mod；默认当前目录）")
+	fs.Int("workers", defaultBuildWorkers(), "SSA 分析并发数（Q221/Q252e：默认 min(NumCPU, 8)；透传给 init）")
+	fs.String("progress", progress.ModeAuto, "构建进度显示（Q253：auto|plain|none；透传给 init）")
+	// 默认 0 = 未指定（不能把默认 10m 当作"用户传了 10m"——否则
+	// `--adapter-timeout 0` 与未传无法区分）
+	timeoutFlag := fs.Duration("adapter-timeout", 0, "每个适配器独立超时（默认 10m；透传给 init，必须为正时长）")
+	fs.Parse(args)
+	explicit := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "adapter-timeout" {
+			explicit = true
+		}
+	})
+	if explicit {
+		if *timeoutFlag <= 0 {
+			return repoPath, 0, fmt.Errorf("--adapter-timeout 必须为正时长（收到 %s）", *timeoutFlag)
+		}
+		return repoPath, *timeoutFlag, nil
+	}
+	return repoPath, 0, nil
+}
+
+// initArgs 透传给 cmdInit 的参数：显式指定超时时追加规范化写法
+// （`--adapter-timeout=<v>`）——不依赖 init 对原始形式的二次解析。
+func initArgs(args []string, adapterTimeout time.Duration) []string {
+	if adapterTimeout <= 0 {
+		return args
+	}
+	out := make([]string, 0, len(args)+1)
+	out = append(out, args...)
+	return append(out, "--adapter-timeout="+adapterTimeout.String())
 }
