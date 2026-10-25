@@ -13,6 +13,11 @@ import (
 func walkStmts(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []byte, stmts []ast.Stmt, tgts *seqTargets, depth int, recvType string, recvDecl map[string]string, f *ast.File, curPkg, curFile string) []*CodeSeqNode {
 	var out []*CodeSeqNode
 	for _, st := range stmts {
+		// todo10-9：逐语句检查取消——及时返回，不留"半条链"当成功
+		if req.ctx().Err() != nil {
+			req.acc.cancel = true
+			return out
+		}
 		out = append(out, walkStmt(a, req, fset, src, st, tgts, depth, recvType, recvDecl, f, curPkg, curFile)...)
 	}
 	return out
@@ -35,6 +40,11 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 				}
 			}
 			node.Type = implTypeShort(tid)
+			// todo10-9：有可解析的目标却因 depth 上限未展开 → 记"depth 截断"
+			// （终止原因不是"流程结束"）
+			if depth <= 1 {
+				req.acc.depth = true
+			}
 			if args, rets, ok2 := sigTypesOf(a, sigID); ok2 {
 				node.Args, node.Returns = args, rets
 			}

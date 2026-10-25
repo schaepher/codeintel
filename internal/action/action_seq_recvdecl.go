@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/schaepher/codeintel/internal/domain"
 )
@@ -13,7 +14,14 @@ import (
 // codeSeqForSymbol 按符号 ID 解析函数体（递归入口——嵌套展开用
 // canonical ID 直接解析；depth = 当前剩余嵌套层级）。
 func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth int) *CodeSeqNode {
-
+	if req.acc == nil {
+		req.acc = &seqTimingAcc{}
+	}
+	// todo10-9：取消检查（递归入口）——被取消的展开不报告为分析完成
+	if req.ctx().Err() != nil {
+		req.acc.cancel = true
+		return nil
+	}
 	if req.visited[symID] {
 		return nil
 	}
@@ -23,15 +31,21 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 	if err != nil || n.FilePath == "" {
 		return nil
 	}
+	// 阶段 2：源码读取 + 语法解析（todo10-9 计时）
+	readStart := time.Now()
 	src, err := os.ReadFile(filepath.Join(req.RepoAbs, n.FilePath))
 	if err != nil {
+		req.acc.read += time.Since(readStart)
 		return nil
 	}
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, n.FilePath, src, 0)
+	req.acc.read += time.Since(readStart)
 	if err != nil {
 		return nil
 	}
+	// 阶段 3：定位函数 + 取调用点 + 遍历展开（walk 墙钟由 CodeSequence
+	// 外层统一推导——这里只累加 read，避免递归时重复计数）
 	// 定位目标函数（LineStart 在函数体范围内）
 	var fn *ast.FuncDecl
 	ast.Inspect(f, func(node ast.Node) bool {

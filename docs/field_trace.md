@@ -5149,3 +5149,26 @@ exit 2，早于 `filepath.Abs`/`Open`；合法值经 `initArgs` 追加规范化�
 测试：`TestParseReindexArgsAdapterTimeout`（0/负/合法/未传）、
 `TestReindexInvalidAdapterTimeoutTouchesNothing`（库文件 sha256 不变、
 无 `.codeintel` 新建、exit 2）。
+
+### 9. 代码级时序的阶段计时（`CODEINTEL_SEQ_TIMING`）
+
+需求：能定位 `query sequence --code` 的耗时阶段与展开规模，且**不得把主动
+终止报告为成功**。
+
+- 阶段口径（互不重叠，递归展开也不重复计）：`resolve`（只查库解析符号）/
+  `read`（读源码 + 语法解析，`seqTimingAcc.read` 累加）/ `walk`（AST 遍历
+  + 调用点定位 + 接口/字段具体化 + 子函数递归 = 墙钟 - read）/ `render`
+  （cli 侧 mermaid/plantuml/写文件；**JSON 输出记 0**——编码即输出自指）。
+- 展开规模 `nodes`（`countSeqNodes`，含分支/else/循环）+ `depth` +
+  `stop`（`none|depth|canceled`；depth 截断 = 有可解析调用点但层级不够）。
+- 取消：`CodeSequenceRequest.Ctx`，`codeSeqForSymbol`/`walkStmts` 每语句
+  检查；取消 → `ErrSeqCanceled`，cli 打印错误并 **exit 1**（不报告成功）。
+- 通道：结构化日志（`logger.Info("seq timing")` + Debug 渲染耗时）；
+  `CODEINTEL_SEQ_TIMING=1` 时 stderr 打 `[seq] resolve=… read=… walk=…
+  render=… total=… nodes=… depth=… stop=…`；JSON 的 `meta.timing` **只在
+  开关开启时**出现（默认输出与体积不变，只新增 `meta.seq_version`）。
+- 测试：`TestCodeSequenceTimingStages`（depth 1/2/3 同字段、规模单调、
+  depth 截断 vs 自然结束）、`TestCodeSequenceCanceledStopsQuickly`、
+  `TestCountSeqNodes`、`TestQuerySequenceCodeTimingDiagnostics`（开关开/
+  关的 JSON 与 stderr）。
+- 明确不做（需求里写明需采样确认后另列任务）：缓存/按需加载/预算控制。
