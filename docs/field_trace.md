@@ -5262,3 +5262,36 @@ exit 2，早于 `filepath.Abs`/`Open`；合法值经 `initArgs` 追加规范化�
   mail、跨仓 target_repo 与递归视图）、`action_ext_chain_diag_test.go`
   （方法缺失清单、无实现仓库、循环）、cli 端到端（树状输出含
   `服务名.方法`，JSON 含 server/http）。
+
+### 8. 箭头证据身份 + 四类脱敏夹具（todo10-8）
+
+- **证据身份**：`SeqEvidence` 增 `query`（可复现命令
+  `codeintel query sequence <t> --code --depth N`）与 `verdict`
+  （`direct` = 索引边且置信度 ≥0.8；`corroborated` = 源码/值流补证；
+  `unverified` = 多候选歧义或证据缺失）。所有箭头统一经
+  `finishSeqEvidence` 收尾（避免各具体化分支各写一份）。
+- **图形与结构化同身份**：mermaid 每条消息前输出
+  `%% evidence P0->P1 @ main.go:6 id=symbol:… verdict=direct`
+  （注释不参与渲染，但文件可审计）；文本模式 `--evidence` 追加"箭头证据"
+  清单（位置/来源/verdict/ID/置信度/候选数/可复现命令）。CLI 测试断言两侧
+  出现同一个 canonical ID。
+- **四类中性夹具**（`internal/action/testdata/todo10/`，fixture 只读复制到
+  临时目录再索引）：
+  1. `wrap_status`：默认状态（`DefaultState`）→ 包装函数改写 → 最终返回
+     （`return out`）——默认状态来源与最终状态在树上可区分（嵌套
+     `return "pending"` vs 顶层 `return out`）；`--focus Resp.State` 剔除
+     无关 `audit`。
+  2. `cross_entry_async`：人工审核入口 + 定时任务入口，共享状态字段与
+     待审集合（供 todo10-6 的因果判据使用）。
+  3. `dual_advance`：同一节点人工推进 / 内部审核自动推进并存（验证"不推断
+     固定操作次数"）。
+  4. `partial_write`：主写入成功后追踪记录失败（部分成功）+ 错误被后续
+     赋值覆盖的可疑形态（供 todo10-7 使用）。
+- **脱敏门禁**（测试固化）：模块名必须 `example.com/fx/<name>`；源码不得
+  含 `github.com/`、`gitee.com/`、`gitlab.`、`go2o`、`ixre`、`gof/`、
+  `mch_`、`pay_`、`merchant`、`http(s)://`、`internal.` 等私有/线上特征；
+  源码必须能被 `go/parser` 解析。
+- 测试：`TestTodo10FixturesSanitized`、`TestWrapStatusFixtureSemantics`、
+  `TestArrowEvidenceIdentity`（证据四要素齐全 + verdict 合法）、
+  `TestSequenceCodeEvidenceIdentity`（mermaid `%% evidence` 与 `--evidence`
+  清单同一身份）。夹具 2/3/4 的行为断言留批 ③（todo10-6/7）。

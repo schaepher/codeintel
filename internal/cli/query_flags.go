@@ -116,6 +116,8 @@ func parseQueryFlags(args []string) queryFlags {
 			f.maxEntries, _ = strconv.Atoi(strings.TrimPrefix(a, "--max-entries="))
 		case a == "--code":
 			f.code = true
+		case a == "--evidence":
+			f.evidence = true
 		case a == "--focus" && i+1 < len(args):
 			f.focus = append(f.focus, splitComma(args[i+1])...)
 			i++

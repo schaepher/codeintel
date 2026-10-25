@@ -106,3 +106,59 @@ func seqEvidenceFile(n *action.CodeSeqNode) string {
 	}
 	return "?"
 }
+
+// seqEvidenceComment mermaid 证据注释行（%% 开头——渲染忽略、文件可审计）。
+func seqEvidenceComment(from, to string, n *action.CodeSeqNode) string {
+	if n == nil || n.Evidence == nil {
+		return ""
+	}
+	ev := n.Evidence
+	line := fmt.Sprintf("%s:%d", ev.CallFile, ev.CallLine)
+	if ev.CallFile == "" {
+		line = "-"
+	}
+	id := ev.SymbolID
+	if id == "" {
+		id = "-"
+	}
+	return fmt.Sprintf("  %%%% evidence %s->%s @ %s id=%s verdict=%s\n", from, to, line, id, ev.Verdict)
+}
+
+// seqEvidenceText 证据清单（--evidence：逐箭头核验来源——档案式输出）。
+func seqEvidenceText(root *action.CodeSeqNode) string {
+	if root == nil {
+		return ""
+	}
+	var b strings.Builder
+	var walk func(nodes []*action.CodeSeqNode, depth int)
+	walk = func(nodes []*action.CodeSeqNode, depth int) {
+		pad := strings.Repeat("  ", depth)
+		for _, n := range nodes {
+			if n.Kind == "call" && n.Evidence != nil {
+				ev := n.Evidence
+				b.WriteString(fmt.Sprintf("%s- %s:%d %s → source=%s verdict=%s",
+					pad, seqEvidenceFile(n), n.Line, n.Label, ev.Source, ev.Verdict))
+				if ev.SymbolID != "" {
+					b.WriteString(" id=" + ev.SymbolID)
+				}
+				if ev.Confidence > 0 {
+					b.WriteString(fmt.Sprintf(" conf=%.2f", ev.Confidence))
+				}
+				if len(ev.Candidates) > 0 {
+					b.WriteString(fmt.Sprintf(" candidates=%d", len(ev.Candidates)))
+				}
+				if ev.Query != "" {
+					b.WriteString("（" + ev.Query + "）")
+				}
+				b.WriteString("\n")
+			}
+			walk(n.Nodes, depth+1)
+			walk(n.Else, depth+1)
+		}
+	}
+	walk(root.Nodes, 1)
+	if b.Len() == 0 {
+		return ""
+	}
+	return "\n-- 箭头证据 --\n" + b.String()
+}

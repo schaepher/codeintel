@@ -136,6 +136,11 @@ func writeSeqNode(b *strings.Builder, alias map[string]string, from, caller stri
 			if len(n.Args) > 0 {
 				label += "<br/>(" + strings.Join(n.Args, ", ") + ")"
 			}
+			// todo10-8：箭头附证据身份（同一 ID/位置/依据，可在文件里核验；
+			// mermaid 注释不参与渲染，仅保留可审计行）
+			if ev := seqEvidenceComment(alias[from], to, n); ev != "" {
+				b.WriteString(ev)
+			}
 			// todo10-2：go 用异步箭头（-)）——并发启动，不画同步完成
 			if n.Exec == action.SeqExecAsync {
 				b.WriteString(fmt.Sprintf("  %s-)%s: %s\n", alias[from], to, label))

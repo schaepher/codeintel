@@ -18,8 +18,9 @@ import (
 func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []byte,
 	tgts *seqTargets, depth int, recvType string, recvDecl map[string]string,
 	f *ast.File, curPkg, curFile string) func(fun ast.Expr, pos token.Position) *CodeSeqNode {
-	return func(fun ast.Expr, pos token.Position) *CodeSeqNode {
-		node := &CodeSeqNode{Kind: "call", Label: callLabel(fset, src, fun), Actor: callActor(fset, src, fun), Line: pos.Line}
+	return func(fun ast.Expr, pos token.Position) (node *CodeSeqNode) {
+		defer func() { finishSeqEvidence(req, node) }()
+		node = &CodeSeqNode{Kind: "call", Label: callLabel(fset, src, fun), Actor: callActor(fset, src, fun), Line: pos.Line}
 
 		tg, resolved := tgts.lookup(pos)
 		if resolved {

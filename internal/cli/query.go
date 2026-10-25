@@ -46,6 +46,7 @@ type queryFlags struct {
 	minPkgs          int      // R88：helpers --min-packages——跨包使用数阈值（0 = 配置默认 3）
 	out              string   // R100：sequence --out——输出写文件（plantuml → PNG；否则文本）
 	focus            []string // todo10-2：sequence --code --focus——关注目标（字段路径 / return）
+	evidence         bool     // todo10-8：sequence --code --evidence——输出箭头证据清单
 }
 
 // edgeCandidateJSON 边级候选标注（Q161：动态 argument/returns 边元数据）。

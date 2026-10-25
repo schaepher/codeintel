@@ -57,6 +57,9 @@ type SeqEvidence struct {
 	Candidates []string `json:"candidates,omitempty"` // 多候选（接口派发/实现）
 	Reason     string   `json:"reason,omitempty"`     // unique|first-of-N|dataflow|...
 	Ambiguous  bool     `json:"ambiguous,omitempty"`  // 多候选未消歧（不是确定结论）
+	// todo10-8：证据身份——可直接重跑的查询命令 + 支持程度
+	Query   string `json:"query,omitempty"`   // 例如 codeintel query sequence <t> --code --depth 2
+	Verdict string `json:"verdict,omitempty"` // direct|corroborated|unverified
 }
 
 // SeqDiagCount 诊断聚合项（根节点 meta 用）。
@@ -177,4 +180,53 @@ func seqIfaceAndMethod(id string) (ifaceID, method string) {
 		return "", ""
 	}
 	return pkg + ":" + rest[:j], rest[j+2:]
+}
+
+// 证据支持程度（todo10-8）：direct = 工具输出（索引边/元数据）直接支持；
+// corroborated = 源码/其他分析补证（值流具体化、未解析调用点靠 AST）；
+// unverified = 存在歧义或证据缺失（不得当作确定结论）。
+const (
+	SeqVerdictDirect       = "direct"
+	SeqVerdictCorroborated = "corroborated"
+	SeqVerdictUnverified   = "unverified"
+)
+
+// seqEvidenceVerdict 按证据来源与歧义给出支持程度。
+func seqEvidenceVerdict(ev *SeqEvidence) string {
+	if ev == nil {
+		return SeqVerdictUnverified
+	}
+	if ev.Ambiguous {
+		return SeqVerdictUnverified
+	}
+	switch ev.Source {
+	case SeqEvidenceCallEdge:
+		if ev.Confidence >= MinConfidence {
+			return SeqVerdictDirect
+		}
+		return SeqVerdictCorroborated
+	case SeqEvidenceAST, SeqEvidenceFieldFlow, SeqEvidenceLocalVar, SeqEvidenceGrpcImpl, SeqEvidenceIface:
+		return SeqVerdictCorroborated
+	}
+	return SeqVerdictUnverified
+}
+
+// seqEvidenceQuery 证据的可复现命令（同一目标/深度即可重跑）。
+func seqEvidenceQuery(req CodeSequenceRequest) string {
+	q := "codeintel query sequence " + req.Target + " --code"
+	if req.Depth > 0 {
+		q += " --depth " + itoaSeq(req.Depth)
+	}
+	return q
+}
+
+// finishSeqEvidence 补证据身份（可复现命令 + 支持程度）——在所有具体化
+// 分支结束后统一调用，避免每个分支重复写。
+func finishSeqEvidence(req CodeSequenceRequest, n *CodeSeqNode) *CodeSeqNode {
+	if n == nil || n.Evidence == nil {
+		return n
+	}
+	n.Evidence.Query = seqEvidenceQuery(req)
+	n.Evidence.Verdict = seqEvidenceVerdict(n.Evidence)
+	return n
 }

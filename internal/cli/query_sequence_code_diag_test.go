@@ -100,3 +100,34 @@ func TestSequenceCodeDiagError(t *testing.T) {
 		t.Errorf("错误应说明原因并给出下一步:\n%s", stderr)
 	}
 }
+
+// TestSequenceCodeEvidenceIdentity：图形展示（mermaid）与结构化结果使用
+// 同一证据身份——`%% evidence` 行含调用点位置 + canonical ID + verdict；
+// `--evidence` 文本附录逐箭头列出可核验来源（todo10-8）。
+func TestSequenceCodeEvidenceIdentity(t *testing.T) {
+	dir := seedSeqDiagCLI(t)
+	mermaid := captureStdout(func() {
+		cmdQuery([]string{"sequence", "example.com/m:main", "--code", "--format", "mermaid", "--repo", dir, "--depth", "2"})
+	})
+	for _, want := range []string{"%% evidence", "id=symbol:go:example.com/m:leaf", "verdict=", "main.go:6"} {
+		if !strings.Contains(mermaid, want) {
+			t.Errorf("mermaid 证据注释缺 %q:\n%s", want, mermaid)
+		}
+	}
+
+	out := captureStdout(func() {
+		cmdQuery([]string{"sequence", "example.com/m:main", "--code", "--repo", dir, "--depth", "2", "--evidence"})
+	})
+	if !strings.Contains(out, "箭头证据") {
+		t.Fatalf("--evidence 应输出证据清单:\n%s", out)
+	}
+	for _, want := range []string{"source=", "verdict=", "id=symbol:go:example.com/m:leaf", "codeintel query sequence"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("证据清单缺 %q:\n%s", want, out)
+		}
+	}
+	// 与 mermaid 同一身份：两边都出现同一个 canonical ID
+	if !strings.Contains(mermaid, "symbol:go:example.com/m:leaf") || !strings.Contains(out, "symbol:go:example.com/m:leaf") {
+		t.Error("结构化结果与图形展示的证据身份不一致")
+	}
+}

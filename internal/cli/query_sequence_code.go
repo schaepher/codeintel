@@ -27,7 +27,7 @@ import (
 // 写文本（S4——用户：配置 plantuml.jar 用它转图片，失败才写文本）。
 // out：非空时主输出写文件（plantuml 成功 → PNG 字节；否则文本），
 // stdout 打印路径。
-func cmdQuerySequenceCode(acts *action.Actions, abs, target string, depth int, mermaid bool, jsonOut bool, diagram, out string, focus []string) int {
+func cmdQuerySequenceCode(acts *action.Actions, abs, target string, depth int, mermaid bool, jsonOut bool, diagram, out string, focus []string, evidence bool) int {
 	if depth <= 0 {
 		depth = 1
 	}
@@ -60,14 +60,14 @@ func cmdQuerySequenceCode(acts *action.Actions, abs, target string, depth int, m
 	}
 	// 渲染阶段（todo10-9：含 mermaid/plantuml 转换、写文件）
 	renderStart := time.Now()
-	code, _ := renderCodeSeq(root, mermaid, jsonOut, diagram, out)
+	code, _ := renderCodeSeq(root, mermaid, jsonOut, diagram, out, evidence)
 	finishSeqTiming(timing, jsonOut, renderStart, enabled)
 	return code
 }
 
 // renderCodeSeq 把时序树渲染成目标格式并输出（wrote=true 表示已写文件，
 // 不再额外打印内容）。渲染失败返回非零退出码。
-func renderCodeSeq(root *action.CodeSeqNode, mermaid, jsonOut bool, diagram, out string) (code int, wrote bool) {
+func renderCodeSeq(root *action.CodeSeqNode, mermaid, jsonOut bool, diagram, out string, evidence bool) (code int, wrote bool) {
 	if jsonOut {
 		var data []byte
 		if out != "" {
@@ -122,6 +122,9 @@ func renderCodeSeq(root *action.CodeSeqNode, mermaid, jsonOut bool, diagram, out
 	}
 	// 默认文本：缩进树（源码顺序 + 分支/循环标注）
 	text := fmt.Sprintf("== %s 代码级时序 ==\n", root.Label) + seqText(root.Nodes, 1) + seqDiagText(root)
+	if evidence {
+		text += seqEvidenceText(root)
+	}
 	if out != "" {
 		if !writeOutFile(out, []byte(text)) {
 			return 1, true
