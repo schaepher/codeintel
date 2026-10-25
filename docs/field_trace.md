@@ -5234,3 +5234,31 @@ exit 2，早于 `filepath.Abs`/`Open`；合法值经 `initArgs` 追加规范化�
   字段 / 错误提示）。
 - 踩坑：测试夹具的 `LineStart` 与调用边 `line_num` 必须与源码逐行对齐，
   否则时序按行号对齐会落到相邻函数（本次两处夹具都因此先红后修）。
+
+### 4. ext-chain 精确 RPC 方法续接 + 跨仓解析（P0，todo10-4）
+
+原状：`grpcServerMethods` 返回该服务**全部方法**，`extChain` 全部续接——
+调 `Submit` 会把 `Cancel` 的下游一并挂上；仓库固定用起始 `repoAbs`，没有
+注册表解析，也没有"为什么没续接"的说明。
+
+- **精确方法匹配**：按 RPC 方法名匹配服务端实现（先比 proto 名，再比 Go
+  方法名——`GrpcHandlerGoMethod` 从 handler 反推），只续接同名方法；
+  最关键的**数据前提**：`chainGrpcHTTP` 原来丢弃了 grpc_call 边的
+  `metadata.method`（AST 早就写了），现已带上，否则无法精确匹配。
+- **跨仓解析**：`ExtChainRequest` 新增 `CandidateRepos`（cli 从全局注册表
+  取已构建仓库）与 `Open`（打开目标仓库只读视图的回调——action 不依赖
+  注册表/DB 打开细节）；起始仓库优先，其次候选仓库；递归切换到目标仓库
+  视图，节点输出 `repo`、`target_repo`、`target_method`、`match_reason`。
+- **诊断**（复用 `SeqStop{Code,Detail}`）：`method_not_found`（附该服务已
+  实现的方法清单，便于发现名字不同）、`repo_unavailable`（区分"只有调用侧
+  节点"与"完全没实现"）、`cycle`、`depth`；调点未记录方法名时明确说明
+  "无法精确续接"而不是继续猜。
+- **已知数据限制**（重要）：`edges` 的 `UNIQUE(source,target,kind)` 会把
+  "同一调用方 → 同一服务的不同方法" 的 grpc_call 边合并成一条（target 是
+  服务节点），因此同函数调两个方法时索引只剩一个方法名。测试夹具因此用
+  不同调用方验证两个方向；真正的多方法支持需要让 grpc_call 边的 target
+  按方法区分（改 schema 语义，另立任务）。
+- 测试：`action_ext_chain_test.go`（精确匹配/Run 只挂 sms、CancelJob 只挂
+  mail、跨仓 target_repo 与递归视图）、`action_ext_chain_diag_test.go`
+  （方法缺失清单、无实现仓库、循环）、cli 端到端（树状输出含
+  `服务名.方法`，JSON 含 server/http）。

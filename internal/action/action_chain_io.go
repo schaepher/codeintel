@@ -105,11 +105,20 @@ func chainGrpcHTTP(a *Actions, symbol string) ChainIOOut {
 				if i := strings.LastIndex(svc, ":"); i >= 0 {
 					svc = strings.TrimPrefix(svc[i+1:], "svc.")
 				}
-				out.Grpc = append(out.Grpc, ChainCallOut{Service: svc, CalledBy: by, Line: metaLine(f.Metadata)})
+				// todo10-4：带上 RPC 方法名（AST 发射时写 metadata.method）——
+				// ext-chain 靠它精确续接到同名服务端方法
+				out.Grpc = append(out.Grpc, ChainCallOut{Service: svc, CalledBy: by,
+					Method: metaStr(f.Metadata, "method"), Line: metaLine(f.Metadata)})
 			}
 		}
 	}
-	// calls 边里的 grpc 客户端类型调用（构造/方法）
+	// calls 边里的 grpc 客户端类型调用（构造/方法）——弱信号：同调用方已有
+	// grpc_call 边（带 RPC 方法名）时跳过（todo10-4：避免同一次调用重复计入，
+	// 且无方法名的那条无法精确续接）
+	haveGrpcCall := map[string]bool{}
+	for _, g := range out.Grpc {
+		haveGrpcCall[g.Service+"\x00"+g.CalledBy] = true
+	}
 	if facts, err := a.repo.GetFactsByKinds(string(domain.FactCalls)); err == nil {
 		for _, f := range facts {
 			src := string(f.SourceID)
@@ -117,6 +126,9 @@ func chainGrpcHTTP(a *Actions, symbol string) ChainIOOut {
 				continue
 			}
 			if svc := grpcClientName(string(f.TargetID), svcs); svc != "" {
+				if haveGrpcCall[svc+"\x00"+shortNameOf(src)] {
+					continue
+				}
 				out.Grpc = append(out.Grpc, ChainCallOut{Service: svc, CalledBy: shortNameOf(src), Line: metaLine(f.Metadata)})
 			}
 		}

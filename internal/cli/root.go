@@ -138,8 +138,9 @@ const usageText = `codeintel - Go 代码库智能索引与查询（MVP）
   codeintel query http-callers <sym> [--json]
                                   调用链最终调用的 http 接口
   codeintel query ext-chain <sym> [--json]
-                                  外部系统调用链（递归 grpc 服务端方法
-                                  再查 grpc/http 直到没有）
+                                  外部系统调用链（按 RPC 方法精确续接到服务端
+                                  同名方法；目标仓库经注册表跨仓解析；未续接
+                                  原因带诊断）
   codeintel query sequence <sym> [--code] [--depth N] [--format mermaid]
                  [--focus <字段|return>]
                                   调用时序图（默认 depth 2）；--code 代码级

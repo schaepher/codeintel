@@ -49,9 +49,13 @@ func seedExtChainRepo(t *testing.T) (*Actions, string) {
 			Name: "route./send", FilePath: "impl/order.go",
 			Properties: map[string]any{"path": "/send", "method": "GET"}},
 	}, []*domain.Fact{
-		// 客户端调用：daemon → OrderServiceClient
+		// 客户端调用：daemon → OrderServiceClient（类型构造，无方法名）
 		{SourceID: "symbol:go:example.com/m/daemon:(D).Run", TargetID: "symbol:go:example.com/m/pb:OrderServiceClient",
 			Kind: domain.FactCalls, Confidence: 0.9, Metadata: map[string]any{"line_num": 6}},
+		// grpc_call 边（客户端方法调用——metadata.method 决定精确续接）
+		{SourceID: "symbol:go:example.com/m/daemon:(D).Run", TargetID: "symbol:go:example.com/m/pb:svc.OrderService",
+			Kind: domain.FactGrpcCall, Confidence: 1.0,
+			Metadata: map[string]any{"method": "SubmitOrder", "line_num": 7}},
 		// 服务端实现：实现类型 → 服务
 		{SourceID: "symbol:go:example.com/m/impl:orderServiceImpl", TargetID: "symbol:go:example.com/m/pb:svc.OrderService",
 			Kind: domain.FactGrpcImpl, Confidence: 1.0},
