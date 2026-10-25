@@ -108,7 +108,7 @@ for pkg in $(go list ./...); do
   fi
 done
 if [ $fail -eq 0 ]; then
-  echo "OK: 全量验证通过（13 包基线）"
+  echo "OK: 全量验证通过（14 包基线）"
   exit 0
 fi
 echo "失败包见上；修复后重跑 scripts/verify.sh"
