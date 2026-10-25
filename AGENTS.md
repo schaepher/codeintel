@@ -404,8 +404,15 @@ go build -o codeintel ./cmd/codeintel
 #     value-trace|context|path|unused|summary|sequence|enums|entities|helpers|
 #     grpc-routes|http-routes|cli-routes|external-deps|external-interfaces|
 #     kafka-topics|grpc-composites|grpc-callers|http-callers|ext-chain|
-#     packages|architecture|er|processes|module|module-calls
+#     packages|architecture|er|processes|module|module-calls|async|effects
 #                                          # 全部支持 --json；codeintel help 看参数与默认值
+#   codeintel query async <入口|表>        # 异步生命周期关联（人工/审核/定时/消费 +
+#                                          # 因果证据；"仅同作用域"标不构成因果）
+#   codeintel query effects <函数> [--depth N]
+#                                          # 副作用与返回（表列写入/远程写/事务范围/
+#                                          # 错误覆盖可疑点，各带 verdict）
+#   codeintel query sequence <sym> --code [--scene k=v] [--focus <字段|return>] [--evidence]
+#                                          # 代码级时序：场景条件裁剪 / 关注目标 / 箭头证据
 #   codeintel wiki --yaml wiki.yaml [--init] [--diagram plantuml|mermaid]
 #                 [--max-entries N] [--seq-depth N]
 #                                          # 业务 wiki 生成（--ai 增量补缺写回 yaml 标注 # AI 初稿；

@@ -5294,7 +5294,10 @@ exit 2，早于 `filepath.Abs`/`Open`；合法值经 `initArgs` 追加规范化�
 - 测试：`TestTodo10FixturesSanitized`、`TestWrapStatusFixtureSemantics`、
   `TestArrowEvidenceIdentity`（证据四要素齐全 + verdict 合法）、
   `TestSequenceCodeEvidenceIdentity`（mermaid `%% evidence` 与 `--evidence`
-  清单同一身份）。夹具 2/3/4 的行为断言留批 ③（todo10-6/7）。
+  清单同一身份）。夹具 2/3/4 的行为断言已在批 ③ 落地：`TestAsyncFieldLink` /
+  `TestAsyncDualAdvance`（todo10-6）与 `TestEffectsPartialWrite` /
+  `TestEffectsErrorOverwrite`（todo10-7）；夹具索引器（`todo10_index_test.go`）
+  额外产字段读写摘要，供 --focus 与因果判据复用。
 
 ### 5. 场景条件约束路径（P1，todo10-5）
 
