@@ -40,6 +40,11 @@ func cmdQuerySequenceCode(acts *action.Actions, abs, target string, depth int, m
 			fmt.Fprintln(os.Stderr, "error: 代码级时序展开已取消（未完成的分析不作为结果输出）")
 			return 1
 		}
+		var diag *action.SeqDiagError
+		if errors.As(err, &diag) {
+			fmt.Fprintf(os.Stderr, "error: %v\n", diag)
+			return 1
+		}
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
@@ -116,7 +121,7 @@ func renderCodeSeq(root *action.CodeSeqNode, mermaid, jsonOut bool, diagram, out
 		return 0, false
 	}
 	// 默认文本：缩进树（源码顺序 + 分支/循环标注）
-	text := fmt.Sprintf("== %s 代码级时序 ==\n", root.Label) + seqText(root.Nodes, 1)
+	text := fmt.Sprintf("== %s 代码级时序 ==\n", root.Label) + seqText(root.Nodes, 1) + seqDiagText(root)
 	if out != "" {
 		if !writeOutFile(out, []byte(text)) {
 			return 1, true

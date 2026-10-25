@@ -129,6 +129,10 @@ func writeSeqNode(b *strings.Builder, alias map[string]string, from, caller stri
 			}
 			// R83：消息线参数类型单独第二行（Method<br/>(ArgType, ...)）
 			label := seqExecPrefix(n) + n.Label
+			// todo10-3：接口多候选未消歧——不静默当作确定实现
+			if n.Evidence != nil && n.Evidence.Ambiguous {
+				label = "? " + label
+			}
 			if len(n.Args) > 0 {
 				label += "<br/>(" + strings.Join(n.Args, ", ") + ")"
 			}
@@ -142,6 +146,11 @@ func writeSeqNode(b *strings.Builder, alias map[string]string, from, caller stri
 			if len(n.Nodes) > 0 {
 				// R81：嵌套展开——From 切换为被调者 Actor
 				writeSeqNode(b, alias, n.Actor, from, n.Nodes)
+			}
+			// todo10-3：为什么没继续展开（分析停止 vs 业务流程结束）
+			if n.Stop != nil && n.Stop.Code != "" && n.Stop.Code != action.SeqStopNoCalls {
+				b.WriteString(fmt.Sprintf("  Note over %s,%s: 未继续展开：%s%s\n",
+					alias[from], to, n.Stop.Code, seqStopSuffix(n.Stop.Detail)))
 			}
 			// R83：return 线（返回值类型——虚线返回；plantuml 转 return 语法）
 			// todo10-2：并发启动的调用没有"同步完成"语义——不画返回线
@@ -196,7 +205,8 @@ func seqText(nodes []*action.CodeSeqNode, depth int) string {
 		switch n.Kind {
 		case "call":
 			// todo10-2：defer（返回时执行）/ go（并发启动）在文本里也要可见
-			b.WriteString(fmt.Sprintf("%s%d. %s%s%s\n", pad, n.Line, seqExecPrefix(n), n.Label, seqFocusMark(n)))
+			b.WriteString(fmt.Sprintf("%s%d. %s%s%s%s\n", pad, n.Line, seqAmbiguousMark(n), seqExecPrefix(n), n.Label,
+				seqFocusMark(n)))
 			if len(n.Nodes) > 0 {
 				b.WriteString(seqText(n.Nodes, depth+1)) // 嵌套展开（--depth >1）
 			}
@@ -229,42 +239,6 @@ func seqExecPrefix(n *action.CodeSeqNode) string {
 		return "defer "
 	case action.SeqExecAsync:
 		return "go "
-	}
-	return ""
-}
-
-// seqReturnLabel return 线文本：返回值 + 结果槽（槽名与值文本重复时不重复标）。
-func seqReturnLabel(n *action.CodeSeqNode) string {
-	if n == nil {
-		return "return"
-	}
-	label := n.Label
-	if label == "" {
-		label = "return"
-	}
-	if len(n.Slots) > 0 && !slotsRedundant(n.Values, n.Slots) {
-		label += "   [slots: " + strings.Join(n.Slots, ", ") + "]"
-	}
-	return label
-}
-
-// slotsRedundant 结果槽是否只是值文本的重复（避免 "return a, b [slots: a, b]"）。
-func slotsRedundant(values, slots []string) bool {
-	if len(values) != len(slots) {
-		return false
-	}
-	for i := range values {
-		if strings.TrimSpace(values[i]) != strings.TrimSpace(slots[i]) {
-			return false
-		}
-	}
-	return true
-}
-
-// seqFocusMark 焦点命中标记（--focus 过滤时提示"为什么这条在这"）。
-func seqFocusMark(n *action.CodeSeqNode) string {
-	if n != nil && n.Focus {
-		return "   ← focus"
 	}
 	return ""
 }

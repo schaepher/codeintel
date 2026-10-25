@@ -5202,3 +5202,35 @@ exit 2，早于 `filepath.Abs`/`Open`；合法值经 `initArgs` 追加规范化�
   不画返回线）、`TestSequenceCodeTextSemantics`、`TestSequenceCodeFocusFlag`。
   CLI 测试夹具踩坑：节点 `LineStart` 必须与源码行号一致（填错会定位到
   相邻函数，输出的是另一个函数体的时序）。
+
+### 3. 展开终点诊断 + 节点证据（P0，todo10-3）
+
+原状：`codeSeqForSymbol` 有 7 处 `return nil`（visited/无 file_path/读源码
+失败/解析失败/符号缺失/定位失败/…），全部塌缩成"时序不可用"一句话——
+分不清"分析停止"与"业务流程结束"。
+
+- **终点代码**（节点级 `stop.code`）：`no_calls`（本函数无可展开的内部调用
+  = 业务流程结束）/ `depth`（上限）/ `stop_pkg`（配置停止包）/ `cycle`
+  （防环）/ `unresolved`（调用点未在索引——外部库或覆盖缺失）/
+  `index_gap`（节点无 file_path：虚拟/生成符号）/ `source_missing`（源码
+  读不到）/ `func_not_found`（行号处无函数声明）/ `parse_error`。
+  子函数体的终点会**上提**到它的调用节点（"为什么这个调用后面没有东西"）。
+- **证据**（节点级 `evidence`）：`source`（call_edge/ast/iface/
+  field_dataflow/localvar/grpc_impl）、`call_file`+`call_line`（调用点）、
+  `symbol_id`+`file`+`line`（被调符号）、`confidence`（复用 calls 边）、
+  `candidates`+`reason`+`ambiguous`（接口派发）。
+- **接口多候选不静默**：调用点映射改用**原始 calls 边**（此前
+  `CalleesConcrete` 先把接口调用替换成第一个实现，选择过程不可见）；现在
+  由 walk 层经 implements 边生成候选集合，`ambiguous=true` +
+  `reason=first-of-N`；渲染层文本加 `? `前缀 + 诊断清单，mermaid 标签 `? `
+  （回归：`action_seq_dataflow_impltype_test` / `action_seq_param_test` 的
+  断言从 Type=实现 改为 Type=声明接口 + ImplType=实现——语义更准确）。
+- **meta 聚合**：`meta.diagnostics` 按 code 计数（分析停止可整体看到）；
+  根不可用时返回 `*SeqDiagError{Code,Target,Detail}`，cli 映射为可操作
+  提示（索引缺失 → 先 update/reindex）。
+- 测试：`action_seq_diag_test.go`（5 类终点 + depth/stop_pkg + 错误可操作
+  + 证据可定位）、`action_seq_diag_iface_test.go`（多候选 ambiguous）、
+  `query_sequence_code_diag_test.go`（文本诊断节 / mermaid Note / JSON
+  字段 / 错误提示）。
+- 踩坑：测试夹具的 `LineStart` 与调用边 `line_num` 必须与源码逐行对齐，
+  否则时序按行号对齐会落到相邻函数（本次两处夹具都因此先红后修）。

@@ -47,10 +47,11 @@ var ErrSeqCanceled = errors.New("时序展开已取消")
 
 // SeqMeta 根节点元信息（只有根 CodeSeqNode 携带）。
 type SeqMeta struct {
-	Version int           `json:"seq_version"`
-	Target  string        `json:"target,omitempty"`
-	Timing  *SeqTiming    `json:"timing,omitempty"`
-	Focus   *SeqFocusMeta `json:"focus,omitempty"` // todo10-2 part3：焦点过滤是否生效
+	Version     int            `json:"seq_version"`
+	Target      string         `json:"target,omitempty"`
+	Timing      *SeqTiming     `json:"timing,omitempty"`
+	Focus       *SeqFocusMeta  `json:"focus,omitempty"`       // todo10-2 part3：焦点过滤是否生效
+	Diagnostics []SeqDiagCount `json:"diagnostics,omitempty"` // todo10-3：展开终点聚合（按 code）
 }
 
 // SeqFocusMeta 焦点过滤结果（matched=0 时 applied=false——输出保留全量，
@@ -63,9 +64,10 @@ type SeqFocusMeta struct {
 
 // seqTimingAcc 展开期间的累加器（req 按值传递——用指针共享）。
 type seqTimingAcc struct {
-	read   time.Duration // 读源码 + 语法解析（递归展开累加，互不重叠）
-	depth  bool          // 有可展开而未展开的调用点（depth 截断）
-	cancel bool
+	read       time.Duration // 读源码 + 语法解析（递归展开累加，互不重叠）
+	depth      bool          // 有可展开而未展开的调用点（depth 截断）
+	cancel     bool
+	unresolved int // 未解析到项目内符号的调用点数（诊断用）
 }
 
 // millis Duration → 毫秒（保留小数——单次阶段可能远小于 1ms）。
@@ -152,6 +154,9 @@ type CodeSeqNode struct {
 	Slots      []string `json:"slots,omitempty"`      // return: 对应结果槽（具名结果名 / #序号）
 	Terminates bool     `json:"terminates,omitempty"` // return: 终止当前路径（其后的语句不属于该路径）
 	Focus      bool     `json:"focus,omitempty"`      // todo10-2：命中 --focus 目标（字段写入点/写者调用/返回）
+	// todo10-3：展开终点诊断 + 节点证据（canonical ID / 文件 / 行 / 依据）
+	Evidence *SeqEvidence `json:"evidence,omitempty"`
+	Stop     *SeqStop     `json:"stop,omitempty"`
 }
 
 // CodeSequence 解析目标函数的代码级时序（读源码 AST——纯语法不依赖
@@ -183,10 +188,13 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	}
 	tResolved := time.Now()
 	// 阶段 2+3：读源码（acc.read 累加）+ AST 遍历展开
-	root := codeSeqForSymbol(a, req, string(n.ID), req.Depth)
+	root, stop := codeSeqForSymbol(a, req, string(n.ID), req.Depth)
+	if root == nil && stop != nil && stop.Code == SeqStopCycle {
+		stop = nil // 入口本身在栈上不可能；留给下面的 nil 诊断
+	}
 	if root == nil && strings.Contains(string(n.ID), ":(") {
 		if impl, ok := a.InterfaceMethodImpl(string(n.ID)); ok {
-			root = codeSeqForSymbol(a, req, impl, req.Depth)
+			root, stop = codeSeqForSymbol(a, req, impl, req.Depth)
 		}
 	}
 	tWalked := time.Now()
@@ -197,12 +205,18 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 		return nil, ErrSeqCanceled
 	}
 	if root == nil {
-		return nil, nil
+		// todo10-3：不再返回"含义不明的 nil"——带 code 的诊断让调用方可操作
+		if stop == nil {
+			stop = &SeqStop{Code: SeqStopFuncNotFound}
+		}
+		logger.Warn("seq unavailable", zap.String("target", req.Target), zap.String("code", stop.Code),
+			zap.String("detail", stop.Detail))
+		return nil, &SeqDiagError{Code: stop.Code, Target: req.Target, Detail: stop.Detail}
 	}
-	// 终止原因：取消 > 深度截断 > 自然结束
-	stop := SeqStopNone
+	// 终止原因（meta 级）：取消 > 深度截断 > 自然结束
+	stopCode := SeqStopNone
 	if req.acc.depth {
-		stop = SeqStopDepth
+		stopCode = SeqStopDepthLimit
 	}
 	// 阶段口径（互不重叠，递归展开也不重复计）：
 	//   resolve = 解析符号；read = 读源码+语法解析；walk = 遍历展开（含
@@ -214,7 +228,7 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 		TotalMS:   millis(tWalked.Sub(start)),
 		Nodes:     countSeqNodes(root),
 		Depth:     req.Depth,
-		Stop:      stop,
+		Stop:      stopCode,
 	}
 	// todo10-2 part3：焦点过滤（无命中 → 保留全量并在 meta 标记，避免静默空图）
 	if req.focusActive() {
@@ -223,7 +237,8 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 			root.Nodes = filtered
 		}
 	}
-	root.Meta = &SeqMeta{Version: 1, Target: req.Target, Timing: timing}
+	root.Meta = &SeqMeta{Version: 1, Target: req.Target, Timing: timing,
+		Diagnostics: aggregateSeqStops(root)}
 	if req.focusActive() {
 		root.Meta.Focus = &SeqFocusMeta{Targets: req.Focus, Matched: req.focus.matched, Applied: req.focus.matched > 0}
 		timing.Nodes = countSeqNodes(root)
@@ -231,7 +246,7 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	logger.Info("seq timing", zap.String("target", req.Target), zap.Int("depth", req.Depth),
 		zap.Int("nodes", timing.Nodes), zap.Float64("resolve_ms", timing.ResolveMS),
 		zap.Float64("read_ms", timing.ReadMS), zap.Float64("walk_ms", timing.WalkMS),
-		zap.String("stop", stop))
+		zap.String("stop", stopCode))
 	return root, nil
 }
 

@@ -92,10 +92,13 @@ func (s *orderServiceImpl) SubmitOrder() error {
 	if child.Label != "s.manager.SubmitOrder" {
 		t.Fatalf("子调用 = %q; want s.manager.SubmitOrder", child.Label)
 	}
-	// 参数注入形态：数据流（字段赋值自参数）失败 → CalleesConcrete
-	// （ResolveIfaceCalls——implements 枚举）已把调用边 target 具体化
-	// 到业务实现（Type = m.orderManagerImpl——外部 DI 注入的实现）
-	if child.Type != "m.orderManagerImpl" {
-		t.Errorf("Type = %q; want m.orderManagerImpl（CalleesConcrete 接口具体化——外部 DI 注入的实现）", child.Type)
+	// 参数注入形态：数据流（字段赋值自参数）失败 → 走接口派发具体化
+	// （implements 枚举）——todo10-3 起 Type 保留声明接口、实现落 ImplType，
+	// 证据里带候选集合（多实现时 ambiguous）
+	if child.Type != "m.IOrderManager" {
+		t.Errorf("Type = %q; want m.IOrderManager（声明接口）", child.Type)
+	}
+	if child.ImplType != "m.orderManagerImpl" {
+		t.Errorf("ImplType = %q; want m.orderManagerImpl（接口具体化实现——外部 DI 注入）", child.ImplType)
 	}
 }

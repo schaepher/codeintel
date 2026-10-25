@@ -80,8 +80,10 @@ func (s *orderServiceImpl) SubmitOrder() error {
 	}
 	child := root.Nodes[0]
 
-	if child.Type != "m.orderManagerImpl" {
-		t.Errorf("Type = %q; want m.orderManagerImpl（CalleesConcrete 具体化）", child.Type)
+	// todo10-3 起调用点映射用原始 calls 边（不预具体化）：Type 是声明的
+	// 接口类型，实现类型落到 ImplType（证据里保留候选集合）
+	if child.Type != "m.IManager" {
+		t.Errorf("Type = %q; want m.IManager（声明接口——原始 calls 边）", child.Type)
 	}
 	if child.DeclType != "IManager" {
 		t.Errorf("DeclType = %q; want IManager（receiver 字段声明接口类型——字段声明原文）", child.DeclType)
