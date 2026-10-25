@@ -5319,3 +5319,29 @@ exit 2，早于 `filepath.Abs`/`Open`；合法值经 `initArgs` 追加规范化�
   `query_sequence_code_scene_test.go`（文本/JSON/mermaid 三通道 + 未指定不标注）。
 - 踩坑：`req` 按值传递 → 场景计数必须用指针（同 `seqTimingAcc`），否则
   meta 统计恒为 0。
+
+### 6. 异步生命周期关联 + 因果证据（P1，todo10-6）
+
+- **入口**：`query async <入口符号|表> [--json]`（新命令；`cli` 只渲染）。
+- **节点**：seed + 候选入口 = 同字段作用域（`pkg.Type` 近似"表"）读写者
+  ∪ seed 调用链上的函数；角色按符号名启发式判定（`consumer`→
+  consume/listener/subscribe；`cron`→cron/timer/tick/sweep/schedule/job；
+  `audit`→audit/review/check/verify；`human`→approve/manual/human/confirm；
+  `auto`→auto/system/advance/apply），命中词写进 `role_rule`；
+  无特征词 → `other` + `verdict=unverified`（不猜）。
+- **因果判据**（三条任一 → `corroborated`）：
+  (a) `field:<F>` 一方写、另一方读/写同名字段（注：值流可达性未逐跳验证，
+  故为 corroborated 而非 direct）；(b) `call_chain` 两者都在 seed 的
+  `chainSymbols` 链上（**必须双方都在**——seed 自身也在链里，写成 `||`
+  会把 seed 与任意节点的对全判成 call_chain，本轮踩过）；(c)
+  `id_field:<col>` 同名 ID 类字段（`*_id`/`*Id`/`_no`/`_code`）。
+- **"仅同表不算因果"**：只共享作用域（字段前缀相同或同包）→
+  `shared_scope_only` + **`verdict=unverified`**，输出里显式写
+  "不构成因果证据"，既不隐藏也不结论化。
+- 不推断固定操作次数（只给证据与角色，不给"调用 N 次"这类结论）。
+- 测试：`action_async_test.go`（cross_entry_async：Approve↔Sweep 的
+  `field:…State`；dual_advance：调用链证据 vs 仅同作用域 unverified；
+  partial_write：至少一条可核验证据）、`query_async_test.go`（文本角色/
+  证据、"不构成因果"标注、JSON 契约）。
+- 踩坑：`ResolveSymbol` 对 `...:Commit` 会因 `Commit`/`CommitOverwrite`
+  两个匹配而报歧义 → 测试用 canonical ID。

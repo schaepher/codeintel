@@ -29,7 +29,7 @@ func cmdQuery(args []string) int {
 	f := parseQueryFlags(rest)
 	target := ""
 
-	if sub != "unused" && sub != "module-calls" && sub != "enums" && sub != "entities" && sub != "grpc-routes" && sub != "http-routes" && sub != "cli-routes" && sub != "external-deps" && sub != "external-interfaces" && sub != "kafka-topics" && sub != "grpc-composites" && sub != "grpc-callers" && sub != "http-callers" && sub != "ext-chain" && sub != "packages" && sub != "architecture" && sub != "er" && sub != "processes" && sub != "helpers" && !(sub == "relations" && f.all) {
+	if sub != "unused" && sub != "async" && sub != "module-calls" && sub != "enums" && sub != "entities" && sub != "grpc-routes" && sub != "http-routes" && sub != "cli-routes" && sub != "external-deps" && sub != "external-interfaces" && sub != "kafka-topics" && sub != "grpc-composites" && sub != "grpc-callers" && sub != "http-callers" && sub != "ext-chain" && sub != "packages" && sub != "architecture" && sub != "er" && sub != "processes" && sub != "helpers" && !(sub == "relations" && f.all) {
 		if len(f.positional) < 1 {
 			fmt.Fprintf(os.Stderr, "error: 缺少符号参数\n")
 			return 2
@@ -94,6 +94,14 @@ func cmdQuery(args []string) int {
 	// R49：完整包含 grpc server 接口的组合接口
 	if sub == "grpc-composites" {
 		return cmdGrpcComposites(acts, f)
+	}
+	// todo10-6：异步生命周期关联（人工/审核/定时/消费）
+	if sub == "async" {
+		if len(f.positional) < 1 {
+			fmt.Fprintln(os.Stderr, "error: query async 需要一个入口符号或表名")
+			return 2
+		}
+		return queryAsync(acts, abs, f.positional[0], f.json)
 	}
 	// R88：工具函数清单（游离函数 + 跨包使用数 ≥N）
 	if sub == "helpers" {
