@@ -128,17 +128,24 @@ func writeSeqNode(b *strings.Builder, alias map[string]string, from, caller stri
 				to = alias[from]
 			}
 			// R83：消息线参数类型单独第二行（Method<br/>(ArgType, ...)）
-			label := n.Label
+			label := seqExecPrefix(n) + n.Label
 			if len(n.Args) > 0 {
 				label += "<br/>(" + strings.Join(n.Args, ", ") + ")"
 			}
-			b.WriteString(fmt.Sprintf("  %s->>%s: %s\n", alias[from], to, label))
+			// todo10-2：go 用异步箭头（-)）——并发启动，不画同步完成
+			if n.Exec == action.SeqExecAsync {
+				b.WriteString(fmt.Sprintf("  %s-)%s: %s\n", alias[from], to, label))
+				b.WriteString(fmt.Sprintf("  Note over %s,%s: 并发启动（完成顺序未知）\n", alias[from], to))
+			} else {
+				b.WriteString(fmt.Sprintf("  %s->>%s: %s\n", alias[from], to, label))
+			}
 			if len(n.Nodes) > 0 {
 				// R81：嵌套展开——From 切换为被调者 Actor
 				writeSeqNode(b, alias, n.Actor, from, n.Nodes)
 			}
 			// R83：return 线（返回值类型——虚线返回；plantuml 转 return 语法）
-			if len(n.Returns) > 0 {
+			// todo10-2：并发启动的调用没有"同步完成"语义——不画返回线
+			if len(n.Returns) > 0 && n.Exec != action.SeqExecAsync {
 				b.WriteString(fmt.Sprintf("  %s-->>%s: return %s\n", to, alias[from], strings.Join(n.Returns, ", ")))
 			}
 		case "branch":
@@ -157,8 +164,8 @@ func writeSeqNode(b *strings.Builder, alias map[string]string, from, caller stri
 			}
 			b.WriteString("  end\n")
 		case "return":
-			// S2：分支内 return → 虚线回调用者
-			b.WriteString(fmt.Sprintf("  %s-->>%s: return\n", alias[from], alias[from]))
+			// S2：分支内 return → 虚线回调用者；todo10-2：带返回值与结果槽
+			b.WriteString(fmt.Sprintf("  %s-->>%s: %s\n", alias[from], alias[from], seqReturnLabel(n)))
 		case "continue":
 			// S2：循环内 continue → 回循环继续（参与者自回环）
 			b.WriteString(fmt.Sprintf("  %s-->>%s: continue\n", alias[from], alias[from]))
@@ -188,7 +195,8 @@ func seqText(nodes []*action.CodeSeqNode, depth int) string {
 	for _, n := range nodes {
 		switch n.Kind {
 		case "call":
-			b.WriteString(fmt.Sprintf("%s%d. %s\n", pad, n.Line, n.Label))
+			// todo10-2：defer（返回时执行）/ go（并发启动）在文本里也要可见
+			b.WriteString(fmt.Sprintf("%s%d. %s%s%s\n", pad, n.Line, seqExecPrefix(n), n.Label, seqFocusMark(n)))
 			if len(n.Nodes) > 0 {
 				b.WriteString(seqText(n.Nodes, depth+1)) // 嵌套展开（--depth >1）
 			}
@@ -202,9 +210,61 @@ func seqText(nodes []*action.CodeSeqNode, depth int) string {
 		case "loop":
 			b.WriteString(fmt.Sprintf("%sloop %s\n", pad, n.Label))
 			b.WriteString(seqText(n.Nodes, depth+1))
-		case "return", "continue", "break":
+		case "return":
+			// todo10-2：返回值 + 结果槽（具名结果名 / #序号）
+			b.WriteString(fmt.Sprintf("%s%d. %s%s\n", pad, n.Line, seqReturnLabel(n), seqFocusMark(n)))
+		case "assign":
+			b.WriteString(fmt.Sprintf("%s%d. %s%s\n", pad, n.Line, n.Label, seqFocusMark(n)))
+		case "continue", "break":
 			b.WriteString(fmt.Sprintf("%s%s\n", pad, n.Label))
 		}
 	}
 	return b.String()
+}
+
+// seqExecPrefix 执行语义前缀（defer=返回时执行 / go=并发启动 / 空=同步）。
+func seqExecPrefix(n *action.CodeSeqNode) string {
+	switch n.Exec {
+	case action.SeqExecDefer:
+		return "defer "
+	case action.SeqExecAsync:
+		return "go "
+	}
+	return ""
+}
+
+// seqReturnLabel return 线文本：返回值 + 结果槽（槽名与值文本重复时不重复标）。
+func seqReturnLabel(n *action.CodeSeqNode) string {
+	if n == nil {
+		return "return"
+	}
+	label := n.Label
+	if label == "" {
+		label = "return"
+	}
+	if len(n.Slots) > 0 && !slotsRedundant(n.Values, n.Slots) {
+		label += "   [slots: " + strings.Join(n.Slots, ", ") + "]"
+	}
+	return label
+}
+
+// slotsRedundant 结果槽是否只是值文本的重复（避免 "return a, b [slots: a, b]"）。
+func slotsRedundant(values, slots []string) bool {
+	if len(values) != len(slots) {
+		return false
+	}
+	for i := range values {
+		if strings.TrimSpace(values[i]) != strings.TrimSpace(slots[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// seqFocusMark 焦点命中标记（--focus 过滤时提示"为什么这条在这"）。
+func seqFocusMark(n *action.CodeSeqNode) string {
+	if n != nil && n.Focus {
+		return "   ← focus"
+	}
+	return ""
 }

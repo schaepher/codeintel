@@ -102,6 +102,14 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 			return true
 		})
 	}
+	// todo10-2：具名结果槽（return 节点的 slots 用）+ 本函数焦点写入行
+	// （按值传给递归——子函数各自覆盖，不会串用父函数的行号）
+	req.resultNames = resultNamesOf(fn.Type.Results)
+	if req.focus != nil && len(req.focus.fields) > 0 {
+		req.focusLines = a.focusLinesFor(domain.CanonicalID(symID), req.focus)
+	} else {
+		req.focusLines = nil
+	}
 	root := &CodeSeqNode{Kind: "call", Label: fn.Name.Name, Line: n.LineStart}
 	root.Nodes = walkStmts(a, req, fset, src, fn.Body.List, tgts, depth, recvType, recvDecl, f, pkgPathOf(symID), n.FilePath)
 	return root
@@ -130,4 +138,22 @@ func (t *seqTargets) lookup(pos token.Position) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// resultNamesOf 函数签名的具名结果（无具名/无结果返回空——此时 return
+// 节点用 #序号 作槽名）。
+func resultNamesOf(fl *ast.FieldList) []string {
+	if fl == nil {
+		return nil
+	}
+	var out []string
+	for _, f := range fl.List {
+		for range f.Names {
+			out = append(out, f.Names[0].Name)
+		}
+		if len(f.Names) == 0 {
+			out = append(out, "")
+		}
+	}
+	return out
 }

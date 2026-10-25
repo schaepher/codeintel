@@ -5172,3 +5172,33 @@ exit 2，早于 `filepath.Abs`/`Open`；合法值经 `initArgs` 追加规范化�
   `TestCountSeqNodes`、`TestQuerySequenceCodeTimingDiagnostics`（开关开/
   关的 JSON 与 stderr）。
 - 明确不做（需求里写明需采样确认后另列任务）：缓存/按需加载/预算控制。
+
+### 2. 代码级时序的执行语义与返回语义（P0）
+
+`walkStmt` 原本把 `defer`/`go` 当普通调用（`DeferStmt`/`GoStmt` 直接
+`callNode`），`return` 只在不含调用时才有节点（含调用时被调用节点吸收）。
+
+- **执行语义**：`CodeSeqNode.Exec = sync|defer|async`。defer/go **位置保持
+  在声明处**（位置是事实），执行时机用 Exec 表达；渲染：文本前缀
+  `defer `/`go `，mermaid 用 `-)` 异步箭头 + `Note ... 并发启动（完成顺序
+  未知）`，且**不画返回线**（没有同步完成语义）。
+- **返回语义**：return 一律输出独立节点 `Kind:"return"`，字段
+  `Values`（表达式文本，按书写顺序）/`Slots`（具名结果名，否则 `#i`）/
+  `Terminates:true`；返回表达式内的调用先求值（`InReturn:true`）再输出
+  return 节点；`walkStmts` 见到 `Terminates` 即停止剩余语句——返回后的
+  语句不属于该路径。文本渲染 `return resp, nil   [slots: resp, err]`
+  （槽与值文本重复时不重复标注）。
+- **焦点（part 3）**：`--focus <字段路径|return>`（可逗号分隔/重复）。
+  字段目标的判据**复用 SSA 摘要**：本函数 `GetFunctionFields` 的
+  direct_write/indirect_write 行 + 被调者命中 `GetFieldWriters` 名单 +
+  赋值语句左侧文本兜底（`s.status = …`）；条件是依据，子树有命中即保留；
+  非焦点模式输出与之前完全一致（不新增 assign 步骤）。无命中时**不输出
+  空图**：保留全量并在 `meta.focus.applied=false` 标记。
+- 测试：`TestCodeSequenceDeferGoSemantics`（按行断言 exec，不靠 Label——
+  `unlock()` 与 `defer unlock()` 同名）、`TestCodeSequenceReturnNodeAlways`
+  （调用 + return 节点 / 求值顺序 / 返回后语句不在路径）、
+  `TestCodeSequenceResultSlots`（具名结果映射）、`TestCodeSequenceFocusField/
+  Return/Miss`、`TestSequenceCodeMermaidDeferGoSemantics`（`-)` + Note +
+  不画返回线）、`TestSequenceCodeTextSemantics`、`TestSequenceCodeFocusFlag`。
+  CLI 测试夹具踩坑：节点 `LineStart` 必须与源码行号一致（填错会定位到
+  相邻函数，输出的是另一个函数体的时序）。

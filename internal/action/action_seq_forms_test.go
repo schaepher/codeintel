@@ -104,21 +104,25 @@ func seqTopCalls(t *testing.T, acts *Actions, dir, target string) []string {
 	return out
 }
 
-// TestCodeSequenceReturnCall：函数体单行 return 调用——调用显示。
+// TestCodeSequenceReturnCall：函数体单行 return 调用——调用 + 独立
+// return 节点（todo10-2：此前有调用时 return 节点整体丢失）。
 func TestCodeSequenceReturnCall(t *testing.T) {
 	acts, dir := seedSeqFormsRepo(t)
 	got := seqTopCalls(t, acts, dir, "returnCall")
-	if len(got) != 1 || got[0] != "call:svc.Get" {
-		t.Errorf("returnCall 顶层 = %v; want [call:svc.Get]", got)
+	want := []string{"call:svc.Get", "return:return svc.Get()"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("returnCall 顶层 = %v; want %v（调用求值在前 + return 节点）", got, want)
 	}
 }
 
-// TestCodeSequenceReturnExpr：return foo() + 1——嵌套调用提取（不丢）。
+// TestCodeSequenceReturnExpr：return foo() + 1——嵌套调用提取（不丢）+
+// return 节点保留表达式文本。
 func TestCodeSequenceReturnExpr(t *testing.T) {
 	acts, dir := seedSeqFormsRepo(t)
 	got := seqTopCalls(t, acts, dir, "returnExpr")
-	if len(got) != 1 || got[0] != "call:svc.Get" {
-		t.Errorf("returnExpr 顶层 = %v; want [call:svc.Get]（BinaryExpr 内调用）", got)
+	want := []string{"call:svc.Get", "return:return svc.Get() + 1"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("returnExpr 顶层 = %v; want %v（BinaryExpr 内调用保留求值顺序）", got, want)
 	}
 }
 

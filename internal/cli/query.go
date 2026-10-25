@@ -45,6 +45,7 @@ type queryFlags struct {
 	code             bool     // R81：sequence --code——代码级时序（AST 解析函数体：调用名 + 分支/循环）
 	minPkgs          int      // R88：helpers --min-packages——跨包使用数阈值（0 = 配置默认 3）
 	out              string   // R100：sequence --out——输出写文件（plantuml → PNG；否则文本）
+	focus            []string // todo10-2：sequence --code --focus——关注目标（字段路径 / return）
 }
 
 // edgeCandidateJSON 边级候选标注（Q161：动态 argument/returns 边元数据）。

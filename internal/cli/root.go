@@ -141,8 +141,11 @@ const usageText = `codeintel - Go 代码库智能索引与查询（MVP）
                                   外部系统调用链（递归 grpc 服务端方法
                                   再查 grpc/http 直到没有）
   codeintel query sequence <sym> [--code] [--depth N] [--format mermaid]
+                 [--focus <字段|return>]
                                   调用时序图（默认 depth 2）；--code 代码级
-                                  （AST 分支/循环/switch 嵌套展开，默认 depth 1）
+                                  （AST 分支/循环/switch 嵌套展开，默认 depth 1；
+                                  defer/go 标执行时机，return 带返回值与结果槽；
+                                  --focus 只看指定状态字段/返回值的相关步骤）
   codeintel query packages [--json]
                                   包结构清单（包路径/职责/符号数）
   codeintel query architecture [--json]

@@ -18,97 +18,21 @@ func walkStmts(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []b
 			req.acc.cancel = true
 			return out
 		}
-		out = append(out, walkStmt(a, req, fset, src, st, tgts, depth, recvType, recvDecl, f, curPkg, curFile)...)
+		seq := walkStmt(a, req, fset, src, st, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
+		out = append(out, seq...)
+		// todo10-2：return 终止当前路径——其后的语句不属于这条路径
+		for _, n := range seq {
+			if n.Terminates {
+				return out
+			}
+		}
 	}
 	return out
 }
 
 // walkStmt 单条语句 → 步骤（可能多条：赋值内多个调用）。
 func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []byte, stmt ast.Stmt, tgts *seqTargets, depth int, recvType string, recvDecl map[string]string, f *ast.File, curPkg, curFile string) []*CodeSeqNode {
-	callNode := func(fun ast.Expr, pos token.Position) *CodeSeqNode {
-		node := &CodeSeqNode{Kind: "call", Label: callLabel(fset, src, fun), Actor: callActor(fset, src, fun), Line: pos.Line}
-
-		if tid, ok := tgts.lookup(pos); ok {
-
-			if seqFilterHit(req.Filter, tid, curFile, node.Label) {
-				return nil
-			}
-			sigID := tid
-			if !strings.Contains(tid, ":(") {
-				if sel, isSel := fun.(*ast.SelectorExpr); isSel {
-					sigID = GrpcMethodEntryID(tid, sel.Sel.Name)
-				}
-			}
-			node.Type = implTypeShort(tid)
-			// todo10-9：有可解析的目标却因 depth 上限未展开 → 记"depth 截断"
-			// （终止原因不是"流程结束"）
-			if depth <= 1 {
-				req.acc.depth = true
-			}
-			if args, rets, ok2 := sigTypesOf(a, sigID); ok2 {
-				node.Args, node.Returns = args, rets
-			}
-		}
-
-		if depth > 1 {
-			if tid, ok := tgts.lookup(pos); ok {
-
-				if seqStopPkgHit(tid, req.StopPackages) {
-					return node
-				}
-
-				if sel, isSel := fun.(*ast.SelectorExpr); isSel && recvType != "" {
-					if field, ok2 := receiverFieldSel(sel, recvType); ok2 {
-						if implMethod := a.receiverFieldImpl(req, recvType, field, sel.Sel.Name); implMethod != "" {
-
-							node.ImplType = implTypeShort(implMethod)
-							if decl, ok := recvDecl[field]; ok {
-								node.DeclType = decl
-							}
-							if child := codeSeqForSymbol(a, req, implMethod, depth-1); child != nil {
-								node.Nodes = child.Nodes
-								return node
-							}
-						}
-					}
-				}
-
-				if sel, isSel := fun.(*ast.SelectorExpr); isSel {
-					if id, ok := sel.X.(*ast.Ident); ok {
-						if implMethod := a.localVarImpl(req, f, curPkg, id.Name, sel.Sel.Name); implMethod != "" {
-							node.ImplType = implTypeShort(implMethod)
-							if child := codeSeqForSymbol(a, req, implMethod, depth-1); child != nil {
-								node.Nodes = child.Nodes
-								return node
-							}
-						}
-					}
-				}
-
-				if strings.Contains(tid, ":(") {
-					if impl, ok := a.InterfaceMethodImpl(tid); ok {
-						node.ImplType = implTypeShort(impl)
-						if child := codeSeqForSymbol(a, req, impl, depth-1); child != nil {
-							node.Nodes = child.Nodes
-							return node
-						}
-					}
-				}
-				if !strings.Contains(tid, ":(") {
-					if sel, isSel := fun.(*ast.SelectorExpr); isSel {
-						if child := codeSeqForSymbol(a, req, GrpcMethodEntryID(tid, sel.Sel.Name), depth-1); child != nil {
-							node.Nodes = child.Nodes
-							return node
-						}
-					}
-				}
-				if child := codeSeqForSymbol(a, req, tid, depth-1); child != nil {
-					node.Nodes = child.Nodes
-				}
-			}
-		}
-		return node
-	}
+	callNode := newSeqCallNode(a, req, fset, src, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
 	switch s := stmt.(type) {
 	case *ast.ExprStmt:
 		if call, ok := s.X.(*ast.CallExpr); ok {
@@ -127,6 +51,16 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 					out = append(out, n)
 				}
 			}
+		}
+		// todo10-2 part3：焦点模式下输出"纯赋值"步骤（状态字段赋值常常
+		// 不含调用，纯调用树看不到）；非焦点模式保持原输出不变
+		if req.focusActive() {
+			line := fset.Position(s.Pos()).Line
+			node := &CodeSeqNode{Kind: "assign", Label: assignLabel(fset, src, s), Line: line}
+			if (req.focusLines != nil && req.focusLines[line]) || assignsFocusField(s, req.focus.fields) {
+				node.Focus = true
+			}
+			out = append(out, node)
 		}
 		return out
 	case *ast.IfStmt:
@@ -157,30 +91,47 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 	case *ast.BlockStmt:
 		return walkStmts(a, req, fset, src, s.List, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
 	case *ast.DeferStmt:
+		// todo10-2：defer 是"函数返回时执行"——位置保留在声明处（事实），
+		// Exec 标注执行时机（不渲染成声明处立即执行）
 		if n := callNode(s.Call.Fun, fset.Position(s.Call.Lparen)); n != nil {
+			n.Exec = SeqExecDefer
 			return []*CodeSeqNode{n}
 		}
 		return nil
 	case *ast.GoStmt:
+		// todo10-2：go 是并发启动——完成顺序未知，渲染层不得画成同步完成
 		if n := callNode(s.Call.Fun, fset.Position(s.Call.Lparen)); n != nil {
+			n.Exec = SeqExecAsync
 			return []*CodeSeqNode{n}
 		}
 		return nil
 	case *ast.ReturnStmt:
-		// R100 续：return foo() + 1——表达式内调用提取（原只认顶层
-		// CallExpr，BinaryExpr 内的调用只画 return 线、调用丢失）
+		// todo10-2：返回语义分两步——① 返回表达式内的调用按书写顺序先
+		// 求值（InReturn 标注）② 独立 return 节点携带返回表达式/结果槽/
+		// 终止当前路径（此前有调用时 return 节点整体丢失）
 		var out []*CodeSeqNode
 		for _, r := range s.Results {
 			for _, call := range collectCalls(r) {
 				if n := callNode(call.Fun, fset.Position(call.Lparen)); n != nil {
+					n.InReturn = true
 					out = append(out, n)
 				}
 			}
 		}
-
-		if len(out) == 0 {
-			out = append(out, &CodeSeqNode{Kind: "return", Label: "return", Line: fset.Position(s.Pos()).Line})
+		ret := &CodeSeqNode{
+			Kind: "return", Label: "return", Line: fset.Position(s.Pos()).Line,
+			Terminates: true,
 		}
+		for _, r := range s.Results {
+			ret.Values = append(ret.Values, seqExprText(fset, src, r))
+		}
+		for i := range ret.Values {
+			ret.Slots = append(ret.Slots, seqResultSlot(i, len(ret.Values), req.resultNames))
+		}
+		if len(ret.Values) > 0 {
+			ret.Label = "return " + strings.Join(ret.Values, ", ")
+		}
+		out = append(out, ret)
 		return out
 	case *ast.SendStmt:
 		// R100 续：ch <- foo()——原无 case 整条丢弃；提取发送值内调用

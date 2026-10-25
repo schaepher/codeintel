@@ -85,9 +85,16 @@ func TestCodeSequenceNodes(t *testing.T) {
 	if root.Nodes[3].Kind != "call" || root.Nodes[3].Label != "svc.Save" {
 		t.Errorf("步骤 4 应为 svc.Save 调用: %+v", root.Nodes[3])
 	}
-	// 分支内调用 + else
-	if len(root.Nodes[0].Nodes) != 1 || root.Nodes[0].Nodes[0].Label != "ErrEmpty" {
-		t.Errorf("if 分支内应有调用: %+v", root.Nodes[0])
+	// 分支内：调用（求值）+ return 节点（todo10-2：return 不再被调用吸收）
+	if len(root.Nodes[0].Nodes) != 2 || root.Nodes[0].Nodes[0].Label != "ErrEmpty" {
+		t.Fatalf("if 分支内应为 [call ErrEmpty, return]: %+v", root.Nodes[0])
+	}
+	if !root.Nodes[0].Nodes[0].InReturn {
+		t.Errorf("return 表达式内的调用应标 in_return: %+v", root.Nodes[0].Nodes[0])
+	}
+	if ret := root.Nodes[0].Nodes[1]; ret.Kind != "return" || !ret.Terminates ||
+		len(ret.Values) != 1 || ret.Values[0] != "ErrEmpty()" {
+		t.Errorf("应输出终止路径的 return 节点（含值）: %+v", ret)
 	}
 	// 循环体内调用
 	if len(root.Nodes[2].Nodes) != 1 || root.Nodes[2].Nodes[0].Label != "svc.Validate" {
@@ -175,32 +182,6 @@ func TestCodeSequenceNested(t *testing.T) {
 	}
 	if nested.Nodes[0].Label != "helper" {
 		t.Errorf("嵌套内调用 = %q; want helper", nested.Nodes[0].Label)
-	}
-}
-
-// TestCodeSequenceStopPkg：R83——停止包命中 → depth 2 不展开内部
-// （节点保留 Nodes 空；StopPackages 由 cli 传入）。
-func TestCodeSequenceStopPkg(t *testing.T) {
-	acts, dir := seedNestedSeqRepo(t)
-	// 无停止包：depth 2 展开 helper
-	root, err := acts.CodeSequence(CodeSequenceRequest{Target: "Prepare", RepoAbs: dir, Depth: 2})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(root.Nodes) != 1 || len(root.Nodes[0].Nodes) != 1 {
-		t.Fatalf("无停止包 depth 2 应展开: %+v", root.Nodes)
-	}
-	// svc 在停止列表：depth 2 不展开（节点保留 Nodes 空）
-	root2, err := acts.CodeSequence(CodeSequenceRequest{
-		Target: "Prepare", RepoAbs: dir, Depth: 2, StopPackages: []string{"example.com/m/svc"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(root2.Nodes) != 1 || len(root2.Nodes[0].Nodes) != 0 {
-		t.Fatalf("停止包应不展开内部: %+v", root2.Nodes)
-	}
-	if root2.Nodes[0].Label != "svc.LoadItems" {
-		t.Errorf("节点应保留（不深入）: %+v", root2.Nodes[0])
 	}
 }
 

@@ -28,6 +28,13 @@ type SeqTiming struct {
 	Stop      string  `json:"stop"`       // 终止原因：none | depth | canceled
 }
 
+// 调用执行语义（todo10-2）：sync 缺省；defer 函数返回时执行；async 并发
+// 启动（完成顺序未知，不得渲染成同步完成）。
+const (
+	SeqExecDefer = "defer"
+	SeqExecAsync = "async"
+)
+
 // 终止原因（todo10-9；todo10-3 起扩展为按键诊断集）。
 const (
 	SeqStopNone     = "none"     // 自然结束（本函数语句走完）
@@ -40,9 +47,18 @@ var ErrSeqCanceled = errors.New("时序展开已取消")
 
 // SeqMeta 根节点元信息（只有根 CodeSeqNode 携带）。
 type SeqMeta struct {
-	Version int        `json:"seq_version"`
-	Target  string     `json:"target,omitempty"`
-	Timing  *SeqTiming `json:"timing,omitempty"`
+	Version int           `json:"seq_version"`
+	Target  string        `json:"target,omitempty"`
+	Timing  *SeqTiming    `json:"timing,omitempty"`
+	Focus   *SeqFocusMeta `json:"focus,omitempty"` // todo10-2 part3：焦点过滤是否生效
+}
+
+// SeqFocusMeta 焦点过滤结果（matched=0 时 applied=false——输出保留全量，
+// 调用方据此提示"未命中"而不是把空图当结论）。
+type SeqFocusMeta struct {
+	Targets []string `json:"targets"`
+	Matched int      `json:"matched"`
+	Applied bool     `json:"applied"`
 }
 
 // seqTimingAcc 展开期间的累加器（req 按值传递——用指针共享）。
@@ -77,6 +93,9 @@ type CodeSequenceRequest struct {
 	Depth        int       // 嵌套层级（1 = 只本函数；>1 递归展开被调函数内部）
 	StopPackages []string  // 停止包列表（cli 从 config.yaml 读取——命中不深入）
 	Filter       SeqFilter // S5：导出过滤（按包/文件/函数/正则——命中不生成节点，如 log 调用）
+	// Focus 关注目标（todo10-2 part3）：字段路径（pkg.T.F / T.F / F 后缀匹配）
+	// 或 "return"（只看返回与返回表达式内调用）。空 = 不过滤。
+	Focus []string
 	// Ctx 取消信号（todo10-9）：递归展开每语句检查一次；nil = 不取消
 	Ctx context.Context
 	// 内部：递归展开路径防环（R97——grpc 实现内部调接口、接口具体化
@@ -85,6 +104,23 @@ type CodeSequenceRequest struct {
 	visited map[string]bool
 	// 内部：阶段耗时累加（todo10-9）
 	acc *seqTimingAcc
+	// 内部（todo10-2）：当前函数的关注行（字段写入点）+ 具名结果槽 + 焦点配置
+	focusLines  map[int]bool
+	resultNames []string
+	focus       *seqFocus
+}
+
+// seqFocus 一次查询的焦点配置（--focus 解析结果，跨递归共享）。
+type seqFocus struct {
+	returns bool            // 关注返回值
+	fields  []string        // 字段路径（后缀匹配）
+	writers map[string]bool // 写这些字段的函数（canonical ID——被调者命中即关注）
+	matched int             // 命中的节点数（0 = 未命中，meta 标记）
+}
+
+// focusActive 是否启用焦点过滤。
+func (r CodeSequenceRequest) focusActive() bool {
+	return r.focus != nil && (r.focus.returns || len(r.focus.fields) > 0)
 }
 
 // ctx 取消上下文（nil 安全）。
@@ -109,6 +145,13 @@ type CodeSeqNode struct {
 	Nodes    []*CodeSeqNode // 子节点（branch: then 分支；loop: 循环体；call: 嵌套展开的被调函数调用）
 	Else     []*CodeSeqNode // branch: else 分支（可选）
 	Meta     *SeqMeta       `json:"meta,omitempty"` // 仅根节点：版本/目标/阶段耗时（todo10-9）
+	// todo10-2：执行语义与返回语义
+	Exec       string   `json:"exec,omitempty"`       // call: sync（缺省）|defer（退出时执行）|async（并发启动，完成顺序未知）
+	InReturn   bool     `json:"in_return,omitempty"`  // call: 位于 return 表达式中（求值发生在返回前）
+	Values     []string `json:"values,omitempty"`     // return: 返回表达式文本（按书写顺序）
+	Slots      []string `json:"slots,omitempty"`      // return: 对应结果槽（具名结果名 / #序号）
+	Terminates bool     `json:"terminates,omitempty"` // return: 终止当前路径（其后的语句不属于该路径）
+	Focus      bool     `json:"focus,omitempty"`      // todo10-2：命中 --focus 目标（字段写入点/写者调用/返回）
 }
 
 // CodeSequence 解析目标函数的代码级时序（读源码 AST——纯语法不依赖
@@ -126,6 +169,10 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	}
 	if req.acc == nil {
 		req.acc = &seqTimingAcc{}
+	}
+	// todo10-2 part3：--focus 解析（字段路径 / return）——一次性构建
+	if req.focus == nil && len(req.Focus) > 0 {
+		req.focus = a.newSeqFocus(req.Focus)
 	}
 	ctx := req.ctx()
 
@@ -169,7 +216,18 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 		Depth:     req.Depth,
 		Stop:      stop,
 	}
+	// todo10-2 part3：焦点过滤（无命中 → 保留全量并在 meta 标记，避免静默空图）
+	if req.focusActive() {
+		filtered := pruneToFocus(root.Nodes, req.focus)
+		if req.focus.matched > 0 {
+			root.Nodes = filtered
+		}
+	}
 	root.Meta = &SeqMeta{Version: 1, Target: req.Target, Timing: timing}
+	if req.focusActive() {
+		root.Meta.Focus = &SeqFocusMeta{Targets: req.Focus, Matched: req.focus.matched, Applied: req.focus.matched > 0}
+		timing.Nodes = countSeqNodes(root)
+	}
 	logger.Info("seq timing", zap.String("target", req.Target), zap.Int("depth", req.Depth),
 		zap.Int("nodes", timing.Nodes), zap.Float64("resolve_ms", timing.ResolveMS),
 		zap.Float64("read_ms", timing.ReadMS), zap.Float64("walk_ms", timing.WalkMS),

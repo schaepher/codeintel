@@ -116,6 +116,11 @@ func parseQueryFlags(args []string) queryFlags {
 			f.maxEntries, _ = strconv.Atoi(strings.TrimPrefix(a, "--max-entries="))
 		case a == "--code":
 			f.code = true
+		case a == "--focus" && i+1 < len(args):
+			f.focus = append(f.focus, splitComma(args[i+1])...)
+			i++
+		case strings.HasPrefix(a, "--focus="):
+			f.focus = append(f.focus, splitComma(strings.TrimPrefix(a, "--focus="))...)
 		case a == "--out" && i+1 < len(args):
 			f.out = args[i+1]
 			i++
@@ -139,4 +144,15 @@ func parseQueryFlags(args []string) queryFlags {
 		}
 	}
 	return f
+}
+
+// splitComma 逗号分隔列表拆分（去空白；空串丢弃）。
+func splitComma(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

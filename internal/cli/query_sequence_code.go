@@ -20,19 +20,20 @@ import (
 	"go.uber.org/zap"
 )
 
-// cmdQuerySequenceCode 实现 `query sequence --code <符号> [--depth N] [--format mermaid|plantuml] [--json] [--out <file>]`。
+// cmdQuerySequenceCode 实现 `query sequence --code <符号> [--depth N]
+// [--format mermaid|plantuml] [--json] [--out <file>] [--focus <字段|return>]`。
 // depth：嵌套层级（1 = 只本函数；>1 递归展开被调函数内部）。
 // diagram：plantuml 时 mermaid → plantuml 转 PNG base64 输出；失败
 // 写文本（S4——用户：配置 plantuml.jar 用它转图片，失败才写文本）。
 // out：非空时主输出写文件（plantuml 成功 → PNG 字节；否则文本），
 // stdout 打印路径。
-func cmdQuerySequenceCode(acts *action.Actions, abs, target string, depth int, mermaid bool, jsonOut bool, diagram, out string) int {
+func cmdQuerySequenceCode(acts *action.Actions, abs, target string, depth int, mermaid bool, jsonOut bool, diagram, out string, focus []string) int {
 	if depth <= 0 {
 		depth = 1
 	}
 	root, err := acts.CodeSequence(action.CodeSequenceRequest{
 		Target: target, RepoAbs: abs, Depth: depth, StopPackages: loadSeqStopPkgs(),
-		Filter: loadSeqFilter()})
+		Filter: loadSeqFilter(), Focus: focus})
 	if err != nil {
 		// todo10-9：主动终止（取消）不得报告为成功
 		if errors.Is(err, action.ErrSeqCanceled) {
