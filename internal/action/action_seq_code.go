@@ -50,6 +50,7 @@ type SeqMeta struct {
 	Version     int            `json:"seq_version"`
 	Target      string         `json:"target,omitempty"`
 	Timing      *SeqTiming     `json:"timing,omitempty"`
+	Scene       *sceneSummary  `json:"scene,omitempty"`       // todo10-5：场景裁剪统计
 	Focus       *SeqFocusMeta  `json:"focus,omitempty"`       // todo10-2 part3：焦点过滤是否生效
 	Diagnostics []SeqDiagCount `json:"diagnostics,omitempty"` // todo10-3：展开终点聚合（按 code）
 }
@@ -98,6 +99,8 @@ type CodeSequenceRequest struct {
 	// Focus 关注目标（todo10-2 part3）：字段路径（pkg.T.F / T.F / F 后缀匹配）
 	// 或 "return"（只看返回与返回表达式内调用）。空 = 不过滤。
 	Focus []string
+	// Scene 场景条件（todo10-5）：静态可判定的键值，用于分支裁剪与依据标注
+	Scene Scene
 	// Ctx 取消信号（todo10-9）：递归展开每语句检查一次；nil = 不取消
 	Ctx context.Context
 	// 内部：递归展开路径防环（R97——grpc 实现内部调接口、接口具体化
@@ -110,6 +113,11 @@ type CodeSequenceRequest struct {
 	focusLines  map[int]bool
 	resultNames []string
 	focus       *seqFocus
+	// 内部（todo10-5）：一层条件传播——调用点实参字面量（按位置）与形参映射
+	callArgLits []string
+	sceneArgs   map[string]string
+	// 内部（todo10-5）：场景统计（meta 汇总；req 按值传递——用指针共享）
+	sceneCount *sceneSummary
 }
 
 // seqFocus 一次查询的焦点配置（--focus 解析结果，跨递归共享）。
@@ -157,6 +165,8 @@ type CodeSeqNode struct {
 	// todo10-3：展开终点诊断 + 节点证据（canonical ID / 文件 / 行 / 依据）
 	Evidence *SeqEvidence `json:"evidence,omitempty"`
 	Stop     *SeqStop     `json:"stop,omitempty"`
+	// todo10-5：场景条件对分支的判定（taken/excluded/unknown + 依据）
+	Scene *SceneFit `json:"scene,omitempty"`
 }
 
 // CodeSequence 解析目标函数的代码级时序（读源码 AST——纯语法不依赖
@@ -174,6 +184,9 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	}
 	if req.acc == nil {
 		req.acc = &seqTimingAcc{}
+	}
+	if req.sceneCount == nil {
+		req.sceneCount = &sceneSummary{}
 	}
 	// todo10-2 part3：--focus 解析（字段路径 / return）——一次性构建
 	if req.focus == nil && len(req.Focus) > 0 {
@@ -241,6 +254,13 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 		Diagnostics: aggregateSeqStops(root)}
 	if req.focusActive() {
 		root.Meta.Focus = &SeqFocusMeta{Targets: req.Focus, Matched: req.focus.matched, Applied: req.focus.matched > 0}
+		timing.Nodes = countSeqNodes(root)
+	}
+	// todo10-5：场景裁剪统计（仅指定了 --scene 时输出）
+	if !req.Scene.Empty() {
+		sum := *req.sceneCount
+		sum.Applied = true
+		root.Meta.Scene = &sum
 		timing.Nodes = countSeqNodes(root)
 	}
 	logger.Info("seq timing", zap.String("target", req.Target), zap.Int("depth", req.Depth),

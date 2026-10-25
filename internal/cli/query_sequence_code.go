@@ -27,13 +27,13 @@ import (
 // 写文本（S4——用户：配置 plantuml.jar 用它转图片，失败才写文本）。
 // out：非空时主输出写文件（plantuml 成功 → PNG 字节；否则文本），
 // stdout 打印路径。
-func cmdQuerySequenceCode(acts *action.Actions, abs, target string, depth int, mermaid bool, jsonOut bool, diagram, out string, focus []string, evidence bool) int {
+func cmdQuerySequenceCode(acts *action.Actions, abs, target string, depth int, mermaid bool, jsonOut bool, diagram, out string, focus []string, evidence bool, scene []string) int {
 	if depth <= 0 {
 		depth = 1
 	}
 	root, err := acts.CodeSequence(action.CodeSequenceRequest{
 		Target: target, RepoAbs: abs, Depth: depth, StopPackages: loadSeqStopPkgs(),
-		Filter: loadSeqFilter(), Focus: focus})
+		Filter: loadSeqFilter(), Focus: focus, Scene: action.NewScene(scene)})
 	if err != nil {
 		// todo10-9：主动终止（取消）不得报告为成功
 		if errors.Is(err, action.ErrSeqCanceled) {
@@ -121,7 +121,7 @@ func renderCodeSeq(root *action.CodeSeqNode, mermaid, jsonOut bool, diagram, out
 		return 0, false
 	}
 	// 默认文本：缩进树（源码顺序 + 分支/循环标注）
-	text := fmt.Sprintf("== %s 代码级时序 ==\n", root.Label) + seqText(root.Nodes, 1) + seqDiagText(root)
+	text := fmt.Sprintf("== %s 代码级时序 ==\n", root.Label) + seqText(root.Nodes, 1) + seqDiagText(root) + seqSceneText(root)
 	if evidence {
 		text += seqEvidenceText(root)
 	}

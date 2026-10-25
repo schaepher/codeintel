@@ -17,9 +17,11 @@ import (
 // 保持 walkStmt 的调用点写法不变）。
 func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []byte,
 	tgts *seqTargets, depth int, recvType string, recvDecl map[string]string,
-	f *ast.File, curPkg, curFile string) func(fun ast.Expr, pos token.Position) *CodeSeqNode {
-	return func(fun ast.Expr, pos token.Position) (node *CodeSeqNode) {
+	f *ast.File, curPkg, curFile string) func(call *ast.CallExpr) *CodeSeqNode {
+	return func(call *ast.CallExpr) (node *CodeSeqNode) {
 		defer func() { finishSeqEvidence(req, node) }()
+		fun := call.Fun
+		pos := fset.Position(call.Lparen)
 		node = &CodeSeqNode{Kind: "call", Label: callLabel(fset, src, fun), Actor: callActor(fset, src, fun), Line: pos.Line}
 
 		tg, resolved := tgts.lookup(pos)
@@ -111,6 +113,8 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		}
 
 		// 3) 接口方法 → 实现方法（implements 边 + 方法名；候选可多个）
+		// todo10-5：实参字面量随展开传给被调函数（一层条件传播）
+		req.callArgLits = callArgLiterals(call)
 		if strings.Contains(tid, ":(") {
 			if impl, cands, ok := a.seqIfaceMethodImpl(tid); ok {
 				node.ImplType = implTypeShort(impl)

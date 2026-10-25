@@ -170,6 +170,9 @@ func writeSeqNode(b *strings.Builder, alias map[string]string, from, caller stri
 			if !hasRenderableSeqNode(n.Nodes) && !hasRenderableSeqNode(n.Else) {
 				continue
 			}
+			if n.Scene != nil && (n.Scene.Status == action.SceneTaken || n.Scene.Status == action.SceneExcluded) {
+				b.WriteString(fmt.Sprintf("  Note over %s: 场景判定 %s%s\n", alias[from], n.Scene.Status, seqSceneNoteSuffix(n.Scene)))
+			}
 			b.WriteString(fmt.Sprintf("  alt %s\n", n.Label))
 			writeSeqNode(b, alias, from, caller, n.Nodes)
 			if len(n.Else) > 0 {
@@ -216,7 +219,7 @@ func seqText(nodes []*action.CodeSeqNode, depth int) string {
 				b.WriteString(seqText(n.Nodes, depth+1)) // 嵌套展开（--depth >1）
 			}
 		case "branch":
-			b.WriteString(fmt.Sprintf("%sif %s\n", pad, n.Label))
+			b.WriteString(fmt.Sprintf("%sif %s%s\n", pad, n.Label, seqSceneMark(n)))
 			b.WriteString(seqText(n.Nodes, depth+1))
 			if len(n.Else) > 0 {
 				b.WriteString(fmt.Sprintf("%selse\n", pad))

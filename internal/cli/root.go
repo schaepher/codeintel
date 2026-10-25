@@ -142,12 +142,13 @@ const usageText = `codeintel - Go 代码库智能索引与查询（MVP）
                                   同名方法；目标仓库经注册表跨仓解析；未续接
                                   原因带诊断）
   codeintel query sequence <sym> [--code] [--depth N] [--format mermaid]
-                 [--focus <字段|return>] [--evidence]
+                 [--focus <字段|return>] [--evidence] [--scene k=v]
                                   调用时序图（默认 depth 2）；--code 代码级
                                   （AST 分支/循环/switch 嵌套展开，默认 depth 1；
                                   defer/go 标执行时机，return 带返回值与结果槽；
                                   --focus 只看指定状态字段/返回值；--evidence
-                                  逐箭头列证据来源/支持程度，mermaid 带 %% evidence）
+                                  逐箭头列证据来源/支持程度，mermaid 带 %% evidence；
+                                  --scene k=v 按已知业务条件裁剪分支并标注依据）
   codeintel query packages [--json]
                                   包结构清单（包路径/职责/符号数）
   codeintel query architecture [--json]

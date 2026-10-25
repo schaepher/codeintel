@@ -36,7 +36,7 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 	switch s := stmt.(type) {
 	case *ast.ExprStmt:
 		if call, ok := s.X.(*ast.CallExpr); ok {
-			if n := callNode(call.Fun, fset.Position(call.Lparen)); n != nil {
+			if n := callNode(call); n != nil {
 				return []*CodeSeqNode{n}
 			}
 			return nil
@@ -47,7 +47,7 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		var out []*CodeSeqNode
 		for _, rhs := range s.Rhs {
 			for _, call := range collectCalls(rhs) {
-				if n := callNode(call.Fun, fset.Position(call.Lparen)); n != nil {
+				if n := callNode(call); n != nil {
 					out = append(out, n)
 				}
 			}
@@ -70,11 +70,30 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 			steps = append(steps, walkStmt(a, req, fset, src, s.Init, tgts, depth, recvType, recvDecl, f, curPkg, curFile)...)
 		}
 		node := &CodeSeqNode{Kind: "branch", Label: seqExprText(fset, src, s.Cond), Line: fset.Position(s.Cond.Pos()).Line}
-		node.Nodes = walkStmts(a, req, fset, src, s.Body.List, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
+		// todo10-5：场景条件判定（taken/excluded/unknown）——排除的分支
+		// 保留节点但剔除内容（用户能看到"此处被场景排除"及其依据）
+		fit := req.Scene.matchCond(s.Cond, req.sceneArgs)
+		node.Scene = &fit
+		switch fit.Status {
+		case SceneTaken:
+			req.sceneCount.Taken++
+		case SceneExcluded:
+			req.sceneCount.Excluded++
+		case SceneUnknown:
+			req.sceneCount.Unknown++
+		}
+		if fit.Status != SceneExcluded {
+			node.Nodes = walkStmts(a, req, fset, src, s.Body.List, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
+		}
+		// else 分支：条件取反（fit == excluded 时 else 反而成立）
 		if blk, ok := s.Else.(*ast.BlockStmt); ok {
-			node.Else = walkStmts(a, req, fset, src, blk.List, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
+			if fit.Status != SceneTaken {
+				node.Else = walkStmts(a, req, fset, src, blk.List, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
+			}
 		} else if elseIf, ok := s.Else.(*ast.IfStmt); ok {
-			node.Else = walkStmt(a, req, fset, src, elseIf, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
+			if fit.Status != SceneTaken {
+				node.Else = walkStmt(a, req, fset, src, elseIf, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
+			}
 		}
 		steps = append(steps, node)
 		return steps
@@ -93,14 +112,14 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 	case *ast.DeferStmt:
 		// todo10-2：defer 是"函数返回时执行"——位置保留在声明处（事实），
 		// Exec 标注执行时机（不渲染成声明处立即执行）
-		if n := callNode(s.Call.Fun, fset.Position(s.Call.Lparen)); n != nil {
+		if n := callNode(s.Call); n != nil {
 			n.Exec = SeqExecDefer
 			return []*CodeSeqNode{n}
 		}
 		return nil
 	case *ast.GoStmt:
 		// todo10-2：go 是并发启动——完成顺序未知，渲染层不得画成同步完成
-		if n := callNode(s.Call.Fun, fset.Position(s.Call.Lparen)); n != nil {
+		if n := callNode(s.Call); n != nil {
 			n.Exec = SeqExecAsync
 			return []*CodeSeqNode{n}
 		}
@@ -112,7 +131,7 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		var out []*CodeSeqNode
 		for _, r := range s.Results {
 			for _, call := range collectCalls(r) {
-				if n := callNode(call.Fun, fset.Position(call.Lparen)); n != nil {
+				if n := callNode(call); n != nil {
 					n.InReturn = true
 					out = append(out, n)
 				}
@@ -138,7 +157,7 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		//（纯值发送 ch <- 5 无调用可画——发送是通信动作，无消息线）
 		var out []*CodeSeqNode
 		for _, call := range collectCalls(s.Value) {
-			if n := callNode(call.Fun, fset.Position(call.Lparen)); n != nil {
+			if n := callNode(call); n != nil {
 				out = append(out, n)
 			}
 		}
@@ -169,7 +188,7 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 				}
 				for _, e := range commExprs {
 					for _, call := range collectCalls(e) {
-						if n := callNode(call.Fun, fset.Position(call.Lparen)); n != nil {
+						if n := callNode(call); n != nil {
 							caseNode.Nodes = append(caseNode.Nodes, n)
 						}
 					}

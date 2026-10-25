@@ -115,6 +115,8 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 	// todo10-2：具名结果槽（return 节点的 slots 用）+ 本函数焦点写入行
 	// （按值传给递归——子函数各自覆盖，不会串用父函数的行号）
 	req.resultNames = resultNamesOf(fn.Type.Results)
+	// todo10-5：一层条件传播——调用点实参字面量按形参名对齐（下次展开覆盖）
+	req.sceneArgs = paramLiteralArgs(fn.Type.Params, req.callArgLits)
 	if req.focus != nil && len(req.focus.fields) > 0 {
 		req.focusLines = a.focusLinesFor(domain.CanonicalID(symID), req.focus)
 	} else {

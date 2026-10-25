@@ -5295,3 +5295,27 @@ exit 2，早于 `filepath.Abs`/`Open`；合法值经 `initArgs` 追加规范化�
   `TestArrowEvidenceIdentity`（证据四要素齐全 + verdict 合法）、
   `TestSequenceCodeEvidenceIdentity`（mermaid `%% evidence` 与 `--evidence`
   清单同一身份）。夹具 2/3/4 的行为断言留批 ③（todo10-6/7）。
+
+### 5. 场景条件约束路径（P1，todo10-5）
+
+- **输入**：`--scene k=v`（可重复/逗号分隔；挂在 `query sequence`——`effects`
+  在 todo10-7 复用同一助手；`path` 本轮只接受参数不做裁剪，见下）。
+- **静态判据**（用户确认不做完整值流求解）：只识别
+  `field == "lit"` / `field != "lit"`（含 `"lit" == field`、外层括号、
+  一层 `!`）；`field` 末段与场景键大小写不敏感匹配（`req.Region`、
+  `o.Region`、`region` 都命中 `region`）。
+- **判定**：场景值 == 字面量 → `taken`；否则 `excluded`；无对应键 →
+  `unknown`（**保留候选**）。排除的分支**保留节点但剔除内容**（用户能看到
+  "此处被场景排除"及依据 `scene:region=CN`），else 分支按条件取反处理。
+- **一层条件传播**：调用点实参是字符串字面量时随展开传入被调函数
+  （`callArgLits` 按位置 → `paramLiteralArgs` 按形参名对齐），使其
+  `if param == "lit"` 判定为 `taken`（`reason=scene-arg:region=CN`）；
+  跨多层不追（`unknown:no-scene-key`）——不做新的 SSA 值流分析。
+- **输出**：节点 `scene{status,key,field,literal,expected,reason}`；根
+  `meta.scene{taken,excluded,unknown}`；文本标注 `[scene:taken …]` + 汇总行
+  （明说"未命中分支保留原样，静态推断不是线上事实"）；mermaid `Note`。
+- 测试：`action_scene_test.go`（CN/US 两场景的 taken/excluded、无场景全
+  unknown、排除分支无内容、meta 统计、实参字面量传播 vs 动态实参不判定）、
+  `query_sequence_code_scene_test.go`（文本/JSON/mermaid 三通道 + 未指定不标注）。
+- 踩坑：`req` 按值传递 → 场景计数必须用指针（同 `seqTimingAcc`），否则
+  meta 统计恒为 0。
