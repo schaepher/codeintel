@@ -167,6 +167,9 @@ const usageText = `codeintel - Go 代码库智能索引与查询（MVP）
   codeintel query context <sym>   符号上下文（入口/调用者/实现）
   codeintel query async <入口|表>  异步生命周期关联（人工/审核/定时/消费 +
                                   因果证据；仅同作用域标"不构成因果"）
+  codeintel query effects <函数> [--depth N]
+                                  副作用与返回结果（表列写入/grpc-http 出站/
+                                  事务范围/错误覆盖可疑点；各带证据与 verdict）
   codeintel query unused [--since <ref>] [--fail-on unused|isolated]
                                   未使用符号（CI 可失败）
   codeintel query path <A> <B>    两符号间路径

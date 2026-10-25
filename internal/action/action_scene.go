@@ -217,3 +217,10 @@ func paramLiteralArgs(fl *ast.FieldList, lits []string) map[string]string {
 	}
 	return out
 }
+
+// matchesField 场景是否"关心"这个字段（键名与字段名/列名匹配即算）。
+// 用于 effects 的写入裁剪：只保留场景涉及的字段（不推断值）。
+func (s Scene) matchesField(field string) bool {
+	_, _, ok := s.lookup(field)
+	return ok
+}

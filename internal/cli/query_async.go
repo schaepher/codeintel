@@ -25,7 +25,7 @@ func queryAsync(acts *action.Actions, abs, seed string, jsonOut bool) int {
 	}
 	fmt.Printf("== %s 异步生命周期 ==\n", seed)
 	if res.Scope != "" {
-		fmt.Printf("作用域：%s\n", res.Scope)
+		fmt.Printf("作用域：%s\n", prettyScope(res.Scope))
 	}
 	if len(res.Nodes) == 0 {
 		fmt.Println("（未找到生命周期入口——该符号可能无字段读写摘要；试试表名或换入口）")
@@ -74,4 +74,10 @@ func asyncLinkNote(l action.AsyncLink) string {
 		return " ⚠ " + l.Detail
 	}
 	return "（" + l.Detail + "）"
+}
+
+// prettyScope 作用域展示（去掉 canonical ID 前缀，包/类型名更好读）。
+func prettyScope(scope string) string {
+	scope = strings.TrimPrefix(scope, "symbol:go:")
+	return strings.TrimSuffix(scope, ":")
 }

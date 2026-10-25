@@ -5298,8 +5298,10 @@ exit 2，早于 `filepath.Abs`/`Open`；合法值经 `initArgs` 追加规范化�
 
 ### 5. 场景条件约束路径（P1，todo10-5）
 
-- **输入**：`--scene k=v`（可重复/逗号分隔；挂在 `query sequence`——`effects`
-  在 todo10-7 复用同一助手；`path` 本轮只接受参数不做裁剪，见下）。
+- **输入**：`--scene k=v`（可重复/逗号分隔）。作用面：`query sequence`
+  （分支裁剪，见下）与 `query effects`（只保留场景涉及的字段写入）；**已知
+  限制**：`query path` 接受该参数但本轮不做裁剪——path 是图 BFS，行上没有
+  可静态判定的条件表达式，裁剪只能靠猜测（宁可保留候选）。
 - **静态判据**（用户确认不做完整值流求解）：只识别
   `field == "lit"` / `field != "lit"`（含 `"lit" == field`、外层括号、
   一层 `!`）；`field` 末段与场景键大小写不敏感匹配（`req.Region`、
@@ -5345,3 +5347,29 @@ exit 2，早于 `filepath.Abs`/`Open`；合法值经 `initArgs` 追加规范化�
   证据、"不构成因果"标注、JSON 契约）。
 - 踩坑：`ResolveSymbol` 对 `...:Commit` 会因 `Commit`/`CommitOverwrite`
   两个匹配而报歧义 → 测试用 canonical ID。
+
+### 7. 按路径输出副作用与返回结果（P1，todo10-7）
+
+`codeintel query effects <函数> [--depth N] [--json]`（新命令，action 出结构化
+结果、cli 只渲染）：
+
+- **db_writes**：SSA 摘要的 `direct_write`/`indirect_write`（`--depth` 展开
+  被调者）→ 字段名按 snake_case 归一到**表列索引**（`GetAllTableColumns`：
+  `table.column`）得到"表.列"；无映射时 `table/column` 空 + `verdict=unverified`
+  + `reason=no_table_mapping`（不猜表名）。每条带 `evidence{source,verdict,reason,query}`。
+- **remote_writes**：`grpc_call`/`http_call` 出站边（含被调者，按 `--depth`），
+  输出 kind/service/method/path/行号 + 边置信度。
+- **tx_scope**：AST 扫 `Begin/BeginTx/Commit/Rollback/Transaction/Tx` →
+  `begin_commit`（corroborated）或 `tx_wrapper`（unverified，回调边界未展开）；
+  `covers_writes` 只陈述"写点是否落在 [Begin, Commit) 内"——**不推断**
+  "错误返回 = 全部写入回滚"。
+- **result**：`return` 表达式文本 + 行号 + 错误变量（`err`/`*Err`/`e`）+
+  `suspicious`（错误变量被再次赋 nil、或返回 nil 而此前赋过错误 → 可疑形态，
+  verdict 降为 `unverified` 并标 `file:line`）。
+- `--scene` 复用 todo10-5：只保留场景键命中的字段写入（不推断值）。
+- 测试：`action_effects_test.go`（partial_write：写入+证据分级、部分成功返回
+  错误、无事务不推断回滚、`CommitSwallow` 的错误覆盖可疑点）、
+  `query_effects_test.go`（四组小节/证据标注/事务只陈述事实/`--depth 2` 含
+  被调出站/JSON 契约）。
+- 夹具补充：`partial_write` 加 `Ledger.State` 写入（表列映射素材）与
+  `CommitSwallow`（错误被覆盖 → 返回 nil 的可疑形态）。
