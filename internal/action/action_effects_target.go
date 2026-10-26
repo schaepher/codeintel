@@ -45,7 +45,8 @@ const (
 	EffectDiagSwitchUnrefine = "path_switch_unrefined"  // switch/select 未细化
 	EffectDiagTargetUnknown  = "target_dependency_unresolved"
 	EffectDiagTargetNoWrite  = "target_no_write"
-	EffectDiagSlotUnresolved = "target_slot_unresolved"
+	EffectDiagSlotUnresolved   = "target_slot_unresolved"
+	EffectDiagCalleeUnresolved = "path_callee_unresolved"
 )
 
 // effectsTarget 已解析的目标（内部）。
