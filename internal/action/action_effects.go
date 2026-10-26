@@ -79,6 +79,7 @@ type EffectsResult struct {
 	File         string         `json:"file,omitempty"`
 	DBWrites     []DBEffect     `json:"db_writes"`
 	RemoteWrites []RemoteEffect `json:"remote_writes"`
+	Paths        []EffectPath   `json:"paths,omitempty"` // todo11-4：按执行路径
 	Tx           TxScope        `json:"tx"`
 	Result       ResultEffect   `json:"result"`
 	Diagnostics  []SeqDiagCount `json:"diagnostics,omitempty"`
@@ -148,17 +149,8 @@ func (a *Actions) Effects(req EffectsRequest) (*EffectsResult, error) {
 				Access: string(r.AccessKind), Evidence: ev})
 		}
 	}
-	// todo10-5 复用：--scene 时按场景键过滤写入字段（键名命中字段/列名，
-	// 值不同的写作"被场景排除"——只裁剪、不删证据）
-	if !req.Scene.Empty() {
-		kept := res.DBWrites[:0]
-		for _, w := range res.DBWrites {
-			if req.Scene.matchesField(fieldLeaf(w.Field)) {
-				kept = append(kept, w)
-			}
-		}
-		res.DBWrites = kept
-	}
+	// todo11-4：场景约束改为**路径可达性**（不再按"字段名命中场景键"过滤
+	// 写入——那是 todo10-7 的近似，已被本项取代）
 	sort.Slice(res.DBWrites, func(i, j int) bool {
 		if res.DBWrites[i].Field != res.DBWrites[j].Field {
 			return res.DBWrites[i].Field < res.DBWrites[j].Field
@@ -198,10 +190,11 @@ func (a *Actions) Effects(req EffectsRequest) (*EffectsResult, error) {
 		return res.RemoteWrites[i].Line < res.RemoteWrites[j].Line
 	})
 
-	// 3)/4) 事务范围 + 返回结果（AST 扫描本函数）
-	scan := a.scanEffectsAST(req.RepoAbs, n)
+	// 3)/4) 事务范围 + 返回结果（AST 扫描本函数）+ 路径级归属（todo11-4）
+	scan := a.scanEffectsAST(req.RepoAbs, n, req.Scene, nil)
 	res.Tx = scan.tx
 	res.Result = scan.result
+	res.Paths = buildEffectPaths(scan.paths, colIndex, res.RemoteWrites, res.Tx, res.Result.Suspicious)
 	// 事务是否覆盖写入行（只陈述"写点在不在范围内"）
 	if res.Tx.Kind != "none" && len(res.DBWrites) > 0 {
 		res.Tx.CoversWrites = txCovers(&res.Tx, res.DBWrites)

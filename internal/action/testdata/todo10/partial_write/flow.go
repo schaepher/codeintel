@@ -23,12 +23,20 @@ type Ledger struct {
 	TraceID string
 }
 
-// Commit 主写入成功 → 追踪记录失败 → 返回错误（部分成功）。
+// Validate 写入前校验（失败即提前返回——该路径不应包含任何写入）。
+func Validate(key string) error { return nil }
+
+// Commit 三条路径：校验失败（写入前）/ 主写入失败（部分写入）/ 主写入成功但
+// 追踪记录失败（部分成功，错误来自 Trace）。
 func Commit(st Store, key string, value string, l *Ledger) error {
+	if err := Validate(key); err != nil {
+		return err
+	}
 	l.State = "committed" // 主写入（字段写入）
 	if err := st.Save(key, value); err != nil {
 		return err
 	}
+	l.TraceID = "trace" // 追踪记录写入（早返回路径不应包含）
 	return Trace(st, key, value)
 }
 

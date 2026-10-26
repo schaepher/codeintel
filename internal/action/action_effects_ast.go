@@ -15,7 +15,7 @@ import (
 )
 
 // scanEffectsAST 读本函数源码，扫事务调用、返回语句与错误变量赋值。
-func (a *Actions) scanEffectsAST(repoAbs string, n *domain.CodeEntity) effectsScanResult {
+func (a *Actions) scanEffectsAST(repoAbs string, n *domain.CodeEntity, scene Scene, args map[string]string) effectsScanResult {
 	out := effectsScanResult{
 		tx:     TxScope{Kind: "none", Verdict: SeqVerdictUnverified, Detail: "本函数未观察到事务调用"},
 		result: ResultEffect{Verdict: SeqVerdictUnverified, Detail: "未观察到 return（无源码或方法体缺失）"},
@@ -80,7 +80,9 @@ func (a *Actions) scanEffectsAST(repoAbs string, n *domain.CodeEntity) effectsSc
 			Detail: "观察到 Tx/Transaction 包装调用——回调内部边界未展开（不推断）"}
 	}
 
-	// 2) 返回结果 + 3) 可疑错误覆盖
+	// 2) 路径枚举（todo11-4）：分支两侧各一条；return 终止当前路径
+	out.paths = a.effectPaths(fset, src, body, scene, args)
+	// 3) 返回结果 + 4) 可疑错误覆盖
 	var returns []string
 	var slots []string
 	retLine := 0

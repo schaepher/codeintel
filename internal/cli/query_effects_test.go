@@ -17,7 +17,7 @@ import (
 func seedEffectsCLI(t *testing.T) string {
 	t.Helper()
 	dir := seedRepo(t)
-	src := "package m\n\nfunc Save() error { return nil }\n\nfunc Commit() error {\n\ttx := Begin()\n\t_ = tx\n\treturn nil\n}\n\nfunc Begin() error { return nil }\n"
+	src := "package m\n\nfunc Save() error { return nil }\n\nfunc Commit() error {\n\ttx := Begin()\n\t_ = tx\n\tif tx != nil {\n\t\treturn tx\n\t}\n\treturn nil\n}\n\nfunc Begin() error { return nil }\n"
 	if err := os.WriteFile(filepath.Join(dir, "f.go"), []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +28,7 @@ func seedEffectsCLI(t *testing.T) string {
 	defer db.Close()
 	r := sqlite.NewRepo(db)
 	if _, err := r.SaveBatchStats([]*domain.CodeEntity{
-		{ID: "symbol:go:example.com/m:Commit", Kind: domain.KindFunction, Name: "Commit", FilePath: "f.go", LineStart: 6},
+		{ID: "symbol:go:example.com/m:Commit", Kind: domain.KindFunction, Name: "Commit", FilePath: "f.go", LineStart: 5},
 		{ID: "symbol:go:example.com/m:Save", Kind: domain.KindFunction, Name: "Save", FilePath: "f.go", LineStart: 3},
 		{ID: "symbol:http:sms.example.com:route./send", Kind: domain.KindHTTPRoute, Name: "route./send",
 			FilePath: "f.go", Properties: map[string]any{"path": "/send"}},
@@ -86,5 +86,31 @@ func TestQueryEffectsJSON(t *testing.T) {
 	// depth 2：被调 Save 的 http 出站应出现
 	if !strings.Contains(out, "sms.example.com") {
 		t.Errorf("--depth 2 应包含被调函数的出站调用:\n%s", out)
+	}
+}
+
+// TestQueryEffectsPaths：文本输出"执行路径"节（互斥分支各自一条 + 条件 +
+// 写入/返回），JSON 含 paths。
+func TestQueryEffectsPaths(t *testing.T) {
+	dir := seedEffectsCLI(t)
+	out := captureStdout(func() {
+		if code := cmdQuery([]string{"effects", "symbol:go:example.com/m:Commit", "--repo", dir}); code != 0 {
+			t.Errorf("query effects exit = %d", code)
+		}
+	})
+	for _, want := range []string{"执行路径", "写入：", "返回："} {
+		if !strings.Contains(out, want) {
+			t.Errorf("文本应含 %q:\n%s", want, out)
+		}
+	}
+	js := captureStdout(func() {
+		if code := cmdQuery([]string{"effects", "symbol:go:example.com/m:Commit", "--repo", dir, "--json"}); code != 0 {
+			t.Errorf("query effects --json exit = %d", code)
+		}
+	})
+	for _, want := range []string{`"paths"`, `"reachable"`, `"conditions"`} {
+		if !strings.Contains(js, want) {
+			t.Errorf("JSON 应含 %q:\n%s", want, js)
+		}
 	}
 }

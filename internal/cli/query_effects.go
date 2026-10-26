@@ -65,6 +65,45 @@ func queryEffects(acts *action.Actions, abs, target string, depth int, scene []s
 	if res.Result.Detail != "" {
 		fmt.Printf("  依据：%s\n", res.Result.Detail)
 	}
+	// todo11-4：按执行路径（互斥分支各自一条；不可达路径标注依据）
+	if len(res.Paths) > 0 {
+		fmt.Println("\n执行路径：")
+		for _, p := range res.Paths {
+			mark := ""
+			if !p.Reachable {
+				mark = " ✗不可达"
+			}
+			fmt.Printf("  · %s%s", p.ID, mark)
+			if len(p.Conditions) > 0 {
+				fmt.Printf(" [%s]", strings.Join(p.Conditions, " && "))
+			}
+			fmt.Println()
+			if len(p.Writes) > 0 {
+				var ws []string
+				for _, w := range p.Writes {
+					loc := fieldLeafText(w.Field)
+					if w.Table != "" {
+						loc = w.Table + "." + w.Column
+					}
+					ws = append(ws, loc+fmt.Sprintf("(L%d)", w.Line))
+				}
+				fmt.Printf("      写入：%s\n", strings.Join(ws, ", "))
+			}
+			if len(p.Remote) > 0 {
+				var rs []string
+				for _, r := range p.Remote {
+					rs = append(rs, r.Service+optionalMethod(r.Method))
+				}
+				fmt.Printf("      远程：%s\n", strings.Join(rs, ", "))
+			}
+			if p.Result != nil {
+				fmt.Printf("      返回：%s（L%d）\n", strings.Join(p.Result.Returns, ", "), p.Result.Line)
+			}
+			for _, n := range p.Notes {
+				fmt.Printf("      注：%s\n", n)
+			}
+		}
+	}
 	for _, d := range res.Diagnostics {
 		fmt.Printf("\n诊断：%s ×%d\n", d.Code, d.Count)
 	}
@@ -113,4 +152,12 @@ func txScopeNote(tx *action.TxScope) string {
 		return ""
 	}
 	return "（" + strings.Join(parts, "；") + "）"
+}
+
+// optionalMethod 方法名片段（空则空串）。
+func optionalMethod(m string) string {
+	if m == "" {
+		return ""
+	}
+	return "." + m
 }

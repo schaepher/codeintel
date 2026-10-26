@@ -122,7 +122,7 @@ func indexTodo10Fixture(t *testing.T, name string) (string, *Actions) {
 	// 路径用 <module>.<Field>——供 --focus / 异步因果判据使用）
 	var sums []*domain.FunctionFieldSummary
 	for _, fn := range fns {
-		fields := fixtureFieldAccess(fn.body)
+		fields := fixtureFieldAccess(fset, fn.body)
 		for w, line := range fields.writes {
 			sums = append(sums, &domain.FunctionFieldSummary{
 				FunctionID: domain.CanonicalID(fn.id), AccessKind: domain.SummaryDirectWrite,

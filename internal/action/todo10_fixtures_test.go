@@ -20,7 +20,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
 )
 
 // todo10FixtureDirs 四类夹具目录（相对本测试文件）。
@@ -191,12 +190,11 @@ func (f fixtureFields) lineOf(name string) int {
 
 // fixtureFieldAccess 收集 selector 形态的字段写入（x.F = …）与读取
 // （出现在条件/实参里的 x.F）。
-func fixtureFieldAccess(body *ast.BlockStmt) fixtureFields {
+func fixtureFieldAccess(fset *token.FileSet, body *ast.BlockStmt) fixtureFields {
 	out := fixtureFields{writes: map[string]int{}, reads: map[string]int{}}
 	if body == nil {
 		return out
 	}
-	fset := token.NewFileSet()
 	ast.Inspect(body, func(n ast.Node) bool {
 		if as, ok := n.(*ast.AssignStmt); ok {
 			for _, lhs := range as.Lhs {

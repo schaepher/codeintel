@@ -5406,3 +5406,30 @@ Cancel 落到同一身份，后写者覆盖 metadata，方法只剩一份。
   `adapter_grpc_edgekey_test.go`（源码 → 两条边 Key=Submit/Cancel）、
   `action_ext_chain_identity_test.go`（同调用方两方法各自续接到对应实现，
   Submit 只挂 sms、Cancel 只挂 mail）。
+
+### 4. 副作用细化为路径级摘要（P1，todo11-4）
+
+`query effects` 增 `paths[]`（`{id, conditions[], writes[], remote_writes, tx,
+result, reachable, notes[]}`）；函数级 `db_writes/remote_writes/tx/result`
+保留为兼容视图。
+
+- **路径枚举**（AST，非 sequence 树）：用"待续路径"模型——每步对每条待续
+  路径展开，分支两侧各复制一条，`return` 直接落为终态并**终止该路径**（其
+  后语句不进这条路径）；列表走完仍待续的在顶层收尾。上限 24 条（超出停并
+  在 notes 说明）。循环体按"0..N 次"处理（区间覆盖 + notes），`defer` 标注
+  "函数退出时执行"，`switch/select` 暂不细化为独立路径（notes 明示）。
+- **写入归属**：路径写点用**AST 观察**（`x.F = …` 的 selector 赋值）——不能
+  用 SSA 摘要行号：`function_field_summary` 的 `(function, access, field)`
+  唯一键会把同字段多行写坍缩成一条（本轮踩坑：Route 两个分支写同一字段，
+  摘要只剩一行 → 路径归属全错）。AST 写点再经表列索引映射 `table.column`
+  （无映射 → `unverified + no_table_mapping`）。
+- **场景语义改正**：`--scene` 不再按"字段名命中场景键"过滤写入（todo10-7 的
+  近似，已被本项取代），改为**路径可达性**——被场景排除的分支路径
+  `reachable=false` + `notes` 写排除依据（`scene:region=CN`），写点仍保留在
+  该路径上（它是该分支的事实，只是不可达）。
+- **early return 验收**：`Validate` 失败路径写点 0 条；主写入失败路径只含
+  `State`（不含后续 `TraceID`）；部分成功路径两个写点 + 返回表达式来自
+  `Trace(...)`——三条路径互斥、各自 return。
+- 测试：`action_effects_paths_test.go`（三路径区分/提前返回不含后续写入/
+  部分成功返回来源/场景可达性 + 不过滤写入）、`query_effects_test.go`
+  （文本"执行路径"节 + JSON `paths/reachable/conditions`）。

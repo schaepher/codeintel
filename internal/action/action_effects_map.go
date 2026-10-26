@@ -107,6 +107,7 @@ func trimSvcPrefix(name string) string {
 type effectsScanResult struct {
 	tx     TxScope
 	result ResultEffect
+	paths  []pathSpec // todo11-4：执行路径（分支两侧 + return 终止）
 }
 
 // String 便于日志/诊断输出。
