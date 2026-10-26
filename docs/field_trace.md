@@ -5617,3 +5617,14 @@ seed 展开集合）都被当作 corroborated——需求指出这三样都**不
 - 资源采样：探测 GNU `time -v` → BSD `time -l`，不支持明确 unavailable；
   查询失败单独报错；取消验收拆为独立测试（5ms 预算 SQL 后取消，
   `sql_queries=2`、delay≈7ms）。
+
+## §? todo17：载荷覆盖到达定义 / 实际 API 目标与配置绑定（2026-11-01）
+
+逐项证据见 [`todo17-checklist.md`](todo17-checklist.md)。
+
+- 读取 `payload.Field` 时要求 payload 的**到达定义**仍是选中 Receive 返回槽；
+  `job = Job{}` 后报告覆盖定义/Receive/读取三处行号，boundary/chain 不升级。
+- API 身份改用调用边 canonical 目标（完整包/类型），同类型仅候选；再核对
+  发送/接收实例绑定：同一实例声明或同一非空配置字面量才 corroborated；
+  不同配置 → mismatch（显示两端配置与位置）；未知绑定 → unverified。
+- 正例（未改写载荷、别名、同配置不同实例）保留四跳证据与 `identity_partial=false`。

@@ -21,9 +21,14 @@ type AsyncBoundary struct {
 	Topic       string `json:"topic,omitempty"`
 	Key         string `json:"key,omitempty"` // 实际发送键值
 	KeyField    string `json:"key_field,omitempty"`
-	ProducerAPI string `json:"producer_api,omitempty"`
-	ConsumerAPI string `json:"consumer_api,omitempty"`
-	APIIdentity string `json:"api_identity,omitempty"`
+	ProducerAPI    string `json:"producer_api,omitempty"` // 实际调用目标（短形态）
+	ConsumerAPI    string `json:"consumer_api,omitempty"`
+	ProducerTarget string `json:"producer_target,omitempty"` // 实际目标 canonical ID
+	ConsumerTarget string `json:"consumer_target,omitempty"`
+	APIIdentity    string `json:"api_identity,omitempty"` // 实际包 + 类型（系统 API 身份）
+	ProducerBinding string `json:"producer_binding,omitempty"`
+	ConsumerBinding string `json:"consumer_binding,omitempty"`
+	BindingSource   string `json:"binding_source,omitempty"`
 	ProduceFile string `json:"produce_file,omitempty"`
 	ProduceLine int    `json:"produce_line,omitempty"`
 	SendKeyLine int    `json:"send_key_line,omitempty"`
@@ -37,7 +42,8 @@ type AsyncBoundary struct {
 }
 
 // proveAsyncBoundary 写入/读取函数 + 字段 → 边界证明（无证据返回 nil）。
-func (a *Actions) proveAsyncBoundary(producerID, consumerID, fieldPath string, readLine int) *AsyncBoundary {
+func (a *Actions) proveAsyncBoundary(producerID, consumerID, fieldPath string, readLine int,
+	apiTargets map[apiCallKey]string) *AsyncBoundary {
 	leaf := fieldLeaf(fieldPath)
 	if leaf == "" {
 		return nil
@@ -92,21 +98,45 @@ func (a *Actions) proveAsyncBoundary(producerID, consumerID, fieldPath string, r
 			recv.topic + "（L" + itoaSeq(recv.line) + "）不一致"
 		return b
 	}
-	if pf.pkg != cf.pkg {
+	// todo17-6：实际 API 目标（调用边）——完整包/类型身份，不用调用方包名补位
+	prodTarget := apiTargets[apiCallKey{funcID: producerID, line: send.line}]
+	consTarget := apiTargets[apiCallKey{funcID: consumerID, line: recv.line}]
+	if prodTarget == "" || consTarget == "" {
 		b.Verdict = "unverified"
-		b.APIIdentity = pf.pkg + " ↔ " + cf.pkg
-		b.Detail = "生产/消费 API 包不同（" + b.APIIdentity + "），未证明同一消息/存储系统"
+		b.ProducerAPI, b.ConsumerAPI = prodTarget, consTarget
+		b.Detail = "未解析到实际 API 目标（调用边缺失），无法证明完整包/类型身份"
 		return b
 	}
-	if send.apiType == "" || recv.apiType == "" || send.apiType != recv.apiType {
+	pPkg, pType, pMethod, pok := apiTargetIdentity(prodTarget)
+	cPkg, cType, cMethod, cok := apiTargetIdentity(consTarget)
+	if !pok || !cok {
 		b.Verdict = "unverified"
-		b.APIIdentity = pf.pkg + "：" + send.apiType + "." + send.api + " ↔ " +
-			recv.apiType + "." + recv.api
-		b.Detail = "生产/消费 API 接收者类型不同或未知（" + send.apiType + "." + send.api +
-			" ↔ " + recv.apiType + "." + recv.api + "），未证明同一消息/存储系统"
+		b.ProducerAPI, b.ConsumerAPI = prodTarget, consTarget
+		b.Detail = "实际 API 目标不是方法形态（无法解析包/类型身份）"
 		return b
 	}
-	b.APIIdentity = pf.pkg + "." + send.apiType + "：" + send.api + " ↔ " + recv.api
+	b.ProducerAPI, b.ConsumerAPI = "("+pType+")."+pMethod, "("+cType+")."+cMethod
+	b.ProducerTarget, b.ConsumerTarget = prodTarget, consTarget
+	if pPkg != cPkg || pType != cType {
+		b.Verdict = "unverified"
+		b.APIIdentity = pPkg + "." + pType + " ↔ " + cPkg + "." + cType
+		b.Detail = "生产/消费 API 目标包或接收者类型不同（" + b.APIIdentity + "），未证明同一消息/存储系统"
+		return b
+	}
+	b.APIIdentity = pPkg + "." + pType
+	// 系统/配置绑定：同类型只是候选，必须核对实例声明/配置
+	sender := resolveBinding(pf, send.recvVar, 0)
+	receiver := resolveBinding(cf, recv.recvVar, 0)
+	b.ProducerBinding, b.ConsumerBinding = bindingText(sender), bindingText(receiver)
+	b.BindingSource = send.recvVar + "@" + pf.file + ":" + itoaSeq(sender.line) +
+		" ↔ " + recv.recvVar + "@" + cf.file + ":" + itoaSeq(receiver.line)
+	same, verdict, detail := sameBinding(sender, receiver)
+	if !same {
+		b.Verdict = verdict
+		b.Detail = detail + "（" + b.BindingSource + "）"
+		return b
+	}
+	b.Detail = "系统绑定：" + detail
 	if b.Key == "" {
 		b.Verdict = "unverified"
 		b.Detail = "实际发送键不是可追踪字面量（" + send.keyExpr + "）"
@@ -147,7 +177,7 @@ func (a *Actions) proveAsyncBoundary(producerID, consumerID, fieldPath string, r
 		return b
 	}
 	b.Verdict = SeqVerdictCorroborated
-	b.Detail = "实际发送键 " + leaf + "=\"" + b.Key + "\"（L" + itoaSeq(b.SendKeyLine) +
+	b.Detail = "系统绑定：" + detail + "；实际发送键 " + leaf + "=\"" + b.Key + "\"（L" + itoaSeq(b.SendKeyLine) +
 		"）→ 主题 " + b.Topic + "（" + b.APIIdentity + "）→ 读取过滤 " +
 		f.expr + " == \"" + f.value + "\"（L" + itoaSeq(f.line) + "）且读取 L" +
 		itoaSeq(readLine) + " 位于相等分支"
@@ -157,6 +187,7 @@ func (a *Actions) proveAsyncBoundary(producerID, consumerID, fieldPath string, r
 // applyAsyncBoundaries 对每条身份链尝试边界证明；返回诊断。
 func (a *Actions) applyAsyncBoundaries(chains []AsyncChain) []SeqDiagCount {
 	var diags []SeqDiagCount
+	apiTargets := a.apiCallTargetIndex()
 	for i := range chains {
 		c := &chains[i]
 		wfn, rfn, readLine := "", "", 0
@@ -171,7 +202,7 @@ func (a *Actions) applyAsyncBoundaries(chains []AsyncChain) []SeqDiagCount {
 		if wfn == "" || rfn == "" {
 			continue
 		}
-		b := a.proveAsyncBoundary(wfn, rfn, c.Field, readLine)
+		b := a.proveAsyncBoundary(wfn, rfn, c.Field, readLine, apiTargets)
 		if b == nil {
 			continue
 		}
@@ -188,7 +219,8 @@ func (a *Actions) applyAsyncBoundaries(chains []AsyncChain) []SeqDiagCount {
 					h.File, h.Line = b.ProduceFile, b.ProduceLine
 					h.Verdict = SeqVerdictCorroborated
 					h.Detail = "发送实参键 \"" + b.Key + "\"（L" + itoaSeq(b.SendKeyLine) +
-						"）；主题 " + b.Topic + "；API " + b.APIIdentity
+						"）；主题 " + b.Topic + "；API " + b.APIIdentity +
+						"；绑定 " + b.BindingSource
 				case "read":
 					h.File, h.Line = b.ConsumeFile, b.ConsumeLine
 					h.Verdict = SeqVerdictCorroborated

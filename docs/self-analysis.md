@@ -2536,7 +2536,7 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
 | P1 工程 | ssa-cache | SSA 缓存余项：`instancePath`/`recoverVarName`/`allocTypeShort`/`marshalProps` | 低风险 |
 | P1 工程 | #20 | 表字段类型剩余 10 列（`~/.codeintel` 全局注册表） | 需全局 db/yaml |
 | P1 工程 | #18 | go2o 表别名 AI 补缺（缺 148 表） | 需 AI/网络 |
-| P1 工程 | todo16-6 | 外部 broker/存储的真实 API/系统绑定证明 | 静态同包同类型 API 族已完成；外部系统绑定/动态键仍 unverified |
+| P1 工程 | todo17-6 | 外部 broker/运行时配置的真实系统绑定 | 静态 API 目标+实例/配置绑定已完成；外部系统/动态键仍 unverified |
 | P1 验证 | #1（范围） | 真实业务系统端到端 / 更大仓并发与资源曲线 | 固定夹具矩阵/A-B/峰值已完成（todo15/16）；真实系统与更大规模仍需外部环境 |
 | P2 验证 | #17 | 新人实测演练（陌生项目 wiki onboarding） | 需外部项目 |
 | P2 验证 | #19 | ext-chain 跨仓库递归 | 需多仓库 |

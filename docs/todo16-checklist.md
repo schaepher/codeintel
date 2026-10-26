@@ -13,12 +13,12 @@
 | R2 反例：不同 Receive 结果/载荷实例 | 完成 | 第二个 Receive 的 key/payload 不混用；`TestTodo16ReceiverDifferentReceiveResult` |
 | R2 反例：无关同名字段比较 | 完成 | `Other.RecordID == K` 不作为过滤键（要求 Receive 返回键/载荷字段）；`TestTodo16ReceiverUnrelatedSameNameField` |
 | 正例：载荷别名、未改写键、相等分支 | 完成 | `alias := job` + `key == K` → 四跳 corroborated、`identity_partial=false`；`TestTodo16ReceiverAliasPositive` |
-| R1/A4 API 身份取实际接收者/系统 | 完成 | 变量→类型映射；生产/消费必须同包且**同接收者类型**（Bus）才可能升级；BusA/BusB → unverified 并报类型缺口；`TestTodo16APIDifferentSystemNotProven` |
+| R1/A4 API 身份取实际接收者/系统 | 完成 | todo17 收尾：调用边 canonical 目标（完整包/类型）+ 实例/配置绑定（同实例或同非空配置）；BusA/BusB/未知绑定/不同配置分别 unverified/mismatch；`TestTodo16APIDifferentSystemNotProven`、todo17 测试 |
 | 旧反例保持 | 完成 | todo14/15 的 !=、实际发送键、无关变量/调用、发送实例、多发送/分支歧义全部保留并通过 |
 | 无法证明时保守降级 | 完成 | 任一接收侧/API 缺口 → `identity_partial=true` + `boundary_identity_unproven`，不从名字/叶名补造 |
 
-**范围**：API 身份 = 同包 + 同接收者类型 + 受支持的发送/接收方法族（静态 stub/Bus
-形态）；尚未接入外部 broker/配置系统绑定，动态键/未知 API 保持 unverified。
+**范围**：API 身份 = 调用边实际目标（完整包/类型）+ 静态实例/配置绑定；外部 broker、
+运行时配置、动态键仍无法证明 → unverified（todo17 已实现静态绑定三态）。
 
 ## 17. P1 资源采样能力与独立取消验收 — 已完成
 

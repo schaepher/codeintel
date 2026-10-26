@@ -15,47 +15,76 @@ type filterEvidence struct {
 	readOK   bool
 	readLine int
 }
+
 type recvEvidence struct {
 	line, apiLine int
 	api           string
 	apiType       string
+	recvVar       string
 	topic         string
 	keyVar        string
 	payloadVar    string
 	assign        *ast.AssignStmt
 	overwriteLine int
 	readRoot      string
-	readInitLine  int
+	readBindLine  int
+	readFresh     bool
 	filters       []filterEvidence
 	issue         string
 }
 
+type recvIfNode struct {
+	node    *ast.IfStmt
+	body    [2]int
+	els     [2]int
+	hasElse bool
+}
+
 // findRecv 解析 Receive 调用 + 返回键过滤 + 读取所在分支。
+// 多个 Receive 时选择**过滤谓词实际使用的那个**（不按出现顺序取最后一个）。
 func findRecv(pf *parsedFunc, leaf string, readLine int) *recvEvidence {
-	var recv *recvEvidence
-	// 建立 IfStmt 父子关系（判断 readLine 落在哪个分支）
-	type ifNode struct {
-		node    *ast.IfStmt
-		body    [2]int
-		els     [2]int
-		hasElse bool
+	ifs := collectReceiverIfs(pf)
+	recvs := collectReceiveCandidates(pf)
+	if len(recvs) == 0 {
+		return nil
 	}
-	var ifs []ifNode
+	var chosen *recvEvidence
+	for _, r := range recvs {
+		r.filters = collectKeyFilters(pf, r, leaf, readLine, ifs)
+		if len(r.filters) > 0 {
+			chosen = r
+			break
+		}
+	}
+	if chosen == nil {
+		chosen = recvs[0]
+	}
+	validateReceiverRead(pf, chosen, leaf, readLine)
+	return chosen
+}
+
+func collectReceiverIfs(pf *parsedFunc) []recvIfNode {
+	var ifs []recvIfNode
 	ast.Inspect(pf.decl.Body, func(n ast.Node) bool {
-		ifs2, ok := n.(*ast.IfStmt)
+		x, ok := n.(*ast.IfStmt)
 		if !ok {
 			return true
 		}
-		in := ifNode{node: ifs2,
-			body: [2]int{pf.fset.Position(ifs2.Body.Lbrace).Line, pf.fset.Position(ifs2.Body.Rbrace).Line}}
-		if ifs2.Else != nil {
+		in := recvIfNode{node: x,
+			body: [2]int{pf.fset.Position(x.Body.Lbrace).Line, pf.fset.Position(x.Body.Rbrace).Line}}
+		if x.Else != nil {
 			in.hasElse = true
-			in.els = [2]int{pf.fset.Position(ifs2.Else.Pos()).Line, pf.fset.Position(ifs2.Else.End()).Line}
+			in.els = [2]int{pf.fset.Position(x.Else.Pos()).Line, pf.fset.Position(x.Else.End()).Line}
 		}
 		ifs = append(ifs, in)
 		return true
 	})
+	return ifs
+}
 
+// collectReceiveCandidates 所有 Receive 赋值（含 key/payload 绑定/接收者）。
+func collectReceiveCandidates(pf *parsedFunc) []*recvEvidence {
+	var out []*recvEvidence
 	ast.Inspect(pf.decl.Body, func(n ast.Node) bool {
 		as, ok := n.(*ast.AssignStmt)
 		if !ok {
@@ -70,8 +99,8 @@ func findRecv(pf *parsedFunc, leaf string, readLine int) *recvEvidence {
 			if !ok || !asyncConsumerCalls[strings.ToLower(sel.Sel.Name)] {
 				continue
 			}
-			e := &recvEvidence{line: pf.fset.Position(call.Lparen).Line, api: sel.Sel.Name,
-				assign: as}
+			e := &recvEvidence{line: pf.fset.Position(call.Lparen).Line,
+				api: sel.Sel.Name, assign: as, recvVar: receiverVar(call.Fun)}
 			if rv, ok := sel.X.(*ast.Ident); ok {
 				e.apiType = varTypeMap(pf)[rv.Name]
 			}
@@ -81,7 +110,6 @@ func findRecv(pf *parsedFunc, leaf string, readLine int) *recvEvidence {
 					break
 				}
 			}
-			// 位置对齐：`_, job := Receive(...)` 时 key 槽为空、payload=job
 			names := make([]string, len(as.Lhs))
 			for i, lhs := range as.Lhs {
 				if id, ok := lhs.(*ast.Ident); ok && id.Name != "_" {
@@ -97,28 +125,17 @@ func findRecv(pf *parsedFunc, leaf string, readLine int) *recvEvidence {
 			if e.keyVar == "" {
 				e.issue = "Receive 返回键未绑定（无法追踪过滤键）"
 			}
-			recv = e
+			out = append(out, e)
 			return true
 		}
 		return true
 	})
-	if recv == nil {
-		return nil
-	}
-	// 读取实例：必须是 Receive 返回载荷 job 或其别名（other.RecordID 不算）
-	if recv.payloadVar == "" {
-		recv.issue = "Receive 返回值未绑定载荷实例（无法核对读取实例）"
-	} else if base, _, ok := fieldReadBase(pf, leaf, readLine); !ok {
-		recv.issue = "读取行未找到载荷字段访问（无法核对实例）"
-	} else {
-		root, fromRecv, fresh := resolveInstanceRoot(pf, base, readLinePos(pf, readLine), 0)
-		recv.readRoot = root
-		if root != recv.payloadVar && !(fromRecv && root == recv.payloadVar) {
-			recv.issue = "读取实例 " + shortExprText(root) + " 与接收载荷 " + recv.payloadVar +
-				" 无值/别名关联（" + instanceOrigin(pf, root, readLine, fresh) + "）"
-		}
-	}
+	return out
+}
 
+// collectKeyFilters 该 Receive 的键/载荷字段参与的 ==/!= 与读取分支。
+func collectKeyFilters(pf *parsedFunc, recv *recvEvidence, leaf string, readLine int, ifs []recvIfNode) []filterEvidence {
+	var out []filterEvidence
 	ast.Inspect(pf.decl.Body, func(n ast.Node) bool {
 		be, ok := n.(*ast.BinaryExpr)
 		if !ok || (be.Op != token.EQL && be.Op != token.NEQ) {
@@ -133,33 +150,7 @@ func findRecv(pf *parsedFunc, leaf string, readLine int) *recvEvidence {
 				return true
 			}
 		}
-		usesKey := false
-		keyFromReceive := false
-		overwrite := 0
-		switch e := expr.(type) {
-		case *ast.Ident:
-			if e.Name == recv.keyVar {
-				if b := reachingBinding(pf, e.Name, be.Pos()); b != nil {
-					if b.stmt == recv.assign {
-						usesKey, keyFromReceive = true, true
-					} else {
-						overwrite = b.line
-					}
-				}
-			}
-		case *ast.SelectorExpr:
-			if e.Sel.Name == leaf {
-				// 载荷字段作为过滤键：字段实例必须是 Receive 载荷且未被覆盖
-				if recv.payloadVar != "" {
-					root, _, _ := resolveInstanceRoot(pf, e.X, be.Pos(), 0)
-					if root == recv.payloadVar {
-						if b := reachingBinding(pf, recv.payloadVar, be.Pos()); b != nil && b.stmt == recv.assign {
-							usesKey, keyFromReceive = true, true
-						}
-					}
-				}
-			}
-		}
+		usesKey, overwrite := filterKeyUse(pf, recv, leaf, expr, be.Pos())
 		if overwrite > 0 && recv.issue == "" {
 			recv.overwriteLine = overwrite
 			recv.issue = "过滤键 " + recv.keyVar + " 在 L" + itoaSeq(overwrite) +
@@ -171,8 +162,6 @@ func findRecv(pf *parsedFunc, leaf string, readLine int) *recvEvidence {
 		}
 		f := filterEvidence{line: pf.fset.Position(be.Pos()).Line,
 			value: strings.Trim(lit.Value, "`\""), op: be.Op, expr: exprTextShallow(expr)}
-		_ = keyFromReceive
-
 		for _, in := range ifs {
 			cond, ok := in.node.Cond.(*ast.BinaryExpr)
 			if !ok || cond != be {
@@ -180,23 +169,78 @@ func findRecv(pf *parsedFunc, leaf string, readLine int) *recvEvidence {
 			}
 			inThen := readLine >= in.body[0] && readLine <= in.body[1]
 			inElse := in.hasElse && readLine >= in.els[0] && readLine <= in.els[1]
-			if be.Op == token.EQL && inThen {
+			if (be.Op == token.EQL && inThen) || (be.Op == token.NEQ && inElse) {
 				f.readOK = true
-			}
-			if be.Op == token.NEQ && inElse {
-				f.readOK = true
-			}
-			if f.readOK {
 				f.readLine = readLine
 			}
 		}
-		recv.filters = append(recv.filters, f)
+		out = append(out, f)
 		return true
 	})
-	return recv
+	return out
 }
 
-// readLinePos 读取行对应的 token.Pos（取该行首个语句位置；用于到达定义判定）。
+// filterKeyUse 比较操作数是否依赖该 Receive 的键/载荷字段；返回覆盖行。
+func filterKeyUse(pf *parsedFunc, recv *recvEvidence, leaf string, expr ast.Expr, pos token.Pos) (bool, int) {
+	switch e := expr.(type) {
+	case *ast.Ident:
+		if e.Name != recv.keyVar {
+			return false, 0
+		}
+		if b := reachingBinding(pf, e.Name, pos); b != nil {
+			if b.stmt == recv.assign {
+				return true, 0
+			}
+			return false, b.line
+		}
+	case *ast.SelectorExpr:
+		if e.Sel.Name != leaf || recv.payloadVar == "" {
+			return false, 0
+		}
+		root, _, _ := resolveInstanceRoot(pf, e.X, pos, 0)
+		if root != recv.payloadVar {
+			return false, 0
+		}
+		if b := reachingBinding(pf, recv.payloadVar, pos); b != nil && b.stmt == recv.assign {
+			return true, 0
+		}
+	}
+	return false, 0
+}
+
+// validateReceiverRead 读取实例必须来自选中 Receive 的载荷（或别名），且
+// 未被同名覆盖/新建值替换（todo17-6）。
+func validateReceiverRead(pf *parsedFunc, recv *recvEvidence, leaf string, readLine int) {
+	if recv.payloadVar == "" {
+		recv.issue = "Receive 返回值未绑定载荷实例（无法核对读取实例）"
+		return
+	}
+	base, _, ok := fieldReadBase(pf, leaf, readLine)
+	if !ok {
+		recv.issue = "读取行未找到载荷字段访问（无法核对实例）"
+		return
+	}
+	readPos := readLinePos(pf, readLine)
+	root, fromRecv, fresh := resolveInstanceRoot(pf, base, readPos, 0)
+	recv.readRoot, recv.readFresh = root, fresh
+	if root == recv.payloadVar {
+		if b := reachingBinding(pf, recv.payloadVar, readPos); b != nil && b.stmt != recv.assign {
+			recv.readBindLine = b.line
+		}
+	}
+	if root == recv.payloadVar && recv.readBindLine > 0 {
+		recv.issue = "读取 " + recv.payloadVar + "." + leaf + "（L" + itoaSeq(readLine) +
+			"）依赖 " + recv.payloadVar + " = 新值 的覆盖定义（L" + itoaSeq(recv.readBindLine) +
+			"），已不依赖 Receive 返回载荷（L" + itoaSeq(pf.fset.Position(recv.assign.Pos()).Line) + "）"
+		return
+	}
+	if root != recv.payloadVar || !fromRecv {
+		recv.issue = "读取实例 " + shortExprText(root) + " 与接收载荷 " + recv.payloadVar +
+			" 无值/别名关联（" + instanceOrigin(pf, root, readLine, fresh) + "）"
+	}
+}
+
+// readLinePos 读取行对应的 token.Pos（用于到达定义判定）。
 func readLinePos(pf *parsedFunc, line int) token.Pos {
 	var pos token.Pos
 	ast.Inspect(pf.decl.Body, func(n ast.Node) bool {
@@ -239,7 +283,6 @@ func instanceOrigin(pf *parsedFunc, root string, readLine int, fresh bool) strin
 	return "未知来源"
 }
 
-// shortExprText 实例名展示。
 func shortExprText(s string) string {
 	if s == "" {
 		return "?"

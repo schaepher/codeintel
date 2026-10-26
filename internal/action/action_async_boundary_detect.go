@@ -158,6 +158,7 @@ type sendEvidence struct {
 	line, apiLine int
 	api           string
 	apiType       string
+	recvVar       string
 	topic         string
 	keyExpr       string
 	keyValue      string
@@ -183,6 +184,7 @@ func findSend(pf *parsedFunc, leaf string) *sendEvidence {
 			return true
 		}
 		e := &sendEvidence{line: pf.fset.Position(call.Lparen).Line, api: sel.Sel.Name}
+		e.recvVar = receiverVar(call.Fun)
 		if rv, ok := sel.X.(*ast.Ident); ok {
 			e.apiType = varTypeMap(pf)[rv.Name]
 		}
