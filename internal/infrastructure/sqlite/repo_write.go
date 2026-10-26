@@ -50,13 +50,13 @@ func (r *Repo) SaveBatchStats(nodes []*domain.CodeEntity, edges []*domain.Fact,
 			return nil, fmt.Errorf("prepare node insert: %w", err)
 		}
 		for _, n := range nodes {
-			props, err := marshalProps(n.Properties)
+			props, err := marshalPropsJSON(n.Properties)
 			if err != nil {
 				stmt.Close()
 				return nil, fmt.Errorf("marshal properties of %s: %w", n.ID, err)
 			}
 			if _, err := stmt.Exec(string(n.ID), string(n.Kind), n.Name, n.FilePath,
-				n.LineStart, n.LineEnd, string(props)); err != nil {
+				n.LineStart, n.LineEnd, props); err != nil {
 				stmt.Close()
 				return nil, fmt.Errorf("insert node %s: %w", n.ID, err)
 			}
@@ -152,17 +152,6 @@ func (r *Repo) SaveBatchStats(nodes []*domain.CodeEntity, edges []*domain.Fact,
 	// 事务成功提交后才发布正向键（回滚时新节点 id_int 未持久化）。
 	r.publishBuildWriteCache(freshRefs)
 	return result, nil
-}
-
-// marshalProps 序列化节点属性；nil 映射为空对象（json_patch 需要对象操作数）。
-func marshalProps(props map[string]any) ([]byte, error) {
-	logger := zap.L()
-	logger.Debug("enter marshalProps")
-	defer logger.Debug("exit marshalProps")
-	if props == nil {
-		return []byte("{}"), nil
-	}
-	return json.Marshal(props)
 }
 
 // isFKError 判断是否为外键约束错误（SQLITE_CONSTRAINT_FOREIGNKEY = 787）。

@@ -57,9 +57,14 @@
 | 摘要键 `summaryKey(fn)` | `applySummary` 对**每个调用点**重新拼路径 | `funcSnapshot.summaryKeyCached`（key=`*ssa.Function`） | — |
 | 签名节点类型串 | `emitSignatureNodes` 对每个接收者/参数/返回值直接 `Type().String()`，绕过已有构建级类型串缓存 | 插入 `funcSnapshot.typeString` | — |
 
-仍**未**缓存（有意保守，待大仓 profile 确认收益/风险）：`instancePath` /
-`recoverVarName` / `allocTypeShort`（每次访问）、`nestedTypePath` 的
-`singleStoredValue`（每次字段访问扫描函数块）、`snakeCase`（每字段）。
+后来补齐（2026-10-26，`field_trace.md` §105）：`instancePath` /
+`recoverVarName`（extractor 内按值 memo，与未缓存递归实现逐值等价）、
+`allocTypeShort`（构建级缓存，22.0 ns/8B/1 alloc → 8.6 ns/0B/0）、
+`singleStoredValue`（`allocStores` 按 Alloc memo）、`snakeCase`（构建级）、
+节点属性序列化（池化 encoder + 空属性共享 `{}`：950 ns/584B/13 allocs →
+892 ns/376B/12 allocs）。go2o 暖构建 A/B：total_alloc −0.5%、mallocs
+−0.6%（wall 被换页噪声主导，不能当收益）。**属性内容缓存不采纳**：最终库
+仅约 13% 属性重复（等值节点已由 node_batch 跳过），按内容判等要先编码。
 
 ### 4.2 端点缓存
 

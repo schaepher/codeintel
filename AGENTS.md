@@ -484,6 +484,30 @@ pre-commit 场景的兜底）。
 - **查询预算要能"停"**：`--timeout` 走 ctx 取消，超时必须失败退出并说明
   "已停止后台展开"，不能返回截断后的"完整结果"（todo12-17）。
 
+## P1-02/P1-04/P1-05 缓存与事实源教训（2026-10-26）
+
+- **"加缓存"前先数有没有第二次加载**：`rg_bfs` 的 `loadRelationGraph` 已有
+  派生图缓存（build_id + 算法版本，常态每构建只加载一次）——再缓存原始行
+  只是让常驻内存翻倍。落地前逐个消费者问："这个进程里它会跑几次？"
+- **投影缓存缓存"原始行"，不缓存"派生结果"**：`edge_projection.go` 按
+  build_id 缓存各消费者的 SQL 行（过滤/建 map/BFS 仍在其内部执行）——边
+  语义变化必然伴随重建，故不需要额外版本常量（与 `edge_graph.go` 同理）。
+  无 `build_metadata` 不缓存（裸库/测试语义不变）；超行数上限不缓存。
+  返回的切片/map 是**只读共享**（调用方不得修改）。
+- **in-process 微基准 ≠ 端到端收益**：go2o 上 `GetAllCalls` 17.45ms→0.112ms
+  （156×）、`GetUncalledFunctions` 97.9→1.8ms（54×），但一次性
+  `query unused` 只 377→347ms（−8%，开库/磁盘 I/O 主导）。报告要分开给
+  （`field_trace.md` §105）。
+- **仓库外的表也有零 AI 事实源**：本仓库 wiki 的 `repos` 表（全局注册台账）
+  在仓库内没有 schema；读 `~/.codeintel/codeintel.db` 的 sqlite_master 即可
+  补类型（`sqlite.RegistryTableSchemas`，库不存在返回空且**不建文件**），
+  合并顺序**仓库内 DDL 优先**。
+- **`make it` 也要注入 `$(go env GOPATH)/bin`**：集成测试里的 CLI 是子进程，
+  父进程 PATH 缺 scip-go → `init exit=1`，表象是"集成测试回归"。已在
+  Makefile 修（与 `make test`/`verify.sh` 同款），runbook #26。
+- **改完代码先 rebuild 再验证**（老坑 2026-10-26 复发一次）：P1-02 首轮
+  `query unused` 数字"没变化"，实际跑的是 P1-04 时构建的旧二进制。
+
 ## 常用命令
 
 ```shell
@@ -627,10 +651,12 @@ internal/infrastructure/
   git/                    git log → COMMIT 节点 + MODIFIED_BY 边（conf 1.0）
   ssa/                    字段追溯核心：go/ssa → field_access/ssa_value 节点、
                           data_flows_to 等值流边、function_field_summary 摘要、
-                          接口派发候选（dispatch_to）、ORM/SQL 摘要、包级缓存
+                          接口派发候选（dispatch_to）、ORM/SQL 摘要、包级缓存、
+                          构建级字符串/路径缓存（typeString/snakeCase/instancePath）
   sqlite/                 nodes/edges/build_metadata 仓储；SaveBatchStats 分批提交；
                           GetRoots / Expand（图探索）+ relations 推断/缓存、
-                          整数代理键与 edges_v 兼容视图（Q254c）
+                          整数代理键与 edges_v 兼容视图（Q254c）、
+                          全扫查询投影缓存 edge_projection.go（P1-02）
 internal/progress/        进度渲染（Q253）：TTY 多活动行 / 逐行 / 静默三实现
 internal/server/          HTTP API：/api/roots（顶层入口）、/api/expand（点击展开）、
                           /wiki/ wiki 网页版（cli 注入，P2b）

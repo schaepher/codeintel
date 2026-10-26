@@ -1,9 +1,6 @@
 package sqlite
 
 import (
-	"database/sql"
-	"strings"
-
 	"github.com/schaepher/codeintel/internal/domain"
 	"go.uber.org/zap"
 )
@@ -32,83 +29,27 @@ func (r *Repo) GetUncalledFunctions() ([]*domain.UnusedFunc, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := r.Query(`SELECT n.id, n.kind, n.name, n.file_path, n.line_start, n.line_end
-	FROM nodes n
-	WHERE n.kind IN ('function','method')
-	  AND n.name NOT IN ('main','init')
-	  AND n.file_path IS NOT NULL
-	  AND n.file_path NOT LIKE '%_test.go'
-	ORDER BY n.file_path, n.line_start`)
+	// P1-02：函数清单走 build_id 投影缓存（unused 两档报告共用 nodes 扫描）。
+	rows, err := r.unusedFuncRows()
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []*domain.UnusedFunc
-	for rows.Next() {
-		var (
-			u        domain.UnusedFunc
-			id, kind string
-			file     string
-		)
-		if err := rows.Scan(&id, &kind, &u.Name, &file, &u.LineStart, &u.LineEnd); err != nil {
-			return nil, err
+	out := make([]*domain.UnusedFunc, 0, len(rows))
+	for _, row := range rows {
+		u := domain.UnusedFunc{
+			ID:        row.id,
+			Kind:      domain.EntityKind(row.kind),
+			Name:      row.name,
+			FilePath:  row.file,
+			LineStart: row.lineStart,
+			LineEnd:   row.lineEnd,
 		}
-		u.ID = domain.CanonicalID(id)
-		u.Kind = domain.EntityKind(kind)
-		u.FilePath = file
 		u.Called = called[u.ID]
 		u.Referenced = refed[u.ID] || varInit[u.ID]
 		u.Exported = len(u.Name) > 0 && u.Name[0] >= 'A' && u.Name[0] <= 'Z'
 		out = append(out, &u)
 	}
-	return out, rows.Err()
-}
-
-// edgeTargetKinds 一次查询返回指定 kind 边的全部 target_id 集合
-// （unused 预聚合，替代逐行 EXISTS 子查询）。
-func (r *Repo) edgeTargetKinds(kinds ...string) (map[domain.CanonicalID]bool, error) {
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(kinds)), ",")
-	args := make([]any, len(kinds))
-	for i, k := range kinds {
-		args[i] = k
-	}
-	rows, err := r.Query(`SELECT target_id FROM edges_v WHERE kind IN (`+placeholders+`)`, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := map[domain.CanonicalID]bool{}
-	for rows.Next() {
-		var t string
-		if err := rows.Scan(&t); err != nil {
-			return nil, err
-		}
-		out[domain.CanonicalID(t)] = true
-	}
-	return out, rows.Err()
-}
-
-// varInitFuncs 返回被全局变量初始化表达式引用的函数集合（data_flows_to
-// → var.* 节点，source 的 func_id——Q108：包初始化调用的函数不算孤立）。
-func (r *Repo) varInitFuncs() (map[domain.CanonicalID]bool, error) {
-	rows, err := r.Query(`SELECT DISTINCT json_extract(s.properties, '$.func_id')
-	FROM edges_v e JOIN nodes s ON s.id = e.source_id
-	WHERE e.kind = 'data_flows_to' AND e.target_id LIKE 'symbol:go:%:var.%'`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := map[domain.CanonicalID]bool{}
-	for rows.Next() {
-		var fid sql.NullString
-		if err := rows.Scan(&fid); err != nil {
-			return nil, err
-		}
-		if fid.Valid && fid.String != "" {
-			out[domain.CanonicalID(fid.String)] = true
-		}
-	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // GetIsolatedChains 返回孤立调用链（field_trace.md §16.3）：
@@ -129,50 +70,38 @@ func (r *Repo) GetIsolatedChains() ([][]*domain.UnusedFunc, error) {
 	if err != nil {
 		return nil, err
 	}
-	nodeRows, err := r.Query(`SELECT n.id, n.kind, n.name, n.file_path, n.line_start, n.line_end
-	FROM nodes n
-	WHERE n.kind IN ('function','method')
-	  AND n.file_path IS NOT NULL AND n.file_path NOT LIKE '%_test.go'`)
+	// P1-02：节点清单与 calls 边都走 build_id 投影缓存（同一构建内
+	// query unused 的多个报告共用一次扫描；calls 视图与 wiki 的包间
+	// 调用图共用）。
+	nodeRows, err := r.isolatedFuncRows()
 	if err != nil {
 		return nil, err
 	}
-	defer nodeRows.Close()
 	info := map[domain.CanonicalID]*domain.UnusedFunc{}
 	var order []domain.CanonicalID
-	for nodeRows.Next() {
-		var (
-			u        domain.UnusedFunc
-			id, kind string
-			file     string
-		)
-		if err := nodeRows.Scan(&id, &kind, &u.Name, &file, &u.LineStart, &u.LineEnd); err != nil {
-			return nil, err
+	for _, row := range nodeRows {
+		u := domain.UnusedFunc{
+			ID:        row.id,
+			Kind:      domain.EntityKind(row.kind),
+			Name:      row.name,
+			FilePath:  row.file,
+			LineStart: row.lineStart,
+			LineEnd:   row.lineEnd,
 		}
-		u.Referenced = refed[domain.CanonicalID(id)] || varInit[domain.CanonicalID(id)]
-		u.ID = domain.CanonicalID(id)
-		u.Kind = domain.EntityKind(kind)
-		u.FilePath = file
+		u.Referenced = refed[u.ID] || varInit[u.ID]
 		u.Exported = len(u.Name) > 0 && u.Name[0] >= 'A' && u.Name[0] <= 'Z'
 		info[u.ID] = &u
 		order = append(order, u.ID)
 	}
-	if err := nodeRows.Err(); err != nil {
-		return nil, err
-	}
 
-	callers := map[domain.CanonicalID][]domain.CanonicalID{}
-	callees := map[domain.CanonicalID][]domain.CanonicalID{}
-	edgeRows, err := r.Query(`SELECT source_id, target_id FROM edges_v WHERE kind = 'calls'`)
+	callFacts, err := r.callFacts()
 	if err != nil {
 		return nil, err
 	}
-	defer edgeRows.Close()
-	for edgeRows.Next() {
-		var s, t string
-		if err := edgeRows.Scan(&s, &t); err != nil {
-			return nil, err
-		}
-		si, ti := domain.CanonicalID(s), domain.CanonicalID(t)
+	callers := map[domain.CanonicalID][]domain.CanonicalID{}
+	callees := map[domain.CanonicalID][]domain.CanonicalID{}
+	for _, f := range callFacts {
+		si, ti := f.SourceID, f.TargetID
 		if _, ok := info[ti]; !ok {
 			continue
 		}
@@ -181,9 +110,6 @@ func (r *Repo) GetIsolatedChains() ([][]*domain.UnusedFunc, error) {
 		if _, ok := info[si]; ok {
 			callees[si] = append(callees[si], ti)
 		}
-	}
-	if err := edgeRows.Err(); err != nil {
-		return nil, err
 	}
 
 	reportable := func(id domain.CanonicalID) bool {

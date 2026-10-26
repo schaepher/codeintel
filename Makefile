@@ -68,9 +68,11 @@ test:
 	@PATH="$$(go env GOPATH)/bin:$$PATH" go test -race -count=1 -cover ./...
 
 ## it: 集成测试（真实仓库 → CLI init/query/clean + HTTP serve 全 API；
-##     需要 scip-go 在 PATH 或 GOBIN/GOPATH/bin，缺失时自动跳过）
+##     需要 scip-go 在 PATH 或 GOBIN/GOPATH/bin；Q252f 同款：自动把
+##     GOPATH/bin 加入 PATH——否则 CLI 子进程找不到 scip-go → init 失败，
+##     看起来像"集成测试红"而非环境缺失）
 it:
-	go test -count=1 -tags integration ./integration/
+	@PATH="$$(go env GOPATH)/bin:$$PATH" go test -count=1 -tags integration ./integration/
 
 ## bench: 性能基准（构建时间/内存/DB 大小；默认当前目录，-bench-repo 指定仓库）
 bench:

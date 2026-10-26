@@ -58,8 +58,22 @@ func (fa *fieldAccess) emit() error {
 
 // instancePath 生成变量访问链（如 req.Amount 或 a.b.c），深度上限 8 防环。
 // go/ssa v0.26 的 Alloc 名为 tN，源码变量名从标识符索引反查（buildIdentIndex）。
+//
+// P1-04：结果按 SSA 值缓存——同一个值被多条发射路径（字段读/写、实参
+// 摘要、phi、调用标记）各自调用，路径拼接每层都分配字符串。缓存键是
+// 值指针，结果只依赖本函数的 idents/assignTargets（构建期固定）与
+// 构建级 typeString/allocTypeShort（构建期内不变），函数内复用安全
+// （extractor 每函数一个、单 goroutine 使用）。
 func (ext *fieldExtractor) instancePath(v ssa.Value) string {
-	return ext.instancePathDepth(v, 0)
+	if p, ok := ext.paths[v]; ok {
+		return p
+	}
+	p := ext.instancePathDepth(v, 0)
+	if ext.paths == nil {
+		ext.paths = map[ssa.Value]string{}
+	}
+	ext.paths[v] = p
+	return p
 }
 
 func (ext *fieldExtractor) instancePathDepth(v ssa.Value, depth int) string {
@@ -119,7 +133,22 @@ func (ext *fieldExtractor) instancePathDepth(v ssa.Value, depth int) string {
 // （err := g(f()) 中的 f()）的 Pos 不匹配，不恢复，避免误配外层目标 err
 // （此前区间匹配曾把 db.DB() 的返回值误配为外层 err 变量）。
 // 非临时名 / 无 Pos（phi、合成值）→ 原样返回。
+//
+// P1-04：结果按值缓存——叶子值出现在多条路径的递归里（同一基变量 +
+// 不同字段），每次都要查 idents/assignTargets 并复制字符串。
 func (ext *fieldExtractor) recoverVarName(v ssa.Value) string {
+	if n, ok := ext.varNames[v]; ok {
+		return n
+	}
+	n := ext.recoverVarNameUncached(v)
+	if ext.varNames == nil {
+		ext.varNames = map[ssa.Value]string{}
+	}
+	ext.varNames[v] = n
+	return n
+}
+
+func (ext *fieldExtractor) recoverVarNameUncached(v ssa.Value) string {
 	name := v.Name()
 	if !isSSAName(name) {
 		return name
@@ -181,6 +210,8 @@ type fieldExtractor struct {
 	typeMapping      map[*types.Named]string                // Q211：orm.Mapping 实体类型→表名（Index 级收集共享）
 	paramCallerCache map[*ssa.Function]*paramCalls          // Q239：参数→静态调用点缓存（动态 SQL 还原）
 	allocStores      map[*ssa.Alloc]allocStoreResult        // Q?：副本来源（单一 Store）追溯结果缓存——避免每次重扫函数块
+	paths            map[ssa.Value]string                   // P1-04：instancePath 结果缓存（同值多路径复用）
+	varNames         map[ssa.Value]string                   // P1-04：recoverVarName 结果缓存（路径叶子复用）
 	// todo13-10：无法解析目标的调用（函数形参/闭包自由变量）——调用结果
 	// 节点打标记，value-trace 才能说明“未知回调导致来源未建模”。
 	unknownCalls map[ssa.Value]unknownCallMark

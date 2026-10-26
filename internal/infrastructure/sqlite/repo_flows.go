@@ -193,24 +193,14 @@ SELECT id, depth, name, edge_kinds, line, dir, kind, access, func_id, full_path 
 }
 
 // GetAllCalls 全量 calls 边（Q251-A：wiki 模块页包间调用图聚合数据源）。
+//
+// P1-02：走 build_id 投影缓存（wiki 生成/helpers 对同一构建反复调用）。
+// **返回切片为只读共享**——调用方不得修改元素或追加。
 func (r *Repo) GetAllCalls() ([]*domain.Fact, error) {
 	logger := zap.L()
 	logger.Debug("enter (Repo).GetAllCalls")
 	defer logger.Debug("exit (Repo).GetAllCalls")
-	rows, err := r.Query(`SELECT source_id, target_id FROM edges_v WHERE kind = 'calls'`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []*domain.Fact
-	for rows.Next() {
-		f := &domain.Fact{Kind: domain.FactCalls}
-		if err := rows.Scan(&f.SourceID, &f.TargetID); err != nil {
-			return nil, err
-		}
-		out = append(out, f)
-	}
-	return out, rows.Err()
+	return r.callFacts()
 }
 
 // GetFunctions 游离函数清单（R89：query helpers——kind=function 非

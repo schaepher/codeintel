@@ -24,7 +24,7 @@ func (ext *fieldExtractor) emitConstAt(c *ssa.Const, lineHint int, varName strin
 	if c.Value != nil {
 		val = c.Value.String()
 	}
-	short := allocTypeShort(typeStr)
+	short := ext.allocTypeShort(typeStr)
 	if short == "" {
 		short = typeStr
 	}

@@ -34,6 +34,14 @@ type Repo struct {
 	edgeGraphMu    sync.RWMutex
 	edgeGraphCache *edgeGraph
 
+	// P1-02：全扫类查询的进程内投影缓存（edge_projection.go）——
+	// repo_chain/repo_flows/repo_unused 的原始行按 build_id 复用
+	// （rg_bfs 不接入：派生图缓存已覆盖，理由见该文件头）；
+	// 锁只保护槽位，视图加载在锁外（同 build 的并发首访共享一次加载）。
+	projMu       sync.Mutex
+	projCacheKey string
+	projCache    *projCache
+
 	// Q?：构建期端点正向缓存（build_write_cache.go）——只在构建生命周期
 	// 内启用（编排器 Begin/End），不跨构建复用。
 	buildWriteMu sync.Mutex

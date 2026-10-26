@@ -139,3 +139,49 @@ func (ext *fieldExtractor) snakeCase(name string) string {
 	}
 	return ext.funcs.snakeCase(name)
 }
+
+// allocTypeShort 构建级类型短名缓存（P1-04）。纯函数按类型串缓存——
+// 匿名分配的展示名回退会在同一类型的大量临时值上重复调用。
+// 空串不缓存（无复用价值，行为与直接调用一致）。
+func (s *funcSnapshot) allocTypeShort(ts string) string {
+	if ts == "" {
+		return ""
+	}
+	if s == nil {
+		return allocTypeShort(ts)
+	}
+	s.shortMu.RLock()
+	v, ok := s.shorts[ts]
+	s.shortMu.RUnlock()
+	if ok {
+		return v
+	}
+	s.shortMu.Lock()
+	defer s.shortMu.Unlock()
+	if v, ok := s.shorts[ts]; ok {
+		return v
+	}
+	v = allocTypeShort(ts)
+	if s.shorts == nil {
+		s.shorts = map[string]string{}
+	}
+	s.shorts[ts] = v
+	return v
+}
+
+// allocTypeShort 提取器侧：快照缺失回退纯函数（同 typeString 口径，
+// 不静默返回空串）。
+func (ext *fieldExtractor) allocTypeShort(ts string) string {
+	if ext == nil || ext.funcs == nil {
+		return allocTypeShort(ts)
+	}
+	return ext.funcs.allocTypeShort(ts)
+}
+
+// allocTypeShort aliasPass 侧：共享同一构建级缓存（与字段提取同批类型）。
+func (p *aliasPass) allocTypeShort(ts string) string {
+	if p == nil || p.funcs == nil {
+		return allocTypeShort(ts)
+	}
+	return p.funcs.allocTypeShort(ts)
+}

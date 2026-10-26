@@ -2518,6 +2518,12 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
 保留以便交叉引用。**“需大仓/外部”= 依赖真实系统或大仓 profile 才能验收，
 当前不做**（用户 2026-10-16 指示）。
 
+**2026-10-26 移除**：P1-02（全扫投影缓存——接入 repo_chain/repo_flows/
+repo_unused；`rg_bfs` 经核查派生图缓存已覆盖、不接入）、P1-04（SSA
+instancePath/recoverVarName/allocTypeShort 缓存 + 节点属性池化序列化）、
+P1-05（全局注册表 schema 作为仓库外事实源，repos 表 10 列补类型）。
+实现/实测/验收证据见 `field_trace.md` §105。
+
 | 新编号 | 原 ID/来源 | 优先级 | 事项 | 依赖 / 说明 |
 |---|---|---|---|---|
 | P0-01 | #1 | P0 | 真实业务系统端到端验证（gRPC 识别形态/DI/字段流/`query grpc-routes`/wiki） | **需外部真实系统** |
@@ -2525,10 +2531,7 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
 | P0-03 | #8 | P0 | go2o domains.services 人工确认（30 服务归属） | 人在环 |
 | P0-04 | #9 | P0 | 术语表 24 条 / flows 5 条人工 review | 人在环 |
 | P1-01 | todo19-6 | P1 工程 | 运行时配置、反射/动态别名、外部 broker 的真实系统绑定 | 调用前后顺序/条件/别名实例/方法修改矩阵已完成；动态/运行时绑定仍 unverified |
-| P1-02 | #15 | P1 工程 | 邻接表缓存推广到 4 处全扫边集消费者（`repo_chain`/`repo_flows`/`repo_unused`/`rg_bfs`） | 边 kind 集不同，需新视图/逐消费者验证 |
 | P1-03 | #16 | P1 工程 | cli → action 迁移收尾（~100 文件按 R89 模式） | 机械大批量 |
-| P1-04 | ssa-cache | P1 工程 | SSA 缓存余项：`instancePath`/`recoverVarName`/`allocTypeShort`/`marshalProps` | 低风险 |
-| P1-05 | #20 | P1 工程 | 表字段类型剩余 10 列（`~/.codeintel` 全局注册表） | 需全局 db/yaml |
 | P1-06 | #18 | P1 工程 | go2o 表别名 AI 补缺（缺 148 表） | 需 AI/网络 |
 | P1-07 | R13 | P1 性能 | 内存与 GC：无用调用记录/字段产物重复物化/暖缓存字符串/无指针记录（空结构实参调用记录已裁剪；其余需大仓 profile） | **需大仓 profile** |
 | P1-08 | R14 | P1 性能 | 暖构建准备：分离别名/全局 init/派发所需数据，包缓存命中少建图 | **需大仓 profile** |

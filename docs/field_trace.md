@@ -5651,3 +5651,100 @@ seed 展开集合）都被当作 corroborated——需求指出这三样都**不
   HEAD 变化仍过期；两个真实 worktree 的 ext-chain 认领前后均续接。
 - PlantUML：`%% diag/evidence` → `' ...` 且多行压平；真实 JAR 输出 PNG 魔数
   + `.puml` sidecar + `-checkonly` 通过；PNG 失败写 `.puml` 文本回退、非零退出。
+
+## §105 P1-02/P1-04/P1-05：全扫投影缓存 + SSA 重复构建缓存 + 注册表 schema 事实源（2026-10-26）
+
+三项待办（`docs/self-analysis.md` 原 P1-02/04/05）一次交付，各自带
+回归、实测与验收证据。口径统一：本机 8 vCPU / 3GB，go2o 121,331 节点 /
+137,111 边，Go 1.27.0；A/B 用同一仓库、同一库、冷/暖缓存分开记录。
+
+### P1-02 全扫类查询的 build_id 投影缓存
+
+`internal/infrastructure/sqlite/edge_projection.go`（缓存基建）+
+`edge_projection_views.go`（各视图加载器，SQL 与过滤条件与原实现逐字一致）。
+
+- 语义：键 = build_id（**缓存原始行**，派生逻辑仍在消费者里 → 边语义
+  变化必然伴随重建）；无 build_metadata 不缓存（裸库/测试语义不变）；
+  并发首次访问共享一次加载（`ready` channel）；失败/超行数上限不缓存；
+  行数上限 `maxCachedProjectionRows = 200_000`（canonical ID 行 ≈ 60–100MB/视图）
+- 接入 3 处：`GetImplementsEdges`（repo_chain）、`GetAllCalls`（repo_flows）、
+  repo_unused 的 calls/引用/var-init 边 + 两种函数清单口径。
+  **返回切片/map 只读共享**（调用方不得修改元素）——已核对全部调用方只读
+- `rg_bfs` 的 `loadRelationGraph` **经核查不接入**：派生结果已有
+  relationGraph 缓存（键 build_id + relationsAlgoVersion），常态每构建
+  只加载一次；再缓存一份原始行（7.5M 边级别上百 MB）纯增常驻内存。
+  超大图走 SQL 路径（relations_graph.go），不加载内存图
+
+实测（go2o，进程内 5 次调用，`go test -bench`，基线 = HEAD worktree 同代码）：
+
+| 消费者 | 改造前 | 投影缓存命中 | 倍数 |
+|---|---:|---:|---:|
+| GetAllCalls | 17.45 ms | 0.112 ms | 156× |
+| GetImplementsEdges | 585 µs | 95.5 µs | 6.1× |
+| GetUncalledFunctions | 97.9 ms | 1.80 ms | 54× |
+| GetIsolatedChains | 104.0 ms | 10.4 ms | 10× |
+
+端到端（单进程一次性命令，含进程启动/开库）：`query unused --json` 377→347ms
+（−8%）；`wiki --diagram mermaid` 222.7→216.1s（−3%，但 wiki 由时序/渲染主导）。
+**结论口径**：投影缓存的主要收益在"同一进程内反复查询"（serve/MCP/
+一次命令内的多报告），一次性 CLI 受磁盘 I/O 主导，不能拿 in-process
+倍数当端到端收益。
+
+回归：`edge_projection_test.go`（命中/失效/无 build_metadata 不缓存/
+超限不缓存/并发单次加载/kind 集顺序复用/implements Unimplemented 过滤/
+unused 两入口共用视图/结果稳定）。
+
+### P1-04 SSA 重复构建缓存 + 节点属性序列化
+
+- `instancePath`（按值）、`recoverVarName`（按值）：extractor 内 memo
+  （每函数一个 extractor、单 goroutine；结果只依赖函数内 idents/
+  assignTargets 与构建级缓存）——`path_cache_test.go` 对 fixture 内**每个**
+  SSA 值断言"缓存结果 == 未缓存递归实现"，并验证命中不新增条目
+- `allocTypeShort`：构建级 `funcSnapshot` 缓存（RWMutex 双检；空串不缓存；
+  快照缺失回退纯函数）。微基准 22.0 ns/8B/1 alloc → 8.6 ns/0B/0 alloc（2.5×）
+- `marshalProps` → `marshalPropsJSON`（repo_props.go）：空/nil 属性返回共享
+  `"{}"`；非空走池化 bytes.Buffer + json.Encoder（裁掉 Encode 的 '\n'），
+  输出与 json.Marshal **逐字节相等**（形态矩阵含 HTML 转义/多字节/数值/
+  嵌套）。微基准 950 ns/584B/13 allocs → 892 ns/376B/12 allocs；空属性
+  87 ns/16B/2 → 2.7 ns/0B/0。**不做内容缓存**：节点属性逐节点构造，最终
+  库只有约 13% 与已有属性重复（等值节点已由 node_batch 跳过），按内容
+  判定等值本身要先编码，收益低于成本
+
+A/B（go2o 暖缓存，两次交错各 2 轮，`CODEINTEL_MEM_PROFILE`）：
+
+| 指标 | HEAD | 本改动 |
+|---|---:|---:|
+| total_alloc | 1347 / 1345 MB | 1333 / 1343 MB |
+| mallocs | 19.73M / 19.80M | 19.63M / 19.77M |
+| num_gc | 52 / 46 | 48 / 47 |
+| wall | 7.76 / 10.13 s | 8.46 / 7.96 s |
+
+CPU profile（go2o 冷/暖构建同口径）：`instancePath` 0.45% → 采样中消失、
+`recoverVarName` 0.30% → 消失、`marshalProps` 2.08% → `marshalPropsJSON` 1.65%。
+**收益是分配量（−0.5% 量级）与热函数占比，不是 wall time**——wall 在本机被
+换页/GC 噪声主导（同一二进制两次可差 2.4s）。
+
+确定性/保真：`scripts/detcheck.sh go2o 1` 冷1/冷2/暖3 四类产物全等
+（节点 121331、边 137111、摘要 21158、来源 3445）。
+
+### P1-05 全局注册表 schema 作为仓库外事实源
+
+`sqlite.RegistryTableSchemas(dir)`（读 `~/.codeintel/codeintel.db` 的
+sqlite_master，库不存在返回空且**不创建文件**）+ `cli.globalSchemaDDLs()`
+并入 `wikiSchemas`；合并语义 **仓库内 DDL 优先**（同名表不被覆盖）。
+
+验收（本仓库 wiki 实渲染）：`repos` 表 10 列全部有类型与默认值——
+`path TEXT`、`go_mod_count INTEGER 0`、`is_worktree INTEGER 0`、
+`registered_at TEXT` 等（改造前 wiki 里这 10 列类型为空）。
+
+### 本轮的坑（已固化到 AGENTS.md / runbook）
+
+1. **"投影缓存"必须先数第二次加载**：`rg_bfs` 的派生图缓存已覆盖常态，
+   投影只增加常驻内存——先核查"缓存是否已有等价层"，再动手
+2. **in-process 微基准 ≠ 端到端收益**：一次性 CLI 由开库/磁盘 I/O 主导
+   （go2o `query unused` 只 −8%），报告必须分开给数字
+3. **改完代码忘 rebuild 导致"改动没生效"**：P1-02 首轮验证跑的是旧二进制
+   （AGENTS.md 老坑复发一次，重 build 后数字才对）
+4. **`make it` 不带 GOPATH/bin**：CLI 子进程找不到 scip-go → init 失败，
+   看似"集成测试红"。已修 Makefile（与 `make test` 同款 PATH 注入），
+   并记入 runbook #26

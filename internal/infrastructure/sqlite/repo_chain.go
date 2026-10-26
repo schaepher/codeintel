@@ -11,25 +11,14 @@ import (
 
 // GetImplementsEdges 全部 implements 边（排除 protoc 生成桩
 // UnimplementedXxxServer——链上接口具体化不把桩当实现）。
+//
+// P1-02：走 build_id 投影缓存（wiki 的时序/接口具体化会对同一构建反复
+// 调用）。**返回切片为只读共享**——调用方不得修改元素或追加。
 func (r *Repo) GetImplementsEdges() ([]*domain.Fact, error) {
 	logger := zap.L()
 	logger.Debug("enter (Repo).GetImplementsEdges")
 	defer logger.Debug("exit (Repo).GetImplementsEdges")
-	rows, err := r.Query(`SELECT source_id, target_id FROM edges_v
-		WHERE kind = 'implements' AND target_id NOT LIKE '%Unimplemented%'`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []*domain.Fact
-	for rows.Next() {
-		f := &domain.Fact{Kind: domain.FactImplements}
-		if err := rows.Scan(&f.SourceID, &f.TargetID); err != nil {
-			return nil, err
-		}
-		out = append(out, f)
-	}
-	return out, rows.Err()
+	return r.implementsFacts()
 }
 
 // AllNodeIDs 全部节点 ID（接口具体化构造的方法 ID 存在性判定）。

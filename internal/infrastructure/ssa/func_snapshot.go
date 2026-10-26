@@ -94,6 +94,11 @@ type funcSnapshot struct {
 	// snakes = snakeCase 缓存（字段/类型名重复率高）
 	snakeMu sync.RWMutex
 	snakes  map[string]string
+
+	// P1-04：allocTypeShort 缓存——同一类型串在大量匿名分配/值发射上
+	// 重复出现（匿名 &T{}/make 的展示名回退），命中路径零分配。
+	shortMu sync.RWMutex
+	shorts  map[string]string
 }
 
 // newFuncSnapshot 采集一次（测试/未指定模块：ssautil.AllFunctions 全集）。

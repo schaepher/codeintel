@@ -19,12 +19,13 @@ import (
 // 非 Alloc 值保持 v.Name()——fe 公共分支同样用 v.Name()（回退类型短名只
 // 影响展示名 Name，不影响 ID）。
 func aliasSlot(v ssa.Value) string {
-	return aliasSlotWith(v, func(t types.Type) string { return t.String() })
+	return aliasSlotWith(v, func(t types.Type) string { return t.String() }, allocTypeShort)
 }
 
-// aliasSlotWith 同 aliasSlot，类型字符串由调用方缓存提供（todo8-3：
-// 别名分析与字段提取共享构建级 typeString）。
-func aliasSlotWith(v ssa.Value, typeString func(types.Type) string) string {
+// aliasSlotWith 同 aliasSlot，类型字符串与类型短名由调用方缓存提供
+// （todo8-3/P1-04：别名分析与字段提取共享构建级 typeString /
+// allocTypeShort）。
+func aliasSlotWith(v ssa.Value, typeString func(types.Type) string, typeShort func(string) string) string {
 	slot := v.Name()
 	if !isSSAName(slot) {
 		return slot
@@ -32,7 +33,7 @@ func aliasSlotWith(v ssa.Value, typeString func(types.Type) string) string {
 	if _, isAlloc := v.(*ssa.Alloc); !isAlloc {
 		return slot
 	}
-	if tn := allocTypeShort(typeString(v.Type())); tn != "" {
+	if tn := typeShort(typeString(v.Type())); tn != "" {
 		return tn
 	}
 	return slot
@@ -40,12 +41,12 @@ func aliasSlotWith(v ssa.Value, typeString func(types.Type) string) string {
 
 // aliasSlot 提取器侧（共享 typeString 缓存）。
 func (ext *fieldExtractor) aliasSlot(v ssa.Value) string {
-	return aliasSlotWith(v, ext.typeString)
+	return aliasSlotWith(v, ext.typeString, ext.allocTypeShort)
 }
 
 // aliasSlot aliasPass 侧（共享 typeString 缓存）。
 func (p *aliasPass) aliasSlot(v ssa.Value) string {
-	return aliasSlotWith(v, p.typeString)
+	return aliasSlotWith(v, p.typeString, p.allocTypeShort)
 }
 
 // valueNodeID 生成并发射值节点的 canonical ID（funcID#slot，与 emitValue
@@ -126,7 +127,7 @@ func (p *aliasPass) valueNodeID(v ssa.Value) (domain.CanonicalID, bool) {
 	// Q235-6/8/9：SSA 临时名回退类型短名（与 emitValue 一致）——Alloc
 	// （Q235-6 匿名分配）扩展到全部指令；phi 有声明时已恢复变量名
 	// （Q235-9），无 Pos 合成 phi 同样回退类型短名
-	if tn := allocTypeShort(p.typeString(v.Type())); tn != "" {
+	if tn := p.allocTypeShort(p.typeString(v.Type())); tn != "" {
 		name = tn
 	}
 	if err := p.emit(domain.Item{Node: &domain.CodeEntity{
@@ -182,7 +183,7 @@ func (p *aliasPass) objectIDOf(obj ssa.Value) (domain.CanonicalID, bool) {
 	}
 	name := slot
 	// Q235-6：匿名分配回退类型短名（与 emitValue 一致）
-	if tn := allocTypeShort(p.typeString(obj.Type())); tn != "" {
+	if tn := p.allocTypeShort(p.typeString(obj.Type())); tn != "" {
 		name = tn
 	}
 	if err := p.emit(domain.Item{Node: &domain.CodeEntity{

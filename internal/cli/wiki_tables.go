@@ -7,6 +7,8 @@ import (
 
 	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
+	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
+	"go.uber.org/zap"
 )
 
 // renderTablesPage 表清单 + 每表详情（字段定义表/索引/建表语句，#243）。
@@ -136,10 +138,49 @@ type tableColRow struct {
 
 // wikiSchemas 表 schema 事实（R19）：sqlite_master CREATE TABLE 解析
 // 为 列类型/默认值 映射（不借助 AI——SQLite 是权威）。
+// P1-05：再合并全局注册表（~/.codeintel）的 schema——注册表 repos
+// 等仓库外表在仓库内没有事实源。
 func wikiSchemas(acts *action.Actions) map[string]map[string]schemaCol {
 	ddls, err := acts.TableSchemas()
 	if err != nil {
+		// 仓库 schema 读取失败不阻断：仍可用全局注册表事实源
+		zap.L().Warn("读取仓库表 schema 失败（wiki 表类型继续用其他事实源）", zap.Error(err))
+		ddls = nil
+	}
+	return parseCreateTableSchema(mergeSchemaDDLs(ddls, globalSchemaDDLs()))
+}
+
+// globalSchemaDDLs 全局注册表（~/.codeintel/codeintel.db）的建表语句。
+// 目录不可用/库不存在/读取失败都返回 nil（wiki 只缺这部分类型，不失败）。
+func globalSchemaDDLs() map[string]string {
+	dir := registryDirFn()
+	if dir == "" {
 		return nil
 	}
-	return parseCreateTableSchema(ddls)
+	ddls, err := sqlite.RegistryTableSchemas(dir)
+	if err != nil {
+		zap.L().Warn("读取全局注册表 schema 失败（忽略仓库外表类型）", zap.Error(err))
+		return nil
+	}
+	return ddls
+}
+
+// mergeSchemaDDLs 合并 schema 事实源：base（仓库内）优先——同名表不被
+// extra（仓库外）覆盖（被分析仓库自己的 DDL 才是该表的权威）。
+// 返回新 map（不改入参，并发调用安全）。
+func mergeSchemaDDLs(base, extra map[string]string) map[string]string {
+	if len(extra) == 0 {
+		return base
+	}
+	out := make(map[string]string, len(base)+len(extra))
+	for name, ddl := range base {
+		out[name] = ddl
+	}
+	for name, ddl := range extra {
+		if _, ok := out[name]; ok {
+			continue
+		}
+		out[name] = ddl
+	}
+	return out
 }

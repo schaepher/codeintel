@@ -245,7 +245,7 @@ func (ext *fieldExtractor) emitValue(v ssa.Value) (domain.CanonicalID, error) {
 		// 源码声明（Pos 指向变量）时已恢复变量名（Q235-9），**无 Pos
 		// 的合成 phi 同样回退类型短名**（int 比 t3 可读，汇合语义由
 		// 链结构体现）
-		if tn := allocTypeShort(ext.typeString(v.Type())); tn != "" {
+		if tn := ext.allocTypeShort(ext.typeString(v.Type())); tn != "" {
 			name = tn
 		} else {
 			name = slot
