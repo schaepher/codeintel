@@ -26,7 +26,8 @@ type GrpcRouteMethod struct {
 
 // GrpcRouteService 一个 gRPC 服务（服务端路由）。
 type GrpcRouteService struct {
-	Name     string            `json:"name"`      // 服务名（QueryService）
+	ID       string            `json:"id,omitempty"` // 服务节点 canonical ID（proto 包/服务完整身份）
+	Name     string            `json:"name"`         // 服务名（QueryService）
 	Impl     string            `json:"impl"`      // 实现类型（grpc_impl 边）
 	ImplID   string            `json:"impl_id"`   // 实现类型 canonical ID（R37 流程页构造方法入口）
 	ImplFile string            `json:"impl_file"` // 实现位置（file:line）
@@ -61,7 +62,7 @@ func grpcRoutes(r Reader, repoAbs string) (*GrpcRoutesResult, error) {
 		if name == "" {
 			name = strings.TrimPrefix(string(n.ID), "symbol:")
 		}
-		out := GrpcRouteService{Name: name, Methods: []GrpcRouteMethod{}}
+		out := GrpcRouteService{ID: string(n.ID), Name: name, Methods: []GrpcRouteMethod{}}
 		// 2. Register 函数（签名识别建立——按 registers_service 属性查，
 		// R30：不再按函数名 RegisterXxxServer 推导）
 		regFile := ""
