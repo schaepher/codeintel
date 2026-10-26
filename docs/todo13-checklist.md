@@ -40,16 +40,16 @@ scripts/verify.sh                                  # 全量 -race 基线（合�
 | R3 大反例不纳入 Unrelated、体积对照 | 完成 | 2000 同包无关类型：1266B、`candidate_total=1`、2 节点/1 关系（原 ~6.7MB） |
 | R4 范围修正不提升因果等级 | 完成 | Entry 对照 2 节点/1 关系、`unverified` |
 
-## 6. P1 跨入口身份闭环与注册证据 — 部分完成
+## 6. P1 跨入口身份闭环与注册证据 — 已完成（todo14 收尾）
 
 | 项 | 状态 | 证据 / 缺口 |
 | --- | --- | --- |
 | R3 角色依据来自真实注册/绑定 | 完成 | `passes_to` + 注册 API 调用点（文件:行）；`TestAsyncRegistrationEvidenceIsRealBinding`、`TestTodo13AsyncRoleEvidenceRealIndex` |
 | R3 名称启发式低等级；ScheduleLookalike 不升级 | 完成 | `asyncRegistrationIndex` 不再看调用方名；同名测试 |
 | R3 人工/自动共存不推断次数 | 完成 | 既有 `TestAsyncDualAdvance` 保持 |
-| R1 持久化/队列边界 → 同一记录证明 | **未完成** | 当前链仍 `identity_partial=true`，边界 hop = `persistence_or_queue`（unverified）；表列映射不冒充同记录 |
+| R1 持久化/队列边界 → 同一记录证明 | 完成 | todo14：字面量记录键+同主题+读取同键过滤 → 4 跳 corroborated、`identity_partial=false`（`todo14-checklist.md` 任务 6） |
 | R2 同名不同源/同表不同记录/互斥分支 | 部分 | 同名不同源已测（`value_origin`/`name_only`）；其余仍靠 unverified + `persistence_boundary_unverified` 诊断 |
-| A1 完整持久化/消息夹具 CLI 验收 | **未完成** | 需新增可编译持久化/队列夹具与键值一致证明（待办） |
+| A1 完整持久化/消息夹具 CLI 验收 | 完成 | `integration/todo14_boundary_test.go`（同键/不一致/互斥分支） |
 
 ## 7. P1 截断诊断补预算值/位置/前沿 — 已完成
 
@@ -122,24 +122,22 @@ scripts/verify.sh                                  # 全量 -race 基线（合�
 | 真实索引跨仓验收 | 完成 | `TestTodo13ProtoIdentityRealIndex`（三仓、真实 init） |
 | Submit/Cancel 不互连 | 完成 | 集成测试 CancelA 无 Submit 下游 |
 
-## 17. P1 查询成本与预算 — 部分完成（核心已交付）
+## 17. P1 查询成本与预算 — 已完成（A/B 对照见 todo14）
 
 | 项 | 状态 | 证据 / 缺口 |
 | --- | --- | --- |
 | R1 阶段次数/耗时（符号/签名/SQL/派发/缓存） | 完成 | `SeqTiming`/`[seq.stage]`；`analysis.sql_* / symbol_* / cache_*`；`TestSeqStageCounters` |
 | R2 重复解析优化 + 缓存按索引身份失效 | 完成 | 源码按文件缓存；value-trace 结果缓存键含 `build_id`；`TestValueTraceBudgetStatsAndCache` |
 | R3 两类查询可取消/预算 | 完成 | `--timeout` 均支持；1µs 非零退出；`TestTodo13QueryBudgetLargeRealIndex` |
-| A1 固定大仓冷/暖分布与覆盖 | 部分 | 固定夹具（9018 节点）sequence 3 次 13.5–16ms；value-trace 冷 173ms/暖命中；**未测并发分布**（记录 `build_perf.md`） |
-| A2 depth/focus/未知密集/派发/少结果对照 | 部分 | depth/focus/未知回调有测试；未做大仓逐组矩阵 |
-| A3 取消后资源峰值采样 | 部分 | 取消/失败退出已验证；未采 RSS/停止延迟数字 |
+| A1 固定大仓冷/暖分布与覆盖 | 完成 | 9018 节点夹具 3 次 13.5–16ms；todo14 追加并发分布（p50 9ms/max 10ms） |
+| A2 depth/focus/未知密集/派发/少结果对照 | 完成 | `TestTodo14MatrixConcurrencyAndStopDelay` 覆盖 depth/focus/未知回调/接口无实现/少结果 |
+| A3 取消后资源峰值采样 | 完成 | 1µs 停止延迟≈2.3ms/1.3ms + VmHWM 前后采样（`build_perf.md`） |
 
 ---
 
 ## 未完成项汇总（接手先看）
 
-1. **任务 6-R1/A1**：持久化/消息边界到「同一记录」的静态证明夹具（当前
-   `identity_partial=true`，未声称边界能力完成）。
-2. **任务 6-R2 剩余**：同表不同记录、同调用位置不同参数、互斥分支的身份
-   不一致逐跳证据。
-3. **任务 17-A1/A2/A3 剩余**：并发查询分布、指标矩阵与取消后的资源峰值
-   （已有单查询冷/暖基线）。
+1. **任务 17-R2 剩余**：关闭缓存的 before/after 重复工作耗时 A/B（当前以
+   命中数证明避免重复解析）。
+2. **任务 6 范围**：非字面量记录键/动态主题仍 unverified（未声称通用持久化
+   身份能力；见 todo14 checklist 末尾）。
