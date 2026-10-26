@@ -107,6 +107,7 @@ func blockContaining(root *ast.BlockStmt, fset *token.FileSet, pos token.Pos) *a
 // assignBinding 一个名字的赋值定义（接收绑定/重赋值/遮蔽）。
 type assignBinding struct {
 	stmt   *ast.AssignStmt
+	pos    token.Pos
 	line   int
 	rhs    ast.Expr
 	block  *ast.BlockStmt
@@ -119,14 +120,23 @@ func reachingBinding(pf *parsedFunc, name string, pos token.Pos) *assignBinding 
 	bs := declaredBindings(pf, name)
 	for i := range bs {
 		b := &bs[i]
-		if b.line == 0 || b.stmt == nil {
+		bpos := b.pos
+		if bpos == token.NoPos && b.stmt != nil {
+			bpos = b.stmt.Pos()
+		}
+		if b.line == 0 || bpos == token.NoPos || bpos > pos || !blockContains(b.block, pf.fset, pos) {
 			continue
 		}
-		if b.stmt.Pos() > pos || !blockContains(b.block, pf.fset, pos) {
+		if best == nil {
+			best = b
 			continue
 		}
-		if best == nil || b.stmt.Pos() > best.stmt.Pos() ||
-			(b.stmt.Pos() == best.stmt.Pos() && blockSize(pf, b.block) < blockSize(pf, best.block)) {
+		bestPos := best.pos
+		if bestPos == token.NoPos && best.stmt != nil {
+			bestPos = best.stmt.Pos()
+		}
+		if bpos > bestPos ||
+			(bpos == bestPos && blockSize(pf, b.block) < blockSize(pf, best.block)) {
 			best = b
 		}
 	}
@@ -144,7 +154,7 @@ func declaredBindings(pf *parsedFunc, name string) []assignBinding {
 				if !ok || id.Name != name {
 					continue
 				}
-				b := assignBinding{stmt: x, line: pf.fset.Position(x.Pos()).Line,
+				b := assignBinding{stmt: x, pos: x.Pos(), line: pf.fset.Position(x.Pos()).Line,
 					block: blockContaining(pf.decl.Body, pf.fset, x.Pos()), define: x.Tok == token.DEFINE}
 				if len(x.Rhs) == len(x.Lhs) {
 					b.rhs = x.Rhs[i]
@@ -167,7 +177,7 @@ func declaredBindings(pf *parsedFunc, name string) []assignBinding {
 					if id.Name != name {
 						continue
 					}
-					b := assignBinding{line: pf.fset.Position(x.Pos()).Line,
+					b := assignBinding{pos: x.Pos(), line: pf.fset.Position(x.Pos()).Line,
 						block: blockContaining(pf.decl.Body, pf.fset, x.Pos())}
 					if len(vs.Values) == len(vs.Names) {
 						b.rhs = vs.Values[i]

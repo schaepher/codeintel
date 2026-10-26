@@ -156,6 +156,7 @@ func varLiterals(pf *parsedFunc) map[string][]keyLiteral {
 // sendEvidence 写入侧的实际发送证据。
 type sendEvidence struct {
 	line, apiLine int
+	pos           token.Pos
 	api           string
 	apiType       string
 	recvVar       string
@@ -183,7 +184,7 @@ func findSend(pf *parsedFunc, leaf string) *sendEvidence {
 		if !ok || !asyncProducerCalls[strings.ToLower(sel.Sel.Name)] {
 			return true
 		}
-		e := &sendEvidence{line: pf.fset.Position(call.Lparen).Line, api: sel.Sel.Name}
+		e := &sendEvidence{line: pf.fset.Position(call.Lparen).Line, pos: call.Pos(), api: sel.Sel.Name}
 		e.recvVar = receiverVar(call.Fun)
 		if rv, ok := sel.X.(*ast.Ident); ok {
 			e.apiType = varTypeMap(pf)[rv.Name]

@@ -18,6 +18,7 @@ type filterEvidence struct {
 
 type recvEvidence struct {
 	line, apiLine int
+	pos           token.Pos
 	api           string
 	apiType       string
 	recvVar       string
@@ -99,7 +100,7 @@ func collectReceiveCandidates(pf *parsedFunc) []*recvEvidence {
 			if !ok || !asyncConsumerCalls[strings.ToLower(sel.Sel.Name)] {
 				continue
 			}
-			e := &recvEvidence{line: pf.fset.Position(call.Lparen).Line,
+			e := &recvEvidence{line: pf.fset.Position(call.Lparen).Line, pos: call.Pos(),
 				api: sel.Sel.Name, assign: as, recvVar: receiverVar(call.Fun)}
 			if rv, ok := sel.X.(*ast.Ident); ok {
 				e.apiType = varTypeMap(pf)[rv.Name]

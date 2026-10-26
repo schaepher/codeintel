@@ -5628,3 +5628,15 @@ seed 展开集合）都被当作 corroborated——需求指出这三样都**不
   发送/接收实例绑定：同一实例声明或同一非空配置字面量才 corroborated；
   不同配置 → mismatch（显示两端配置与位置）；未知绑定 → unverified。
 - 正例（未改写载荷、别名、同配置不同实例）保留四跳证据与 `identity_partial=false`。
+
+## §? todo18：调用位置的系统绑定矩阵（2026-11-01）
+
+逐项证据见 [`todo18-checklist.md`](todo18-checklist.md)。
+
+- `resolveBindingAt` 以**调用位置**取绑定：最新实例定义（局部重赋值/包级声明）
+  + 调用前字段覆盖（字面量更新签名；条件/未知修改降级）。
+- 反例矩阵：直接 `receiver.System="b"`、`receiver=&Bus{...}`、别名修改、
+  条件分支修改、未解析调用传递 → 均不 corroborated（mismatch/unverified +
+  identity_partial），诊断定位初始化/覆盖/调用行；调用后修改不倒推。
+- 正例：未改写配置、同配置不同实例保持四跳 corroborated；实际 API canonical
+  目标与 binding_source 保留。

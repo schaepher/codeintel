@@ -125,8 +125,8 @@ func (a *Actions) proveAsyncBoundary(producerID, consumerID, fieldPath string, r
 	}
 	b.APIIdentity = pPkg + "." + pType
 	// 系统/配置绑定：同类型只是候选，必须核对实例声明/配置
-	sender := resolveBinding(pf, send.recvVar, 0)
-	receiver := resolveBinding(cf, recv.recvVar, 0)
+	sender := resolveBindingAt(pf, send.recvVar, send.pos)
+	receiver := resolveBindingAt(cf, recv.recvVar, recv.pos)
 	b.ProducerBinding, b.ConsumerBinding = bindingText(sender), bindingText(receiver)
 	b.BindingSource = send.recvVar + "@" + pf.file + ":" + itoaSeq(sender.line) +
 		" ↔ " + recv.recvVar + "@" + cf.file + ":" + itoaSeq(receiver.line)

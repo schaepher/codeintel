@@ -114,11 +114,15 @@ func declInit(pf *parsedFunc, name string) (expr ast.Expr, line int, pkgLevel bo
 
 // bindingInfo 实例绑定：同一声明 ID + 配置字面量签名 + 位置。
 type bindingInfo struct {
-	id       string
-	sig      string
-	line     int
-	known    bool
-	explicit bool // 有字段配置（非空字面量）
+	id          string
+	sig         string
+	line        int // 初始化/声明位置
+	known       bool
+	explicit    bool // 有字段配置（非空字面量）
+	initialLine int  // 实例初始化行
+	modLine     int  // 调用前最后一次配置覆盖行
+	callLine    int  // 调用位置
+	unknownWhy  string
 }
 
 func resolveBinding(pf *parsedFunc, varName string, depth int) bindingInfo {
@@ -215,9 +219,11 @@ func sameBinding(sender, receiver bindingInfo) (bool, string, string) {
 	return false, "unverified", "系统/配置绑定未建模（" + bindingText(sender) + " vs " + bindingText(receiver) + "）"
 }
 
-func bindingText(b bindingInfo) string {
-	if b.sig == "" || b.sig == "{}" {
-		return "默认/未知（L" + itoaSeq(b.line) + "）"
-	}
-	return b.sig + "（L" + itoaSeq(b.line) + "）"
-}
+// resolveBindingAt 调用位置（token.Pos）的绑定：最新实例定义 + 调用前
+// 配置覆盖。初始化快照不能直接作为调用时身份依据（todo18-6）。
+
+// packageDeclLine 包级变量声明行（局部重赋值不覆盖首次声明位置）。
+
+// latestInstance 调用前最新的实例定义（局部重赋值优先；否则包级初始化）。
+
+// applyFieldModifications 调用前的接收者字段覆盖 / 别名修改 / 未知调用。
