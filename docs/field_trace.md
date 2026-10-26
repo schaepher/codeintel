@@ -5525,3 +5525,21 @@ seed 展开集合）都被当作 corroborated——需求指出这三样都**不
 - **effects 被调写入 + 错误来源**（#8）：路径写点带 `origin`；if/switch
   初始化语句纳入路径；`error_sources` 判定 returned/swallowed/stale/
   overwritten/wrapped；未映射调用点进 `path_callee_unresolved` → partial。
+- **后续增量**：
+  - #10 value-trace：phi_operand 不再跳过常量；literal 节点按类型+值去重，
+    行号由 phi 变量名反查（条件随行标注）；`analysis.status/stop` 区分
+    无流与深度截断；字段名锚点给明确契约错误（commit 7f263ec）。
+  - #6 跨入口身份：`chains[]` 逐跳 write→persistence/queue→read→filter，
+    边界未建模 → `persistence_boundary_unverified` + identity_partial；
+    入口注册证据（calls 来源名）判 cron/consumer，名称启发式降为 unverified
+    （commit b674184）。
+  - #16 gRPC：按接收者类型识别客户端（DI/字段/外部生成代码），同名方法不
+    跨服务；多模块替身集成验证（commit 06181b1）。
+  - #13-R3：包/类型检查覆盖写入 build_metadata，类型错误 → degraded；
+    查询携带 coverage + typecheck_errors（commit f711f43）。
+  - #8-R2：写点 kind（field_assign/field_write/db_write/callee_write）+
+    commit_scope；取消按列名近似冒充数据库写（commit 407174d）。
+  - #9-R2：焦点依赖按类型身份匹配；未知类型 partial + 诊断；修正
+    typeFromValue 把单参调用当类型转换的误判（commit 50e03a2）。
+  - #17（部分）：`query sequence --timeout` 取消/失败退出；value-trace
+    elapsed_ms；大仓基准与细分计数器保留（commit b58724d）。

@@ -425,6 +425,19 @@ pre-commit 场景的兜底）。
   阶段另开窗口。
 - **投影诊断不得顶替原诊断**：focus/scene 是视图裁剪，depth/unresolved/
   degraded 是分析事实——先固定原诊断，再追加 `*_projection`（todo12-13）。
+- **"跳过常量"等于把值流砍断**：phi_operand 曾显式跳过 `ssa.Const`，写点
+  只能追到 phi 空壳（todo12-10）。常量要作为 literal 节点发射（类型+值去重），
+  行号用 phi 变量名反查赋值目标（同名不同值不会串），条件由该行的
+  `TraceConditions` 标注。
+- **客户端识别按"方法接收者类型"比变量追踪稳**：DI/结构体字段/外部生成代码
+  拿不到 `NewXxxClient` 赋值链（todo12-16）。`XxxClient` 接收者 +
+  `(context.Context, ..., error)` 签名即可识别，且天然按服务类型区分同名方法。
+- **clean 的"注销"和"可恢复清理"是两件事**：默认保留台账元数据（只清
+  build_id/last_built_at）才能让 init 恢复 workspace/worktree 归属；
+  `--forget` 才是独立清理（todo12-15）。恢复路径必须有 git worktree 元数据
+  证明，不能按目录名猜。
+- **查询预算要能"停"**：`--timeout` 走 ctx 取消，超时必须失败退出并说明
+  "已停止后台展开"，不能返回截断后的"完整结果"（todo12-17）。
 
 ## 常用命令
 

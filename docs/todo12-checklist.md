@@ -63,10 +63,17 @@ go test -tags integration ./integration/ -run TestTodo12   # 真实索引 → CL
 | R4 共享字段/同名 ID 仍 unverified | 完成 | 关联判定未升级；`TestAsyncScopeExcludesUnrelated` |
 | A1/A2/A3 | 完成 | 单测 + 真实多包索引 CLI（无关模块/无关联/预算） |
 
-## 6. P1 跨入口值身份与异步因果闭环 — 未开始（保留）
+## 6. P1 跨入口值身份与异步因果闭环 — 部分完成（commit b674184）
 
-未实现 request.ID → Job.RecordID 的持久化边界身份验证、角色注册证据。
-依赖：需要持久化/队列边界建模 + `value_origin` 跨入口链，见待办清单。
+| 项 | 状态 | 证据 / 缺口 |
+| --- | --- | --- |
+| R1 写 → 持久化/队列边界 → 读/过滤，逐跳位置/依据 | 部分 | `chains[]` 逐跳 write/persistence_or_queue/read/filter + File/Line；**边界未建模**（列映射不等于同一条记录） |
+| R2 有真实路径+值来源+匹配证据才升级因果 | 完成 | `summary_origins` 同指纹 → value_origin/corroborated；不同源 → name_only/unverified；`TestAsyncIdentityDifferentOrigin/SameOriginCorroborated` |
+| R3 入口注册证据；名称启发式低等级；不推断固定次数 | 完成 | `RoleEvidence=registration:<caller>`；name-only → unverified；`TestAsyncIdentityChainHops`、真实索引 `ScheduleAdvance` |
+| A1 跨入口身份链 | 部分 | `Chains` + 集成断言；持久化/过滤条件仍标 unverified（A4 允许部分） |
+| A2 同名不同源/同表不同记录/同调用位置不同参/互斥分支 | 部分 | 同名不同源（origins）已测；同表不同记录/过滤条件明确标未建模；互斥分支沿用 todo11-3 测试 |
+| A3 注册证据分类/不推断次数 | 完成 | 注册调用方名称证据 + 现有 dual_advance 无次数断言 |
+| A4 task5 范围修正不替代本任务 | 完成 | 独立 `identity_partial` + `persistence_boundary_unverified` 诊断 |
 
 ## 7. P0 副作用路径达到预算时不得静默截断 — 已完成（commit 3453751）
 
@@ -94,10 +101,14 @@ go test -tags integration ./integration/ -run TestTodo12   # 真实索引 → CL
 | R3 不存在/歧义报错；合法无写入正常返回 | 完成 | `validateFocusTargets`；`TestSeqFocusValidation`、`TestTodo12FocusValidationRealIndex` |
 | R4 无焦点保持既有行为；投影不隐藏截断 | 完成 | 任务 13 后投影诊断保留原诊断 |
 
-## 10. P1 value-trace 从真实写点追到状态常量 — 未开始（保留）
+## 10. P1 value-trace 从真实写点追到状态常量 — 已完成（commit 7f263ec）
 
-未实现 SSA 值身份连接初始化/条件合流/常量（当前 flow 数不足）。需要单独一轮
-SSA 值图整改；本轮不动趋势性结论。
+| 项 | 状态 | 证据 |
+| --- | --- | --- |
+| R1 初始化/条件合流/常量/最终字段写 | 完成 | phi_operand 不再跳过常量；literal 节点（类型+值去重）+ 源码行/条件；`TestPhiOperandConstantSource`、`TestTodo12ValueTraceConstantsRealIndex` |
+| R2 深度/缺边/不支持 → partial；字段名与节点 ID 契约分开 | 完成 | `analysis{status,depth,stop}`；字段名锚点明确错误；深度 1 → partial/depth |
+| A1 真实索引 trace-backward → value-trace | 完成 | 常量 `"queued"/"rejected"`、phi_operand、rejected 条件 `reject` |
+| A2 别名/同名实例/跨层传参/不足深度 | 完成 | 跨层 normalize（argument/returns 边）；其他实例常量不串链；深度 partial |
 
 ## 11. P1 Mermaid 保留结构化时序中的必要赋值 — 已完成（commit a3b9416）
 
@@ -139,26 +150,44 @@ SSA 值图整改；本轮不动趋势性结论。
 | R3 跨仓候选遵守 workspace/worktree 身份 | 完成 | 显式 `--dir` 作用域 + 不匹配失败；`TestWorkspaceClaimErrors` |
 | A1/A2/A3 | 完成 | 真实 git worktree + clean→init→list；未登记/非 worktree 反例 |
 
-## 16. P1 真实多服务框架 RPC 识别与续接 — 未开始（保留）
+## 16. P1 真实多服务框架 RPC 识别与续接 — 部分完成（commit 06181b1）
 
-需要中立多服务框架夹具（客户端包装/自定义注册/生成代码/DI 绑定）。任务 2
-只修了连接生命周期，不代表识别覆盖修复。
+| 项 | 状态 | 证据 / 缺口 |
+| --- | --- | --- |
+| R1 客户端包装/自定义注册/外部生成代码/DI | 完成 | 接收者类型识别 `grpcClientServiceOf`；集成多模块替身 + 自定义注册 + DI |
+| R2 方法身份与证据；未识别边界可诊断 | 完成 | `Key=方法名`；同名 Submit 不串服务（单测+集成 ext-chain） |
+| A1 grpc-routes/grpc-callers/ext-chain 对照 | 完成 | `TestTodo12GrpcMultiServiceRealIndex`（两服务、Order→HTTP notify） |
+| A2 同名服务不同包/同服务两方法/非 RPC 同名/其他 workspace | 部分 | 同服务两方法、同名跨服务、非 RPC 同名已覆盖；**同名服务不同 proto 包冲突消歧保留** |
+| A3 识别覆盖与连接生命周期分开 | 完成 | 识别（本任务）+ 生命周期（任务 2）分别测试 |
 
-## 17. P1 控制大仓 sequence 与值追踪查询成本 — 未开始（保留）
+## 17. P1 控制大仓 sequence 与值追踪查询成本 — 部分完成（commit b58724d）
 
-需要固定源码/索引/配置的大仓基准、冷/暖与并行分布、取消/超时诊断。
-本轮不做单次墙钟回归结论。
+| 项 | 状态 | 证据 / 缺口 |
+| --- | --- | --- |
+| R1 分阶段统计/缓存命中/覆盖 | 部分 | sequence meta.timing（resolve/read/walk/render/nodes）；value-trace elapsed_ms；**SQL/查符号/派发细分计数器未做** |
+| R2 profile 优化重复解析/查找 | 未开始 | 需固定大仓 profile（承接既有 Q246–Q252d 成果） |
+| R3 可取消/预算诊断，超时不返回成功 | 完成 | `query sequence --timeout`：ctx 取消、失败退出、明确“已停止后台展开”；单测 120 层 + 1µs 预算 |
+| A1 大仓基准分布 | 未开始 | 需固定源码/索引/配置的大仓与冷/暖/并行分布 |
+| A2 depth/focus/未知密集/派发/少结果 value-trace 对照 | 部分 | 语义对照沿用现有测试；预算内不可用现象未做大仓复测 |
+| A3 取消/超时退出与资源峰值 | 部分 | 取消测试通过；内存峰值需大仓采样 |
+
+## 后续增量状态（2026-10-30）
+
+- **#13-R3** 已完成：ssa 记录 pkg_total/pkg_with_errors/typecheck_errors →
+  build_metadata；类型错误 → degraded；sequence meta.coverage + 
+  typecheck_errors/packages_with_errors 诊断（commit f711f43）。
+- **#8-R2** 已完成：DBEffect.kind（field_assign/field_write/db_write/
+  callee_write）+ commit_scope（begin_commit/outside_or_unknown/none）；
+  只有完整 table.column 才证明数据库写（commit 407174d）。
+- **#9-R2** 已完成：焦点依赖按类型身份匹配；未知类型保守保留 +
+  focus partial + focus_dependency_unresolved（commit 50e03a2）。
 
 ---
 
 ## 未完成项汇总（接手先看）
 
-1. **任务 6**：跨入口值身份闭环（持久化/队列边界、角色注册证据）。
-2. **任务 10**：value-trace 追到状态常量（SSA 值身份补链）。
-3. **任务 13-R3**：包/文件/类型检查失败明细入库并随查询携带（当前只有
-   build status + SQL 降级统计）。
-4. **任务 8-R2**：ORM/SQL 写调用与字段赋值/提交范围的独立 kind（当前用
-   `origin` + `tx` 陈述）。
-5. **任务 9-R2**：跨函数别名改写仍保守（不升级为确定结论，需 partial 标记）。
-6. **任务 16**：多服务框架 RPC 识别覆盖。
-7. **任务 17**：大仓查询成本基准与取消/超时诊断。
+1. **任务 6**：持久化/队列/过滤条件建模（同一记录身份）——当前边界
+   未建模，链整体 unverified + identity_partial。
+2. **任务 16-A2**：同名服务不同 proto 包的冲突消歧（当前按服务名匹配）。
+3. **任务 17-R2/A1/A2**：固定大仓的 profile/基准/并行分布与 SQL/查符号
+   细分计数器（取消/预算已完成）。
