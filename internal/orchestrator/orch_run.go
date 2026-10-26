@@ -65,8 +65,29 @@ func (o *Orchestrator) finishBuild(start time.Time, results []AdapterResult, ski
 	duration := time.Since(start)
 
 	// R6：降级统计（SQL 解析 AST 成功/失败/启发式）——"一直降级"
-	// 提前暴露（R4 教训：AST 死代码静默半年）
-	statsJSON, _ := json.Marshal(ssa.SQLStats())
+	// 提前暴露（R4 教训：AST 死代码静默半年）；todo12-13：包/类型检查
+	// 覆盖与 SQL 统计分开（同一 JSON 对象不同键）
+	cov := ssa.CoverageStats()
+	statsMap := map[string]any{}
+	if b, err := json.Marshal(ssa.SQLStats()); err == nil {
+		_ = json.Unmarshal(b, &statsMap)
+	}
+	statsMap["pkg_total"] = cov.Packages
+	statsMap["pkg_with_errors"] = cov.PackagesWithErrs
+	statsMap["typecheck_errors"] = cov.TypeErrors
+	statsJSON, _ := json.Marshal(statsMap)
+	// 类型检查失败 = 覆盖不完整：success 不算完整（scip 失败仍 failed）
+	if cov.TypeErrors > 0 || cov.PackagesWithErrs > 0 {
+		if status != domain.BuildFailed {
+			status = domain.BuildDegraded
+		}
+		msg := fmt.Sprintf("ssa: %d package(s) with errors (%d type errors)",
+			cov.PackagesWithErrs, cov.TypeErrors)
+		if errorMsgs != "" {
+			errorMsgs += "; "
+		}
+		errorMsgs += msg
+	}
 
 	build := &BuildResult{
 		Status:       status,

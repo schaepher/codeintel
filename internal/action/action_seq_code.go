@@ -87,6 +87,22 @@ type seqTimingAcc struct {
 // millis Duration → 毫秒（保留小数——单次阶段可能远小于 1ms）。
 func millis(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
 
+// coverageNum degrade_stats 数值键提取（JSON 反序列化为 float64）。
+func coverageNum(stats map[string]any, key string) int64 {
+	if stats == nil {
+		return 0
+	}
+	switch v := stats[key].(type) {
+	case float64:
+		return int64(v)
+	case int64:
+		return v
+	case int:
+		return int64(v)
+	}
+	return 0
+}
+
 // seqCoverage 构建期覆盖信息（build_metadata → meta.coverage）。
 func seqCoverage(m *domain.BuildMeta) *SeqCoverage {
 	if m == nil {
@@ -327,6 +343,17 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 		root.Meta.Diagnostics = append(root.Meta.Diagnostics, SeqDiagCount{
 			Code: "index_degraded", Count: 1,
 			Detail: "构建状态 " + cov.BuildStatus + "：" + cov.BuildError})
+		// todo12-13 R3：包/类型检查失败与 SQL 降级分开列出
+		if n := coverageNum(cov.DegradeStats, "typecheck_errors"); n > 0 {
+			root.Meta.Diagnostics = append(root.Meta.Diagnostics, SeqDiagCount{
+				Code: "typecheck_errors", Count: int(n),
+				Detail: "构建期类型检查错误；相关包的分析可能回退（与 SQL 解析统计分开）"})
+		}
+		if n := coverageNum(cov.DegradeStats, "pkg_with_errors"); n > 0 {
+			root.Meta.Diagnostics = append(root.Meta.Diagnostics, SeqDiagCount{
+				Code: "packages_with_errors", Count: int(n),
+				Detail: "存在加载/类型检查失败的包；索引覆盖不完整"})
+		}
 	}
 	if req.focusActive() {
 		root.Meta.Focus = &SeqFocusMeta{Targets: req.Focus, Matched: req.focus.matched, Applied: req.focus.matched > 0}
