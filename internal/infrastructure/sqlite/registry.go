@@ -119,7 +119,17 @@ func (r *Registry) RefreshRepo(path, headCommit, buildID string) error {
 	return nil
 }
 
-// UnregisterRepo 注销（clean 语义）：主仓库注销级联删除其 worktree 条目（Q7）。
+// MarkUnbuilt clean 语义（todo12-15）：保留 workspace/worktree 归属等
+// 元数据，只清构建状态——再次 init 可恢复归属且不靠路径名猜测。
+func (r *Registry) MarkUnbuilt(path string) error {
+	if _, err := r.db.Exec(`UPDATE repos SET build_id='', last_built_at=''
+		WHERE path=? OR worktree_of=?`, path, path); err != nil {
+		return fmt.Errorf("mark unbuilt: %w", err)
+	}
+	return nil
+}
+
+// UnregisterRepo 注销（显式清理语义）：主仓库注销级联删除其 worktree 条目（Q7）。
 func (r *Registry) UnregisterRepo(path string) error {
 	if _, err := r.db.Exec(`DELETE FROM repos WHERE path=? OR worktree_of=?`, path, path); err != nil {
 		return fmt.Errorf("unregister repo: %w", err)

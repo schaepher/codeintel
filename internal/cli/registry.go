@@ -102,6 +102,25 @@ func refreshRepoAfterUpdate(abs, commitSHA string) {
 	}
 }
 
+// cleanRegistryAfterClean clean 后的台账处理：默认保留元数据（tombstone，
+// 清构建状态）——init 重建可恢复 workspace/worktree 归属；--forget 注销。
+func cleanRegistryAfterClean(abs string, forget bool) {
+	r := openGlobalRegistry()
+	if r == nil {
+		return
+	}
+	defer r.Close()
+	if forget {
+		if err := r.UnregisterRepo(abs); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: 全局注册注销失败: %v\n", err)
+		}
+		return
+	}
+	if err := r.MarkUnbuilt(abs); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: 台账保留归属失败: %v\n", err)
+	}
+}
+
 // unregisterRepoAfterClean clean 注销（含级联 worktree 条目）。
 func unregisterRepoAfterClean(abs string) {
 	r := openGlobalRegistry()

@@ -17,6 +17,7 @@ func cmdClean(args []string) int {
 	repoPath := fs.String("repo", ".", "仓库根目录")
 	force := fs.Bool("force", false, "不提示直接删除")
 	purgeCache := fs.Bool("purge-cache", false, "连包级分析缓存（.codeintel/cache）一起删除——默认保留")
+	forget := fs.Bool("forget", false, "同时注销全局台账条目（默认保留 workspace/worktree 归属，重建后可恢复）")
 	fs.Parse(args)
 	*repoPath = ResolveRepoRef(*repoPath) // Q238：注册表短名/后缀/module
 
@@ -48,7 +49,7 @@ func cmdClean(args []string) int {
 			return 1
 		}
 		fmt.Printf("已删除 %s（含派生索引、人工规则/问答/时序图、包级分析缓存）\n", target)
-		unregisterRepoAfterClean(abs)
+		cleanRegistryAfterClean(abs, *forget)
 		return 0
 	}
 	// 默认保留 .codeintel/cache（Q176 包级分析缓存）：pkg 源码 hash 自校验
@@ -69,7 +70,8 @@ func cmdClean(args []string) int {
 		}
 	}
 	fmt.Printf("已删除索引 %s（保留 .codeintel/cache 包级分析缓存；--purge-cache 可一并删除）\n", target)
-	// Q238：clean 注销全局台账（级联 worktree 条目）
-	unregisterRepoAfterClean(abs)
+	// todo12-15：默认保留台账元数据（含 workspace/worktree 归属）——
+	// init 重建后自动恢复；--forget 才真正注销（独立清理语义）
+	cleanRegistryAfterClean(abs, *forget)
 	return 0
 }

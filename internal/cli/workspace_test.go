@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,7 +78,8 @@ func TestWorkspaceInitBasic(t *testing.T) {
 	}
 }
 
-// TestWorkspaceInitIdempotent：重跑跳过（不重复建、不报错）。
+// TestWorkspaceInitIdempotent：重跑认领（不重复建、不报错；todo12-15
+// 已有 worktree 走"认领"路径并恢复 workspace 归属）。
 func TestWorkspaceInitIdempotent(t *testing.T) {
 	main := seedWorkspaceMain(t)
 	ws := t.TempDir()
@@ -89,8 +91,8 @@ func TestWorkspaceInitIdempotent(t *testing.T) {
 			t.Errorf("重跑 init exit = %d", code)
 		}
 	})
-	if !strings.Contains(out, "跳过") {
-		t.Errorf("重跑应显示跳过:\n%s", out)
+	if !strings.Contains(out, "已认领") && !strings.Contains(out, "跳过") {
+		t.Errorf("重跑应显示认领/跳过:\n%s", out)
 	}
 	// worktree 目录不重复（git 同一分支不能建两个同名 worktree——目录已存在即幂等）
 	if _, err := os.Stat(filepath.Join(ws, filepath.Base(main))); err != nil {
@@ -196,5 +198,74 @@ func TestWorkspacePrune(t *testing.T) {
 	n, _ := r.CountRepos()
 	if n != 1 {
 		t.Errorf("prune 后应剩主仓库 1 条，got %d", n)
+	}
+}
+
+// A1（todo12-15）：clean 后重建恢复 workspace 归属（不靠路径名猜测）。
+func TestWorkspaceAttributionRestoredAfterClean(t *testing.T) {
+	main := seedWorkspaceMain(t)
+	ws := t.TempDir()
+	if code := cmdWorkspace([]string{"init", "--dir", ws}); code != 0 {
+		t.Fatalf("workspace init exit = %d", code)
+	}
+	wtDir := filepath.Join(ws, filepath.Base(main))
+	r := openTestRegistry(t)
+	if rp, ok, err := r.FindRepo(wtDir); err != nil || !ok || rp.Workspace != ws {
+		t.Fatalf("初始归属应登记: %+v ok=%v err=%v", rp, ok, err)
+	}
+	// clean --purge-cache → tombstone（保留归属元数据）
+	captureStdout(func() {
+		if code := cmdClean([]string{"--repo", wtDir, "--force", "--purge-cache"}); code != 0 {
+			t.Errorf("clean exit = %d", code)
+		}
+	})
+	if rp, ok, _ := r.FindRepo(wtDir); !ok || rp.BuildID != "" || rp.Workspace != ws {
+		t.Fatalf("clean 后应保留归属并清构建状态: %+v ok=%v", rp, ok)
+	}
+	// 逐个 init → 归属恢复
+	captureStdout(func() {
+		if code := cmdInit(context.Background(), []string{"--repo", wtDir}); code != 0 {
+			t.Errorf("init exit = %d", code)
+		}
+	})
+	rp, ok, err := r.FindRepo(wtDir)
+	if err != nil || !ok {
+		t.Fatalf("重建后台账应存在: ok=%v err=%v", ok, err)
+	}
+	if rp.Workspace != ws || !rp.IsWorktree || filepath.Clean(rp.WorktreeOf) != filepath.Clean(main) {
+		t.Errorf("重建后应恢复 workspace/worktree 归属: %+v", rp)
+	}
+	// list --workspace 精确断言
+	out := captureStdout(func() {
+		if code := cmdList([]string{"--workspace", ws, "--json"}); code != 0 {
+			t.Errorf("list exit = %d", code)
+		}
+	})
+	if !strings.Contains(out, `"workspace":"`+ws+`"`) {
+		t.Errorf("list --workspace 应返回恢复的条目:\n%s", out)
+	}
+}
+
+// A2（todo12-15）：显式 --repo 未登记 → 非零；已有目录不是该主仓库的
+// worktree → 明确失败（不靠 exit=0 表示已恢复）。
+func TestWorkspaceClaimErrors(t *testing.T) {
+	main := seedWorkspaceMain(t)
+	ws := t.TempDir()
+	// 未登记主仓库
+	other := t.TempDir()
+	if err := os.WriteFile(filepath.Join(other, "go.mod"), []byte("module example.com/other\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code := cmdWorkspace([]string{"init", "--dir", t.TempDir(), "--repo", other})
+	if code == 0 {
+		t.Errorf("未登记主仓库的 --repo 应非零退出")
+	}
+	// 已有目录但不是 worktree
+	plain := filepath.Join(ws, filepath.Base(main))
+	if err := os.MkdirAll(plain, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if code := cmdWorkspace([]string{"init", "--dir", ws}); code == 0 {
+		t.Errorf("已有非 worktree 目录应失败（不能当作已恢复）")
 	}
 }

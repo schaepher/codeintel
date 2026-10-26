@@ -71,7 +71,8 @@ func TestInitRegistersGlobal(t *testing.T) {
 	}
 }
 
-// TestCleanUnregistersGlobal：cmdClean 成功 → 台账注销。
+// TestCleanUnregistersGlobal：todo12-15 契约——clean 默认保留台账元数据
+// （只清构建状态，workspace/worktree 归属可恢复）；--forget 才注销。
 func TestCleanUnregistersGlobal(t *testing.T) {
 	isolateRegistryDir(t)
 	dir := t.TempDir()
@@ -87,8 +88,24 @@ func TestCleanUnregistersGlobal(t *testing.T) {
 	if code := cmdClean([]string{"--repo", dir, "--force"}); code != 0 {
 		t.Fatalf("cmdClean exit = %d", code)
 	}
+	if n, _ := r.CountRepos(); n != 1 {
+		t.Fatalf("clean 后应保留台账条目（可恢复归属），got %d", n)
+	}
+	if rp, ok, err := r.FindRepo(dir); err != nil || !ok {
+		t.Fatalf("台账条目应保留: ok=%v err=%v", ok, err)
+	} else if rp.BuildID != "" || rp.LastBuiltAt != "" {
+		t.Errorf("clean 后构建状态应清空: %+v", rp)
+	}
+	// --forget：独立清理语义——真正注销
+	writeTestFile(t, filepath.Join(dir, "main.go"), "package main\n\nfunc main() {}\n")
+	if code := cmdInit(context.Background(), []string{"--repo", dir}); code != 0 {
+		t.Fatalf("re-init exit = %d", code)
+	}
+	if code := cmdClean([]string{"--repo", dir, "--force", "--forget"}); code != 0 {
+		t.Fatalf("cmdClean --forget exit = %d", code)
+	}
 	if n, _ := r.CountRepos(); n != 0 {
-		t.Errorf("clean 后台账应空，got %d", n)
+		t.Errorf("clean --forget 后台账应为空，got %d", n)
 	}
 }
 

@@ -121,18 +121,53 @@ func cmdWorkspaceInit(args []string) int {
 		}
 	}
 	if len(targets) == 0 {
+		if len(subset) > 0 {
+			fmt.Fprintln(os.Stderr, "error: 指定的 --repo 没有已登记的主仓库（先 codeintel init 注册）")
+			return 1
+		}
 		fmt.Println("没有可创建 worktree 的主仓库（先 codeintel init 注册，或用 --repo 指定）")
 		return 0
 	}
 
 	fmt.Printf("workspace: %s（%d 个仓库）\n", wsDir, len(targets))
-	var created, skipped, failed int
+	var created, claimed, failed int
 	for _, rp := range targets {
 		short := filepath.Base(rp.Path)
 		wtDir := filepath.Join(wsDir, short)
 		if _, err := os.Stat(wtDir); err == nil {
-			fmt.Printf("  跳过 %s（%s 已存在）\n", short, wtDir)
-			skipped++
+			// todo12-15：已有目录——必须证明是本主仓库的 worktree 才认领，
+			// 不从目录名/路径猜归属（歧义/不匹配 → 明确失败）
+			isWT, wtOf := detectWorktree(wtDir)
+			if !isWT || filepath.Clean(wtOf) != filepath.Clean(rp.Path) {
+				if !isWT {
+					fmt.Printf("  失败 %s: %s 已存在但不是 git worktree\n", short, wtDir)
+				} else {
+					fmt.Printf("  失败 %s: %s 是其他主仓库的 worktree（%s）\n", short, wtDir, wtOf)
+				}
+				failed++
+				continue
+			}
+			stamp := time.Now().UTC().Format(time.RFC3339)
+			if prev, ok, perr := r.FindRepo(wtDir); perr == nil && ok && prev.RegisteredAt != "" {
+				stamp = prev.RegisteredAt
+			}
+			if err := r.RegisterRepo(sqlite.RegistryRepo{
+				Path: wtDir, Module: rp.Module, GoModCount: rp.GoModCount,
+				IsWorktree: true, WorktreeOf: rp.Path, Workspace: wsDir,
+				HeadCommit: gitHead(wtDir), RegisteredAt: stamp,
+			}); err != nil {
+				fmt.Printf("  失败 %s: 认领 worktree: %v\n", short, err)
+				failed++
+				continue
+			}
+			fmt.Printf("  已认领 %s → %s（workspace 归属已恢复）\n", short, wtDir)
+			claimed++
+			if *build {
+				if code := cmdInit(context.Background(), []string{"--repo", wtDir}); code != 0 {
+					fmt.Printf("  失败 %s: 构建索引 exit=%d\n", short, code)
+					failed++
+				}
+			}
 			continue
 		}
 		// 分支：--branch 显式命名（git 自动创建，不与主仓库冲突）；
@@ -165,7 +200,7 @@ func cmdWorkspaceInit(args []string) int {
 			}
 		}
 	}
-	fmt.Printf("汇总: 创建 %d，跳过 %d，失败 %d\n", created, skipped, failed)
+	fmt.Printf("汇总: 创建 %d，认领 %d，失败 %d\n", created, claimed, failed)
 	if failed > 0 {
 		return 1
 	}
