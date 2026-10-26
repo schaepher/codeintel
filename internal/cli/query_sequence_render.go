@@ -178,6 +178,9 @@ func writeSeqNode(b *strings.Builder, alias map[string]string, from, caller stri
 			}
 			if n.Scene != nil && (n.Scene.Status == action.SceneTaken || n.Scene.Status == action.SceneExcluded) {
 				b.WriteString(fmt.Sprintf("  Note over %s: 场景判定 %s%s\n", alias[from], n.Scene.Status, seqSceneNoteSuffix(n.Scene)))
+			} else if n.Scene != nil && n.Scene.Status == action.SceneUnknown && n.Scene.Cause != "" {
+				// todo13-3：值被未知调用改写/深度上限——两个分支保留，但指明原因
+				b.WriteString(fmt.Sprintf("  Note over %s: 场景未定（%s）— 两个分支均保留\n", alias[from], seqSceneNoteSuffix(n.Scene)))
 			}
 			b.WriteString(fmt.Sprintf("  alt %s\n", n.Label))
 			writeSeqNode(b, alias, from, caller, n.Nodes)

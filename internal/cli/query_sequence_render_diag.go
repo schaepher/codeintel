@@ -178,12 +178,21 @@ func seqEvidenceText(root *action.CodeSeqNode) string {
 
 // seqSceneMark 分支的场景判定标记（文本）：taken / excluded / unknown。
 func seqSceneMark(n *action.CodeSeqNode) string {
-	if n == nil || n.Scene == nil || n.Scene.Status == "" || n.Scene.Status == action.SceneUnknown {
+	if n == nil || n.Scene == nil || n.Scene.Status == "" {
+		return ""
+	}
+	if n.Scene.Status == action.SceneUnknown && n.Scene.Cause == "" {
 		return ""
 	}
 	txt := "  [scene:" + n.Scene.Status
 	if n.Scene.Field != "" {
 		txt += " " + n.Scene.Field + "=" + n.Scene.Literal
+	}
+	if n.Scene.Cause != "" {
+		txt += " · 原因 " + n.Scene.Cause
+	}
+	if n.Scene.Source != "" {
+		txt += " · 来源 " + n.Scene.Source
 	}
 	if n.Scene.Reason != "" {
 		txt += " · " + n.Scene.Reason
@@ -197,8 +206,12 @@ func seqSceneText(root *action.CodeSeqNode) string {
 		return ""
 	}
 	sc := root.Meta.Scene
-	return fmt.Sprintf("\n-- 场景条件 --\ntaken=%d excluded=%d unknown=%d（未命中的分支保留原样，静态推断不是线上事实）\n",
+	txt := fmt.Sprintf("\n-- 场景条件 --\ntaken=%d excluded=%d unknown=%d（未命中的分支保留原样，静态推断不是线上事实）\n",
 		sc.Taken, sc.Excluded, sc.Unknown)
+	if sc.Partial || len(sc.Causes) > 0 {
+		txt += "完整性: partial（" + strings.Join(sc.Causes, "；") + "）\n"
+	}
+	return txt
 }
 
 // seqSceneNoteSuffix mermaid Note 的判定依据片段。
@@ -209,6 +222,9 @@ func seqSceneNoteSuffix(f *action.SceneFit) string {
 	txt := ""
 	if f.Field != "" {
 		txt += "（" + f.Field + "=" + f.Literal + "）"
+	}
+	if f.Cause != "" {
+		txt += " 原因 " + f.Cause
 	}
 	if f.Reason != "" {
 		txt += " " + f.Reason

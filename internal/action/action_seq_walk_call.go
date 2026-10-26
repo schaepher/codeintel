@@ -156,7 +156,7 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		// 一层字面量只是它的特例；解析不到保持空串（不猜）
 		args := a.resolveSceneArgLiterals(fset, src, call, req.curBody, req.curParams,
 			req.incomingArgs, req.incomingSrc, maxSceneFlowDepth)
-		req.callArgLits, req.callArgSrcs = sceneArgValues(args)
+		req.callArgLits, req.callArgSrcs, req.callArgWhy = sceneArgValues(args)
 		if strings.Contains(tid, ":(") {
 			if impl, cands, ok := a.seqIfaceMethodImpl(tid); ok {
 				node.ImplType = implTypeShort(impl)

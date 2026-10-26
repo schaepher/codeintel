@@ -22,20 +22,23 @@ type Scene struct {
 
 // 场景对单个分支/条件的判定结果。
 const (
-	SceneTaken    = "taken"    // 场景命中"条件为真"的分支
-	SceneExcluded = "excluded" // 场景命中"条件为假"的分支（分支内容被剔除）
-	SceneUnknown  = "unknown"  // 无法静态判定（保留候选）
+	SceneTaken	= "taken"	// 场景命中"条件为真"的分支
+	SceneExcluded	= "excluded"	// 场景命中"条件为假"的分支（分支内容被剔除）
+	SceneUnknown	= "unknown"	// 无法静态判定（保留候选）
 )
 
 // SceneFit 一次场景判定的依据（挂在节点上，渲染层据此标注）。
 type SceneFit struct {
-	Status   string `json:"status"`             // taken|excluded|unknown
-	Key      string `json:"key,omitempty"`      // 命中的场景键（region）
-	Field    string `json:"field,omitempty"`    // 条件里的字段/形参（req.Region）
-	Literal  string `json:"literal,omitempty"`  // 条件里的字面量（"CN"）
-	Expected string `json:"expected,omitempty"` // 场景给出的值（CN）
-	Reason   string `json:"reason,omitempty"`   // scene:<k=v> / scene-arg:<param>=<lit> / unknown:*
-	Source   string `json:"source,omitempty"`   // todo12-3：值来源（定义位置/传播依据）
+	Status		string	`json:"status"`			// taken|excluded|unknown
+	Key		string	`json:"key,omitempty"`		// 命中的场景键（region）
+	Field		string	`json:"field,omitempty"`	// 条件里的字段/形参（req.Region）
+	Literal		string	`json:"literal,omitempty"`	// 条件里的字面量（"CN"）
+	Expected	string	`json:"expected,omitempty"`	// 场景给出的值（CN）
+	Reason		string	`json:"reason,omitempty"`	// scene:<k=v> / scene-arg:<param>=<lit> / unknown:*
+	Source		string	`json:"source,omitempty"`	// todo12-3：值来源（定义位置/传播依据）
+	// todo13-3：unknown 的具体成因（如 call-may-write:rewrite@L18）——
+	// 值在到达该分支前已被未知调用改写，不能沿用旧字面量。
+	Cause	string	`json:"cause,omitempty"`
 }
 
 // NewScene 解析 `--scene` 参数：每项为 `k=v`（也接受逗号分隔的多个）。
@@ -57,14 +60,18 @@ func NewScene(pairs []string) Scene {
 }
 
 // Empty 是否未指定场景。
-func (s Scene) Empty() bool { return len(s.Values) == 0 }
+func (s Scene) Empty() bool	{ return len(s.Values) == 0 }
 
 // sceneSummary meta 汇总（取用/剔除/未知各多少分支）。
 type sceneSummary struct {
-	Applied  bool `json:"applied"`
-	Taken    int  `json:"taken"`
-	Excluded int  `json:"excluded"`
-	Unknown  int  `json:"unknown"`
+	Applied		bool	`json:"applied"`
+	Taken		int	`json:"taken"`
+	Excluded	int	`json:"excluded"`
+	Unknown		int	`json:"unknown"`
+	// todo13-3：场景判定不完整（值被未知调用改写/分析深度上限）——
+	// unknown 不等于“已证明两分支都可达”，需要显式 partial + 原因。
+	Partial	bool		`json:"partial,omitempty"`
+	Causes	[]string	`json:"causes,omitempty"`
 }
 
 // matchCond 判定条件表达式与场景的关系。args 为"形参名 → 实参字面量"
@@ -115,7 +122,7 @@ func (s Scene) matchCondSrc(cond ast.Expr, args, srcs map[string]string) SceneFi
 		if v == sceneArgUnknown {
 			// 调用点有定义但无法证明唯一值 → unknown（不回退场景键）
 			return SceneFit{Status: SceneUnknown, Field: field, Literal: lit,
-				Reason: "unknown:arg-value", Source: srcs[field]}
+				Reason:	"unknown:arg-value", Source: srcs[field]}
 		}
 		if v != "" {
 			expected, key, reason = v, field, "scene-arg:"+field+"="+v
@@ -145,7 +152,7 @@ func (s Scene) matchCondSrc(cond ast.Expr, args, srcs map[string]string) SceneFi
 		source = srcs[field]
 	}
 	return SceneFit{Status: status, Key: key, Field: field, Literal: lit,
-		Expected: expected, Reason: reason, Source: source}
+		Expected:	expected, Reason: reason, Source: source}
 }
 
 // lookup 场景键匹配字段名：大小写不敏感；字段末段相等或以 key 结尾
@@ -210,72 +217,13 @@ func callArgLiterals(call *ast.CallExpr) []string {
 	return out
 }
 
-// sceneArgValues 实参解析结果 → (值, 来源) 两切片。
-func sceneArgValues(args []sceneArg) ([]string, []string) {
-	vals := make([]string, 0, len(args))
-	srcs := make([]string, 0, len(args))
-	for _, a := range args {
-		vals = append(vals, a.val)
-		srcs = append(srcs, a.source)
-	}
-	return vals, srcs
-}
+// sceneArgValues 实参解析结果 → (值, 来源, 未知原因) 三切片。
+
+// paramReasonArgs 形参名 → 未知原因（与 paramLiteralArgs 位置对齐）。
 
 // paramSourceArgs 形参名 → 值来源（与 paramLiteralArgs 位置对齐）。
-func paramSourceArgs(fl *ast.FieldList, lits, srcs []string) map[string]string {
-	if fl == nil || len(lits) == 0 {
-		return nil
-	}
-	out := map[string]string{}
-	idx := 0
-	for _, f := range fl.List {
-		n := len(f.Names)
-		if n == 0 {
-			n = 1
-		}
-		for i := 0; i < n; i++ {
-			if idx < len(lits) && lits[idx] != "" {
-				name := ""
-				if i < len(f.Names) {
-					name = f.Names[i].Name
-				}
-				if name != "" && idx < len(srcs) {
-					out[name] = srcs[idx]
-				}
-			}
-			idx++
-		}
-	}
-	return out
-}
 
 // paramLiteralArgs 形参名 → 实参字面量（按签名位置对齐；跳过 receiver）。
-func paramLiteralArgs(fl *ast.FieldList, lits []string) map[string]string {
-	if fl == nil || len(lits) == 0 {
-		return nil
-	}
-	out := map[string]string{}
-	idx := 0
-	for _, f := range fl.List {
-		n := len(f.Names)
-		if n == 0 {
-			n = 1
-		}
-		for i := 0; i < n; i++ {
-			if idx < len(lits) && lits[idx] != "" {
-				name := ""
-				if i < len(f.Names) {
-					name = f.Names[i].Name
-				}
-				if name != "" {
-					out[name] = lits[idx]
-				}
-			}
-			idx++
-		}
-	}
-	return out
-}
 
 // matchesField 场景是否"关心"这个字段（键名与字段名/列名匹配即算）。
 // 用于 effects 的写入裁剪：只保留场景涉及的字段（不推断值）。
@@ -283,3 +231,5 @@ func (s Scene) matchesField(field string) bool {
 	_, _, ok := s.lookup(field)
 	return ok
 }
+
+// appendUniqueStr 追加去重（保持入参顺序——诊断文本稳定）。
