@@ -78,8 +78,8 @@ func queryEffects(acts *action.Actions, o queryEffectsOpts) int {
 		if file == "" || file == res.File {
 			file = shortSymbolNameID(w.Function)
 		}
-		fmt.Printf("  · %s ← %s（%s:%d）%s\n", loc, fieldLeafText(w.Field), file, w.Line,
-			effectEvidenceNote(w.Evidence))
+		fmt.Printf("  · %s ← %s（%s:%d）%s%s\n", loc, fieldLeafText(w.Field), file, w.Line,
+			effectEvidenceNote(w.Evidence), effectWriteKindNote(w))
 	}
 	fmt.Println("\n远程写（出站）：")
 	if len(res.RemoteWrites) == 0 {
@@ -137,6 +137,23 @@ func queryEffects(acts *action.Actions, o queryEffectsOpts) int {
 					ws = append(ws, loc+pos)
 				}
 				fmt.Printf("      写入：%s\n", strings.Join(ws, ", "))
+				if len(p.Writes) > 0 {
+					var kinds []string
+					for _, w := range p.Writes {
+						if w.Kind != "" {
+							k := w.Kind
+							if w.CommitScope == "begin_commit" {
+								k += "（事务内）"
+							} else if w.CommitScope == "outside_or_unknown" {
+								k += "（事务外/未知）"
+							}
+							kinds = append(kinds, k)
+						}
+					}
+					if len(kinds) > 0 {
+						fmt.Printf("      写点类型：%s\n", strings.Join(kinds, ", "))
+					}
+				}
 			}
 			if len(p.Calls) > 0 {
 				var cs []string
@@ -183,6 +200,25 @@ func fieldLeafText(p string) string {
 		return p[i+1:]
 	}
 	return p
+}
+
+// effectWriteKindNote 写点类型/提交范围（todo12-8 R2：字段赋值不冒充
+// 数据库写入；事务范围只陈述观察到的事实）。
+func effectWriteKindNote(w action.DBEffect) string {
+	var parts []string
+	if w.Kind != "" {
+		parts = append(parts, w.Kind)
+	}
+	switch w.CommitScope {
+	case "begin_commit":
+		parts = append(parts, "事务内")
+	case "outside_or_unknown":
+		parts = append(parts, "事务外/未知")
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " [" + strings.Join(parts, " · ") + "]"
 }
 
 // effectEvidenceNote 证据支持程度 + 原因（unverified 必须可见）。

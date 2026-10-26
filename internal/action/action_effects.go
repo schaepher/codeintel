@@ -37,15 +37,17 @@ type EffectsRequest struct {
 
 // DBEffect 一次表列写入。
 type DBEffect struct {
-	Table    string       `json:"table,omitempty"`
-	Column   string       `json:"column,omitempty"`
-	Field    string       `json:"field"`            // SSA 摘要的字段路径
-	Function string       `json:"function"`         // 写入函数（canonical ID）
-	File     string       `json:"file,omitempty"`   // 写入函数所在文件（被调写入定位用）
-	Line     int          `json:"line,omitempty"`   // 写入行
-	Access   string       `json:"access"`           // direct_write / indirect_write
-	Origin   string       `json:"origin,omitempty"` // todo12-8：ast|callee|summary（写点来源）
-	Evidence *SeqEvidence `json:"evidence,omitempty"`
+	Table       string       `json:"table,omitempty"`
+	Column      string       `json:"column,omitempty"`
+	Field       string       `json:"field"`                  // SSA 摘要的字段路径
+	Function    string       `json:"function"`               // 写入函数（canonical ID）
+	File        string       `json:"file,omitempty"`         // 写入函数所在文件（被调写入定位用）
+	Line        int          `json:"line,omitempty"`         // 写入行
+	Access      string       `json:"access"`                 // direct_write / indirect_write
+	Origin      string       `json:"origin,omitempty"`       // todo12-8：ast|callee|summary（写点来源）
+	Kind        string       `json:"kind,omitempty"`         // todo12-8 R2：field_assign|db_write|callee_write
+	CommitScope string       `json:"commit_scope,omitempty"` // begin_commit|outside_or_unknown|none
+	Evidence    *SeqEvidence `json:"evidence,omitempty"`
 }
 
 // RemoteEffect 一次远程写（grpc/http 出站）。
@@ -290,6 +292,11 @@ func (a *Actions) Effects(req EffectsRequest) (*EffectsResult, error) {
 	if res.Tx.Kind != "none" && len(res.DBWrites) > 0 {
 		res.Tx.CoversWrites = txCovers(&res.Tx, res.DBWrites)
 	}
+	// todo12-8 R2：写点提交范围（只陈述观察到的事实）
+	setEffectCommitScope(res.DBWrites, &res.Tx)
+	for i := range res.Paths {
+		setEffectCommitScope(res.Paths[i].Writes, &res.Tx)
+	}
 	return res, nil
 }
 
@@ -298,16 +305,19 @@ func (a *Actions) effectWriteRow(fid domain.CanonicalID, file string, r *domain.
 	colIndex tableColumnIndex) DBEffect {
 	ev := &SeqEvidence{Source: SeqEvidenceAST, SymbolID: string(fid), File: file,
 		Line: r.LineStart, Query: "codeintel query table " + fieldLeaf(r.FieldPath)}
-	table, column, ok := colIndex.lookup(fieldLeaf(r.FieldPath))
-	if ok {
-		ev.Verdict = SeqVerdictCorroborated
-		ev.Reason = "field-to-column:" + fieldLeaf(r.FieldPath)
+	var table, column string
+	kind := "field_write"
+	if t, c, ok := colIndex.lookupExact(r.FieldPath); ok {
+		// 只有完整 table.column 才证明是数据库写点（字段赋值不冒充）
+		kind, table, column = "db_write", t, c
+		ev.Verdict, ev.Reason = SeqVerdictCorroborated, "table-column-exact:"+t+"."+c
 	} else {
 		ev.Verdict = SeqVerdictUnverified
 		ev.Reason = "no_table_mapping"
 	}
 	return DBEffect{Table: table, Column: column, Field: r.FieldPath, Function: string(fid),
-		File: file, Line: r.LineStart, Access: string(r.AccessKind), Origin: "summary", Evidence: ev}
+		File: file, Line: r.LineStart, Access: string(r.AccessKind), Origin: "summary",
+		Kind: kind, Evidence: ev}
 }
 
 // fileOfStrings 文件映射（canonical ID → file）转字符串键。
@@ -411,6 +421,22 @@ func effectAnalysis(depth int, st *pathWalkStats, tgt *effectsTarget, writes []D
 		add(EffectDiagTargetNoWrite, "目标合法但未观察到写入", boolCount(len(writes) == 0))
 	}
 	return a
+}
+
+// setEffectCommitScope 标注每个写点是否落在观察到的 begin/commit 范围内
+// （只陈述事实：不在范围内/无事务 → outside_or_unknown / none）。
+func setEffectCommitScope(writes []DBEffect, tx *TxScope) {
+	for i := range writes {
+		switch {
+		case tx == nil || tx.Kind == "none":
+			writes[i].CommitScope = "none"
+		case tx.Kind == "begin_commit" && writes[i].Line >= tx.BeginLine &&
+			(tx.CommitLine <= 0 || writes[i].Line < tx.CommitLine):
+			writes[i].CommitScope = "begin_commit"
+		default:
+			writes[i].CommitScope = "outside_or_unknown"
+		}
+	}
 }
 
 // boolCount 条件计数（true = 1）。

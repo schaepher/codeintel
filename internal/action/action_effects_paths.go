@@ -392,7 +392,9 @@ func buildEffectPaths(specs []pathSpec, bp buildParams) ([]EffectPath, int) {
 				ev.Reason = "ast-assign;target-match:unresolved-type"
 				ev.Verdict = SeqVerdictUnverified
 			}
-			table, column, ok := bp.colIdx.lookup(fieldLeaf(ws.field))
+			// AST 字段赋值通常是 struct 字段（不能证明数据库写入）：只有
+			// 完整 table.column 文本才做精确映射（否则不冒充表列）。
+			table, column, ok := bp.colIdx.lookupExact(ws.field)
 			if !ok {
 				ev.Verdict = SeqVerdictUnverified
 				if ev.Reason == "" {
@@ -402,7 +404,8 @@ func buildEffectPaths(specs []pathSpec, bp buildParams) ([]EffectPath, int) {
 				}
 			}
 			p.Writes = append(p.Writes, DBEffect{Table: table, Column: column, Field: ws.field,
-				Line: ws.line, Access: string(domain.SummaryDirectWrite), Origin: "ast", Evidence: ev})
+				Line: ws.line, Access: string(domain.SummaryDirectWrite), Origin: "ast",
+				Kind: "field_assign", Evidence: ev})
 		}
 		// 被调写入（depth 内）：按调用行归属到路径（todo12-1 A6 / todo12-8）
 		p.Calls, unresolvedCalls = bp.pathCalls(sp, &p, unresolvedCalls)
@@ -493,6 +496,9 @@ func (bp buildParams) pathCalls(sp pathSpec, p *EffectPath, unresolved int) ([]E
 					w.Evidence = &ev
 				}
 				w.Origin = "callee"
+				if w.Kind == "" {
+					w.Kind = "callee_write"
+				}
 				p.Writes = append(p.Writes, w)
 				ec.Target = true
 				ec.Reason = "callee-write"

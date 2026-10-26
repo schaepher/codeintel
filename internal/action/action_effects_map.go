@@ -11,11 +11,12 @@ import (
 // tableColumnIndex 表列索引（列名 → 表.列），用于字段→表列映射。
 type tableColumnIndex struct {
 	byColumn map[string][]string // 列名（小写）→ ["table.column", ...]
+	all      map[string]bool     // 完整 table.column（精确判定 db_write）
 }
 
 // tableColumnIndex 读全库表列建索引（列名匹配；无库表则空索引）。
 func (a *Actions) tableColumnIndex() tableColumnIndex {
-	idx := tableColumnIndex{byColumn: map[string][]string{}}
+	idx := tableColumnIndex{byColumn: map[string][]string{}, all: map[string]bool{}}
 	cols, err := a.repo.GetAllTableColumns()
 	if err != nil {
 		return idx
@@ -27,8 +28,18 @@ func (a *Actions) tableColumnIndex() tableColumnIndex {
 		}
 		key := lowerSnake(column)
 		idx.byColumn[key] = append(idx.byColumn[key], table+"."+column)
+		idx.all[table+"."+column] = true
 	}
 	return idx
+}
+
+// lookupExact 完整 table.column 精确匹配（数据库写点判定——不做列名近似）。
+func (i tableColumnIndex) lookupExact(field string) (table, column string, ok bool) {
+	if !i.all[field] {
+		return "", "", false
+	}
+	table, column = splitTableColumn(field)
+	return table, column, true
 }
 
 // lookup 字段名 → (表, 列)：按列名（snake_case 归一）匹配。
