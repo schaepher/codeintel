@@ -39,11 +39,12 @@ type EffectsRequest struct {
 type DBEffect struct {
 	Table    string       `json:"table,omitempty"`
 	Column   string       `json:"column,omitempty"`
-	Field    string       `json:"field"`          // SSA 摘要的字段路径
-	Function string       `json:"function"`       // 写入函数（canonical ID）
-	File     string       `json:"file,omitempty"` // 写入函数所在文件（被调写入定位用）
-	Line     int          `json:"line,omitempty"` // 写入行
-	Access   string       `json:"access"`         // direct_write / indirect_write
+	Field    string       `json:"field"`            // SSA 摘要的字段路径
+	Function string       `json:"function"`         // 写入函数（canonical ID）
+	File     string       `json:"file,omitempty"`   // 写入函数所在文件（被调写入定位用）
+	Line     int          `json:"line,omitempty"`   // 写入行
+	Access   string       `json:"access"`           // direct_write / indirect_write
+	Origin   string       `json:"origin,omitempty"` // todo12-8：ast|callee|summary（写点来源）
 	Evidence *SeqEvidence `json:"evidence,omitempty"`
 }
 
@@ -70,14 +71,27 @@ type TxScope struct {
 }
 
 // ResultEffect 返回结果与可疑覆盖。
+// ErrorSource 一条返回槽的错误来源判定（todo12-8 R3）。
+type ErrorSource struct {
+	Slot          int    `json:"slot"`
+	Expr          string `json:"expr"`
+	Var           string `json:"var,omitempty"`
+	Line          int    `json:"line,omitempty"`
+	Status        string `json:"status"` // returned|wrapped|swallowed|overwritten|stale|nil|unknown
+	OverwrittenAt int    `json:"overwritten_at,omitempty"`
+	Detail        string `json:"detail,omitempty"`
+}
+
 type ResultEffect struct {
 	Returns    []string `json:"returns,omitempty"`    // 返回表达式文本
 	Slots      []string `json:"slots,omitempty"`      // 结果槽
 	Line       int      `json:"line,omitempty"`       // return 行
 	ErrorVars  []string `json:"error_vars,omitempty"` // 被当作错误的变量
 	Suspicious []string `json:"suspicious"`           // "错误被后续赋值覆盖"的可疑点（file:line；空数组也输出）
-	Verdict    string   `json:"verdict"`
-	Detail     string   `json:"detail,omitempty"`
+	// todo12-8：每条返回槽的错误来源（区分返回/覆盖/吞掉/旧错误）
+	ErrorSources []ErrorSource `json:"error_sources,omitempty"`
+	Verdict      string        `json:"verdict"`
+	Detail       string        `json:"detail,omitempty"`
 }
 
 // EffectsResult query effects 输出契约。
@@ -242,7 +256,8 @@ func (a *Actions) Effects(req EffectsRequest) (*EffectsResult, error) {
 			callTargets[line] = append(callTargets[line], string(f.TargetID))
 		}
 	}
-	res.Paths = buildEffectPaths(scan.paths, buildParams{
+	var unresolvedCalls int
+	res.Paths, unresolvedCalls = buildEffectPaths(scan.paths, buildParams{
 		colIdx: colIndex, remote: res.RemoteWrites, tx: res.Tx,
 		suspicious: res.Result.Suspicious, resultNames: scan.resultNames,
 		target: tgt, file: n.FilePath, varTypes: scan.varTypes, pkgPath: scan.pkgPath,
@@ -267,7 +282,7 @@ func (a *Actions) Effects(req EffectsRequest) (*EffectsResult, error) {
 	}
 
 	// todo12-5/7：完整性诊断（未知/截断 → partial）
-	res.Analysis = effectAnalysis(req.Depth, scan.stats, tgt, res.DBWrites)
+	res.Analysis = effectAnalysis(req.Depth, scan.stats, tgt, res.DBWrites, unresolvedCalls)
 	if len(res.DBWrites) == 0 && len(res.RemoteWrites) == 0 {
 		res.Diagnostics = append(res.Diagnostics, SeqDiagCount{Code: "no_writes", Count: 1})
 	}
@@ -292,7 +307,7 @@ func (a *Actions) effectWriteRow(fid domain.CanonicalID, file string, r *domain.
 		ev.Reason = "no_table_mapping"
 	}
 	return DBEffect{Table: table, Column: column, Field: r.FieldPath, Function: string(fid),
-		File: file, Line: r.LineStart, Access: string(r.AccessKind), Evidence: ev}
+		File: file, Line: r.LineStart, Access: string(r.AccessKind), Origin: "summary", Evidence: ev}
 }
 
 // fileOfStrings 文件映射（canonical ID → file）转字符串键。
@@ -359,16 +374,17 @@ func targetResultSummary(paths []EffectPath, old ResultEffect) ResultEffect {
 
 // effectPartialCodes 判为 partial 的诊断代码。
 var effectPartialCodes = map[string]bool{
-	EffectDiagPathBudget:     true,
-	EffectDiagPathNesting:    true,
-	EffectDiagLoopUnrefined:  true,
-	EffectDiagSwitchUnrefine: true,
-	EffectDiagTargetUnknown:  true,
-	EffectDiagSlotUnresolved: true,
+	EffectDiagPathBudget:       true,
+	EffectDiagPathNesting:      true,
+	EffectDiagLoopUnrefined:    true,
+	EffectDiagSwitchUnrefine:   true,
+	EffectDiagTargetUnknown:    true,
+	EffectDiagSlotUnresolved:   true,
+	EffectDiagCalleeUnresolved: true,
 }
 
 // effectAnalysis 聚合完整性诊断（未知/截断 → partial）。
-func effectAnalysis(depth int, st *pathWalkStats, tgt *effectsTarget, writes []DBEffect) *EffectsAnalysis {
+func effectAnalysis(depth int, st *pathWalkStats, tgt *effectsTarget, writes []DBEffect, unresolvedCalls int) *EffectsAnalysis {
 	a := &EffectsAnalysis{Status: "complete", Depth: depth, Diagnostics: []SeqDiagCount{}}
 	add := func(code, detail string, count int) {
 		if count <= 0 {
@@ -386,6 +402,7 @@ func effectAnalysis(depth int, st *pathWalkStats, tgt *effectsTarget, writes []D
 		add(EffectDiagLoopUnrefined, "循环体按 0..N 次计（未逐次展开）", st.loops)
 		add(EffectDiagSwitchUnrefine, "switch/select 分支未细化为独立路径", st.switches)
 	}
+	add("path_callee_unresolved", "路径上存在未映射索引的调用点（被调写入可能遗漏）", unresolvedCalls)
 	if tgt != nil {
 		add(EffectDiagTargetUnknown,
 			"目标依赖里有类型无法判定的写入（已保守保留，未证明与目标同类型）", tgt.unknown)
