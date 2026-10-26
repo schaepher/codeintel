@@ -140,6 +140,72 @@ func directMethodPath(pkg *packages.Package, methodVars map[string]string,
 	return ""
 }
 
+// grpcClientServiceOf 方法接收者类型 → gRPC 服务名（todo12-16）：
+// 接收者 *pb.OrderServiceClient 且方法签名含 context.Context + error。
+// 不依赖 NewXxxClient 构造器/变量追踪，覆盖 DI、结构体字段、外部生成代码。
+func grpcClientServiceOf(callee *types.Func) (string, bool) {
+	if callee == nil {
+		return "", false
+	}
+	sig, ok := callee.Type().(*types.Signature)
+	if !ok || sig.Recv() == nil || !isGrpcClientCallSig(sig) {
+		return "", false
+	}
+	t := sig.Recv().Type()
+	if p, okp := t.(*types.Pointer); okp {
+		t = p.Elem()
+	}
+	named, ok := t.(*types.Named)
+	if !ok || named.Obj() == nil {
+		return "", false
+	}
+	return clientTypeService(named.Obj().Name())
+}
+
+// isGrpcClientCallSig gRPC 客户端方法签名：首参 context.Context + 末返回 error。
+func isGrpcClientCallSig(sig *types.Signature) bool {
+	if sig == nil || sig.Params().Len() < 2 || sig.Results().Len() < 1 {
+		return false
+	}
+	first := sig.Params().At(0).Type()
+	if !strings.HasSuffix(types.TypeString(first, nil), "context.Context") {
+		return false
+	}
+	last := sig.Results().At(sig.Results().Len() - 1).Type()
+	return last.String() == "error"
+}
+
+// emitGrpcClientCall 发射客户端调用：svc 节点 + grpc_call 边（关系身份=方法名）。
+func (ctx *fileCtx) emitGrpcClientCall(call *ast.CallExpr, callee *types.Func,
+	method string, callerID domain.CanonicalID, svc string) {
+	pkg := ctx.pkg
+	svcID := domain.CanonicalID("symbol:go:" + callee.Pkg().Path() + ":svc." + svc)
+	_ = ctx.emit(domain.Item{Node: &domain.CodeEntity{
+		ID:         svcID,
+		Kind:       domain.KindGrpcService,
+		Name:       "svc." + svc,
+		Properties: map[string]any{"service_name": svc},
+	}})
+	reqType := ""
+	if len(call.Args) > 1 {
+		reqType = typePath(pkg.TypesInfo.TypeOf(call.Args[1]))
+	}
+	_ = ctx.emit(domain.Item{Fact: &domain.Fact{
+		SourceID:   callerID,
+		TargetID:   svcID,
+		Kind:       domain.FactGrpcCall,
+		ToolSource: domain.ToolCodeGraph,
+		Confidence: 1.0,
+		Key:        method,
+		Metadata: map[string]any{
+			"method":   method,
+			"req_type": reqType,
+			"line_num": pkg.Fset.PositionFor(call.Pos(), false).Line,
+			"pos":      pkg.Fset.PositionFor(call.Lparen, false).Offset,
+		},
+	}})
+}
+
 // pkgOfID 从 canonical ID 提取包路径（symbol:go:<pkg>:<name>）。
 func pkgOfID(id domain.CanonicalID) string {
 	s := strings.TrimPrefix(string(id), "symbol:go:")
@@ -165,35 +231,14 @@ func (ctx *fileCtx) emitSelectorCall(call *ast.CallExpr, callee *types.Func, sel
 	ctx.emitKafkaCall(call, callee, sel, xid, callerID)
 	// §18：gRPC 客户端方法调用 c.Method() → grpc_call 边
 	// （客户端调用服务 <svc> 的 <Method>）
-	if svc, okG := ctx.grpcClients[xid.Name]; okG && callee.Pkg() != nil {
-		svcID := domain.CanonicalID("symbol:go:" + callee.Pkg().Path() + ":svc." + svc)
-		_ = ctx.emit(domain.Item{Node: &domain.CodeEntity{
-			ID:         svcID,
-			Kind:       domain.KindGrpcService,
-			Name:       "svc." + svc,
-			Properties: map[string]any{"service_name": svc},
-		}})
-		// R45：请求实参类型（c.Method(ctx, req)——Args[1]）——外部接口
-		// 判定：实参类型 ∉ 本项目服务参数类型集合
-		reqType := ""
-		if len(call.Args) > 1 {
-			reqType = typePath(pkg.TypesInfo.TypeOf(call.Args[1]))
-		}
-		_ = ctx.emit(domain.Item{Fact: &domain.Fact{
-			SourceID:   callerID,
-			TargetID:   svcID,
-			Kind:       domain.FactGrpcCall,
-			ToolSource: domain.ToolCodeGraph,
-			Confidence: 1.0,
-			// todo11-1：关系身份 = RPC 方法名（否则同函数调同服务的不同方法
-			// 会被 edges 唯一约束合并，ext-chain 无法逐方法续接）
-			Key: sel.Sel.Name,
-			Metadata: map[string]any{
-				"method":   sel.Sel.Name,
-				"req_type": reqType,
-				"line_num": pkg.Fset.PositionFor(call.Pos(), false).Line, "pos": pkg.Fset.PositionFor(call.Lparen, false).Offset,
-			},
-		}})
+	svc, okG := ctx.grpcClients[xid.Name]
+	if !okG {
+		// todo12-16：变量追踪不到（DI/构造器注入/结构体字段/外部生成代码）
+		// 时按**方法接收者类型**识别（XxxClient + ctx/error 签名）
+		svc, okG = grpcClientServiceOf(callee)
+	}
+	if okG && callee.Pkg() != nil {
+		ctx.emitGrpcClientCall(call, callee, sel.Sel.Name, callerID, svc)
 	}
 	// §18.6 手写 client：Invoke/NewStream + gRPC 方法路径
 	if mp := directMethodPath(pkg, ctx.methodVars, call, callee); mp != "" {
@@ -222,7 +267,7 @@ func (ctx *fileCtx) emitSelectorCall(call *ast.CallExpr, callee *types.Func, sel
 				Kind:       domain.FactGrpcCall,
 				ToolSource: domain.ToolCodeGraph,
 				Confidence: 1.0,
-				Key: parts[1],
+				Key:        parts[1],
 				Metadata: map[string]any{
 					"method":      parts[1],
 					"method_path": mp,

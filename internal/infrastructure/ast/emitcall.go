@@ -78,6 +78,11 @@ func (ctx *fileCtx) emitCall(call *ast.CallExpr) {
 		} else if _, isCall := sel.X.(*ast.CallExpr); isCall {
 			// R31：gin 链式（r.Group("/v1").GET(...)）——组前缀继承
 			ctx.emitGinChainedCall(call, sel, callee)
+		} else if callee != nil && callee.Pkg() != nil {
+			// todo12-16：s.client.Submit(...)（结构体字段/DI 注入的生成客户端）
+			if svc, okG := grpcClientServiceOf(callee); okG {
+				ctx.emitGrpcClientCall(call, callee, sel.Sel.Name, callerID, svc)
+			}
 		}
 	}
 	// 参数位置的嵌套调用：接收者持有返回参数（A(B(C)) → A→B、B→C）。
