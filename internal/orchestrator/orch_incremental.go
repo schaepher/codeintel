@@ -75,14 +75,23 @@ func (o *Orchestrator) IncrementalBuild(ctx context.Context, changedFiles []stri
 	}
 
 	patterns, full := o.changedPackagePatterns(changedFiles)
+	// P1-12：SCIP 只索引**变更包**（符号定义权威）；dispatch 相关包是 SSA
+	// 补齐需要的（见下），它们的 SCIP 产物在库里未被删除——不能拿合并后的
+	// 集合去扩大 scip-go 扫描范围（go2o 实测曾扩大到 65/127 个包）。
+	scipPatterns := clonePkgPatterns(patterns)
 	if full {
 		patterns = nil
+		scipPatterns = nil
 	} else {
 		// P0-2：补 Load dispatch 相关包（注册点包 ∪ 动态调用包——上次
 		// 构建持久化的 build_metadata）。改 impl 包时注册点包未 Load 会
 		// 导致 dispatch_to 边整体丢失（emitDispatches 收不到注册点）。
 		o.mergeDispatchPkgPatterns(patterns)
 	}
+	// P1-12：SCIP 按变更包 patterns 索引（全量时传 nil）——scip-go 的
+	// 位置参数只影响"访问/类型检查的项目包集合"，依赖解析不变。
+	o.setSCIPPackagePatterns(scipPatterns)
+	defer o.setSCIPPackagePatterns(nil)
 	pkgs, err := o.loadPackages(ctx, patterns)
 	if err != nil {
 		return nil, err
@@ -131,6 +140,18 @@ func (o *Orchestrator) changedPackagePatterns(changedFiles []string) (pkgPattern
 		pats[modDir] = append(pats[modDir], p)
 	}
 	return pats, false
+}
+
+// clonePkgPatterns 深拷贝包 pattern 表（切片会被 append，不能浅拷）。
+func clonePkgPatterns(in pkgPatterns) pkgPatterns {
+	if in == nil {
+		return nil
+	}
+	out := make(pkgPatterns, len(in))
+	for k, v := range in {
+		out[k] = append([]string(nil), v...)
+	}
+	return out
 }
 
 // mergeDispatchPkgPatterns P0-2：把 build_metadata 记录的 dispatch 相关

@@ -5,7 +5,6 @@ package action
 import (
 	"go/ast"
 	"go/token"
-	"strings"
 )
 
 func bindingText(b bindingInfo) string {
@@ -71,7 +70,7 @@ func instanceAt(pf *parsedFunc, name string, at token.Pos) instanceRef {
 	}
 	if condLine > 0 {
 		return instanceRef{known: false,
-			why: "调用前存在条件分支内重赋值（L" + itoaSeq(condLine) + "），调用时值未知",
+			why:      "调用前存在条件分支内重赋值（L" + itoaSeq(condLine) + "），调用时值未知",
 			condLine: condLine}
 	}
 	if expr, line, ok := packageDeclExpr(pf, name); ok {
@@ -173,7 +172,7 @@ func bindingFromExpr(pf *parsedFunc, expr ast.Expr, line int, pkgLevel bool, var
 		}
 		return inner
 	}
-	sig, explicit, ok := compositeConfig(expr)
+	sig, explicit, ok, why := compositeConfig(pf, expr)
 	id := "local:" + pf.id + ":" + varName + ":" + itoaSeq(line)
 	if pkgLevel {
 		id = "pkg:" + pf.pkg + ":" + varName + ":" + itoaSeq(line)
@@ -181,95 +180,12 @@ func bindingFromExpr(pf *parsedFunc, expr ast.Expr, line int, pkgLevel bool, var
 	b := bindingInfo{id: id, sig: sig, line: line, initialLine: line,
 		explicit: explicit, known: ok && (explicit || line > 0)}
 	if !ok {
-		b.unknownWhy = "实例初始化不是可解析的配置字面量"
+		// P1-01：优先给定位后的原因（运行时配置值 / 反射动态别名），
+		// 不再用笼统的"不是可解析的配置字面量"。
+		b.unknownWhy = why
+		if b.unknownWhy == "" {
+			b.unknownWhy = runtimeInitReason(pf, expr)
+		}
 	}
 	return b
-}
-
-// applyFieldModifications 只应用**当前实例 id** 上的覆盖（旧别名修改不算）。
-func applyFieldModifications(pf *parsedFunc, varName, currentID string, at token.Pos, b *bindingInfo) {
-	fields := map[string]string{}
-	explicit := b.explicit
-	if b.sig != "" && b.sig != "{}" {
-		for _, part := range strings.Split(b.sig, ",") {
-			if k, v, ok := strings.Cut(part, "="); ok {
-				fields[k] = v
-			}
-		}
-	}
-	unknown := ""
-	ast.Inspect(pf.decl.Body, func(n ast.Node) bool {
-		as, ok := n.(*ast.AssignStmt)
-		if !ok || as.Pos() >= at {
-			return true
-		}
-		for i, lhs := range as.Lhs {
-			sel, ok := lhs.(*ast.SelectorExpr)
-			if !ok {
-				continue
-			}
-			if instanceIDAt(pf, sel.X, as.Pos()) != currentID {
-				continue // 别名指向旧实例/其他实例：不影响当前绑定
-			}
-			line := pf.fset.Position(as.Pos()).Line
-			conditional := !blockContains(blockContaining(pf.decl.Body, pf.fset, as.Pos()), pf.fset, at)
-			var val *ast.BasicLit
-			if len(as.Rhs) == len(as.Lhs) {
-				val, _ = as.Rhs[i].(*ast.BasicLit)
-			}
-			if conditional {
-				unknown = "配置字段 " + sel.Sel.Name + " 在条件分支中修改（L" + itoaSeq(line) + "），调用时值未知"
-				continue
-			}
-			if val == nil {
-				unknown = "配置字段 " + sel.Sel.Name + " 在调用前被非常量修改（L" + itoaSeq(line) + "）"
-				continue
-			}
-			fields[sel.Sel.Name] = val.Value
-			explicit = true
-			b.modLine = line
-		}
-		return true
-	})
-	// 调用前把当前实例传给未解析函数，或对其调用方法（Configure）→ 未知
-	ast.Inspect(pf.decl.Body, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok || call.Pos() >= at {
-			return true
-		}
-		sel, _ := call.Fun.(*ast.SelectorExpr)
-		if sel != nil && (asyncProducerCalls[toLowerASCII(sel.Sel.Name)] || asyncConsumerCalls[toLowerASCII(sel.Sel.Name)]) {
-			return true
-		}
-		if sel != nil && instanceIDAt(pf, sel.X, call.Pos()) == currentID {
-			unknown = "调用前对接收者调用方法 " + sel.Sel.Name + "（L" +
-				itoaSeq(pf.fset.Position(call.Pos()).Line) + "），配置可能被修改"
-			return true
-		}
-		for _, arg := range call.Args {
-			if instanceIDAt(pf, arg, call.Pos()) == currentID {
-				unknown = "调用前存在未解析的接收者/别名传递（L" +
-					itoaSeq(pf.fset.Position(call.Pos()).Line) + "）"
-				break
-			}
-		}
-		return true
-	})
-	if len(fields) > 0 {
-		keys := make([]string, 0, len(fields))
-		for k := range fields {
-			keys = append(keys, k)
-		}
-		sortStrings(keys)
-		parts := make([]string, 0, len(keys))
-		for _, k := range keys {
-			parts = append(parts, k+"="+fields[k])
-		}
-		b.sig = strings.Join(parts, ",")
-		b.explicit = explicit
-	}
-	if unknown != "" {
-		b.known = false
-		b.unknownWhy = unknown
-	}
 }

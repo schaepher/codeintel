@@ -51,6 +51,9 @@ type Adapter struct {
 	// 包）——本轮 Index 运行收集，构建后供 orchestrator 持久化到
 	// build_metadata（增量补 Load 用）
 	dispatchPkgs []string
+	// scope P1-08：分析范围指纹（orchestrator 计算一次后注入，SCIP 内容
+	// 缓存用同一指纹）；nil = 本适配器自行计算（独立使用/测试）。
+	scope *analysisScope
 }
 
 // releaseTransient 释放 Index 结束后的瞬态分析引用（todo5-3）：函数快照、
@@ -66,6 +69,17 @@ func (a *Adapter) releaseTransient() {
 	a.typeMapping = nil
 	a.dispatchRegs = nil
 	a.regHits = nil
+	a.scope = nil
+}
+
+// SetAnalysisScope 注入编排层预先计算的分析范围指纹（P1-08）：SCIP 内容
+// 缓存与包缓存共用同一份内容 hash 口径，避免两套指纹分叉。只消费一次
+// （Index 取走后清空，避免复用 Adapter 时携带旧范围）。
+func (a *Adapter) SetAnalysisScope(s *AnalysisScope) {
+	if a == nil {
+		return
+	}
+	a.scope = s
 }
 
 // SetProgress 注入进度上报（Q253：orchestrator/cli 传入）。

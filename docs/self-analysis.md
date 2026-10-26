@@ -2524,22 +2524,37 @@ instancePath/recoverVarName/allocTypeShort 缓存 + 节点属性池化序列化�
 P1-05（全局注册表 schema 作为仓库外事实源，repos 表 10 列补类型）。
 实现/实测/验收证据见 `field_trace.md` §105。
 
+**2026-10-27 移除**（用户指定收口，证据见 `field_trace.md` §107）：
+- **P1-01**（运行时配置/反射动态别名/外部 broker 绑定）：改为"来源定位"，
+  判定等级不变——配置字段/环境变量/reflect/类型断言/工厂实参都定位到
+  表达式与行号并写进 binding，字面量配置的 corroborated/mismatch 回归锁定；
+- **P1-08**（暖构建少建图）：测量推翻"暖构建慢在 SSA 建图"（SSA 侧约 1.0s），
+  落地 SCIP 产物内容缓存：`scip index` 2.53s → **47ms**（detcheck 保真度全等）；
+- **P1-09**（内存线复测）：冷 1337MB TotalAlloc / 47 次 GC / 峰值 live 386MB，
+  无回退、无新热点；
+- **P1-10**（emitValue 分配）：行级归因 27MB/1159MB（2.3%），剩余属
+  `Properties map[string]any` 数据模型，改动收益 <0.5% → 不做（留数据）；
+- **P1-12**（SCIP 重复加载）：增量构建按变更包传 patterns，
+  `scip index` 1.18s vs 全量 2.80s，update 产物逐项 diff = 0；
+- **P1-13**（写库单写者 p95）：新增 flush p50/p95/max 观测（460/704/704ms，
+  无长尾）；复用参数切片实测零收益已回滚——两阶段导入仍不启动；
+- **P1-07**（调用记录裁剪/暖缓存字符串）：`func data` 观测显示 calls 仅
+  3491 条（<0.5% 峰值），裁剪无收益且有正确性风险 → 不做（留数据）。
+
+**P1-11 部分完成**：摘要表两个"最左前缀冗余"索引已幂等删除
+（go2o 库 114.3MB → 111.4MB，−2.5%，查询计划复核走 UNIQUE 覆盖索引）；
+`summary`/`summary_origins` 的 function_id 整数化与 `idx_nodes_func_id`
+（合计约 22% 库体量）仍待做，判据与触发条件见 `field_trace.md` §107。
+
 | 新编号 | 原 ID/来源 | 优先级 | 事项 | 依赖 / 说明 |
 |---|---|---|---|---|
 | P0-01 | #1 | P0 | 真实业务系统端到端验证（gRPC 识别形态/DI/字段流/`query grpc-routes`/wiki） | **需外部真实系统** |
 | P0-02 | #7 | P0 | `--with-qa` 实战验证（wiki --ai 参考资料生效） | 需真实问答/agent |
 | P0-03 | #8 | P0 | go2o domains.services 人工确认（30 服务归属） | 人在环 |
 | P0-04 | #9 | P0 | 术语表 24 条 / flows 5 条人工 review | 人在环 |
-| P1-01 | todo19-6 | P1 工程 | 运行时配置、反射/动态别名、外部 broker 的真实系统绑定 | 调用前后顺序/条件/别名实例/方法修改矩阵已完成；动态/运行时绑定仍 unverified |
 | P1-03 | #16 | P1 工程 | cli → action 迁移收尾（~100 文件按 R89 模式） | 机械大批量 |
 | P1-06 | #18 | P1 工程 | go2o 表别名 AI 补缺（缺 148 表） | 需 AI/网络 |
-| P1-07 | R13 | P1 性能 | 内存与 GC：无用调用记录/字段产物重复物化/暖缓存字符串/无指针记录（空结构实参调用记录已裁剪；其余需大仓 profile） | **需大仓 profile** |
-| P1-08 | R14 | P1 性能 | 暖构建准备：分离别名/全局 init/派发所需数据，包缓存命中少建图 | **需大仓 profile** |
-| P1-09 | #14 | P1 性能 | 构建期内存线复测/收尾（gob 分配是否回退、SSA 剩余热点） | **需大仓** |
-| P1-10 | cl4-P1 | P1 性能 | `emitValue` 产物分配降低（属性 map/装箱/重复字符串） | **需大仓 profile** |
-| P1-11 | #11 | P1 性能 | Stage 2b：`summary`/`summary_origins`/`idx_nodes_func_id` 整数化 | **需大仓** |
-| P1-12 | #13 | P1 性能 | SCIP 重复加载依赖图 + 按包增量 | 需外部工具评估 |
-| P1-13 | #12 | P1 性能 | 写库/流水线单写者串行（flush p95） | **需大仓** |
+| P1-11 | #11 | P1 性能 | Stage 2b 余项：`summary`/`summary_origins` 的 function_id 改整数代理键 + `idx_nodes_func_id` 改 id 前缀范围扫（前缀冗余索引已删，−2.5%） | 需按 `reindex` 全量重建验证；判据与触发条件见 field_trace §107 |
 | P1-14 | #1（范围扩展） | P1 验证 | 真实业务系统端到端 / 更大仓并发与资源曲线 | 固定夹具矩阵/A-B/峰值已完成（todo15/16）；真实系统与更大规模仍需外部环境 |
 | P2-01 | #17 | P2 验证 | 新人实测演练（陌生项目 wiki onboarding） | 需外部项目 |
 | P2-02 | #19 | P2 验证 | ext-chain 跨仓库递归 | 需多仓库 |

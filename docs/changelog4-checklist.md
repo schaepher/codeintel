@@ -72,8 +72,8 @@
 | R10 注册来源（消除遍历顺序依赖/稳定选择） | **完成**（go2o 双冷 + 冷暖 detcheck 全等） | `3b566e1` |
 | R11 摘要代表（平局与传播更新/环形调用/冷暖） | 完成（全序 tie-break + 环形回归） | `da90dd4` |
 | R12 接收者摘要（直调 vs 接口一致） | 完成（一致性回归 + 下标约定文档） | `ffce118` |
-| R13 内存与 GC | 评估完成，**代码待大仓 profile** | `docs/codeintel-gc-investigation.md §7` |
-| R14 暖构建准备 | 评估完成，**代码待大仓 profile** | `docs/codeintel-gc-investigation.md §7` |
+| R13 内存与 GC | 完成（go2o 测量：调用记录 <0.5% 峰值，裁剪无收益 → 关闭） | `docs/field_trace.md §107` |
+| R14 暖构建准备 | 完成（SSA 侧 ≤1.0s 不做；落地 SCIP 产物缓存 2.53s→47ms） | `docs/field_trace.md §107` |
 | R15 日志测试（开启字段一致 + 关闭跳过） | 完成 | `b99597a`（开启）+ 既有 `cf_call_debug_test.go`（关闭） |
 | R16 检查脚本（边元数据 + 摘要来源） | 完成（并据此抓到 R10） | `9320ea5` |
 | R17 扩展时序图（图片预览/文本/PlantUML 源） | 完成（CLI sidecar + 扩展打开方式 + 自检） | `76de975` |

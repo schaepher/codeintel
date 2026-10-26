@@ -135,6 +135,10 @@ init / reindex / update 三处默认值统一（defaultBuildWorkers）。
   （main 内 Start/Stop，os.Exit 前落盘；`go tool pprof <bin> <file>` 分析）
 - `CODEINTEL_GOGC=<n>`：覆盖构建期 GOGC（默认 40）
 - 构建阶段计时日志：`orchestrator stage` / `build stage`（含 heap_mb）
+- `CODEINTEL_SCIP_PATTERNS=off`：强制全量 SCIP（对照增量 patterns 的 A/B 逃生口）
+- 日志口径（P1-07/P1-08/P1-13）：`func data`（funcs/calls/arg_paths）、
+  `scip artifact cache hit/saved`、`scip incremental patterns`、`flush latency`
+  （p50/p95/max，最近秩法）
 
 ## 8. 经验教训
 
@@ -349,3 +353,39 @@ adapter 内部 SQL 与渲染不计入（`stats_scope`/`uncovered_ops` 明示）�
 RSS 采样器能力先探测：GNU `time -v` → BSD `time -l` → 都不支持则
 `RSS sampling unavailable`（平台/原因/单位/进程范围写日志），不把 0 当成功；
 查询自身失败单独报错，不吞成 unavailable。取消验收已与 RSS 拆成独立测试。
+
+## 2026-10-27 写库/SCIP 口径复测（P1-07…P1-13）
+
+固定环境：go2o（127 包 / 12.1 万节点 / 13.7 万边）同机副本，GOGC=40、
+workers=8、`--progress plain`。同一台 8 核 / 3GB 机器，单次数字仅作趋势。
+
+| 口径 | 冷构建 | 暖构建（包缓存 + SCIP 缓存全命中） |
+|---|---|---|
+| wall | 6.25s（重复 6.28–6.85s） | 6.77s（噪声内） |
+| Max RSS（`time -v`，含 scip-go） | 741MB | 772MB |
+| 峰值 live（MEM_PROFILE） | 386MB | 363MB |
+| TotalAlloc / mallocs / NumGC | 1337MB / 19.67M / 47 | 1242MB / 19.52M / 48 |
+| `scip index` 阶段 | 2.53s | **47ms**（产物缓存命中） |
+
+**本进程 CPU 采样分布（冷构建，`CODEINTEL_CPU_PROFILE`）**：GC 34.6%
+（scanSpan 24.7%）、SQLite 写库 26.6%（`SaveBatchStats`；`_sqlite3VdbeExec`
+21.9%）、SSA 发射 8.4%、AST 6%。`/usr/bin/time` 的 380% CPU 与采样差额是
+scip-go / go list 等子进程（不在本进程 profile 内）。
+
+**写库（flush）**：新增 p50/p95/max 观测（`flushLatency`，最近秩法）。
+go2o 冷构建 10 批：**p50 460ms / p95 704ms / max 704ms**——p95/p50≈1.5，
+无长尾；每批 2 万节点或边 ≈ 20µs/行。分配归因（`BenchmarkSaveBatchInsert`，
+2000 节点 + 6000 边，6.0MB/op / 172k allocs/op）：`database/sql.
+driverArgsConnLocked` 36%、`resultFromStatement` 50%。**复用 `[]any`
+参数切片实测 allocs/op 172266→172267（零收益）已回滚**。
+
+**SCIP**：
+- 增量构建按变更包传 patterns（P1-12）：`scip index` 1.18s vs 全量 2.80s，
+  update 产物（节点/边/摘要/来源）逐项 diff = 0。
+- 全量构建按内容指纹缓存产物（P1-08）：暖构建 `scip index` 2.53s → 47ms；
+  `scripts/detcheck.sh` 冷1/冷2/暖 四类产物全等（缓存重放保真）。
+
+**DB 体量（`scripts/dbdiag.sh --size`）**：删掉摘要表两个最左前缀冗余索引后
+114.3MB → **111.4MB（−2.5%）**；剩余大头仍是 `nodes`+索引（约 72%）与
+`idx_nodes_func_id`（9.9MB，8.7%）——后者的替代路径（id 前缀范围扫）与
+summary 表整数化见 `field_trace.md` §107 的判据/触发条件。

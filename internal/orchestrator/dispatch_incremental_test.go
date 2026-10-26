@@ -12,7 +12,31 @@ import (
 
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
+	"golang.org/x/tools/go/packages"
 )
+
+// patternRecorder 记录 SetPackagePatterns 注入的变更包表（P1-12）。
+type patternRecorder struct {
+	patterns map[string][]string
+	calls    int
+}
+
+func (p *patternRecorder) Name() string { return "recorder" }
+
+func (p *patternRecorder) Index(_ context.Context, _ *domain.Repository, _ []*packages.Package, _ domain.EmitFunc) error {
+	return nil
+}
+
+func (p *patternRecorder) SetPackagePatterns(m map[string][]string) {
+	cp := map[string][]string{}
+	for k, v := range m {
+		cp[k] = append([]string(nil), v...)
+	}
+	p.calls++
+	if len(cp) > 0 && p.patterns == nil {
+		p.patterns = cp
+	}
+}
 
 // TestIncrementalDispatchEdgesSurviveImplChange：端到端——容器包
 // （接口 + MakeInterface 注册点 + 动态调用）与 impl 包（实现）。
@@ -202,5 +226,64 @@ func (m *ManagerImpl) Handle() {}
 	}
 	if !found {
 		t.Errorf("DispatchPkgs = %v; want 含注册点包 container", meta.DispatchPkgs)
+	}
+}
+
+// p1-12：SCIP 只拿"变更包"patterns（不能把补 Load 的 dispatch 包也塞给
+// scip-go——那会把增量索引范围扩大到几十个包）；同时确认 Load 用的
+// patterns 仍包含 dispatch 包（P0-2 语义不变）。
+func TestIncrementalSCIPPatternsOnlyChangedPackages(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "go.mod"), "module example.com/inc\n\ngo 1.21\n")
+	writeFile(t, filepath.Join(dir, "container", "container.go"), `package container
+
+import "example.com/inc/impl"
+
+type Manager interface{ Handle() }
+
+func Wire() Manager { return &impl.ManagerImpl{} }
+
+func Use() { Wire().Handle() }
+`)
+	writeFile(t, filepath.Join(dir, "impl", "impl.go"), `package impl
+
+type ManagerImpl struct{}
+
+func (m *ManagerImpl) Handle() {}
+`)
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	orch := New(&domain.Repository{Path: dir, Module: "example.com/inc",
+		Modules: []string{"example.com/inc"}, ModuleDirs: []string{"."}}, db)
+	if _, err := orch.FullBuild(context.Background()); err != nil {
+		t.Fatalf("FullBuild: %v", err)
+	}
+
+	rec := &patternRecorder{}
+	orch.Adapters = []domain.IndexerPort{rec}
+	writeFile(t, filepath.Join(dir, "impl", "impl.go"), `package impl
+
+type ManagerImpl struct{}
+
+func (m *ManagerImpl) Handle() {}
+
+func (m *ManagerImpl) Extra() {}
+`)
+	if _, err := orch.IncrementalBuild(context.Background(), []string{"impl/impl.go"}); err != nil {
+		t.Fatalf("IncrementalBuild: %v", err)
+	}
+	// 第一次注入变更包，defer 复位（注入 nil）——共 2 次
+	if rec.calls != 2 {
+		t.Fatalf("SetPackagePatterns 调用 %d 次, want 2（注入 + 复位）", rec.calls)
+	}
+	if len(rec.patterns) != 1 {
+		t.Fatalf("scip patterns = %v, want 仅根 module 一项", rec.patterns)
+	}
+	got := rec.patterns["."]
+	if len(got) != 1 || got[0] != "./impl" {
+		t.Fatalf("scip patterns = %v, want [\"./impl\"]（不含 dispatch 包）", got)
 	}
 }

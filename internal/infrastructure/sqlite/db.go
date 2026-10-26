@@ -151,6 +151,12 @@ func (db *DB) init() error {
 	} else if len(dropped) > 0 {
 		zap.L().Info("drop redundant edge indexes", zap.Strings("indexes", dropped))
 	}
+	// P1-11：摘要表前缀冗余索引（同上，幂等；不递增 SchemaVersion）。
+	if dropped, err := dropRedundantSummaryIndexes(db); err != nil {
+		return err
+	} else if len(dropped) > 0 {
+		zap.L().Info("drop redundant summary indexes", zap.Strings("indexes", dropped))
+	}
 	// 结构齐全性检查：期望列 ⊆ 实际列（缺表已补建；缺列=破坏性变更
 	// 幂等 DDL 无法表达 → 报错提示 clean）
 	if err := db.verifySchema(); err != nil {

@@ -133,7 +133,7 @@ func resolveBinding(pf *parsedFunc, varName string, depth int) bindingInfo {
 	if expr == nil {
 		return bindingInfo{id: "unknown:" + varName, line: line}
 	}
-	sig, explicit, ok := compositeConfig(expr)
+	sig, explicit, ok, why := compositeConfig(pf, expr)
 	id := "local:" + pf.id + ":" + varName + ":" + itoaSeq(line)
 	if pkgLevel {
 		id = "pkg:" + pf.pkg + ":" + varName + ":" + itoaSeq(line)
@@ -147,7 +147,14 @@ func resolveBinding(pf *parsedFunc, varName string, depth int) bindingInfo {
 			}
 		}
 	}
-	return bindingInfo{id: id, sig: sig, line: line, known: ok && (explicit || line > 0), explicit: explicit}
+	b := bindingInfo{id: id, sig: sig, line: line, known: ok && (explicit || line > 0), explicit: explicit}
+	if !b.known {
+		b.unknownWhy = why
+		if b.unknownWhy == "" {
+			b.unknownWhy = runtimeInitReason(pf, expr)
+		}
+	}
+	return b
 }
 
 func unwrapAddr(e ast.Expr) ast.Expr {
@@ -167,14 +174,18 @@ func unwrapAddr(e ast.Expr) ast.Expr {
 }
 
 // compositeConfig &T{Field: "v"} → 稳定签名；非字面量字段 → 不可证明。
-func compositeConfig(e ast.Expr) (sig string, explicit, ok bool) {
+//
+// P1-01：非字面量字段不再直接丢弃，而是按来源分类写进签名（前缀 ~）并
+// 返回 why（含字段名与行号）——判定等级不变（known=false），但用户能看
+// 到"是哪个运行时值（配置字段/环境变量/反射）决定了绑定"。
+func compositeConfig(pf *parsedFunc, e ast.Expr) (sig string, explicit, ok bool, why string) {
 	e = unwrapAddr(e)
 	cl, isCl := e.(*ast.CompositeLit)
 	if !isCl {
-		return "", false, false
+		return "", false, false, ""
 	}
 	var parts []string
-	known := true
+	var runtime []string
 	for _, el := range cl.Elts {
 		kv, isKV := el.(*ast.KeyValueExpr)
 		if !isKV {
@@ -184,21 +195,24 @@ func compositeConfig(e ast.Expr) (sig string, explicit, ok bool) {
 		if !isID {
 			continue
 		}
-		val, isLit := kv.Value.(*ast.BasicLit)
-		if !isLit {
-			known = false
+		v := classifyConfigValue(pf, kv.Value)
+		if v.kind == cfgKindLiteral {
+			parts = append(parts, key.Name+"="+v.text)
 			continue
 		}
-		parts = append(parts, key.Name+"="+val.Value)
+		// 运行时值：签名里保留来源（~ 前缀标记不可静态闭合）
+		parts = append(parts, key.Name+"=~"+v.text)
+		runtime = append(runtime, key.Name+"="+sourceReason(v))
 	}
 	sortStrings(parts)
-	if !known {
-		return "", len(parts) > 0, false
+	if len(runtime) > 0 {
+		return configSignature(parts), len(parts) > 0, false,
+			"配置值在运行时确定：" + strings.Join(runtime, "；")
 	}
 	if len(parts) == 0 {
-		return "{}", false, true
+		return "{}", false, true, ""
 	}
-	return strings.Join(parts, ","), true, true
+	return strings.Join(parts, ","), true, true, ""
 }
 
 // sameBinding 比较发送/接收实例绑定；返回 (same, verdict, detail)。

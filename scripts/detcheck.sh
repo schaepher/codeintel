@@ -71,7 +71,9 @@ def norm_json_col(p, ncol):
     # 把最后一列（JSON）解析后按键序归一化；前 ncol-1 列原样。
     out = []
     for line in open(p):
-        parts = line.rstrip("\n").split("|", ncol - 1)
+        # 从右分割：JSON（最后一列）内部可能含 "|"（签名里的类型并集等），
+        # 从左 split 会错列 → 归一化不一致（go2o 实测 8 条假差异）。
+        parts = line.rstrip("\n").rsplit("|", ncol - 1)
         if len(parts) < ncol:
             continue
         try:

@@ -121,7 +121,9 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 	cacheHits := 0
 	// todo9-3：构建级分析范围指纹（模块/加载包集合/源码/语法/类型错误）。
 	// 计算失败 → 禁用本次构建的包缓存（继续实际分析）。
-	scope, scopeErr := buildAnalysisScopeFn(ctx, pkgs, repo.Modules)
+	// P1-08：编排层已计算并注入同一指纹（SCIP 内容缓存共用）——直接复用，
+	// 没注入（独立 Adapter/测试）时自行计算。
+	scope, scopeErr := a.takeAnalysisScope(ctx, pkgs, repo.Modules)
 	if scopeErr != nil {
 		logger.Warn("analysis scope fingerprint failed; package cache disabled for this build", zap.Error(scopeErr))
 	}
@@ -208,6 +210,10 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, pkgs []*pa
 		return err
 	}
 	logger.Info("pkg cache", zap.Int("hits", cacheHits), zap.Int("total", len(pkgOrder)))
+	// P1-07：funcData 规模观测（跨包摘要传播的输入）。它决定 finishIndex
+	// 的固定点工作量与峰值存活内存，是"调用记录是否值得裁剪"的判断依据
+	// ——只在构建结束算一次（O(函数数)），不进入热路径。
+	logger.Info("func data", funcDataStats(a.fd)...)
 	stage(emitStep)
 
 	// Q231：构建收尾（alias/摘要/全局/动态派发）抽到 adapter_finish.go

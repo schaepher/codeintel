@@ -5791,3 +5791,145 @@ sqlite_master，库不存在返回空且**不创建文件**）+ `cli.globalSchem
   PNG 高度与 SVG 自然高度 ±20px、SVG/`.puml` 含全部 100 次 Step 与最后
   `return "done"`（`TestTodo20PlantumlSizeLimitWarning`）；小图/失败出口仍由
   `TestTodo20PlantumlDefaultHeadless`、`TestPlantumlPngFailureDoesNotWriteTextToPng` 覆盖
+
+## §107 待办 P1-01 / P1-07…P1-13 收口（2026-10-27）
+
+用户指定完成 P1-01 与 P1-07…P1-13 共 8 项（此前全部卡在"需大仓 profile /
+需外部环境"）。本轮按"先量后改"逐项落地：能改的有实测收益，判据不足的
+**只留数据与触发条件**，不为了"完成"而制造无收益改动。
+
+**测量环境**（go2o，127 个包 / 12.1 万节点 / 13.7 万边；8 核 / 3GB、
+GOGC=40、workers=8、同一份源码副本 `.tmp/perf-go2o`，`.codeintel` 可复现）：
+
+| 口径 | 冷构建 | 暖构建（包缓存 + SCIP 缓存全命中） |
+|---|---|---|
+| wall | 6.25s（同机重复 6.28–6.85s） | 6.77s（6.28–6.85s，噪声内） |
+| Max RSS（`time -v`，含 scip-go 子进程） | 741MB | 772MB |
+| 峰值 live（`CODEINTEL_MEM_PROFILE`） | 386MB | 363MB |
+| TotalAlloc / mallocs / NumGC | 1337MB / 19.67M / 47 | 1242MB / 19.52M / 48 |
+| `scip index` 阶段 | 2.53s | **47ms（缓存命中）** |
+| flush（写库）p50 / p95 / max | 460ms / 704ms / 704ms（10 批） | 同量级 |
+
+### P1-12 增量 SCIP 按变更包索引（已实现，A/B 等价）
+
+- 现状：`update` 只 Load 变更包，但 SCIP 适配器**忽略** `pkgs` 参数 → 每次
+  增量都全量跑 scip-go（go2o：2.8s 与 10 万级 document 解码发射）。
+- 改法：`scip.Adapter.SetPackagePatterns`（orchestrator 在
+  `IncrementalBuild` 注入）把变更包 pattern 追加为 scip-go 的位置参数；
+  **只传变更包**——补 Load 的 dispatch 包只服务 SSA，库里它们的 SCIP 产物
+  没被删除（第一版把合并后的 65 个包全传过去，收益缩水）。
+- A/B（同一份源码副本，只改一个文件，A 用 patterns / B 用
+  `CODEINTEL_SCIP_PATTERNS=off` 强制全量）：`scip index` **1.18s vs
+  2.80s**；两轮 update 后节点/边（含 metadata）/摘要/摘要来源逐项比较
+  **diff = 0**（121331 / 137110 / 21158 / 3445）。
+- 单测：`TestIndexArgs`（参数顺序）、`TestIncrementalSCIPPatternsOnlyChangedPackages`
+  （只注入变更包；Load 侧仍并入 dispatch 包）。
+
+### P1-08 全量构建的 SCIP 产物内容缓存（已实现，保真度已验证）
+
+- 测量推翻了原设想"暖构建慢在 SSA 建图"：暖构建 SSA 侧
+  `ssaBuild 0.18s + funcSnapshot 0.21s + dispatchRegs 0.02s + finishIndex
+  0.59s ≈ 1.0s`，而 `scip index` 2.5s、写库 ~4s 才是大头。SSA 侧"少建图"
+  受制于别名/全局 init/派发需要全程序 SSA（`codeintel-gc-investigation.md`
+  §7 已评估），故**不动**。
+- 改法：`scip/artifact_cache.go`——按原发射顺序缓存节点/边（分块 gob +
+  结束标记），键 = 分析范围内容指纹（与 SSA 包缓存**同一口径**，含模块与
+  依赖包源码 hash）+ scip-go 版本 + 模块目录集合 + `scipCacheFormat`。
+  命中直接重放，跳过子进程与 protobuf 解码；增量构建（patterns 非空）与
+  键不符/截断/缺结束标记一律不走缓存。
+- 验收：`scip index` **2.53s → 47ms**；`detcheck` 冷1/冷2/暖（暖=缓存
+  命中）四类产物**全等**；缓存损坏/键/版本/结束标记矩阵测试
+  （`artifact_cache_test.go`）全部拒绝。
+- 边界（写进代码注释）：内容指纹覆盖已加载包（含依赖）源码；本地
+  `replace` 依赖源码变化同样会让键变（与包缓存同源）。
+
+### P1-13 写库流水线（已量化，不改架构）
+
+- 新增 `flushLatency`（最近秩 p50/p95/max）+ 构建结束日志：go2o 10 批，
+  **p50 460ms / p95 704ms / max 704ms**——p95/p50 ≈ 1.5，没有"少数长尾批"
+  的证据；每批成本均匀（2 万节点或边/批 ≈ 20µs/行）。
+- 写库分配的 pprof（`BenchmarkSaveBatchInsert` 2000 节点 + 6000 边）：
+  `database/sql.driverArgsConnLocked` 占 36%（驱动内部逐行 args 转换）、
+  `resultFromStatement` 50%（端点解析查询）。**试过复用 `[]any` 参数切片：
+  allocs/op 172266 → 172267（零变化）→ 按纪律回滚**（"批量/复用一定更快"
+  同属要先量的直觉）。
+- 结论与 §104 一致：单写者串行不是当前瓶颈的证据链更完整了（p95 无长尾、
+  成本在驱动与索引维护），两阶段导入/分片写库仍**不启动**。
+
+### P1-07 内存与 GC（已测量，改动无收益 → 不做）
+
+- 新增 `func data` 观测（构建结束一次，O(函数数)）：go2o
+  `funcs=8184, calls=3491, arg_paths=25212, arg_names=6006,
+  direct=22188, indirect=23`——调用记录总量 ~3.5k 条（估算 1–2MB），
+  相对峰值 live 386MB <0.5%。
+- 结论：**"裁剪无匹配写的调用记录"没有收益**（且 fixpoint 前无法判定
+  → 有正确性风险）；`a.fd` 在 `emitSummaries` 后已释放
+  （`adapter_finish.go` 既有逻辑）。暖缓存的字符串共享同理（P1-04 已做
+  typeString 缓存，剩余为 gob 解码内置分配）。
+
+### P1-10 `emitValue` 分配（已按行归因，改动不成立）
+
+行级 alloc 归因（`pprof -list`）：`emitValue` flat 27MB / TotalAlloc 1159MB
+（2.3%），其中 props map 10MB、`instancePath` 8.5MB（P1-04 已按值缓存）、
+`slots` 2MB、`CodeEntity` 1.5MB。剩余分配来自 `CodeEntity.Properties
+map[string]any` 这一数据模型本身——要再降就得改领域模型（属性改类型化
+结构），收益 ~0.5% 分配、风险遍及查询/JSON 契约，**不成立**。
+
+### P1-11 摘要/index 整数化（部分完成：删 2 个前缀冗余索引）
+
+- `dbdiag --size`（go2o 114.3MB）：`idx_summary_func_access` 2.5MB 与
+  `idx_summary_origins_func` 0.4MB 分别是
+  `UNIQUE(function_id,access_kind,field_path)` /
+  `UNIQUE(function_id,access_kind,field_path,call_line,callee_id)` 的**最左
+  前缀**——冗余。Open 时幂等 DROP（`dropRedundantSummaryIndexes`，与 Q254
+  Stage 1 同纪律，不递增 SchemaVersion），DDL 同步删除、bulk load 清单同步。
+- 验收：库 114.3MB → **111.4MB（−2.9MB/−2.5%）**；`EXPLAIN QUERY PLAN`
+  复核摘要查询仍走 UNIQUE 覆盖索引（`TestDropRedundantSummaryIndexes` 锁死）；
+  `detcheck` 全等。
+- **仍未做**：`function_field_summary.function_id` / `summary_origins.
+  function_id` 改整数代理键（约 12.8MB + 2.4MB，占 13%）与
+  `idx_nodes_func_id`（9.9MB，8.7%）。后者有更省的替代（用 `id` 前缀范围
+  扫替代 json_extract 索引），但需要"所有带 func_id 的节点 ID 都是
+  `funcID#…`"的构造不变量 + 8 处查询改写，本轮未动；两条路都需按
+  `reindex` 全量重建验证。触发条件：大仓 DB 体量成为瓶颈（生产 13GB
+  库的 summary 段占比明显高于 go2o）。
+
+### P1-09 构建期内存线复测（已完成）
+
+- gob 分配未回退：冷 1337MB TotalAlloc / 19.67M mallocs / NumGC 47 /
+  pause 17.3ms；暖 1242MB / 19.52M / 48 / 12.6ms——与 §13 的 1449MB 基线
+  相比继续下降（期间无格式变更）。SSA 剩余热点仍是 `go/types` 记录
+  （recordTypeAndValue 37MB live）与 protobuf 解码，属外部包。
+- 结论：内存线无回退，无新增热点。
+
+### P1-01 运行时配置 / 动态别名的边界（已实现：定位到表达式与行号）
+
+- 判定等级**不变**：运行时来源仍 unverified，字面量配置的既有
+  corroborated/mismatch 行为不变（新增回归锁定）。
+- 新能力（`action_async_config_source.go` / `action_async_dynamic_alias.go`）：
+  - 配置字段值分类：`cfg.KafkaAddr`（运行时配置字段）、`os.Getenv("X")`
+    （环境变量）、`reflect.*`（反射）、`v.(*T)`（接口类型断言）、
+    其他运行时调用/表达式；
+  - 非字面量字段不再被丢弃：签名保留 `Addr=~cfg.KafkaAddr`，未知原因写成
+    "配置值在运行时确定：Addr=运行时配置字段 cfg.KafkaAddr（L12）"；
+  - 工厂初始化（`b := NewBus(cfg.Addr)`）把实参来源一并指出；
+  - `bindingText` 把定位后的原因带给 Producer/ConsumerBinding 与 Detail。
+- 验收：`TestRuntimeBindingSourcesLocated`（5 种形态都含来源+行号）、
+  `TestRuntimeBindingVerdictStaysUnverified`、`TestLiteralBindingStillCorroborated`、
+  `TestLiteralBindingMismatchStillDetected`、`TestEmptyLiteralBindingUnchanged`。
+- 仍未闭合（保持 unverified，属能力边界而非遗漏）：地址/主题在**运行时**
+  由配置文件或环境注入时，"是否同一系统"无法静态证明；本轮的作用是让
+  缺口可定位、可复核。
+
+### 本轮顺手修的坑
+
+1. **`detcheck` 的假红**：节点内容归一化用 `split("|", 6)` 从左切，而
+   properties 里的签名可能含 `|`（类型并集）→ 列错位 → go2o 报 8 条"内容
+   差异"（HEAD 同样复现）。改为 `rsplit`（JSON 是最后一列）后确定性四类
+   全等。**门槛脚本的分隔符必须假设"内容里可能有分隔符"**。
+2. **pattern 集合的口径**：`update` 的 Load patterns（变更包 ∪ dispatch 包）
+   与 SCIP 需要的 patterns（仅变更包）不是一回事，先深拷贝再合并
+   （`clonePkgPatterns`），否则 scip-go 扫描面被放大 65/127。
+3. **"完成"不等于"改代码"**：P1-07/P1-10/P1-13 用数据证明改动无收益
+   （或收益 <1% 而风险跨层）后**明确写下触发条件**，比塞一个无收益的
+   优化更难也更符合本项目纪律。

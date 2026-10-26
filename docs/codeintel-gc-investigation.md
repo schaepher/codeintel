@@ -151,6 +151,11 @@
   GC 扫描”；减少扫描需改为无指针紧凑记录。两者不可混为一谈。
 - 无大仓峰值 profile 无法量化收益 → **不盲改**；验收须按 §6 模板在大仓测
   GC CPU / 扫描堆 / 峰值 RSS，并保持调用边与摘要传播语义。
+- **2026-10-27 收口（go2o + `func data` 观测）**：`funcs=8184, calls=3491,
+  arg_paths=25212, arg_names=6006`——调用记录总量 ~1–2MB，占峰值 live
+  386MB 的 <0.5%；`a.fd` 在 `emitSummaries` 后已释放。**裁剪无可匹配写的
+  调用记录没有收益**（且 fixpoint 前无法判定 → 正确性风险），该项关闭；
+  数据见 `field_trace.md` §107。
 
 ### R14 暖构建准备（提前识别包缓存命中）
 
@@ -161,6 +166,11 @@
   SSA 构建会让 dispatch/alias 缺失 → 需要“按包产物 + 共享收尾数据”的重构，
   并用冷暖保真（detcheck `scripts/detcheck.sh`）验证。
 - 缺大仓暖构建耗时/内存拆分 → 同 R13，先评估后动。
+- **2026-10-27 收口（go2o 拆分）**：暖构建 SSA 侧仅
+  `ssaBuild 0.18s + funcSnapshot 0.21s + dispatchRegs 0.02s + finishIndex
+  0.59s ≈ 1.0s`；真正的大头是 SCIP（2.5s）与写库（~4s）。"少建图"收益 ≤9%
+  且受跨包别名/全局 init/派发需要全程序 SSA 约束 → **不做**；改为给 SCIP
+  加产物内容缓存（`scip index` 2.53s → 47ms，`field_trace.md` §107）。
 - **todo2-10 代码审计结论（2026-10-16）**：包缓存命中检测发生在
   `prog.Build()` **之后**（`adapter_index.go` 阶段 A 依赖 `byPkg` 的
   `*ssa.Function`）。`ssautil.Packages` 只创建函数对象，`prog.Build()`

@@ -14,6 +14,21 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
+// setSCIPPackagePatterns 向支持增量包范围的适配器注入变更包 patterns（P1-12）。
+// pkgPatterns 键为 module 相对目录（根为 "."），值为该 module 下的
+// package-pattern（如 "./internal/impl/passport"）。
+func (o *Orchestrator) setSCIPPackagePatterns(pats pkgPatterns) {
+	var m map[string][]string
+	if len(pats) > 0 {
+		m = map[string][]string(pats)
+	}
+	for _, a := range o.Adapters {
+		if s, ok := a.(interface{ SetPackagePatterns(map[string][]string) }); ok {
+			s.SetPackagePatterns(m)
+		}
+	}
+}
+
 // runAdapters 并行执行适配器并写库（keep 为 nil 时全部写入；否则只保留
 // keep(item) 为 true 的条目）。pkgs 为共享加载的 go/packages 结果
 // （AST/SSA 复用，避免重复类型检查）。返回各适配器结果与跳过的 FK 冲突边数。
@@ -28,6 +43,24 @@ func (o *Orchestrator) runAdapters(ctx context.Context, pkgs []*packages.Package
 	for _, a := range o.Adapters {
 		if inc, ok := a.(interface{ SetChangedFiles([]string) }); ok {
 			inc.SetChangedFiles(changedFiles)
+		}
+	}
+	// P1-08：全量构建先算一次分析范围指纹（内容 hash 口径与 SSA 包缓存
+	// 一致），注入 SSA（复用，避免重复读盘 hash）与 SCIP（产物缓存键）；
+	// 增量构建（包集合是子集，范围不同）不注入内容指纹，改用 P1-12 的
+	// 变更包 patterns。指纹计算失败 → 不影响构建（两适配器各自回退）。
+	if len(changedFiles) == 0 {
+		if scope, err := ssa.BuildAnalysisScope(ctx, pkgs, o.Repo.Modules); err != nil {
+			logger.Warn("analysis scope fingerprint failed; package/scip caches disabled for this build", zap.Error(err))
+		} else {
+			for _, a := range o.Adapters {
+				if s, ok := a.(interface{ SetAnalysisScope(*ssa.AnalysisScope) }); ok {
+					s.SetAnalysisScope(scope)
+				}
+				if c, ok := a.(interface{ SetContentFingerprint(string) }); ok {
+					c.SetContentFingerprint(scope.Fingerprint())
+				}
+			}
 		}
 	}
 	rep := o.prog()
@@ -62,15 +95,19 @@ func (o *Orchestrator) runAdapters(ctx context.Context, pkgs []*packages.Package
 	flushCh := make(chan *batchT, 2)
 	flushed := make(chan struct{})
 
-	// flush 协程（单写者：SQLite 写锁串行）
+	// flush 协程（单写者：SQLite 写锁串行）。P1-13：记录每批耗时，
+	// 构建结束给 p50/p95/max（区分"少数长尾"与"每批都慢"）。
 	var flushWg sync.WaitGroup
+	var flushLats []time.Duration
 	flushWg.Add(1)
 	go func() {
 		defer flushWg.Done()
 		for b := range flushCh {
+			started := time.Now()
 			if err := o.flush(b, &mu, &skipped); err != nil {
 				fmt.Fprintf(os.Stderr, "write batch: %v\n", err)
 			}
+			flushLats = append(flushLats, time.Since(started))
 			putBatch(b)
 		}
 	}()
@@ -191,6 +228,12 @@ func (o *Orchestrator) runAdapters(ctx context.Context, pkgs []*packages.Package
 	// checkpoint 跟不上）；此处显式截断（有读者时 busy，仅告警不失败）。
 	if _, err := o.RepoImpl.CheckpointTruncate(); err != nil {
 		logger.Warn("wal checkpoint truncate", zap.Error(err))
+	}
+	// P1-13：写库批次延迟分布（单写者串行路径，最近秩分位数）。
+	if p50, p95, maxLat := flushLatency(flushLats); len(flushLats) > 0 {
+		logger.Info("flush latency",
+			zap.Int("batches", len(flushLats)),
+			zap.Duration("p50", p50), zap.Duration("p95", p95), zap.Duration("max", maxLat))
 	}
 	rep.End("flush done", time.Since(flushStart), nil)
 	logger.Info("orchestrator stage", zap.String("stage", "flush done"),

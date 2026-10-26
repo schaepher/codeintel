@@ -104,7 +104,8 @@ CREATE TABLE IF NOT EXISTS function_field_summary (
     FOREIGN KEY(function_id) REFERENCES nodes(id) ON DELETE CASCADE,
     UNIQUE(function_id, access_kind, field_path)
 );
-CREATE INDEX IF NOT EXISTS idx_summary_func_access ON function_field_summary(function_id, access_kind);
+-- P1-11：idx_summary_func_access 已删（UNIQUE(function_id,access_kind,field_path) 前缀
+-- 顶替；旧库由 dropRedundantSummaryIndexes 在 Open 时幂等 DROP）
 CREATE INDEX IF NOT EXISTS idx_summary_field ON function_field_summary(field_path);
 
 -- 摘要来源表（Q161）：间接写多来源（调用点 × 被调函数），origin/confidence
@@ -118,7 +119,7 @@ CREATE TABLE IF NOT EXISTS summary_origins (
     FOREIGN KEY(function_id) REFERENCES nodes(id) ON DELETE CASCADE,
     UNIQUE(function_id, access_kind, field_path, call_line, callee_id)
 );
-CREATE INDEX IF NOT EXISTS idx_summary_origins_func ON summary_origins(function_id, access_kind);
+-- P1-11：idx_summary_origins_func 已删（UNIQUE 前缀顶替，同上）
 
 -- 表达式索引：field_access 定位（S2/S3 起点），字段追溯，field_trace.md §5.2
 -- Q246：full_path 改**部分索引**——所有等值使用（repo_trace.go 锚点、

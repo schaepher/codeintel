@@ -27,7 +27,6 @@ var bulkLoadIndexes = []struct {
 	{"edges", "idx_edges_kind", "CREATE INDEX IF NOT EXISTS idx_edges_kind ON edges(kind)"},
 	{"edges", "idx_edges_target_kind", "CREATE INDEX IF NOT EXISTS idx_edges_target_kind ON edges(target_ref, kind)"},
 	{"function_field_summary", "idx_summary_field", "CREATE INDEX IF NOT EXISTS idx_summary_field ON function_field_summary(field_path)"},
-	{"summary_origins", "idx_summary_origins_func", "CREATE INDEX IF NOT EXISTS idx_summary_origins_func ON summary_origins(function_id, access_kind)"},
 }
 
 // BeginBulkLoad 全量构建前调用：删除可延后的查询索引。

@@ -484,6 +484,31 @@ pre-commit 场景的兜底）。
 - **查询预算要能"停"**：`--timeout` 走 ctx 取消，超时必须失败退出并说明
   "已停止后台展开"，不能返回截断后的"完整结果"（todo12-17）。
 
+## P1-01/P1-07…P1-13 收口教训（2026-10-27）
+
+- **"完成待办"允许的三种形态**：①改代码（有实测收益）②只留数据+触发条件
+  （测量证明无收益/收益 <1% 而风险跨层）③判定等级不变、把缺口定位清楚。
+  本轮 P1-12/P1-08/P1-11/P1-01 属①③，P1-07/P1-10/P1-13 属②——**不为了
+  "完成"造无收益改动**（第 5 条）：参数切片复用实测 allocs/op
+  172266→172267（零收益）当场回滚。
+- **同一份"内容指纹"要单一来源**：SCIP 产物缓存键复用 SSA 包缓存的
+  范围指纹（`ssa.BuildAnalysisScope` 由 orchestrator 计算一次注入两个
+  适配器）——两套 hash 口径必然分叉（覆盖范围/排序稍不一致就永远不命中）。
+- **增量的两种 pattern 不是一个集合**：`update` 的 Load patterns =
+  变更包 ∪ dispatch 包（P0-2），而 SCIP 只需要**变更包**（dispatch 包的
+  SCIP 产物在库里没被删）。第一版把合并后的集合传给 scip-go → 扫描面
+  65/127 包、收益缩水。传之前 `clonePkgPatterns` 深拷贝（merge 会 append）。
+- **外部索引器的缓存键必须含工具版本 + 格式版本**：`scip-go --version`
+  + `scipCacheFormat` 常量；截断/缺结束标记/键不符一律当未命中（
+  `artifact_cache.go` 的矩阵测试）。
+- **门槛脚本的分隔符必须假设"内容里也有分隔符"**：`detcheck.sh` 节点内容
+  归一化从左 `split("|",6)`，而签名里可能有 `|`（类型并集）→ 列错位 →
+  go2o 报 8 条"内容差异"（HEAD 同样复现，属假红）。改 `rsplit` 后四类全等。
+- **新增诊断口径（排障先用）**：`func data`（funcs/calls/arg_paths，
+  P1-07 的收益判据）、`flush latency`（p50/p95/max，P1-13）、
+  `CODEINTEL_SCIP_PATTERNS=off`（强制全量 SCIP，用于 A/B 对照）、
+  `scip artifact cache hit/saved`。
+
 ## P1-02/P1-04/P1-05 缓存与事实源教训（2026-10-26）
 
 - **"加缓存"前先数有没有第二次加载**：`rg_bfs` 的 `loadRelationGraph` 已有

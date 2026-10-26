@@ -40,5 +40,8 @@
 
 ## 未完成 / 保留
 
-1. 外部真实 broker/运行时配置绑定仍无法静态证明（unverified）。
+1. 外部真实 broker/运行时配置绑定仍无法静态证明（unverified）——**2026-10-27
+   已按 P1-01 收口**：不改判定等级，改为把来源定位到表达式与行号（运行时
+   配置字段 / 环境变量 / reflect / 接口类型断言 / 工厂实参），见
+   `docs/field_trace.md` §107 与 `action_async_config_source.go`。
 2. PlantUML 真实 JAR 校验在无 Java/JAR 环境自动跳过（保留待环境验收）。

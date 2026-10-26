@@ -48,35 +48,6 @@ func init() {
 	}
 }
 
-// redundantEdgeIndexes Q254：低价值/冗余的 edges 索引（DROP INDEX 即可，
-// 不影响表结构 → 不需要重建库，故不递增 SchemaVersion）。
-var redundantEdgeIndexes = []string{
-	"idx_edges_source",      // UNIQUE(source_id,target_id,kind) 最左前缀 + 覆盖
-	"idx_edges_source_kind", // 同上（kind 是 UNIQUE 索引列）
-	"idx_edges_target",      // idx_edges_target_kind(target_id,kind) 最左前缀顶替
-	"idx_edges_confidence",  // 无查询按 confidence 过滤（仅 SELECT 列）
-}
-
-// dropRedundantEdgeIndexes 删除冗余 edges 索引；返回实际删除的名字（幂等）。
-func dropRedundantEdgeIndexes(db *DB) ([]string, error) {
-	var dropped []string
-	for _, idx := range redundantEdgeIndexes {
-		var n int
-		if err := db.QueryRow(
-			"SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=?", idx).Scan(&n); err != nil {
-			return dropped, fmt.Errorf("check index %s: %w", idx, err)
-		}
-		if n == 0 {
-			continue
-		}
-		if _, err := db.Exec("DROP INDEX " + idx); err != nil {
-			return dropped, fmt.Errorf("drop index %s: %w", idx, err)
-		}
-		dropped = append(dropped, idx)
-	}
-	return dropped, nil
-}
-
 // VacuumPlan VACUUM 判定结果（含判定依据，供日志/构建报告使用）。
 type VacuumPlan struct {
 	Run           bool

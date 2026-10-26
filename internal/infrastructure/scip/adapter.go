@@ -12,12 +12,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/schaepher/codeintel/internal/canonicalizer"
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/logging"
 	"github.com/scip-code/scip/bindings/go/scip"
@@ -29,6 +27,31 @@ import (
 type Adapter struct {
 	BinPath string // scip-go 二进制路径，空则自动查找
 	prog    domain.Progress
+
+	// P1-12：增量构建按变更包传 package-patterns（key = module 相对目录，
+	// 根为 "."；value = 该 module 下的包 pattern）。空 = 全量索引整个 module。
+	patterns map[string][]string
+	// P1-08：分析范围内容指纹（orchestrator 注入，与 SSA 包缓存同一口径）。
+	// 非空且无 patterns 时启用 SCIP 产物缓存（跳过子进程 + protobuf 解码）。
+	contentKey string
+}
+
+// SetPackagePatterns 注入增量构建的包 pattern（P1-12：update 只索引变更包）。
+// 传入空/nil = 全量索引（init/reindex）。
+func (a *Adapter) SetPackagePatterns(p map[string][]string) {
+	if a == nil {
+		return
+	}
+	a.patterns = p
+}
+
+// SetContentFingerprint 注入分析范围内容指纹（P1-08：全量构建的 SCIP
+// 产物缓存键）。空 = 禁用缓存。
+func (a *Adapter) SetContentFingerprint(fp string) {
+	if a == nil {
+		return
+	}
+	a.contentKey = fp
 }
 
 // SetProgress 注入进度上报（orchestrator 转发）。
@@ -86,11 +109,63 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, _ []*packa
 	scipStart := time.Now()
 	defer func() { p.End("scip index", time.Since(scipStart), err) }()
 
+	patterns := a.patterns
+	if len(patterns) > 0 && os.Getenv("CODEINTEL_SCIP_PATTERNS") == "off" {
+		// 诊断/对照逃生口（P1-12 A/B 验证用）：强制全量索引。
+		logger.Info("scip package patterns disabled by CODEINTEL_SCIP_PATTERNS=off")
+		patterns = nil
+	}
+	if len(patterns) > 0 {
+		logger.Info("scip incremental patterns", zap.Any("patterns", patterns))
+	}
+
+	// P1-08：全量构建（无 patterns）才启用产物缓存：键 = 内容指纹 +
+	// scip-go 版本 + 模块目录集合；命中则直接重放（不下发子进程、不
+	// 解 protobuf）。
+	var (
+		cachePath string
+		cacheKey  string
+		scipVer   string
+		buffered  []artifactItem
+	)
+	if len(patterns) == 0 && a.contentKey != "" {
+		moduleRels := make([]string, 0, len(dirs))
+		for _, md := range dirs {
+			moduleRels = append(moduleRels, md.rel)
+		}
+		if ver, verr := scipGoVersion(ctx, bin); verr != nil {
+			logger.Warn("scip-go version probe failed; artifact cache disabled", zap.Error(verr))
+		} else {
+			scipVer = ver
+			cacheKey = scipCacheKey(a.contentKey, scipVer, moduleRels)
+			cachePath = scipCachePath(repo.Path)
+			if items, ok := loadArtifacts(cachePath, cacheKey, scipVer); ok {
+				for i, it := range items {
+					if i%256 == 0 {
+						if err := ctx.Err(); err != nil {
+							return err
+						}
+					}
+					if err := emit(domain.Item{Node: it.Node, Fact: it.Fact}); err != nil {
+						return err
+					}
+				}
+				p.Advance("scip index", len(dirs))
+				logger.Info("scip artifact cache hit", zap.Int("items", len(items)),
+					zap.String("scip", scipVer))
+				return nil
+			}
+		}
+	}
+
 	for i, md := range dirs {
 		dir := md.abs
 		indexPath := filepath.Join(repo.Path, ".codeintel", fmt.Sprintf("index-%d.scip", i))
-		// --skip-tests：不索引 _test.go 测试文件（测试符号不入图）
-		cmd := exec.CommandContext(ctx, bin, "index", "-o", indexPath, "-q", "--skip-tests")
+		// --skip-tests：不索引 _test.go 测试文件（测试符号不入图）。
+		// P1-12：增量构建把变更包 patterns 追加到命令尾部（scip-go
+		// 的 package-patterns 位置参数）——子进程仍会 go list -deps，
+		// 但类型检查与"访问项目文件"只覆盖目标包集合。
+		cmd := exec.CommandContext(ctx, bin, indexArgs(indexPath, patterns[md.rel])...)
 		cmd.Dir = dir
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("scip-go index failed (%s): %v: %s", dir, err, string(out))
@@ -98,14 +173,33 @@ func (a *Adapter) Index(ctx context.Context, repo *domain.Repository, _ []*packa
 		// todo5-1：逐文档解码（不再一次物化全部 Document/Occurrence）；
 		// todo9-3：从文件流式读取（不再 os.ReadFile 整份 index）；
 		// 损坏的尾部返回失败（不提交部分成功构建）。
+		emitFn := emit
+		if cachePath != "" {
+			// P1-08：按原发射顺序缓冲（只存指针，不复制对象），成功后
+			// 整份写缓存——失败/取消不写缓存（不留半份）。
+			emitFn = func(item domain.Item) error {
+				if item.Node != nil || item.Fact != nil {
+					buffered = append(buffered, artifactItem{Node: item.Node, Fact: item.Fact})
+				}
+				return emit(item)
+			}
+		}
 		err := forEachIndexFileDocument(ctx, indexPath, func(doc *scip.Document) error {
-			return a.processDocument(repo, doc, md.rel, emit)
+			return a.processDocument(repo, doc, md.rel, emitFn)
 		})
 		os.Remove(indexPath)
 		if err != nil {
 			return fmt.Errorf("parse scip index: %w", err)
 		}
 		p.Advance("scip index", i+1)
+	}
+	if cachePath != "" {
+		if serr := saveArtifacts(cachePath, cacheKey, scipVer, buffered); serr != nil {
+			logger.Warn("save scip artifact cache failed", zap.Error(serr))
+		} else {
+			logger.Info("scip artifact cache saved", zap.Int("items", len(buffered)),
+				zap.String("scip", scipVer))
+		}
 	}
 	return nil
 }
@@ -139,150 +233,4 @@ func (a *Adapter) resolveBin() (string, error) {
 		}
 	}
 	return "", fmt.Errorf("scip-go not found (install with: go install github.com/scip-code/scip-go/cmd/scip-go@latest)")
-}
-
-// processDocument 处理单个 SCIP document：符号节点（含定义行范围）+ IMPLEMENTS 边。
-func (a *Adapter) processDocument(repo *domain.Repository, doc *scip.Document, moduleRel string, emit domain.EmitFunc) error {
-	logger := zap.L()
-	logger.Debug("enter (Adapter).processDocument")
-	defer logger.Debug("exit (Adapter).processDocument")
-	filePath := repoRelPath(moduleRel, doc.RelativePath)
-	if domain.IsIgnoredPath(filePath, repo.IgnoreDirs) {
-		return nil // 忽略目录（Repository.IgnoreDirs）：不入图
-	}
-
-	// FILE 节点：ID 为 file:<relpath>
-	if err := emit(domain.Item{Node: &domain.CodeEntity{
-		ID:       domain.CanonicalID("file:" + filePath),
-		Kind:     domain.KindFile,
-		Name:     filepath.Base(filePath),
-		FilePath: filePath,
-	}}); err != nil {
-		return err
-	}
-
-	// pass 1: 符号 → 节点信息
-	type symInfo struct {
-		node *domain.CodeEntity
-		occ  *scip.Occurrence
-	}
-	defs := map[string]*symInfo{} // SCIP symbol 字符串 → 节点信息
-
-	for _, sym := range doc.Symbols {
-		gs, err := canonicalizer.FromScipSymbol(sym.Symbol)
-		if err != nil {
-			continue // local / unsupported 符号跳过
-		}
-		if gs.IsInterfaceMethod {
-			continue // 接口方法不作为独立节点（implements 只连接口类型→实现者）
-		}
-		kind, ok := canonicalizer.ScipKindToDomainKind(sym.Kind)
-		if !ok {
-			continue // 变量/常量/字段等不建节点
-		}
-		props := map[string]any{}
-		// 注：scip-go (scip v0.7.1) 不输出 signature 字段，签名由 AST 适配器补充
-		if len(sym.Documentation) > 0 {
-			props["doc_comment"] = strings.Join(sym.Documentation, "\n")
-		}
-		defs[sym.Symbol] = &symInfo{node: &domain.CodeEntity{
-			ID:         canonicalizer.GoSymbolID(gs.ImportPath, gs.Name),
-			Kind:       kind,
-			Name:       gs.Name,
-			FilePath:   filePath,
-			Properties: props,
-		}}
-	}
-
-	// pass 2: 定义 occurrence → 行范围
-	for _, occ := range doc.Occurrences {
-		if occ.SymbolRoles&int32(scip.SymbolRole_Definition) == 0 {
-			continue
-		}
-		if si, ok := defs[occ.Symbol]; ok {
-			si.occ = occ
-		}
-	}
-
-	// 发出节点（带行范围；scip-go 的 range 为单行 [start_line, start_char, end_char]）
-	for _, si := range defs {
-		if si.occ != nil && len(si.occ.Range) > 0 {
-			si.node.LineStart = int(si.occ.Range[0]) + 1
-			si.node.LineEnd = si.node.LineStart
-		}
-		if err := emit(domain.Item{Node: si.node}); err != nil {
-			return err
-		}
-	}
-
-	// pass 3: IMPLEMENTS 边（is_implementation relationship）——方向：
-	// 接口 → 实现者（用户确认：接口要指向实现，而非实现指向接口）
-	for _, sym := range doc.Symbols {
-		if len(sym.Relationships) == 0 {
-			continue
-		}
-		src, err := canonicalizer.FromScipSymbol(sym.Symbol)
-		if err != nil {
-			continue
-		}
-		if src.IsInterfaceMethod {
-			continue // 接口方法不建 implements 边（只连接口类型→实现者）
-		}
-		implID := canonicalizer.GoSymbolID(src.ImportPath, src.Name) // 实现者
-		for _, rel := range sym.Relationships {
-			if !rel.IsImplementation {
-				continue
-			}
-			iface, err := canonicalizer.FromScipSymbol(rel.Symbol)
-			if err != nil {
-				continue
-			}
-			if iface.IsInterfaceMethod {
-				continue // 方法级 implements（接口方法→实现方法）不建
-			}
-			if !isInModule(iface.ImportPath, repo.Modules) {
-				continue // 外部接口无节点（外键约束）
-			}
-			if err := emit(domain.Item{Fact: &domain.Fact{
-				SourceID:   canonicalizer.GoSymbolID(iface.ImportPath, iface.Name), // 接口
-				TargetID:   implID,                                                 // 实现者
-				Kind:       domain.FactImplements,
-				ToolSource: domain.ToolSCIP,
-				Confidence: 1.0,
-			}}); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-// isInModule 判断 importPath 是否属于任一被索引 module（自身或子包；
-// P2-3 多 go.mod——任一 module 前缀匹配即项目内）。
-func isInModule(importPath string, modules []string) bool {
-	logger := zap.L()
-	logger.Debug("enter isInModule")
-	defer logger.Debug("exit isInModule")
-	for _, m := range modules {
-		if m == "" {
-			continue
-		}
-		if importPath == m || strings.HasPrefix(importPath, m+"/") {
-			return true
-		}
-	}
-	return false
-}
-
-// repoRelPath 把"模块相对路径"归一到"仓库相对路径"（Q251）。
-// moduleRel 为 "." 表示根 module（原样返回）；空 docRel 返回空。
-func repoRelPath(moduleRel, docRel string) string {
-	if docRel == "" {
-		return ""
-	}
-	rel := filepath.ToSlash(docRel)
-	if moduleRel == "" || moduleRel == "." {
-		return rel
-	}
-	return path.Join(filepath.ToSlash(moduleRel), rel)
 }

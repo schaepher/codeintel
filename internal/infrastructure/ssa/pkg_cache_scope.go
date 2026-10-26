@@ -32,6 +32,42 @@ type analysisScope struct {
 // buildAnalysisScopeFn 测试可替换（覆盖"指纹计算失败 → 禁用缓存"路径）。
 var buildAnalysisScopeFn = buildAnalysisScope
 
+// AnalysisScope 分析范围指纹（P1-08：编排层复用同一指纹给 SCIP 内容缓存，
+// 避免两套"内容 hash"口径分叉）。字段语义见 analysisScope。
+type AnalysisScope = analysisScope
+
+// Fingerprint 返回范围指纹（稳定 hex sha256）。
+func (s *analysisScope) Fingerprint() string {
+	if s == nil {
+		return ""
+	}
+	return s.fingerprint
+}
+
+// ContentMemo 返回包路径 → 源码内容 hash 的 memo（只读；调用方不得修改）。
+func (s *analysisScope) ContentMemo() map[string]string {
+	if s == nil {
+		return nil
+	}
+	return s.contentMemo
+}
+
+// BuildAnalysisScope 计算分析范围指纹（P1-08：orchestrator 在适配器启动前
+// 计算一次，注入 SSA（复用）与 SCIP（内容缓存键）两个适配器）。
+func BuildAnalysisScope(ctx context.Context, pkgs []*packages.Package, modules []string) (*AnalysisScope, error) {
+	return buildAnalysisScope(ctx, pkgs, modules)
+}
+
+// takeAnalysisScope 取编排层注入的范围指纹（只消费一次）；未注入时自算。
+func (a *Adapter) takeAnalysisScope(ctx context.Context, pkgs []*packages.Package, modules []string) (*analysisScope, error) {
+	if a != nil && a.scope != nil {
+		s := a.scope
+		a.scope = nil
+		return s, nil
+	}
+	return buildAnalysisScopeFn(ctx, pkgs, modules)
+}
+
 // buildAnalysisScope 计算一次分析范围指纹（不修改 pkgs/modules）。
 func buildAnalysisScope(ctx context.Context, pkgs []*packages.Package, modules []string) (*analysisScope, error) {
 	// 稳定顺序：复制后排序（调用方切片保持不变）。
