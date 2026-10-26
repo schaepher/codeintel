@@ -16,6 +16,7 @@ package action
 // corroborated 并给出 rule；无法判定为 unknown（不猜）。
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -59,7 +60,14 @@ type AsyncLifecycleResult struct {
 	Nodes       []AsyncNode    `json:"nodes"`
 	Links       []AsyncLink    `json:"links"`
 	Diagnostics []SeqDiagCount `json:"diagnostics,omitempty"`
+	// todo12-5：候选预算与完整性（节点/关联/排序使用同一集合）
+	CandidateTotal  int  `json:"candidate_total,omitempty"`
+	CandidateBudget int  `json:"candidate_budget,omitempty"`
+	Partial         bool `json:"partial,omitempty"`
 }
+
+// asyncCandidateBudget 候选入口预算（防止把全仓字段摘要函数当相关入口）。
+const asyncCandidateBudget = 200
 
 // 角色常量。
 const (
@@ -111,7 +119,10 @@ func (a *Actions) AsyncLifecycle(req AsyncLifecycleRequest) (*AsyncLifecycleResu
 
 	seed, err := a.ResolveSymbol(req.Seed)
 	if err != nil {
-		// 允许直接给表/类型名：按"字段路径包含该名"匹配候选函数
+		// 表/类型名搜索保留；canonical ID 不存在必须明确报错（todo12-5 R2）
+		if strings.HasPrefix(req.Seed, "symbol:") || strings.HasPrefix(req.Seed, "file:") {
+			return nil, err
+		}
 		seed = nil
 	}
 	sums, err := a.repo.AllSummaries()
@@ -151,7 +162,16 @@ func (a *Actions) AsyncLifecycle(req AsyncLifecycleRequest) (*AsyncLifecycleResu
 		// "只共享作用域"的典型场景，关联会标 unverified 而不是被隐藏）
 		scope = asyncPkgPrefix(string(seed.ID))
 	}
-	// 候选入口：同一作用域（字段前缀 = 类型/表近似）里读写字段的函数
+	// todo12-5：候选入口只取**与 seed 有具体关系**的函数——字段身份精确
+	// 相同、同一结构体类型前缀（共享作用域，关联标 unverified）、
+	// ID 类列同源；不再把"公共包前缀"扩成全仓函数。
+	seedTypePrefixes := map[string]bool{}
+	for p := range seedFields {
+		if i := strings.LastIndex(p, "."); i > 0 {
+			seedTypePrefixes[p[:i]] = true
+		}
+	}
+	idColumns := asyncIDColumns(seedFields)
 	candidates := map[string]bool{}
 	for id, f := range facts {
 		if seed != nil && id == string(seed.ID) {
@@ -165,14 +185,13 @@ func (a *Actions) AsyncLifecycle(req AsyncLifecycleRequest) (*AsyncLifecycleResu
 			fields[p] = true
 		}
 		for p := range fields {
-			if asyncInScope(p, seedFields, scope) {
+			if seedFields[p] || asyncSharesType(p, seedTypePrefixes) || asyncSharesIDColumn(p, idColumns) {
 				candidates[id] = true
 				break
 			}
 		}
-		// 包前缀作用域：同包的函数都算候���（"仅同包/同表"将由关联判定
-		// 标为 unverified——不隐藏，也不当成因果）
-		if strings.HasPrefix(scope, "symbol:") && strings.HasPrefix(id, scope) {
+		// 无字段摘要的 seed：同包函数只作为"共享作用域"候选（预算内）
+		if len(seedFields) == 0 && strings.HasPrefix(scope, "symbol:") && strings.HasPrefix(id, scope) {
 			candidates[id] = true
 		}
 	}
@@ -186,20 +205,44 @@ func (a *Actions) AsyncLifecycle(req AsyncLifecycleRequest) (*AsyncLifecycleResu
 			}
 		}
 	}
+	// todo12-5 R3：候选预算 + 稳定排序（seed 必保留；实际数量/预算可审计）
+	candIDs := make([]string, 0, len(candidates))
+	for id := range candidates {
+		candIDs = append(candIDs, id)
+	}
+	sortStrings(candIDs)
+	total := len(candIDs)
+	if total > asyncCandidateBudget {
+		candIDs = candIDs[:asyncCandidateBudget]
+	}
 	// todo11-3：真实可达索引（calls 边）——"双方都在展开集合"不再算可达
 	reach := a.callsReachIndex()
 	// todo11-3：值来源指纹（summary_origins：callee + 调用行）。AllSummaries
 	// 不带 origins，故按候选函数逐个取（节点数 ≤20，成本可控）。
 	origins := a.asyncOriginIndex(funcsForOrigins(seed, candidates))
 
-	res := &AsyncLifecycleResult{Seed: req.Seed, Nodes: []AsyncNode{}, Links: []AsyncLink{}}
+	res := &AsyncLifecycleResult{Seed: req.Seed, Nodes: []AsyncNode{}, Links: []AsyncLink{},
+		CandidateTotal: total, CandidateBudget: asyncCandidateBudget}
 	if scope == "" {
-		scope = asyncScopeOf(seedFields)
-	}
-	if scope != "" && !strings.HasPrefix(scope, "symbol:") {
-		// 字段前缀（pkg.Type）也算作用域：候选匹配按前缀
+		if len(seedTypePrefixes) > 0 {
+			ps := make([]string, 0, len(seedTypePrefixes))
+			for p := range seedTypePrefixes {
+				ps = append(ps, p)
+			}
+			sortStrings(ps)
+			scope = strings.Join(ps, ",")
+		} else {
+			scope = asyncScopeOf(seedFields)
+		}
 	}
 	res.Scope = scope
+	if total > asyncCandidateBudget {
+		res.Partial = true
+		res.Diagnostics = append(res.Diagnostics, SeqDiagCount{Code: "candidates_truncated",
+			Count: total - asyncCandidateBudget,
+			Detail: fmt.Sprintf("候选入口 %d 个超过预算 %d，按 canonical ID 稳定排序保留前 %d 个",
+				total, asyncCandidateBudget, asyncCandidateBudget)})
+	}
 	// 节点：seed + 候选（有索引节点的才有位置）
 	addNode := func(id string) *AsyncNode {
 		n, err := a.repo.GetSymbol(domain.CanonicalID(id))
@@ -219,7 +262,7 @@ func (a *Actions) AsyncLifecycle(req AsyncLifecycleRequest) (*AsyncLifecycleResu
 	if seed != nil {
 		addNode(string(seed.ID))
 	}
-	for id := range candidates {
+	for _, id := range candIDs {
 		addNode(id)
 	}
 	sort.Slice(res.Nodes, func(i, j int) bool { return res.Nodes[i].ID < res.Nodes[j].ID })
@@ -227,11 +270,8 @@ func (a *Actions) AsyncLifecycle(req AsyncLifecycleRequest) (*AsyncLifecycleResu
 		res.Diagnostics = append(res.Diagnostics, SeqDiagCount{Code: "no_lifecycle_entries", Count: 1})
 	}
 
-	// 关联：seed ↔ 候选 + 候选两两（上限 20 个节点避免爆炸）
+	// 关联：节点/关系使用同一 scoped 集合（不再用"前 20 个"另开窗口）
 	limit := len(res.Nodes)
-	if limit > 20 {
-		limit = 20
-	}
 	for i := 0; i < limit; i++ {
 		for j := i + 1; j < limit; j++ {
 			if link, ok := asyncLink(res.Nodes[i], res.Nodes[j], facts, reach, origins); ok {
@@ -245,7 +285,51 @@ func (a *Actions) AsyncLifecycle(req AsyncLifecycleRequest) (*AsyncLifecycleResu
 		}
 		return res.Links[i].To < res.Links[j].To
 	})
+	if len(res.Links) == 0 {
+		res.Diagnostics = append(res.Diagnostics, SeqDiagCount{Code: "no_related_links", Count: 1,
+			Detail: "未发现与 seed 有证据的关联（共享作用域不算因果）——不是空成功，也不填充无关关系"})
+	}
 	return res, nil
+}
+
+// asyncSharesType 字段的类型前缀是否属于 seed 的类型集合（共享作用域）。
+func asyncSharesType(field string, seedTypes map[string]bool) bool {
+	for t := range seedTypes {
+		if strings.HasPrefix(field, t+".") {
+			return true
+		}
+	}
+	return false
+}
+
+// asyncIDColumns seed 字段里的 ID 类列（*_id/*_no/*_code/Id/No/Code）。
+func asyncIDColumns(fields map[string]bool) map[string]bool {
+	out := map[string]bool{}
+	for p := range fields {
+		leaf := p
+		if i := strings.LastIndex(p, "."); i >= 0 {
+			leaf = p[i+1:]
+		}
+		l := strings.ToLower(leaf)
+		if strings.HasSuffix(l, "id") || strings.HasSuffix(l, "no") ||
+			strings.HasSuffix(l, "code") || strings.HasSuffix(l, "_id") ||
+			strings.HasSuffix(l, "_no") || strings.HasSuffix(l, "_code") {
+			out[l] = true
+		}
+	}
+	return out
+}
+
+// asyncSharesIDColumn 字段是否为同源 ID 列（同名 ID 类字段——仍需链路验证）。
+func asyncSharesIDColumn(field string, cols map[string]bool) bool {
+	if len(cols) == 0 {
+		return false
+	}
+	leaf := field
+	if i := strings.LastIndex(field, "."); i >= 0 {
+		leaf = field[i+1:]
+	}
+	return cols[strings.ToLower(leaf)]
 }
 
 // asyncInScope 字段是否落在同一作用域（seed 字段集合，或名的近似匹配）。
