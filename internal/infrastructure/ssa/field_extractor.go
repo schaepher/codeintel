@@ -181,4 +181,15 @@ type fieldExtractor struct {
 	typeMapping      map[*types.Named]string                // Q211：orm.Mapping 实体类型→表名（Index 级收集共享）
 	paramCallerCache map[*ssa.Function]*paramCalls          // Q239：参数→静态调用点缓存（动态 SQL 还原）
 	allocStores      map[*ssa.Alloc]allocStoreResult        // Q?：副本来源（单一 Store）追溯结果缓存——避免每次重扫函数块
+	// todo13-10：无法解析目标的调用（函数形参/闭包自由变量）——调用结果
+	// 节点打标记，value-trace 才能说明“未知回调导致来源未建模”。
+	unknownCalls map[ssa.Value]unknownCallMark
+}
+
+// unknownCallMark 未知回调调用的标记（reason=callback|closure|dynamic）。
+type unknownCallMark struct {
+	reason string
+	detail string
+	line   int
+	file   string
 }

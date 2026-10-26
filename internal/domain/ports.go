@@ -76,6 +76,11 @@ type TraceRow struct {
 	EdgeIface         string      `json:"edge_iface,omitempty"`         // 到达该行的边是动态候选边（Q161）：接口类型
 	EdgeOrigin        string      `json:"edge_origin,omitempty"`        // 候选来源（register / enum）
 	EdgeConf          float64     `json:"edge_conf,omitempty"`          // 候选置信度（--min-conf 剪枝阈值用）
+	// todo13-10：该行是未知回调调用的结果（来源未建模）——completeness 用
+	UnknownCall       string `json:"unknown_call,omitempty"`        // callback|closure|dynamic
+	UnknownCallReason string `json:"unknown_call_reason,omitempty"` // 说明文本
+	UnknownCallFile   string `json:"unknown_call_file,omitempty"`
+	UnknownCallLine   int    `json:"unknown_call_line,omitempty"`
 }
 
 // DispatchMeta 接口派发元数据（Q157 P1：value-trace 候选标注用）。

@@ -1,8 +1,6 @@
 package ssa
 
 import (
-	"go/types"
-
 	"github.com/schaepher/codeintel/internal/domain"
 	"go.uber.org/zap"
 	"golang.org/x/tools/go/ssa"
@@ -16,6 +14,12 @@ func (ext *fieldExtractor) emitCall(cc *ssa.CallCommon, callVal ssa.Value) error
 	defer logger.Debug("exit (fieldExtractor).emitCall")
 	callee := resolveStaticCallee(cc)
 	if callee == nil {
+		// todo13-10：目标未知（函数形参/闭包自由变量/动态调用）——若调用
+		// 有结果值，给 ssa_value 节点打“未知回调”标记；value-trace 据此
+		// 输出 partial（不能因节点数少/未达深度就报 complete）。
+		if cc.Method == nil && callVal != nil {
+			ext.markUnknownCall(cc, callVal)
+		}
 
 		if cc.Method != nil {
 			if iface := interfaceNamedOf(cc.Value.Type()); iface != nil {
@@ -207,58 +211,19 @@ func (ext *fieldExtractor) emitCall(cc *ssa.CallCommon, callVal ssa.Value) error
 	return nil
 }
 
+// markUnknownCall 记录未知回调调用（reason/detail/源码位置）。
+
 // dispatchOriginOf 判定候选实现的派发来源（Q161）：注册点命中
 // （MakeInterface 具体值 → 接口，见 emitDispatches）→ register 0.9；
 // 否则枚举兜底 enum 0.7。注册点收集一次缓存（全 prog 扫描开销大）。
 // Q168：注册命中按 (iface, candidateKey) 预处理成 map——原逐调用点
 // 线性扫描注册点（动态调用点多时 O(调用点×注册点)）→ O(1) 查找。
-func (ext *fieldExtractor) dispatchOriginOf(iface *types.Named, method string, implFn *types.Func) (string, float64) {
-	// Q221：dispatchRegs/regHits 均为 Index 级共享（Adapter 初始化一次）
-	// ——原 extractor 懒构建导致每函数重复全量预处理
-	if ext.regHits[ext.typeString(iface)][ext.candidateKeyOf(implFn)] {
-		return "register", 0.9
-	}
-	return "enum", 0.7
-}
 
 // recordCallInfo 记录调用摘要条目（间接写闭包消费：emitSummaries 沿
 // fd.calls 传播被调函数写）。常量实参（nil、字面量）不产生实例传递，
 // 不参与类型匹配；实参类型路径用于与被调函数写字段的声明类型匹配
 // （Q36；Q157 展开嵌套字段 owner 链——OrderModel 含 Order 字段时
 // 实现写 Order.FinalFee 也能匹配）。
-func (ext *fieldExtractor) recordCallInfo(cc *ssa.CallCommon, calleeID domain.CanonicalID) {
-	if ext.funcData == nil {
-		return
-	}
-	var argPaths, argNames []string
-	for _, arg := range cc.Args {
-		if _, isConst := arg.(*ssa.Const); isConst {
-			continue
-		}
-		for _, p := range ext.ownerTypesOfCached(arg.Type()) {
-			argPaths = append(argPaths, p)
-		}
-
-		name := ext.instancePath(arg)
-		if isSSAName(name) {
-			name = arg.Name()
-		}
-		argNames = append(argNames, name)
-	}
-	// todo2-9：无结构体实参 → 不可能匹配任何字段写（间接写按
-	// argStructPaths 匹配），不保留无用调用记录（省内存/缓存）。有结构体
-	// 但缺实参名（接收者信息缺失）仍保留——仍能匹配写。
-	if len(argPaths) == 0 {
-		return
-	}
-	ext.funcData.calls = append(ext.funcData.calls, callInfo{
-		calleeID:       calleeID,
-		argStructPaths: argPaths,
-		callLine:       ext.prog.Fset.PositionFor(cc.Pos(), false).Line,
-		callPos:        int(cc.Pos()),
-		argNames:       argNames,
-	})
-}
 
 // logDynInterfaceDispatch 输出动态派发的调试日志。仅在 Debug 级别开启时
 // 才构造昂贵字段（cc.String() / cc.Value.Type().String() 会做符号渲染）——

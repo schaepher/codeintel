@@ -79,7 +79,14 @@ func queryValueTrace(acts *action.Actions, nodeID string, maxDepth int, minConf 
 		return 0
 	}
 	if analysis.Status != "complete" {
-		fmt.Printf("分析：%s（%s；--max-depth %d）\n", analysis.Status, analysis.Stop, effectiveDepth)
+		detail := analysis.Stop
+		if analysis.StopDetail != "" {
+			detail += "：" + analysis.StopDetail
+		}
+		if analysis.StopFile != "" || analysis.StopLine > 0 {
+			detail += fmt.Sprintf(" @%s:%d", analysis.StopFile, analysis.StopLine)
+		}
+		fmt.Printf("分析：%s（%s；--max-depth %d）\n", analysis.Status, detail, effectiveDepth)
 	}
 	// Q235-10：四格式渲染（文本分组 / tree / mermaid / json 在前）
 	if format == "" {
@@ -158,8 +165,12 @@ func querySummary(acts *action.Actions, input string, opts outputOpts, format st
 type valueTraceCompletenessT struct {
 	Status string `json:"status"` // complete|partial
 	Depth  int    `json:"depth"`
-	Stop   string `json:"stop,omitempty"` // depth|no_flow|empty
+	Stop   string `json:"stop,omitempty"` // depth|no_flow|unknown_callback
 	Nodes  int    `json:"nodes"`
+	// todo13-10：未知回调的停止说明与位置（非空且未达深度上限也不等于 complete）
+	StopDetail string `json:"stop_detail,omitempty"`
+	StopFile   string `json:"stop_file,omitempty"`
+	StopLine   int    `json:"stop_line,omitempty"`
 	// todo12-17 R1：查询耗时（值图遍历 + 条件标注；SQL/查符号未细分）
 	ElapsedMS float64 `json:"elapsed_ms,omitempty"`
 }
@@ -169,6 +180,15 @@ func valueTraceCompleteness(rows []*domain.TraceRow, depth int) valueTraceComple
 	if len(rows) == 0 {
 		out.Status, out.Stop = "partial", "no_flow"
 		return out
+	}
+	// todo13-10：未知回调（来源未建模）→ partial，优先于 depth 说明具体原因
+	for _, r := range rows {
+		if r.UnknownCall != "" {
+			out.Status, out.Stop = "partial", "unknown_callback"
+			out.StopDetail = r.UnknownCallReason
+			out.StopFile, out.StopLine = r.UnknownCallFile, r.UnknownCallLine
+			return out
+		}
 	}
 	for _, r := range rows {
 		if r.Depth >= depth {

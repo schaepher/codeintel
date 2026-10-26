@@ -93,7 +93,9 @@ SELECT dp.id, MIN(dp.depth), n.name,
        (SELECT v2.parent FROM vt v2 WHERE v2.id = dp.id AND v2.dir = dp.dir ORDER BY v2.depth LIMIT 1),
        (SELECT v2.c_iface FROM vt v2 WHERE v2.id = dp.id AND v2.dir = dp.dir ORDER BY v2.depth LIMIT 1),
        (SELECT v2.c_origin FROM vt v2 WHERE v2.id = dp.id AND v2.dir = dp.dir ORDER BY v2.depth LIMIT 1),
-       (SELECT v2.c_conf FROM vt v2 WHERE v2.id = dp.id AND v2.dir = dp.dir ORDER BY v2.depth LIMIT 1)
+       (SELECT v2.c_conf FROM vt v2 WHERE v2.id = dp.id AND v2.dir = dp.dir ORDER BY v2.depth LIMIT 1),
+       json_extract(n.properties, '$.call_unknown'), json_extract(n.properties, '$.call_reason'),
+       json_extract(n.properties, '$.call_file'), json_extract(n.properties, '$.call_line')
 FROM vt dp JOIN nodes n ON n.id = dp.id
 GROUP BY dp.id, dp.dir
 ORDER BY dp.dir, MIN(dp.depth), dp.id`,
@@ -116,11 +118,28 @@ ORDER BY dp.dir, MIN(dp.depth), dp.id`,
 			cIface   sql.NullString
 			cOrigin  sql.NullString
 			cConf    sql.NullFloat64
+			ucKind   sql.NullString
+			ucReason sql.NullString
+			ucFile   sql.NullString
+			ucLine   sql.NullInt64
 		)
 		var filePath sql.NullString
 		var parentID sql.NullString
-		if err := rows.Scan(&id, &row.Depth, &row.Name, &row.EdgeKinds, &line, &dir, &kind, &filePath, &access, &funcID, &fullPath, &parentID, &cIface, &cOrigin, &cConf); err != nil {
+		if err := rows.Scan(&id, &row.Depth, &row.Name, &row.EdgeKinds, &line, &dir, &kind, &filePath, &access, &funcID, &fullPath, &parentID, &cIface, &cOrigin, &cConf,
+			&ucKind, &ucReason, &ucFile, &ucLine); err != nil {
 			return nil, err
+		}
+		if ucKind.Valid {
+			row.UnknownCall = ucKind.String
+		}
+		if ucReason.Valid {
+			row.UnknownCallReason = ucReason.String
+		}
+		if ucFile.Valid {
+			row.UnknownCallFile = ucFile.String
+		}
+		if ucLine.Valid {
+			row.UnknownCallLine = int(ucLine.Int64)
 		}
 		row.ID = domain.CanonicalID(id)
 		row.Dir = dir
