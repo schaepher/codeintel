@@ -20,12 +20,12 @@ func TestTodo15BoundaryNotEqualBranchExcluded(t *testing.T) {
 func Publish() *Job {
 	job := &Job{}
 	job.RecordID = "JOB-42"
-	producer.Send("jobs.created", job.RecordID, job)
+	bus.Send("jobs.created", job.RecordID, job)
 	return job
 }
 
 func Consume() Job {
-	key, job := consumer.Receive("jobs.created")
+	key, job := bus.Receive("jobs.created")
 	if key != "JOB-42" {
 		_ = job.RecordID
 	}
@@ -65,8 +65,8 @@ func Consume() Job {
 func TestTodo15BoundaryActualSendKeyWins(t *testing.T) {
 	// 字段定义为 JOB-42，但实际发送字面量是 JOB-99
 	src := strings.Replace(todo14BoundaryProof,
-		`producer.Send("jobs.created", job.RecordID, job)`,
-		`producer.Send("jobs.created", "JOB-99", job)`, 1)
+		`bus.Send("jobs.created", job.RecordID, job)`,
+		`bus.Send("jobs.created", "JOB-99", job)`, 1)
 	dir := buildBoundaryRepo(t, src)
 	res := queryBoundaryAsync(t, dir, "Publish")
 	chain := recordChain(res)
@@ -106,12 +106,12 @@ func TestTodo15BoundaryUnrelatedVariable(t *testing.T) {
 func Publish() *Job {
 	job := &Job{}
 	job.RecordID = "JOB-42"
-	producer.Send("jobs.created", job.RecordID, job)
+	bus.Send("jobs.created", job.RecordID, job)
 	return job
 }
 
 func Consume() Job {
-	_, job := consumer.Receive("jobs.created")
+	_, job := bus.Receive("jobs.created")
 	other := "JOB-42"
 	if other == "JOB-42" {
 		_ = job.RecordID
@@ -148,12 +148,12 @@ func log(s string) {}
 func Publish() *Job {
 	job := &Job{}
 	job.RecordID = "JOB-42"
-	producer.Send("jobs.created", job.RecordID, job)
+	bus.Send("jobs.created", job.RecordID, job)
 	return job
 }
 
 func Consume() Job {
-	key, job := consumer.Receive("jobs.created")
+	key, job := bus.Receive("jobs.created")
 	log("JOB-42")
 	if key == "JOB-7" {
 		_ = job.RecordID
@@ -188,12 +188,12 @@ func Publish() *Job {
 	b := &Job{}
 	a.RecordID = "JOB-A"
 	b.RecordID = "JOB-B"
-	producer.Send("jobs.created", b.RecordID, b)
+	bus.Send("jobs.created", b.RecordID, b)
 	return b
 }
 
 func Consume() Job {
-	key, job := consumer.Receive("jobs.created")
+	key, job := bus.Receive("jobs.created")
 	if key == "JOB-A" {
 		_ = job.RecordID
 	}
@@ -220,15 +220,15 @@ func Publish(flag bool) *Job {
 	job := &Job{}
 	job.RecordID = "JOB-42"
 	if flag {
-		producer.Send("jobs.created", "JOB-1", job)
+		bus.Send("jobs.created", "JOB-1", job)
 	} else {
-		producer.Send("jobs.created", "JOB-2", job)
+		bus.Send("jobs.created", "JOB-2", job)
 	}
 	return job
 }
 
 func Consume() Job {
-	key, job := consumer.Receive("jobs.created")
+	key, job := bus.Receive("jobs.created")
 	if key == "JOB-1" {
 		_ = job.RecordID
 	}

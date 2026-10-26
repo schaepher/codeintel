@@ -5604,3 +5604,16 @@ seed 展开集合）都被当作 corroborated——需求指出这三样都**不
 - **大仓矩阵/资源**：2212 节点/1706 边夹具覆盖 depth1/2、接口实现、未知
   回调、少结果/异常 value-trace 冷暖与 4×2 并发；`/usr/bin/time -v` 峰值
   27MB；5ms 预算在 SQL 后取消（sql_queries=2，delay≈7ms）。
+
+## §? todo16：接收侧值/实例身份 + 采样能力/独立取消（2026-11-01）
+
+逐项证据见 [`todo16-checklist.md`](todo16-checklist.md)。
+
+- 接收侧：读取实例必须回到 Receive 载荷（别名允许，`other := Job{}` 排除）；
+  过滤键用**当前到达定义**（重赋值/遮蔽不再算 Receive 键）；比较只认接收键/
+  载荷字段，无关同名字段不算；不同 Receive 结果不混用。
+- API 身份：变量→类型；生产/消费必须同包 + 同接收者类型（Bus）才可能
+  corroborated；BusA/BusB 或类型未知 → unverified + API 身份缺口。
+- 资源采样：探测 GNU `time -v` → BSD `time -l`，不支持明确 unavailable；
+  查询失败单独报错；取消验收拆为独立测试（5ms 预算 SQL 后取消，
+  `sql_queries=2`、delay≈7ms）。

@@ -98,7 +98,15 @@ func (a *Actions) proveAsyncBoundary(producerID, consumerID, fieldPath string, r
 		b.Detail = "生产/消费 API 包不同（" + b.APIIdentity + "），未证明同一消息/存储系统"
 		return b
 	}
-	b.APIIdentity = pf.pkg + "：" + send.api + " ↔ " + recv.api
+	if send.apiType == "" || recv.apiType == "" || send.apiType != recv.apiType {
+		b.Verdict = "unverified"
+		b.APIIdentity = pf.pkg + "：" + send.apiType + "." + send.api + " ↔ " +
+			recv.apiType + "." + recv.api
+		b.Detail = "生产/消费 API 接收者类型不同或未知（" + send.apiType + "." + send.api +
+			" ↔ " + recv.apiType + "." + recv.api + "），未证明同一消息/存储系统"
+		return b
+	}
+	b.APIIdentity = pf.pkg + "." + send.apiType + "：" + send.api + " ↔ " + recv.api
 	if b.Key == "" {
 		b.Verdict = "unverified"
 		b.Detail = "实际发送键不是可追踪字面量（" + send.keyExpr + "）"

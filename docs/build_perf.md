@@ -341,9 +341,11 @@ min-conf=1.0、CODEINTEL_SEQ_TIMING=1。
 | value-trace unknown（warm） | cache hit=1 |
 | value-trace simple | rows=3 |
 | 并发 value-trace 4×2（独立连接） | p50=35ms / max=40ms；行数一致 |
-| 目标查询峰值（/usr/bin/time -v） | Maximum RSS=27MB（目标进程口径） |
+| 目标查询峰值 | Linux GNU `time -v`：Maximum RSS=27MB（查询进程，不含测试进程）；macOS/BSD 探测 `time -l`，不支持则明确 unavailable |
 | 工作开始后取消 | 5ms 预算：delay≈7ms，`sql_queries=2`（入口拒绝不算） |
 
 **口径**：`sql_queries` 为 action 层显式仓储调用；符号/条件/派发分别计数；
 adapter 内部 SQL 与渲染不计入（`stats_scope`/`uncovered_ops` 明示）。
-RSS 用 `/usr/bin/time -v` 采样，缺失时明确 unavailable，不把 0 当采样成功。
+RSS 采样器能力先探测：GNU `time -v` → BSD `time -l` → 都不支持则
+`RSS sampling unavailable`（平台/原因/单位/进程范围写日志），不把 0 当成功；
+查询自身失败单独报错，不吞成 unavailable。取消验收已与 RSS 拆成独立测试。

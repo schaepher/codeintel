@@ -18,12 +18,13 @@ import (
 )
 
 type parsedFunc struct {
-	id   string
-	pkg  string
-	file string
-	src  []byte
-	fset *token.FileSet
-	decl *ast.FuncDecl
+	id     string
+	pkg    string
+	file   string
+	src    []byte
+	fset   *token.FileSet
+	decl   *ast.FuncDecl
+	parsed *ast.File
 }
 
 func (a *Actions) parseFuncNode(id string) *parsedFunc {
@@ -46,7 +47,7 @@ func (a *Actions) parseFuncNode(id string) *parsedFunc {
 		return nil
 	}
 	return &parsedFunc{id: id, pkg: pkgOfID(domain.CanonicalID(id)), file: n.FilePath,
-		src: src, fset: fset, decl: decl}
+		src: src, fset: fset, decl: decl, parsed: f}
 }
 
 var (
@@ -156,6 +157,7 @@ func varLiterals(pf *parsedFunc) map[string][]keyLiteral {
 type sendEvidence struct {
 	line, apiLine int
 	api           string
+	apiType       string
 	topic         string
 	keyExpr       string
 	keyValue      string
@@ -181,6 +183,9 @@ func findSend(pf *parsedFunc, leaf string) *sendEvidence {
 			return true
 		}
 		e := &sendEvidence{line: pf.fset.Position(call.Lparen).Line, api: sel.Sel.Name}
+		if rv, ok := sel.X.(*ast.Ident); ok {
+			e.apiType = varTypeMap(pf)[rv.Name]
+		}
 		var lits []int2string
 		var keyField *ast.SelectorExpr
 		var keyVar string

@@ -21,26 +21,24 @@ const todo14BoundaryHeader = `package flow
 
 type Job struct{ RecordID string }
 
-type Producer struct{}
-type Consumer struct{}
+type Bus struct{}
 
-func (p *Producer) Send(topic string, key string, v any) {}
-func (c *Consumer) Receive(topic string) (string, Job) { return "", Job{} }
+func (b *Bus) Send(topic string, key string, v any) {}
+func (b *Bus) Receive(topic string) (string, Job) { return "", Job{} }
 
-var producer = &Producer{}
-var consumer = &Consumer{}
+var bus = &Bus{}
 `
 
 const todo14BoundaryProof = todo14BoundaryHeader + `
 func Publish() *Job {
 	job := &Job{}
 	job.RecordID = "JOB-42"
-	producer.Send("jobs.created", job.RecordID, job)
+	bus.Send("jobs.created", job.RecordID, job)
 	return job
 }
 
 func Consume() Job {
-	key, job := consumer.Receive("jobs.created")
+	key, job := bus.Receive("jobs.created")
 	if key == "JOB-42" {
 		_ = job.RecordID
 	}
@@ -56,12 +54,12 @@ func PublishBranched(flag bool) *Job {
 	} else {
 		job.RecordID = "JOB-B"
 	}
-	producer.Send("jobs.created", job.RecordID, job)
+	bus.Send("jobs.created", job.RecordID, job)
 	return job
 }
 
 func ConsumeBranched() Job {
-	key, job := consumer.Receive("jobs.created")
+	key, job := bus.Receive("jobs.created")
 	if key == "JOB-A" {
 		_ = job.RecordID
 	}

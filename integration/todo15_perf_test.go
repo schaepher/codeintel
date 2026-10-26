@@ -9,9 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -202,75 +200,4 @@ func TestTodo15ValueTraceMatrixAndConcurrency(t *testing.T) {
 	}
 	t.Logf("concurrent value-trace n=%d p50=%s max=%s", len(samples),
 		samples[len(samples)/2].Round(time.Microsecond), samples[len(samples)-1].Round(time.Microsecond))
-}
-
-func TestTodo15TargetRSSAndCancelWork(t *testing.T) {
-	if !scipGoAvailable() {
-		t.Skip("scip-go not found")
-	}
-	dir := buildTodo15Fixture(t)
-	db, err := sqlite.Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeID := fieldAccessID(t, sqlite.NewRepo(db), "symbol:go:example.com/matrix15:(H).Unknown", "h.S", "write")
-	db.Close()
-	if writeID == "" {
-		t.Fatal("未找到写节点")
-	}
-	wd, _ := os.Getwd()
-	bin := filepath.Join(t.TempDir(), "codeintel")
-	build := exec.Command("go", "build", "-o", bin, "./cmd/codeintel")
-	build.Dir = filepath.Dir(wd)
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build: %v\n%s", err, out)
-	}
-	timeBin, err := exec.LookPath("time")
-	if err != nil {
-		t.Log("RSS sampling unavailable: /usr/bin/time 不存在（保留待验收，不当作 0）")
-	} else {
-		cmd := exec.Command(timeBin, "-v", bin, "query", "value-trace", writeID, "--repo", dir, "--json")
-		cmd.Env = os.Environ()
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("time -v query: %v\n%s", err, out)
-		}
-		re := regexp.MustCompile(`Maximum resident set size \(kbytes\): (\d+)`)
-		if m := re.FindSubmatch(out); m != nil {
-			kb, _ := strconv.ParseInt(string(m[1]), 10, 64)
-			if kb <= 0 {
-				t.Errorf("峰值 RSS 应 >0: %d", kb)
-			}
-			t.Logf("target query peak RSS=%dMB（/usr/bin/time -v Maximum resident set size）", kb/1024)
-		} else {
-			t.Log("RSS sampling unavailable: 未解析到 Maximum resident set size（保留待验收）")
-		}
-	}
-	deadline := false
-	for _, budget := range []string{"5ms", "2ms", "1ms"} {
-		start := time.Now()
-		code, _, stderr := runCLIOutErr(t, "query", "value-trace", writeID, "--repo", dir,
-			"--json", "--timeout", budget)
-		delay := time.Since(start)
-		if code != 0 && strings.Contains(stderr, "sql_queries=") {
-			re := regexp.MustCompile(`sql_queries=(\d+)`)
-			work := re.FindStringSubmatch(stderr)
-			n := 0
-			if len(work) == 2 {
-				n, _ = strconv.Atoi(work[1])
-			}
-			if n > 0 {
-				t.Logf("cancel after work: budget=%s delay=%s %s", budget,
-					delay.Round(time.Microsecond), strings.TrimSpace(stderr))
-				deadline = true
-			}
-			if delay > 2*time.Second {
-				t.Errorf("取消停止延迟超限: %s", delay)
-			}
-			break
-		}
-	}
-	if !deadline {
-		t.Errorf("未取得“工作已开始后取消”的证据（入口拒绝不算）")
-	}
 }

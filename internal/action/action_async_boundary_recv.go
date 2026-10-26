@@ -18,9 +18,14 @@ type filterEvidence struct {
 type recvEvidence struct {
 	line, apiLine int
 	api           string
+	apiType       string
 	topic         string
 	keyVar        string
 	payloadVar    string
+	assign        *ast.AssignStmt
+	overwriteLine int
+	readRoot      string
+	readInitLine  int
 	filters       []filterEvidence
 	issue         string
 }
@@ -65,17 +70,22 @@ func findRecv(pf *parsedFunc, leaf string, readLine int) *recvEvidence {
 			if !ok || !asyncConsumerCalls[strings.ToLower(sel.Sel.Name)] {
 				continue
 			}
-			e := &recvEvidence{line: pf.fset.Position(call.Lparen).Line, api: sel.Sel.Name}
+			e := &recvEvidence{line: pf.fset.Position(call.Lparen).Line, api: sel.Sel.Name,
+				assign: as}
+			if rv, ok := sel.X.(*ast.Ident); ok {
+				e.apiType = varTypeMap(pf)[rv.Name]
+			}
 			for _, arg := range call.Args {
 				if lit, ok := arg.(*ast.BasicLit); ok && lit.Kind == token.STRING {
 					e.topic = strings.Trim(lit.Value, "`\"")
 					break
 				}
 			}
-			var names []string
-			for _, lhs := range as.Lhs {
+			// 位置对齐：`_, job := Receive(...)` 时 key 槽为空、payload=job
+			names := make([]string, len(as.Lhs))
+			for i, lhs := range as.Lhs {
 				if id, ok := lhs.(*ast.Ident); ok && id.Name != "_" {
-					names = append(names, id.Name)
+					names[i] = id.Name
 				}
 			}
 			if len(names) > 0 {
@@ -85,7 +95,7 @@ func findRecv(pf *parsedFunc, leaf string, readLine int) *recvEvidence {
 				e.payloadVar = names[1]
 			}
 			if e.keyVar == "" {
-				e.issue = "接收返回值未绑定（无法追踪过滤键）"
+				e.issue = "Receive 返回键未绑定（无法追踪过滤键）"
 			}
 			recv = e
 			return true
@@ -94,6 +104,19 @@ func findRecv(pf *parsedFunc, leaf string, readLine int) *recvEvidence {
 	})
 	if recv == nil {
 		return nil
+	}
+	// 读取实例：必须是 Receive 返回载荷 job 或其别名（other.RecordID 不算）
+	if recv.payloadVar == "" {
+		recv.issue = "Receive 返回值未绑定载荷实例（无法核对读取实例）"
+	} else if base, _, ok := fieldReadBase(pf, leaf, readLine); !ok {
+		recv.issue = "读取行未找到载荷字段访问（无法核对实例）"
+	} else {
+		root, fromRecv, fresh := resolveInstanceRoot(pf, base, readLinePos(pf, readLine), 0)
+		recv.readRoot = root
+		if root != recv.payloadVar && !(fromRecv && root == recv.payloadVar) {
+			recv.issue = "读取实例 " + shortExprText(root) + " 与接收载荷 " + recv.payloadVar +
+				" 无值/别名关联（" + instanceOrigin(pf, root, readLine, fresh) + "）"
+		}
 	}
 
 	ast.Inspect(pf.decl.Body, func(n ast.Node) bool {
@@ -111,17 +134,44 @@ func findRecv(pf *parsedFunc, leaf string, readLine int) *recvEvidence {
 			}
 		}
 		usesKey := false
+		keyFromReceive := false
+		overwrite := 0
 		switch e := expr.(type) {
 		case *ast.Ident:
-			usesKey = e.Name == recv.keyVar
+			if e.Name == recv.keyVar {
+				if b := reachingBinding(pf, e.Name, be.Pos()); b != nil {
+					if b.stmt == recv.assign {
+						usesKey, keyFromReceive = true, true
+					} else {
+						overwrite = b.line
+					}
+				}
+			}
 		case *ast.SelectorExpr:
-			usesKey = e.Sel.Name == leaf
+			if e.Sel.Name == leaf {
+				// 载荷字段作为过滤键：字段实例必须是 Receive 载荷且未被覆盖
+				if recv.payloadVar != "" {
+					root, _, _ := resolveInstanceRoot(pf, e.X, be.Pos(), 0)
+					if root == recv.payloadVar {
+						if b := reachingBinding(pf, recv.payloadVar, be.Pos()); b != nil && b.stmt == recv.assign {
+							usesKey, keyFromReceive = true, true
+						}
+					}
+				}
+			}
+		}
+		if overwrite > 0 && recv.issue == "" {
+			recv.overwriteLine = overwrite
+			recv.issue = "过滤键 " + recv.keyVar + " 在 L" + itoaSeq(overwrite) +
+				" 被重赋值或遮蔽，比较 L" + itoaSeq(pf.fset.Position(be.Pos()).Line) +
+				" 的值不再来自 Receive 返回键"
 		}
 		if !usesKey {
 			return true
 		}
 		f := filterEvidence{line: pf.fset.Position(be.Pos()).Line,
 			value: strings.Trim(lit.Value, "`\""), op: be.Op, expr: exprTextShallow(expr)}
+		_ = keyFromReceive
 
 		for _, in := range ifs {
 			cond, ok := in.node.Cond.(*ast.BinaryExpr)
@@ -144,4 +194,55 @@ func findRecv(pf *parsedFunc, leaf string, readLine int) *recvEvidence {
 		return true
 	})
 	return recv
+}
+
+// readLinePos 读取行对应的 token.Pos（取该行首个语句位置；用于到达定义判定）。
+func readLinePos(pf *parsedFunc, line int) token.Pos {
+	var pos token.Pos
+	ast.Inspect(pf.decl.Body, func(n ast.Node) bool {
+		if n == nil {
+			return true
+		}
+		if pf.fset.Position(n.Pos()).Line == line {
+			if pos == token.NoPos || n.Pos() < pos {
+				pos = n.Pos()
+			}
+			return false
+		}
+		return true
+	})
+	return pos
+}
+
+// instanceOrigin 读取实例的初始化依据（供诊断显示）。
+func instanceOrigin(pf *parsedFunc, root string, readLine int, fresh bool) string {
+	if root == "" {
+		return "实例无法解析"
+	}
+	for _, b := range declaredBindings(pf, root) {
+		if b.stmt == nil || b.rhs == nil || b.line == 0 {
+			continue
+		}
+		if b.line <= readLine {
+			if isReceiveCall(b.rhs) {
+				return "来自 Receive 返回值"
+			}
+			if isFreshValue(b.rhs) {
+				return "由构造/其他调用新建（L" + itoaSeq(b.line) + "）"
+			}
+			return "由 L" + itoaSeq(b.line) + " 赋值"
+		}
+	}
+	if fresh {
+		return "新建值"
+	}
+	return "未知来源"
+}
+
+// shortExprText 实例名展示。
+func shortExprText(s string) string {
+	if s == "" {
+		return "?"
+	}
+	return s
 }

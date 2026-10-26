@@ -28,8 +28,8 @@
 | R2/A1 同源/索引/配置/负载缓存开/关 A/B | 完成 | `TestValueTraceCacheAB`：n=6，cache-off wall 7.2ms/sql12/sym6/miss6；cache-on 1.4ms/sql7/sym1/hit5；结果行一致 |
 | A1 矩阵语义/诊断与覆盖 | 完成 | `TestTodo15MatrixSemantics`：depth1 vs2 节点数、Use→Impl.Do、CB unresolved；`TestTodo15ValueTraceMatrixAndConcurrency`：fixture 2212 节点/1706 边、unknown/simple value-trace 行数/阶段计数 |
 | A2 冷暖/并发 | 完成 | value-trace 冷 sql2/cond2/dispatch1、暖 hit1；4×2 并发独立连接 p50=35ms/max=40ms，行数一致 |
-| A3 真实峰值采样 | 完成 | `/usr/bin/time -v` 目标查询 Maximum RSS=27MB；不可用环境明确 unavailable（不把 0 当成功） |
-| A3 进入工作后的取消 | 完成 | 5ms 预算出现在 SQL 后取消：`sql_queries=2`、delay≈7ms；action 阶段测试证明取消前已有 SQL/符号/条件工作 |
+| A3 真实峰值采样 | 完成 | todo16 收尾：探测 GNU time -v / BSD time -l；Linux 27MB；不支持时明确 unavailable（不把 0 当成功） |
+| A3 进入工作后的取消 | 完成 | todo16 拆为独立测试 `TestTodo15CancelAfterWork`：5ms 预算在 SQL 后取消（`sql_queries=2`）、delay≈7ms；RSS 不可用不阻断 |
 | 2s 预算宽限 | 完成 | 停止延迟远小于 2s；未使用外层 180s |
 
 **说明**：A/B 夹具为单节点字段访问固定索引（用于隔离重复 SQL/符号查找），
