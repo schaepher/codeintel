@@ -4,7 +4,7 @@ package action
 // 结果到 html/md；cli 不再直连 sqlite/读源码）。
 
 import (
-"go/ast"
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"

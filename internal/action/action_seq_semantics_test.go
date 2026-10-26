@@ -10,6 +10,7 @@ package action
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/schaepher/codeintel/internal/domain"
@@ -262,23 +263,17 @@ func TestCodeSequenceFocusReturn(t *testing.T) {
 	}
 }
 
-// TestCodeSequenceFocusMiss：焦点未命中 → 保留全量并标记 applied=false
-// （不输出空图当结论）。
+// TestCodeSequenceFocusMiss：todo12-9——不存在的焦点必须明确报错（不再
+// 静默保留全量输出）。合法但无写入的焦点由 focus 闭包测试单独覆盖。
 func TestCodeSequenceFocusMiss(t *testing.T) {
 	acts, dir := seedSeqSemanticsRepo(t)
 	root, err := acts.CodeSequence(CodeSequenceRequest{
 		Target: "example.com/m:wrap", RepoAbs: dir, Depth: 1, Focus: []string{"NoSuch.Field"},
 	})
-	if err != nil || root == nil {
-		t.Fatalf("CodeSequence: %v root=%v", err, root)
+	if err == nil || root != nil {
+		t.Fatalf("不存在的焦点应报错，root=%v", root)
 	}
-	if root.Meta == nil || root.Meta.Focus == nil {
-		t.Fatalf("应记录 meta.focus: %+v", root.Meta)
-	}
-	if root.Meta.Focus.Applied || root.Meta.Focus.Matched != 0 {
-		t.Errorf("未命中时不应 applied: %+v", root.Meta.Focus)
-	}
-	if len(root.Nodes) == 0 {
-		t.Error("未命中应保留全量输出（不得静默空图）")
+	if !strings.Contains(err.Error(), "不存在") {
+		t.Errorf("错误应说明焦点不存在: %v", err)
 	}
 }

@@ -124,8 +124,9 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 	// todo10-5：一层条件传播——调用点实参字面量按形参名对齐（下次展开覆盖）
 	req.sceneArgs = paramLiteralArgs(fn.Type.Params, req.callArgLits)
 	req.sceneSrc = paramSourceArgs(fn.Type.Params, req.callArgLits, req.callArgSrcs)
-	if req.focus != nil && len(req.focus.fields) > 0 {
-		req.focusLines = a.focusLinesFor(domain.CanonicalID(symID), req.focus)
+	if req.focusActive() {
+		// todo12-9：焦点行 = SSA 字段写入 + 目标值/字段的到达定义闭包
+		req.focusLines = a.focusLinesForFunc(domain.CanonicalID(symID), fn, fset, src, req.focus)
 	} else {
 		req.focusLines = nil
 	}

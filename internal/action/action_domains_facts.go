@@ -71,12 +71,12 @@ type SvcFacts struct {
 
 // DomainFacts AI 分析前的结构化事实包（JSON 序列化——导出文件）。
 type DomainFacts struct {
-	Pkgs     []PkgFacts         `json:"packages"`
-	Tables   []TableFacts       `json:"tables"`
-	Ents     []EntityFacts      `json:"entities"`
-	Svcs     []SvcFacts         `json:"services"`
-	PkgCalls []PkgCallFacts     `json:"pkg_calls,omitempty"` // R65：包级调用矩阵
-	TopPairs []EntityPairFacts  `json:"top_pairs,omitempty"` // R100：实体对热度 Top-10
+	Pkgs     []PkgFacts        `json:"packages"`
+	Tables   []TableFacts      `json:"tables"`
+	Ents     []EntityFacts     `json:"entities"`
+	Svcs     []SvcFacts        `json:"services"`
+	PkgCalls []PkgCallFacts    `json:"pkg_calls,omitempty"` // R65：包级调用矩阵
+	TopPairs []EntityPairFacts `json:"top_pairs,omitempty"` // R100：实体对热度 Top-10
 }
 
 // DomainFactsRequest 事实包收集参数（表别名来自 wiki.yaml tables——

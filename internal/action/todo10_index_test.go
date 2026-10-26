@@ -81,7 +81,36 @@ func indexTodo10Fixture(t *testing.T, name string) (string, *Actions) {
 			all[fd.Name.Name] = id // 方法按短名兜底（夹具无重名）
 		}
 	}
-	nodes := make([]*domain.CodeEntity, 0, len(fns))
+	nodes := make([]*domain.CodeEntity, 0, len(fns)+4)
+	// 结构体节点（字段元数据）——焦点目标存在性/类型身份校验用（todo12-9）
+	for _, d := range f.Decls {
+		gd, ok := d.(*ast.GenDecl)
+		if !ok || gd.Tok != token.TYPE {
+			continue
+		}
+		for _, sp := range gd.Specs {
+			ts, ok := sp.(*ast.TypeSpec)
+			if !ok {
+				continue
+			}
+			st, ok := ts.Type.(*ast.StructType)
+			if !ok {
+				continue
+			}
+			var fields []map[string]any
+			for _, fld := range st.Fields.List {
+				for _, n := range fld.Names {
+					fields = append(fields, map[string]any{"name": n.Name})
+				}
+			}
+			nodes = append(nodes, &domain.CodeEntity{
+				ID:   domain.CanonicalID("symbol:go:" + modPath + ":" + ts.Name.Name),
+				Kind: domain.KindStruct, Name: ts.Name.Name, FilePath: "flow.go",
+				LineStart:  fset.Position(ts.Pos()).Line,
+				Properties: map[string]any{"fields": fields},
+			})
+		}
+	}
 	for _, fn := range fns {
 		kind := domain.KindFunction
 		if fn.recv != "" {

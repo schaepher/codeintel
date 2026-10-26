@@ -25,11 +25,11 @@ type ExtChainGrpc struct {
 	ChainCallOut
 	Server []ExtChainNode `json:"server,omitempty"` // 服务端方法（实现）的调用链
 	// todo10-4：续接依据（源方法 → 目标方法、目标仓库、匹配规则）
-	SourceMethod string `json:"source_method,omitempty"`
-	TargetMethod string `json:"target_method,omitempty"`
-	TargetRepo   string `json:"target_repo,omitempty"`
-	MatchReason  string `json:"match_reason,omitempty"` // proto-name|go-method
-	Stop         *SeqStop `json:"stop,omitempty"`      // 未续接原因（诊断）
+	SourceMethod string   `json:"source_method,omitempty"`
+	TargetMethod string   `json:"target_method,omitempty"`
+	TargetRepo   string   `json:"target_repo,omitempty"`
+	MatchReason  string   `json:"match_reason,omitempty"` // proto-name|go-method
+	Stop         *SeqStop `json:"stop,omitempty"`         // 未续接原因（诊断）
 	// todo12-2：目标读取/候选仓库探测失败——已匹配目标但查询失败不能
 	// 静默变成“无下游”（partial 与“合法无下游”分开表示）
 	Partial     bool           `json:"partial,omitempty"`

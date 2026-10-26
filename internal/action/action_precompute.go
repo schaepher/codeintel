@@ -11,17 +11,17 @@ import (
 
 // PrecomputeResult 全量 relations 预计算结果（cli 渲染用）。
 type PrecomputeResult struct {
-	Status string                   // already-done（本次未算）| done（本次完成）| running（抢占失败）
-	Total  int                      // 表总数（进度摘要）
-	Done   int                      // running 时当前进度
-	Rels   []*domain.TableRelation  // done 时全量关联（摘要统计）
+	Status string                  // already-done（本次未算）| done（本次完成）| running（抢占失败）
+	Total  int                     // 表总数（进度摘要）
+	Done   int                     // running 时当前进度
+	Rels   []*domain.TableRelation // done 时全量关联（摘要统计）
 }
 
 // PrecomputeRelations 全量 relations 预计算编排（Q228）：
-// 1. 已完成（progress done）→ already-done（不重复计算）
-// 2. 未完成 → PrecomputeAllRelations（progressFn 由 cli 提供——进度
-//    打印是 UI 行为）
-// 3. 完成后再查进度：done → 摘要数据；非 done（抢占失败）→ running
+//  1. 已完成（progress done）→ already-done（不重复计算）
+//  2. 未完成 → PrecomputeAllRelations（progressFn 由 cli 提供——进度
+//     打印是 UI 行为）
+//  3. 完成后再查进度：done → 摘要数据；非 done（抢占失败）→ running
 func (a *Actions) PrecomputeRelations(progressFn func(done, total int)) (*PrecomputeResult, error) {
 	logger := zap.L()
 	logger.Info("enter (Actions).PrecomputeRelations")

@@ -114,16 +114,12 @@ func TestSequenceCodeFocusFlag(t *testing.T) {
 	if !strings.Contains(out, `"focus"`) || !strings.Contains(out, `"applied": true`) {
 		t.Errorf("--focus 生效时 JSON 应含 meta.focus.applied=true:\n%s", out)
 	}
-	if strings.Contains(out, `"assign"`) {
-		t.Errorf("--focus return 不应输出无关赋值步骤:\n%s", out)
-	}
+	// todo12-9：return 焦点会保留返回值的必要依赖赋值（不再是"只见 return"）
 
+	// todo12-9：不存在的焦点必须明确报错并非零退出（不再静默 applied=false）
 	out = captureStdout(func() {
-		if code := cmdQuery([]string{"sequence", "example.com/m:wrap", "--code", "--json", "--focus", "No.Such", "--repo", dir}); code != 0 {
-			t.Errorf("--focus 未命中 exit = %d", code)
+		if code := cmdQuery([]string{"sequence", "example.com/m:wrap", "--code", "--json", "--focus", "No.Such", "--repo", dir}); code == 0 {
+			t.Errorf("--focus 不存在目标应非零退出:\n%s", out)
 		}
 	})
-	if !strings.Contains(out, `"applied": false`) {
-		t.Errorf("未命中时应保留全量并标 applied=false:\n%s", out)
-	}
 }

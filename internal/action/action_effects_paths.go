@@ -319,12 +319,12 @@ type buildParams struct {
 	// 目标筛选（nil = 不筛选，保持既有契约）
 	target *effectsTarget
 	// 被调写入归属（todo12-1 A6 / todo12-8）
-	file          string                  // 当前函数文件（证据定位用）
-	varTypes      map[string]string       // 局部变量/形参 → 类型短名
-	pkgPath       string
-	callTargets   map[int][]string        // 调用行 → 被调符号
-	calleeWrites  map[string][]DBEffect   // 被调符号 → 字段写入（带文件/行）
-	calleeFiles   map[string]string
+	file         string            // 当前函数文件（证据定位用）
+	varTypes     map[string]string // 局部变量/形参 → 类型短名
+	pkgPath      string
+	callTargets  map[int][]string      // 调用行 → 被调符号
+	calleeWrites map[string][]DBEffect // 被调符号 → 字段写入（带文件/行）
+	calleeFiles  map[string]string
 }
 
 // buildEffectPaths 把函数级汇总按路径区间归属到各路径（todo11-4/12-1/12-7/12-8）。

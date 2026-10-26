@@ -46,6 +46,10 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 			if req.focus != nil && req.focus.writers[tid] {
 				node.Focus = true
 			}
+			// todo12-9：依赖闭包里的调用（返回值/字段值的必要来源）命中
+			if req.focusLines != nil && req.focusLines[pos.Line] {
+				node.Focus = true
+			}
 			// todo10-9：有可解析的目标却因 depth 上限未展开 → 记"depth 截断"
 			// （终止原因不是"流程结束"）
 			if depth <= 1 {

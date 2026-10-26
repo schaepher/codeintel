@@ -39,11 +39,11 @@ type EffectsRequest struct {
 type DBEffect struct {
 	Table    string       `json:"table,omitempty"`
 	Column   string       `json:"column,omitempty"`
-	Field    string       `json:"field"`            // SSA 摘要的字段路径
-	Function string       `json:"function"`         // 写入函数（canonical ID）
-	File     string       `json:"file,omitempty"`   // 写入函数所在文件（被调写入定位用）
-	Line     int          `json:"line,omitempty"`   // 写入行
-	Access   string       `json:"access"`           // direct_write / indirect_write
+	Field    string       `json:"field"`          // SSA 摘要的字段路径
+	Function string       `json:"function"`       // 写入函数（canonical ID）
+	File     string       `json:"file,omitempty"` // 写入函数所在文件（被调写入定位用）
+	Line     int          `json:"line,omitempty"` // 写入行
+	Access   string       `json:"access"`         // direct_write / indirect_write
 	Evidence *SeqEvidence `json:"evidence,omitempty"`
 }
 
@@ -82,18 +82,18 @@ type ResultEffect struct {
 
 // EffectsResult query effects 输出契约。
 type EffectsResult struct {
-	Target   string   `json:"target"`
-	Function string   `json:"function"`
-	File     string   `json:"file,omitempty"`
+	Target   string `json:"target"`
+	Function string `json:"function"`
+	File     string `json:"file,omitempty"`
 	// todo12-1：目标筛选（不指定目标时省略，保持既有契约）
-	TargetInfo *EffectsTarget   `json:"target_info,omitempty"`
-	Analysis   *EffectsAnalysis `json:"analysis,omitempty"`
-	DBWrites     []DBEffect     `json:"db_writes"`
-	RemoteWrites []RemoteEffect `json:"remote_writes"`
-	Paths        []EffectPath   `json:"paths,omitempty"` // todo11-4：按执行路径
-	Tx           TxScope        `json:"tx"`
-	Result       ResultEffect   `json:"result"`
-	Diagnostics  []SeqDiagCount `json:"diagnostics,omitempty"`
+	TargetInfo   *EffectsTarget   `json:"target_info,omitempty"`
+	Analysis     *EffectsAnalysis `json:"analysis,omitempty"`
+	DBWrites     []DBEffect       `json:"db_writes"`
+	RemoteWrites []RemoteEffect   `json:"remote_writes"`
+	Paths        []EffectPath     `json:"paths,omitempty"` // todo11-4：按执行路径
+	Tx           TxScope          `json:"tx"`
+	Result       ResultEffect     `json:"result"`
+	Diagnostics  []SeqDiagCount   `json:"diagnostics,omitempty"`
 }
 
 // tx 调用名（扫描 AST 用）。

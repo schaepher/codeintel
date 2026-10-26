@@ -71,6 +71,7 @@ type Reader interface {
 	GetCLICommandNodes() ([]*domain.CodeEntity, error)                          // R100：kind=cli_command（cli-routes 裸 SQL 收口）
 	GetPbServerInterfaces() ([]*domain.CodeEntity, error)                       // R100：带 pb_servers 的接口（grpc-composites 收口）
 	GetFieldWriters(fieldPath string) ([]string, error)                         // R97-2：字段 direct_write 写入函数（数据流具体化）
+	GetAllFieldPaths() ([]string, error)                                       // todo12-9：焦点字段存在性/歧义校验
 	// R94：外部依赖（redis/kafka）与外部接口调用（query external-*）
 	GetRedisKeyNodes() ([]*domain.CodeEntity, error)                       // kind=redis_key（properties.write/cmd）
 	GetKafkaTopicNodes() ([]*domain.CodeEntity, error)                     // kind=kafka_topic

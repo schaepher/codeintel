@@ -32,6 +32,24 @@ func (r *Repo) orderImplsByGrpc(implIDs []string) []string {
 	return append(biz, grpc...)
 }
 
+// GetAllFieldPaths function_field_summary 里的全部字段路径（focus 目标
+// 存在性/歧义校验用——Q225/todo12-9）。
+func (r *Repo) GetAllFieldPaths() ([]string, error) {
+	rows, err := r.Query(`SELECT DISTINCT field_path FROM function_field_summary ORDER BY field_path`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var p string
+		if rows.Scan(&p) == nil && p != "" {
+			out = append(out, p)
+		}
+	}
+	return out, rows.Err()
+}
+
 // GetFieldWriters 字段的 direct_write 写入函数（R97-2 数据流具体化：
 // receiver 字段赋值来源——构造函数等；fieldPath 完整形态
 // "<pkg>.<Type>.<field>"，匹配摘要 field_path 全等）。

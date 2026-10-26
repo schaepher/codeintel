@@ -180,6 +180,24 @@ func writeSeqNode(b *strings.Builder, alias map[string]string, from, caller stri
 				writeSeqNode(b, alias, from, caller, n.Else)
 			}
 			b.WriteString("  end\n")
+		case "assign":
+			// todo12-11：必要赋值（状态初始化/条件改写）在 mermaid 里保留——
+			// 与文本/JSON 使用同一节点切片，不另行裁剪；画成 Note 而非远程
+			// 调用线（赋值不是调用）。
+			label := n.Label
+			if n.Line > 0 {
+				label = fmt.Sprintf("L%d %s", n.Line, label)
+			}
+			if n.Focus {
+				label += "（焦点）"
+			}
+			who := alias[from]
+			if who == "" {
+				who = alias[rootLabel(alias)]
+			}
+			if who != "" {
+				b.WriteString(fmt.Sprintf("  Note over %s: %s\n", who, label))
+			}
 		case "return":
 			// S2：分支内 return → 虚线回调用者；todo10-2：带返回值与结果槽
 			b.WriteString(fmt.Sprintf("  %s-->>%s: %s\n", alias[from], alias[from], seqReturnLabel(n)))
@@ -238,6 +256,22 @@ func seqText(nodes []*action.CodeSeqNode, depth int) string {
 		}
 	}
 	return b.String()
+}
+
+// rootLabel 取参与者 alias 里最小序号的（fallback 用）。
+func rootLabel(alias map[string]string) string {
+	best, bestID := "", ""
+	for _, id := range alias {
+		if bestID == "" || id < bestID {
+			bestID = id
+		}
+	}
+	for name, id := range alias {
+		if id == bestID {
+			best = name
+		}
+	}
+	return best
 }
 
 // seqExecPrefix 执行语义前缀（defer=返回时执行 / go=并发启动 / 空=同步）。

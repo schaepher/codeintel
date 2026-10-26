@@ -130,10 +130,12 @@ type CodeSequenceRequest struct {
 
 // seqFocus 一次查询的焦点配置（--focus 解析结果，跨递归共享）。
 type seqFocus struct {
-	returns bool            // 关注返回值
-	fields  []string        // 字段路径（后缀匹配）
-	writers map[string]bool // 写这些字段的函数（canonical ID——被调者命中即关注）
-	matched int             // 命中的节点数（0 = 未命中，meta 标记）
+	validated bool          // todo12-9：目标存在性/歧义已校验
+	returns   bool          // 关注返回值
+	fields   []string        // 字段路径（后缀匹配）
+	fieldIDs []string        // todo12-9：解析后的类型限定字段身份（pkg.T.F）
+	writers  map[string]bool // 写这些字段的函数（canonical ID——被调者命中即关注）
+	matched  int             // 命中的节点数（0 = 未命中，meta 标记）
 }
 
 // focusActive 是否启用焦点过滤。
@@ -206,6 +208,13 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	n, err := a.ResolveSymbol(req.Target)
 	if err != nil {
 		return nil, err
+	}
+	// todo12-9：焦点目标校验（不存在/歧义 → 明确错误；合法无写入不报错）
+	if req.focus != nil && len(req.Focus) > 0 && !req.focus.validated {
+		if verr := a.validateFocusTargets(n, req.focus); verr != nil {
+			return nil, verr
+		}
+		req.focus.validated = true
 	}
 	tResolved := time.Now()
 	// 阶段 2+3：读源码（acc.read 累加）+ AST 遍历展开
