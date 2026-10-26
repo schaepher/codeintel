@@ -58,8 +58,11 @@ type SeqEvidence struct {
 	Reason     string   `json:"reason,omitempty"`     // unique|first-of-N|dataflow|...
 	Ambiguous  bool     `json:"ambiguous,omitempty"`  // 多候选未消歧（不是确定结论）
 	// todo10-8：证据身份——可直接重跑的查询命令 + 支持程度
-	Query   string `json:"query,omitempty"`   // 例如 codeintel query sequence <t> --code --depth 2
+	Query   string `json:"query,omitempty"`   // 规范化 shell 命令（含 repo/ID/depth/focus/scene）
 	Verdict string `json:"verdict,omitempty"` // direct|corroborated|unverified
+	// todo12-14：规范化请求快照（结构化 argv 为权威；索引版本变化时可判定
+	// 是否仍能复现同一次分析）
+	Request *SeqEvidenceRequest `json:"request,omitempty"`
 }
 
 // SeqDiagCount 诊断聚合项（根节点 meta 用）。
@@ -212,13 +215,65 @@ func seqEvidenceVerdict(ev *SeqEvidence) string {
 	return SeqVerdictUnverified
 }
 
-// seqEvidenceQuery 证据的可复现命令（同一目标/深度即可重跑）。
-func seqEvidenceQuery(req CodeSequenceRequest) string {
-	q := "codeintel query sequence " + req.Target + " --code"
-	if req.Depth > 0 {
-		q += " --depth " + itoaSeq(req.Depth)
+// SeqEvidenceRequest 证据的可复现请求快照（todo12-14）。
+type SeqEvidenceRequest struct {
+	Repo     string            `json:"repo"`
+	Symbol   string            `json:"symbol"` // canonical ID（规范化）
+	Depth    int               `json:"depth"`
+	Focus    []string          `json:"focus,omitempty"`
+	Scene    map[string]string `json:"scene,omitempty"`
+	Evidence bool              `json:"evidence,omitempty"`
+	Format   string            `json:"format,omitempty"`
+	IndexSHA string            `json:"index_sha,omitempty"`
+	StopPkgs []string          `json:"stop_packages,omitempty"`
+}
+
+// seqEvidenceQuery 证据的可复现命令（规范化仓库/ID/深度/焦点/场景——
+// 幂等 shell quoting；结构化字段见 SeqEvidence.Request）。
+func seqEvidenceQuery(req CodeSequenceRequest, symbolID string) (string, *SeqEvidenceRequest) {
+	// 重放入口整棵分析（evidence.SymbolID 只是该箭头指向的节点身份）
+	sym := req.entryID
+	if sym == "" {
+		sym = req.Target
 	}
-	return q
+	snap := &SeqEvidenceRequest{Repo: req.RepoAbs, Symbol: sym, Depth: req.Depth,
+		Focus: append([]string{}, req.Focus...), IndexSHA: req.indexSHA}
+	if len(req.Scene.Values) > 0 {
+		snap.Scene = map[string]string{}
+		for k, v := range req.Scene.Values {
+			snap.Scene[k] = v
+		}
+	}
+	if len(req.StopPackages) > 0 {
+		snap.StopPkgs = append([]string{}, req.StopPackages...)
+	}
+	args := []string{"codeintel", "query", "sequence", shellQuote(sym),
+		"--repo", shellQuote(req.RepoAbs), "--code", "--json"}
+	if req.Depth > 0 {
+		args = append(args, "--depth", itoaSeq(req.Depth))
+	}
+	if len(req.Focus) > 0 {
+		args = append(args, "--focus", shellQuote(strings.Join(req.Focus, ",")))
+	}
+	if len(req.Scene.Values) > 0 {
+		keys := make([]string, 0, len(req.Scene.Values))
+		for k := range req.Scene.Values {
+			keys = append(keys, k)
+		}
+		sortStrings(keys)
+		for _, k := range keys {
+			args = append(args, "--scene", shellQuote(k+"="+req.Scene.Values[k]))
+		}
+	}
+	return strings.Join(args, " "), snap
+}
+
+// shellQuote POSIX shell 单引号转义（空格/括号/# 等安全）。
+func shellQuote(s string) string {
+	if s == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // finishSeqEvidence 补证据身份（可复现命令 + 支持程度）——在所有具体化
@@ -227,7 +282,9 @@ func finishSeqEvidence(req CodeSequenceRequest, n *CodeSeqNode) *CodeSeqNode {
 	if n == nil || n.Evidence == nil {
 		return n
 	}
-	n.Evidence.Query = seqEvidenceQuery(req)
+	q, snap := seqEvidenceQuery(req, n.Evidence.SymbolID)
+	n.Evidence.Query = q
+	n.Evidence.Request = snap
 	n.Evidence.Verdict = seqEvidenceVerdict(n.Evidence)
 	return n
 }

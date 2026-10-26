@@ -103,6 +103,10 @@ type CodeSequenceRequest struct {
 	Scene Scene
 	// Ctx 取消信号（todo10-9）：递归展开每语句检查一次；nil = 不取消
 	Ctx context.Context
+	// indexSHA 当前索引 commit（todo12-14：证据可复现性——内部填充）
+	indexSHA string
+	// entryID 入口 canonical ID（证据命令重放整棵分析树，而不是只查被调节点）
+	entryID string
 	// 内部：递归展开路径防环（R97——grpc 实现内部调接口、接口具体化
 	// 回到同一 grpc 实现时自环；路径语义：进入标记、退出清除，不同
 	// 分支互不影响）
@@ -130,12 +134,12 @@ type CodeSequenceRequest struct {
 
 // seqFocus 一次查询的焦点配置（--focus 解析结果，跨递归共享）。
 type seqFocus struct {
-	validated bool          // todo12-9：目标存在性/歧义已校验
-	returns   bool          // 关注返回值
-	fields   []string        // 字段路径（后缀匹配）
-	fieldIDs []string        // todo12-9：解析后的类型限定字段身份（pkg.T.F）
-	writers  map[string]bool // 写这些字段的函数（canonical ID——被调者命中即关注）
-	matched  int             // 命中的节点数（0 = 未命中，meta 标记）
+	validated bool            // todo12-9：目标存在性/歧义已校验
+	returns   bool            // 关注返回值
+	fields    []string        // 字段路径（后缀匹配）
+	fieldIDs  []string        // todo12-9：解析后的类型限定字段身份（pkg.T.F）
+	writers   map[string]bool // 写这些字段的函数（canonical ID——被调者命中即关注）
+	matched   int             // 命中的节点数（0 = 未命中，meta 标记）
 }
 
 // focusActive 是否启用焦点过滤。
@@ -203,6 +207,11 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 		req.focus = a.newSeqFocus(req.Focus)
 	}
 	ctx := req.ctx()
+	if req.indexSHA == "" {
+		if meta, merr := a.repo.GetLatest(); merr == nil && meta != nil {
+			req.indexSHA = meta.CommitSHA
+		}
+	}
 
 	// 阶段 1：符号解析（只查库，不读源码——与阶段 2/3 不重叠）
 	n, err := a.ResolveSymbol(req.Target)
@@ -217,6 +226,8 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 		req.focus.validated = true
 	}
 	tResolved := time.Now()
+	// todo12-14：证据命令重放入口分析（不是被调节点本身——focus/scene 属于入口）
+	req.entryID = string(n.ID)
 	// 阶段 2+3：读源码（acc.read 累加）+ AST 遍历展开
 	root, stop := codeSeqForSymbol(a, req, string(n.ID), req.Depth)
 	if root == nil && stop != nil && stop.Code == SeqStopCycle {
