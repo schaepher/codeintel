@@ -21,22 +21,22 @@ import (
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
 
-func vmsizeKB(t *testing.T, key string) int64 {
+func vmsizeKB(t *testing.T, key string) (int64, bool) {
 	t.Helper()
 	b, err := os.ReadFile("/proc/self/status")
 	if err != nil {
-		return 0
+		return 0, false
 	}
 	for _, line := range strings.Split(string(b), "\n") {
 		if strings.HasPrefix(line, key+":") {
 			f := strings.Fields(line)
 			if len(f) >= 2 {
-				n, _ := strconv.ParseInt(f[1], 10, 64)
-				return n
+				n, err := strconv.ParseInt(f[1], 10, 64)
+				return n, err == nil
 			}
 		}
 	}
-	return 0
+	return 0, false
 }
 
 func TestTodo14MatrixConcurrencyAndStopDelay(t *testing.T) {
@@ -74,7 +74,7 @@ func TestTodo14MatrixConcurrencyAndStopDelay(t *testing.T) {
 	if code := runCLI(t, "init", "--repo", dir, "--progress", "none"); code != 0 {
 		t.Fatalf("init exit = %d", code)
 	}
-	hwmBefore := vmsizeKB(t, "VmHWM")
+	hwmBefore, hwmOK1 := vmsizeKB(t, "VmHWM")
 	sym := "symbol:go:example.com/matrix:(Handler).Entry"
 
 	// 矩阵：depth 1/2、焦点、未知回调/接口无实现
@@ -183,10 +183,14 @@ func TestTodo14MatrixConcurrencyAndStopDelay(t *testing.T) {
 		t.Errorf("value-trace 停止延迟超限: %s", delay)
 	}
 
-	hwmAfter := vmsizeKB(t, "VmHWM")
-	t.Logf("peak RSS(HWM) before=%dMB after=%dMB", hwmBefore/1024, hwmAfter/1024)
-	if hwmAfter > 4*1024*1024 { // >4GB 视为异常增长（保守阈值）
-		t.Errorf("峰值 RSS 异常: %dMB", hwmAfter/1024)
+	hwmAfter, hwmOK2 := vmsizeKB(t, "VmHWM")
+	if !hwmOK1 || !hwmOK2 {
+		t.Log("resource sampling unavailable: /proc/self/status VmHWM 不可用（保留待验收，不把 0 当成功）")
+	} else {
+		t.Logf("peak RSS(HWM) before=%dMB after=%dMB（整个测试进程累计口径）", hwmBefore/1024, hwmAfter/1024)
+		if hwmAfter > 4*1024*1024 { // >4GB 视为异常增长（保守阈值）
+			t.Errorf("峰值 RSS 异常: %dMB", hwmAfter/1024)
+		}
 	}
 }
 
