@@ -113,9 +113,9 @@ var insertNodeSQL = buildInsertNodeSQL()
 // R69：count 累加（同义边合并保留真实调用次数——每次插入 +1，
 // 与置信度无关）；confidence/tool/metadata 仍只在高置信度时覆盖。
 const insertEdgeSQL = `
-INSERT INTO edges (source_ref, target_ref, kind, tool_source, confidence, metadata, count)
-VALUES (?, ?, ?, ?, ?, ?, 1)
-ON CONFLICT(source_ref, target_ref, kind) DO UPDATE SET
+INSERT INTO edges (source_ref, target_ref, kind, edge_key, tool_source, confidence, metadata, count)
+VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+ON CONFLICT(source_ref, target_ref, kind, edge_key) DO UPDATE SET
     count = edges.count + 1,
     confidence = CASE WHEN excluded.confidence > edges.confidence THEN excluded.confidence ELSE edges.confidence END,
     tool_source = CASE WHEN excluded.confidence > edges.confidence THEN excluded.tool_source ELSE edges.tool_source END,

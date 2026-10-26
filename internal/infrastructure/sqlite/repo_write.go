@@ -90,7 +90,8 @@ func (r *Repo) SaveBatchStats(nodes []*domain.CodeEntity, edges []*domain.Fact,
 				stmt.Close()
 				return nil, fmt.Errorf("marshal metadata: %w", err)
 			}
-			if _, err := stmt.Exec(src, dst, string(e.Kind),
+			// todo11-1：edge_key 参与身份（grpc_call = RPC 方法名）
+			if _, err := stmt.Exec(src, dst, string(e.Kind), e.Key,
 				e.ToolSource, e.Confidence, string(meta)); err != nil {
 				if isFKError(err) {
 					result.FailedEdges = append(result.FailedEdges, e)

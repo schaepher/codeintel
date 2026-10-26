@@ -41,6 +41,10 @@ CREATE TABLE IF NOT EXISTS edges (
     source_ref INTEGER NOT NULL,
     target_ref INTEGER NOT NULL,
     kind TEXT NOT NULL,
+    -- todo11-1：关系身份（同 (source,target,kind) 下需要独立保存的子身份）。
+    -- grpc_call 存 RPC 方法名——否则同一函数调同一服务的 Submit/Cancel 会
+    -- 被唯一约束合并，ext-chain 无法逐方法续接。其余 kind 为空串。
+    edge_key TEXT NOT NULL DEFAULT '',
     tool_source TEXT NOT NULL,
     confidence REAL NOT NULL DEFAULT 0.5,
     metadata JSON,
@@ -48,8 +52,9 @@ CREATE TABLE IF NOT EXISTS edges (
     count INTEGER NOT NULL DEFAULT 1,
     FOREIGN KEY (source_ref) REFERENCES nodes(id_int) ON DELETE CASCADE,
     FOREIGN KEY (target_ref) REFERENCES nodes(id_int) ON DELETE CASCADE,
-    -- 同义边合并：同一 (source, target, kind) 保留最高置信度（TD.md 5.3）
-    UNIQUE(source_ref, target_ref, kind)
+    -- 同义边合并：同一 (source, target, kind, edge_key) 保留最高置信度
+    -- （TD.md 5.3；edge_key 见上——todo11-1 起参与身份）
+    UNIQUE(source_ref, target_ref, kind, edge_key)
 );
 -- Q254c：删掉 4 个冗余 edges 索引（实测证据见 field_trace §100）：
 --   idx_edges_source / idx_edges_source_kind → UNIQUE(source_ref,target_ref,kind)
@@ -64,7 +69,7 @@ CREATE INDEX IF NOT EXISTS idx_edges_target_kind ON edges(target_ref, kind);
 -- 兼容视图（Q254c）：冷路径查询继续按 canonical ID 读，无需改 SQL；
 -- 热路径（邻接/路径/value-trace）直接走 edges 的整数列。
 CREATE VIEW IF NOT EXISTS edges_v AS
-    SELECT e.id, e.source_ref, e.target_ref, e.kind, e.tool_source,
+    SELECT e.id, e.source_ref, e.target_ref, e.kind, e.edge_key, e.tool_source,
            e.confidence, e.metadata, e.count,
            s.id AS source_id, t.id AS target_id
     FROM edges e

@@ -185,6 +185,9 @@ func (ctx *fileCtx) emitSelectorCall(call *ast.CallExpr, callee *types.Func, sel
 			Kind:       domain.FactGrpcCall,
 			ToolSource: domain.ToolCodeGraph,
 			Confidence: 1.0,
+			// todo11-1：关系身份 = RPC 方法名（否则同函数调同服务的不同方法
+			// 会被 edges 唯一约束合并，ext-chain 无法逐方法续接）
+			Key: sel.Sel.Name,
 			Metadata: map[string]any{
 				"method":   sel.Sel.Name,
 				"req_type": reqType,
@@ -219,6 +222,7 @@ func (ctx *fileCtx) emitSelectorCall(call *ast.CallExpr, callee *types.Func, sel
 				Kind:       domain.FactGrpcCall,
 				ToolSource: domain.ToolCodeGraph,
 				Confidence: 1.0,
+				Key: parts[1],
 				Metadata: map[string]any{
 					"method":      parts[1],
 					"method_path": mp,

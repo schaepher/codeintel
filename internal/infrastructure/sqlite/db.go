@@ -164,7 +164,7 @@ func (db *DB) init() error {
 // 表）触发报错 clean，由清单与 DDL 不一致暴露。
 var schemaCols = map[string][]string{
 	"nodes":                  {"id_int", "id", "kind", "name", "file_path", "line_start", "line_end", "properties", "signature_text", "created_at"},
-	"edges":                  {"id", "source_ref", "target_ref", "kind", "tool_source", "confidence", "metadata"},
+	"edges":                  {"id", "source_ref", "target_ref", "kind", "edge_key", "tool_source", "confidence", "metadata"},
 	"build_metadata":         {"build_id", "commit_sha", "tool_name", "status", "duration_ms", "error_message", "nodes_count", "edges_count", "timestamp", "worktree_fingerprint"},
 	"function_field_summary": {"function_id", "access_kind", "field_path", "instance_path", "line_start", "code_snippet"},
 	"summary_origins":        {"function_id", "access_kind", "field_path", "call_line", "callee_id"},
@@ -209,6 +209,10 @@ func (db *DB) verifySchema() error {
 				if tbl == "edges" && (c == "source_ref" || c == "target_ref") {
 					hint = "；Q254 Stage 2：edges 已改用整数代理键（真实库实测可省数 GB），" +
 						"旧库需重建（派生数据，重建即迁移）"
+				}
+				if tbl == "edges" && c == "edge_key" {
+					hint = "；todo11-1：grpc_call 需要按 RPC 方法区分身份（edge_key），" +
+						"旧库的方法元数据已丢失、无法还原——必须 reindex 重建（保留 relation_rules/qa_history）"
 				}
 				return fmt.Errorf("schema mismatch: %s 缺列 %q（列变更无法自动迁移）%s; run 'codeintel reindex --repo <path>' to rebuild derived tables (keeps relation_rules/qa_history)", tbl, c, hint)
 			}

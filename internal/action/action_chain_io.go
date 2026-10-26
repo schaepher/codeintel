@@ -105,10 +105,15 @@ func chainGrpcHTTP(a *Actions, symbol string) ChainIOOut {
 				if i := strings.LastIndex(svc, ":"); i >= 0 {
 					svc = strings.TrimPrefix(svc[i+1:], "svc.")
 				}
-				// todo10-4：带上 RPC 方法名（AST 发射时写 metadata.method）——
-				// ext-chain 靠它精确续接到同名服务端方法
+				// todo10-4/11-1：RPC 方法名来自**关系身份** edge_key（旧的
+				// metadata.method 作回退）；同一服务不同方法现在是不同的边，
+				// ext-chain 才能逐方法精确续接
+				method := f.Key
+				if method == "" {
+					method = metaStr(f.Metadata, "method")
+				}
 				out.Grpc = append(out.Grpc, ChainCallOut{Service: svc, CalledBy: by,
-					Method: metaStr(f.Metadata, "method"), Line: metaLine(f.Metadata)})
+					Method: method, Line: metaLine(f.Metadata)})
 			}
 		}
 	}

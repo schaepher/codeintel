@@ -5376,3 +5376,33 @@ exit 2，早于 `filepath.Abs`/`Open`；合法值经 `initArgs` 追加规范化�
   被调出站/JSON 契约）。
 - 夹具补充：`partial_write` 加 `Ledger.State` 写入（表列映射素材）与
   `CommitSwallow`（错误被覆盖 → 返回 nil 的可疑形态）。
+
+## §? todo11：关系身份 / 路径级副作用 / 异步因果 / 场景值流（2026-10-25）
+
+用户交付 4 项（todo11），按访谈顺序 **1 → 4 → 3 → 2** 实施（先修数据身份，
+后续三项都依赖逐方法/逐路径的准确输入）。
+
+### 1. 同一调用方的不同 RPC 方法不再合并（P0）
+
+根因：`grpc_call` 边以**服务节点**为目标（`symbol:go:<pkg>:svc.<Svc>`），而
+`edges UNIQUE(source_ref,target_ref,kind)`——同一函数调同一服务的 Submit 与
+Cancel 落到同一身份，后写者覆盖 metadata，方法只剩一份。
+
+- **做法**：edges 增加 `edge_key TEXT NOT NULL DEFAULT ''`，唯一键改为
+  `UNIQUE(source_ref, target_ref, kind, edge_key)`；`grpc_call` 的 `edge_key`
+  = RPC 方法名（服务节点与所有服务级查询不变）。`domain.Fact` 增 `Key`
+  （`json:"key"`）——只在需要关系身份的读取路径上带出（`GetFactsByKinds`
+  走新的 `scanFactsKeyed`，8 列含 count），避免给全部热路径加列。
+- **消费者**：`chainGrpcHTTP` 的 `Method` 改从 `Fact.Key` 取（`metadata.method`
+  留作旧库回退）；ext-chain 因此天然逐方法续接；`external-interfaces` 等按
+  metadata 分组的消费方也随每条边独立而正确。
+- **重建契约**：`verifySchema` 期望列加 `edge_key` → 旧库打开即报错，提示
+  "grpc_call 需要按 RPC 方法区分身份（edge_key），旧库的方法元数据已丢失、
+  **无法还原**——必须 reindex（保留 relation_rules/qa_history）"。
+- **缓存/增量**：AST 改发射后 `ast.SourceHash()` 变化 → `analyzerVersionHash`
+  变化 → 包缓存失效 + 增量走全量（Q181 既有机制，无需另加版本号）。
+- 测试：`repo_edge_key_test.go`（两方法各自一条边、同身份重复写入只累加
+  count、旧库缺列报错并给 reindex+无法还原提示）、
+  `adapter_grpc_edgekey_test.go`（源码 → 两条边 Key=Submit/Cancel）、
+  `action_ext_chain_identity_test.go`（同调用方两方法各自续接到对应实现，
+  Submit 只挂 sms、Cancel 只挂 mail）。

@@ -1,8 +1,6 @@
 package sqlite
 
 import (
-	"database/sql"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -59,27 +57,6 @@ SELECT DISTINCT src, tgt, kind, tool_source, confidence, metadata FROM walk`,
 	}
 	defer rows.Close()
 	return scanFacts(rows)
-}
-func scanFacts(rows *sql.Rows) ([]*domain.Fact, error) {
-	logger := zap.L()
-	logger.Debug("enter scanFacts")
-	defer logger.Debug("exit scanFacts")
-	var out []*domain.Fact
-	for rows.Next() {
-		f := &domain.Fact{}
-		var meta string
-		if err := rows.Scan(&f.SourceID, &f.TargetID, &f.Kind, &f.ToolSource, &f.Confidence, &meta); err != nil {
-			return nil, err
-		}
-		if meta != "" {
-			var m map[string]any
-			if err := json.Unmarshal([]byte(meta), &m); err == nil {
-				f.Metadata = m
-			}
-		}
-		out = append(out, f)
-	}
-	return out, rows.Err()
 }
 
 // GetImpact 计算变更影响范围：从 id 出发沿任意方向遍历，深度 ≤ depth（TD.md 决策 10）。

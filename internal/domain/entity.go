@@ -151,6 +151,10 @@ type Fact struct {
 	ToolSource ToolSource     `json:"tool_source,omitempty"`
 	Confidence float64        `json:"confidence"` // 0.0~1.0
 	Metadata   map[string]any `json:"metadata,omitempty"`
+	// Key 关系身份（todo11-1）：同 (source,target,kind) 下需要区分的子身份，
+	// 如 grpc_call 的 RPC 方法名——没有它，同一函数对同一服务的不同方法
+	// 会被 UNIQUE 合并成一条边、方法元数据只剩一份。
+	Key string `json:"key,omitempty"`
 	// Count R69：同义边调用次数（edges.count——UNIQUE(source,target,kind)
 	// 合并时累加；实体聚合/热度/包矩阵的真实次数来源）
 	Count int `json:"count,omitempty"`
