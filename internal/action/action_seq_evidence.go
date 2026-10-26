@@ -64,8 +64,9 @@ type SeqEvidence struct {
 
 // SeqDiagCount 诊断聚合项（根节点 meta 用）。
 type SeqDiagCount struct {
-	Code  string `json:"code"`
-	Count int    `json:"count"`
+	Code   string `json:"code"`
+	Count  int    `json:"count"`
+	Detail string `json:"detail,omitempty"` // 可操作细节（预算/失败原因/截断范围）
 }
 
 // SeqDiagError 查询级失败（无法产出树）——调用方据此给出可操作提示，

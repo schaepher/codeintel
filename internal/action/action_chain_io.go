@@ -51,23 +51,30 @@ func (a *Actions) ChainGrpcHTTP(req ChainGrpcHTTPRequest) (*ChainIOOut, error) {
 // 递归查询的核心——结果缓存数据库，后续优先查；索引 commit 变化
 // 自动失效）。
 func (a *Actions) chainGrpcHTTPCached(symbol string) ChainIOOut {
+	out, _ := a.chainGrpcHTTPCachedDiag(symbol)
+	return out
+}
+
+// chainGrpcHTTPCachedDiag 同 chainGrpcHTTPCached，但把读取失败作为诊断返回
+// （todo12-2：读取失败 ≠ 合法无下游；失败结果不写缓存）。
+func (a *Actions) chainGrpcHTTPCachedDiag(symbol string) (ChainIOOut, []SeqDiagCount) {
 	_ = a.repo.EnsureExtChainCache()
 	sha := currentBuildSHA(a)
 	if sha != "" {
 		if result, ok := a.repo.ExtChainCacheGet(symbol, sha); ok {
 			var cached ChainIOOut
 			if err := json.Unmarshal([]byte(result), &cached); err == nil {
-				return cached
+				return cached, nil
 			}
 		}
 	}
-	out := chainGrpcHTTP(a, symbol)
-	if sha != "" {
+	out, diags := chainGrpcHTTPDiag(a, symbol)
+	if len(diags) == 0 && sha != "" {
 		if b, err := json.Marshal(out); err == nil {
 			_ = a.repo.ExtChainCacheSet(symbol, sha, string(b))
 		}
 	}
-	return out
+	return out, diags
 }
 
 // currentBuildSHA 当前索引 commit（缓存失效键——索引变化自动失效）。
@@ -79,13 +86,20 @@ func currentBuildSHA(a *Actions) string {
 	return meta.CommitSHA
 }
 
-// chainGrpcHTTP 收集调用链的 grpc/http 出站调用（一次全量扫描——
-// 链符号 BFS + 出站边过滤，避免逐符号查询）。
+// chainGrpcHTTP 收集调用链的 grpc/http 出站调用（一次全量扫描）。
 func chainGrpcHTTP(a *Actions, symbol string) ChainIOOut {
+	out, _ := chainGrpcHTTPDiag(a, symbol)
+	return out
+}
+
+// chainGrpcHTTPDiag 同 chainGrpcHTTP，另返回读取失败诊断（todo12-2）。
+func chainGrpcHTTPDiag(a *Actions, symbol string) (ChainIOOut, []SeqDiagCount) {
 	out := ChainIOOut{Symbol: symbol, Grpc: []ChainCallOut{}, HTTP: []ChainCallOut{}}
+	var diags []SeqDiagCount
 	n, err := a.ResolveSymbol(symbol)
 	if err != nil {
-		return out
+		return out, []SeqDiagCount{{Code: ExtStopQueryFailed, Count: 1,
+			Detail: "符号读取失败（" + symbol + "）：" + err.Error()}}
 	}
 	svcs := grpcSvcNames(a)
 	seen := chainSymbols(a, string(n.ID))
@@ -116,6 +130,9 @@ func chainGrpcHTTP(a *Actions, symbol string) ChainIOOut {
 					Method: method, Line: metaLine(f.Metadata)})
 			}
 		}
+	} else {
+		diags = append(diags, SeqDiagCount{Code: ExtStopQueryFailed, Count: 1,
+			Detail: "读取 grpc/http 出站边失败：" + err.Error()})
 	}
 	// calls 边里的 grpc 客户端类型调用（构造/方法）——弱信号：同调用方已有
 	// grpc_call 边（带 RPC 方法名）时跳过（todo10-4：避免同一次调用重复计入，
@@ -137,6 +154,9 @@ func chainGrpcHTTP(a *Actions, symbol string) ChainIOOut {
 				out.Grpc = append(out.Grpc, ChainCallOut{Service: svc, CalledBy: shortNameOf(src), Line: metaLine(f.Metadata)})
 			}
 		}
+	} else {
+		diags = append(diags, SeqDiagCount{Code: ExtStopQueryFailed, Count: 1,
+			Detail: "读取 calls 边失败：" + err.Error()})
 	}
 	sortOut := func(xs []ChainCallOut) {
 		sort.Slice(xs, func(i, j int) bool {
@@ -148,7 +168,7 @@ func chainGrpcHTTP(a *Actions, symbol string) ChainIOOut {
 	}
 	sortOut(out.Grpc)
 	sortOut(out.HTTP)
-	return out
+	return out, diags
 }
 
 // chainSymbols 递归收集调用链符号（BFS——一次加载全部 calls/grpc_call

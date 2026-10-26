@@ -30,6 +30,10 @@ type ExtChainGrpc struct {
 	TargetRepo   string `json:"target_repo,omitempty"`
 	MatchReason  string `json:"match_reason,omitempty"` // proto-name|go-method
 	Stop         *SeqStop `json:"stop,omitempty"`      // 未续接原因（诊断）
+	// todo12-2：目标读取/候选仓库探测失败——已匹配目标但查询失败不能
+	// 静默变成“无下游”（partial 与“合法无下游”分开表示）
+	Partial     bool           `json:"partial,omitempty"`
+	Diagnostics []SeqDiagCount `json:"diagnostics,omitempty"`
 }
 
 // ExtChainNode 调用链节点（递归树）。
@@ -38,6 +42,9 @@ type ExtChainNode struct {
 	Repo   string         `json:"repo,omitempty"` // 该节点所在仓库（todo10-4 跨仓可见）
 	Grpc   []ExtChainGrpc `json:"grpc,omitempty"`
 	HTTP   []ChainCallOut `json:"http,omitempty"`
+	// todo12-2：本节点查询不完整（读取失败/预算/候选探测失败）
+	Partial     bool           `json:"partial,omitempty"`
+	Diagnostics []SeqDiagCount `json:"diagnostics,omitempty"`
 }
 
 // ExtChainRepoOpener 打开目标仓库的查询视图（cli 注入——action 不依赖
@@ -58,6 +65,7 @@ const (
 	ExtStopRepoMissing    = "repo_unavailable" // 没有任何仓库实现该服务
 	ExtStopDepth          = "depth"            // 深度上限
 	ExtStopCycle          = "cycle"            // 同一服务方法重复出现
+	ExtStopQueryFailed    = "query_failed"     // 目标读取失败（索引/DB）——不是“无下游”
 )
 
 // ExtChain 递归构建外部系统调用链（服务方法 visited 防环；深度上限 6）。
@@ -79,7 +87,11 @@ func (a *Actions) extChain(req ExtChainRequest, acts *Actions, repoAbs string, v
 		})
 		return node
 	}
-	io := acts.chainGrpcHTTPCached(req.Symbol)
+	io, diags := acts.chainGrpcHTTPCachedDiag(req.Symbol)
+	if len(diags) > 0 {
+		node.Partial = true
+		node.Diagnostics = append(node.Diagnostics, diags...)
+	}
 	for _, g := range io.Grpc {
 		eg := ExtChainGrpc{ChainCallOut: g, SourceMethod: req.Symbol}
 		if g.Method == "" {
@@ -96,8 +108,24 @@ func (a *Actions) extChain(req ExtChainRequest, acts *Actions, repoAbs string, v
 			continue
 		}
 		eg.TargetMethod, eg.TargetRepo, eg.MatchReason = target.methodID, target.repo, target.reason
+		if len(target.diags) > 0 {
+			eg.Partial = true
+			eg.Diagnostics = append(eg.Diagnostics, target.diags...)
+		}
+		// todo12-2：目标查询视图的所有权保留到本次递归结束（此前在
+		// resolveRemoteMethod 里 defer 关闭 → 递归时 DB 已关，server
+		// 链静默为空——正是“匹配到目标但下游丢失”的根因）。
+		if stop := probeTarget(target); stop != nil {
+			eg.Stop = stop
+			eg.Partial = true
+			eg.Diagnostics = append(eg.Diagnostics, seqDiagOf(stop))
+			target.release()
+			node.Grpc = append(node.Grpc, eg)
+			continue
+		}
 		if visited[target.methodID] {
 			eg.Stop = &SeqStop{Code: ExtStopCycle, Detail: "服务方法重复出现（" + target.methodID + "）"}
+			target.release()
 			node.Grpc = append(node.Grpc, eg)
 			continue
 		}
@@ -106,13 +134,37 @@ func (a *Actions) extChain(req ExtChainRequest, acts *Actions, repoAbs string, v
 			ExtChainRequest{Symbol: target.methodID, RepoAbs: target.repo,
 				CandidateRepos: req.CandidateRepos, Open: req.Open},
 			target.acts, target.repo, visited, depth+1)
+		target.release()
 		if len(sub.Grpc) > 0 || len(sub.HTTP) > 0 {
 			eg.Server = append(eg.Server, sub)
+		}
+		if sub.Partial {
+			eg.Partial = true
 		}
 		node.Grpc = append(node.Grpc, eg)
 	}
 	node.HTTP = io.HTTP
 	return node
+}
+
+// probeTarget 目标方法在目标仓库视图里可读吗（读失败 ≠ 合法无下游）。
+func probeTarget(t *remoteTarget) *SeqStop {
+	if t == nil || t.acts == nil {
+		return &SeqStop{Code: ExtStopQueryFailed, Detail: "目标仓库查询视图不可用"}
+	}
+	if _, err := t.acts.ResolveSymbol(t.methodID); err != nil {
+		return &SeqStop{Code: ExtStopQueryFailed,
+			Detail: "目标方法读取失败（" + t.methodID + "）：" + err.Error()}
+	}
+	return nil
+}
+
+// seqDiagOf 把停止原因转成诊断计数（保留 detail，便于定位）。
+func seqDiagOf(st *SeqStop) SeqDiagCount {
+	if st == nil {
+		return SeqDiagCount{}
+	}
+	return SeqDiagCount{Code: st.Code, Count: 1, Detail: st.Detail}
 }
 
 // remoteTarget 跨仓续接目标：仓库 + 服务端方法入口 + 匹配依据。
@@ -121,6 +173,18 @@ type remoteTarget struct {
 	repo     string
 	methodID string
 	reason   string // proto-name | go-method
+	// todo12-2：目标查询视图的所有权——由调用方在递归结束后 release
+	closeFn func() error
+	diags   []SeqDiagCount // 候选探测/打开失败的诊断（目标可用但搜索不完整）
+}
+
+// release 关闭目标查询视图（幂等；不重复关闭）。
+func (t *remoteTarget) release() {
+	if t == nil || t.closeFn == nil {
+		return
+	}
+	_ = t.closeFn()
+	t.closeFn = nil
 }
 
 // resolveRemoteMethod 在"当前仓库 + 注册表候选仓库"里找该服务的**同名 RPC
@@ -128,12 +192,13 @@ type remoteTarget struct {
 // 该服务的方法清单，便于判断是没实现还是名字不同）。
 func resolveRemoteMethod(req ExtChainRequest, startActs *Actions, startRepo, svc, rpcMethod string) (*remoteTarget, *SeqStop) {
 	type repoView struct {
-		acts *Actions
-		repo string
+		acts    *Actions
+		repo    string
+		closeFn func() error
 	}
-	views := []repoView{{startActs, startRepo}}
+	views := []repoView{{startActs, startRepo, nil}}
 	searched := []string{startRepo}
-	var closes []func() error
+	var diags []SeqDiagCount
 	if req.Open != nil {
 		for _, p := range req.CandidateRepos {
 			if p == "" || p == startRepo {
@@ -142,26 +207,35 @@ func resolveRemoteMethod(req ExtChainRequest, startActs *Actions, startRepo, svc
 			acts, closeFn, err := req.Open(p)
 			if err != nil || acts == nil {
 				searched = append(searched, p+"（不可用）")
+				detail := p
+				if err != nil {
+					detail += "：" + err.Error()
+				}
+				diags = append(diags, SeqDiagCount{Code: ExtStopRepoMissing, Count: 1, Detail: "候选仓库打开失败（" + detail + "）"})
 				continue
 			}
-			if closeFn != nil {
-				closes = append(closes, closeFn)
-			}
-			views = append(views, repoView{acts, p})
+			views = append(views, repoView{acts, p, closeFn})
 			searched = append(searched, p)
 		}
 	}
+	// 未被选中的视图在此关闭；被选中的视图交给调用方（递归结束再关）。
+	selected := -1
 	defer func() {
-		for _, c := range closes {
-			_ = c()
+		for i, v := range views {
+			if i == selected || v.closeFn == nil {
+				continue
+			}
+			_ = v.closeFn()
 		}
 	}()
 
 	serviceSeen, implFound := false, false
 	var available []string
-	for _, v := range views {
+	for vi, v := range views {
 		res, err := v.acts.GrpcRoutes(v.repo)
 		if err != nil {
+			diags = append(diags, SeqDiagCount{Code: ExtStopQueryFailed, Count: 1,
+				Detail: "读取仓库路由失败（" + v.repo + "）：" + err.Error()})
 			continue
 		}
 		for _, s := range res.Services {
@@ -189,8 +263,10 @@ func resolveRemoteMethod(req ExtChainRequest, startActs *Actions, startRepo, svc
 				if reason == "" {
 					continue
 				}
+				selected = vi
 				return &remoteTarget{acts: v.acts, repo: v.repo,
-					methodID: GrpcMethodEntryID(s.ImplID, goName), reason: reason}, nil
+					methodID: GrpcMethodEntryID(s.ImplID, goName), reason: reason,
+					closeFn: v.closeFn, diags: diags}, nil
 			}
 		}
 	}
