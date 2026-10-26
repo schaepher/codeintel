@@ -178,15 +178,7 @@ func cmdWorkspaceInit(args []string) int {
 				failed++
 				continue
 			}
-			stamp := time.Now().UTC().Format(time.RFC3339)
-			if prev, ok, perr := r.FindRepo(wtDir); perr == nil && ok && prev.RegisteredAt != "" {
-				stamp = prev.RegisteredAt
-			}
-			if err := r.RegisterRepo(sqlite.RegistryRepo{
-				Path: wtDir, Module: rp.Module, GoModCount: rp.GoModCount,
-				IsWorktree: true, WorktreeOf: rp.Path, Workspace: wsDir,
-				HeadCommit: gitHead(wtDir), RegisteredAt: stamp,
-			}); err != nil {
+			if err := registerClaimedWorktree(r, wtDir, rp.Path, wsDir, rp.Module, rp.GoModCount); err != nil {
 				fmt.Printf("  失败 %s: 认领 worktree: %v\n", short, err)
 				failed++
 				continue

@@ -134,7 +134,9 @@ func seqEvidenceComment(from, to string, n *action.CodeSeqNode) string {
 	if id == "" {
 		id = "-"
 	}
-	return fmt.Sprintf("  %%%% evidence %s->%s @ %s id=%s verdict=%s\n", from, to, line, id, ev.Verdict)
+	return fmt.Sprintf("  %%%% evidence %s->%s @ %s id=%s verdict=%s\n",
+		seqCommentText(from), seqCommentText(to), seqCommentText(line),
+		seqCommentText(id), seqCommentText(ev.Verdict))
 }
 
 // seqEvidenceText 证据清单（--evidence：逐箭头核验来源——档案式输出）。

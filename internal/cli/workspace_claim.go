@@ -15,6 +15,40 @@ func isGitMainRepo(path string) bool {
 	return err == nil && fi.IsDir()
 }
 
+// registerClaimedWorktree 认领既有 worktree：保留实际构建元数据（todo19-7）。
+// 已构建且 HEAD 未变 → 仍为已构建；HEAD 已变 → 保留构建时 HeadCommit（list
+// 判为过期）；未构建 → 仍为空。不伪造新 HEAD 的成功构建。
+func registerClaimedWorktree(r *sqlite.Registry, wtDir, main, ws string, module string, gmc int) error {
+	stamp := time.Now().UTC().Format(time.RFC3339)
+	head := gitHead(wtDir)
+	buildID, lastBuilt := "", ""
+	if prev, ok, perr := r.FindRepo(wtDir); perr == nil && ok {
+		if prev.RegisteredAt != "" {
+			stamp = prev.RegisteredAt
+		}
+		if prev.Module != "" {
+			module = prev.Module
+		}
+		if prev.GoModCount > 0 {
+			gmc = prev.GoModCount
+		}
+		if prev.BuildID != "" {
+			buildID, lastBuilt = prev.BuildID, prev.LastBuiltAt
+			if prev.HeadCommit != "" {
+				head = prev.HeadCommit // 实际构建对应的 HEAD（不是当前工作区 HEAD）
+			}
+		} else if prev.HeadCommit != "" {
+			head = prev.HeadCommit
+		}
+	}
+	return r.RegisterRepo(sqlite.RegistryRepo{
+		Path: wtDir, Module: module, GoModCount: gmc,
+		IsWorktree: true, WorktreeOf: main, Workspace: ws,
+		HeadCommit: head, BuildID: buildID, LastBuiltAt: lastBuilt,
+		RegisteredAt: stamp,
+	})
+}
+
 // claimExistingWorktrees 认领 wsDir 下已存在、且 git worktree 元数据
 // （.git 文件里的 gitdir → 主仓库）证明属于 main 的 worktree。
 //
@@ -40,15 +74,7 @@ func claimExistingWorktrees(r *sqlite.Registry, wsDir, main string) (claimed, fa
 		if repo, err := buildRepo(wtDir); err == nil && repo != nil {
 			gmc = len(repo.Modules)
 		}
-		stamp := time.Now().UTC().Format(time.RFC3339)
-		if prev, ok, perr := r.FindRepo(wtDir); perr == nil && ok && prev.RegisteredAt != "" {
-			stamp = prev.RegisteredAt
-		}
-		if err := r.RegisterRepo(sqlite.RegistryRepo{
-			Path: wtDir, Module: module, GoModCount: gmc,
-			IsWorktree: true, WorktreeOf: main, Workspace: wsDir,
-			HeadCommit: gitHead(wtDir), RegisteredAt: stamp,
-		}); err != nil {
+		if err := registerClaimedWorktree(r, wtDir, main, wsDir, module, gmc); err != nil {
 			fmt.Printf("  失败 %s: 认领 worktree: %v\n", e.Name(), err)
 			failed++
 			continue

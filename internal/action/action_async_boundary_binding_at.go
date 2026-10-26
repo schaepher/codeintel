@@ -1,5 +1,7 @@
 package action
 
+// todo18/19-6：按调用位置解析实例与绑定（顺序/分支/别名实例身份）。
+
 import (
 	"go/ast"
 	"go/token"
@@ -27,92 +29,144 @@ func bindingText(b bindingInfo) string {
 	return txt
 }
 
-// resolveBindingAt 调用位置（token.Pos）的绑定：最新实例定义 + 调用前
-// 配置覆盖。初始化快照不能直接作为调用时身份依据（todo18-6）。
-func resolveBindingAt(pf *parsedFunc, varName string, at token.Pos) bindingInfo {
-	if varName == "" {
-		return bindingInfo{}
-	}
-	inst, line, pkgLevel, ok := latestInstance(pf, varName, at)
-	if !ok {
-		return bindingInfo{id: "unknown:" + varName, callLine: pf.fset.Position(at).Line}
-	}
-	b := bindingFromExpr(pf, inst, line, pkgLevel, varName, at, 0)
-	b.callLine = pf.fset.Position(at).Line
-	b.initialLine = line
-	if l := packageDeclLine(pf, varName); l > 0 {
-		b.initialLine = l
-	}
-	b.line = line
-	applyFieldModifications(pf, varName, at, &b)
-	return b
+// instanceRef 调用前的实例身份（id 用于区分旧别名捕获 vs 重赋值新实例）。
+type instanceRef struct {
+	id       string
+	expr     ast.Expr
+	line     int
+	pkgLevel bool
+	known    bool
+	condLine int // 调用前条件分支中的重赋值（值未知）
+	why      string
 }
 
-// packageDeclLine 包级变量声明行（局部重赋值不覆盖首次声明位置）。
-func packageDeclLine(pf *parsedFunc, name string) int {
-	line := 0
-	ast.Inspect(pf.parsed, func(n ast.Node) bool {
-		if line > 0 {
-			return false
+// instanceAt 调用位置 at 的当前实例（顺序：无条件最新 > 条件候选 > 包级）。
+func instanceAt(pf *parsedFunc, name string, at token.Pos) instanceRef {
+	var best *assignBinding
+	condLine := 0
+	for i := range declaredBindings(pf, name) {
+		b := &declaredBindings(pf, name)[i]
+		if b.rhs == nil || b.line == 0 {
+			continue
 		}
-		gd, ok := n.(*ast.GenDecl)
+		pos := b.pos
+		if pos == token.NoPos && b.stmt != nil {
+			pos = b.stmt.Pos()
+		}
+		if pos == token.NoPos || pos > at {
+			continue
+		}
+		if !blockContains(b.block, pf.fset, at) {
+			if b.line > condLine {
+				condLine = b.line
+			}
+			continue
+		}
+		if best == nil || pos > b.pos || (pos == b.pos && blockSize(pf, b.block) < blockSize(pf, best.block)) {
+			best = b
+		}
+	}
+	if best != nil && best.line >= condLine {
+		return instanceRefFromBinding(pf, name, best, at)
+	}
+	if condLine > 0 {
+		return instanceRef{known: false,
+			why: "调用前存在条件分支内重赋值（L" + itoaSeq(condLine) + "），调用时值未知",
+			condLine: condLine}
+	}
+	if expr, line, ok := packageDeclExpr(pf, name); ok {
+		return instanceRef{id: "pkg:" + pf.pkg + ":" + name + ":" + itoaSeq(line),
+			expr: expr, line: line, pkgLevel: true, known: true}
+	}
+	return instanceRef{}
+}
+
+// instanceRefFromBinding 局部赋值 → 实例身份（别名递归到捕获的实例）。
+func instanceRefFromBinding(pf *parsedFunc, name string, b *assignBinding, at token.Pos) instanceRef {
+	e := unwrapAddr(b.rhs)
+	if id, ok := e.(*ast.Ident); ok {
+		inner := instanceAt(pf, id.Name, b.pos)
+		if inner.known {
+			return inner
+		}
+	}
+	return instanceRef{id: "local:" + pf.id + ":" + name + ":" + itoaSeq(b.line),
+		expr: b.rhs, line: b.line, known: true}
+}
+
+// instanceIDAt 表达式在 pos 时指向的实例 id（别名/&/直接变量）。
+func instanceIDAt(pf *parsedFunc, e ast.Expr, pos token.Pos) string {
+	e = unwrapAddr(e)
+	id, ok := e.(*ast.Ident)
+	if !ok {
+		return ""
+	}
+	r := instanceAt(pf, id.Name, pos)
+	if !r.known {
+		return ""
+	}
+	return r.id
+}
+
+// packageDeclExpr 包级变量初始化表达式（不看函数内重赋值）。
+func packageDeclExpr(pf *parsedFunc, name string) (ast.Expr, int, bool) {
+	for _, d := range pf.parsed.Decls {
+		gd, ok := d.(*ast.GenDecl)
 		if !ok {
-			return true
+			continue
 		}
 		for _, sp := range gd.Specs {
 			vs, ok := sp.(*ast.ValueSpec)
 			if !ok {
 				continue
 			}
-			for _, id := range vs.Names {
-				if id.Name == name {
-					line = pf.fset.Position(gd.Pos()).Line
-					return false
+			for i, id := range vs.Names {
+				if id.Name == name && len(vs.Values) == len(vs.Names) {
+					return vs.Values[i], pf.fset.Position(gd.Pos()).Line, true
 				}
 			}
 		}
-		return true
-	})
+	}
+	return nil, 0, false
+}
+
+// packageDeclLine 包级变量声明行（局部重赋值不覆盖首次声明位置）。
+func packageDeclLine(pf *parsedFunc, name string) int {
+	_, line, _ := packageDeclExpr(pf, name)
 	return line
 }
 
-// latestInstance 调用前最新的实例定义（局部重赋值优先；否则包级初始化）。
-func latestInstance(pf *parsedFunc, varName string, at token.Pos) (ast.Expr, int, bool, bool) {
-	var best *assignBinding
-	bs := declaredBindings(pf, varName)
-	for i := range bs {
-		b := &bs[i]
-		if b.rhs == nil || b.line == 0 {
-			continue
-		}
-		pos := b.pos
-		if pos == token.NoPos {
-			pos = b.stmt.Pos()
-		}
-		if pos > at || !blockContains(b.block, pf.fset, at) {
-			continue
-		}
-		if best == nil || pos > best.pos || (pos == best.pos && blockSize(pf, b.block) < blockSize(pf, best.block)) {
-			best = b
-		}
+// resolveBindingAt 调用位置的绑定：当前实例 + 调用前配置覆盖。
+func resolveBindingAt(pf *parsedFunc, varName string, at token.Pos) bindingInfo {
+	if varName == "" {
+		return bindingInfo{}
 	}
-	if best != nil {
-		return best.rhs, best.line, false, true
+	inst := instanceAt(pf, varName, at)
+	callLine := pf.fset.Position(at).Line
+	if !inst.known {
+		return bindingInfo{id: "unknown:" + varName, callLine: callLine,
+			unknownWhy: inst.why}
 	}
-	if expr, line, pkgLevel := declInit(pf, varName); expr != nil {
-		return expr, line, pkgLevel, true
+	b := bindingFromExpr(pf, inst.expr, inst.line, inst.pkgLevel, varName, at, 0)
+	b.callLine = callLine
+	b.initialLine = inst.line
+	if l := packageDeclLine(pf, varName); l > 0 {
+		b.initialLine = l
 	}
-	return nil, 0, false, false
+	b.line = inst.line
+	if b.id == "" {
+		b.id = inst.id
+	}
+	applyFieldModifications(pf, varName, inst.id, at, &b)
+	return b
 }
+
 func bindingFromExpr(pf *parsedFunc, expr ast.Expr, line int, pkgLevel bool, varName string, at token.Pos, depth int) bindingInfo {
 	if depth > 4 {
 		return bindingInfo{line: line, initialLine: line, unknownWhy: "别名链过深"}
 	}
 	e := unwrapAddr(expr)
 	if id, isID := e.(*ast.Ident); isID {
-		if id.Name == varName {
-			return bindingInfo{id: "self:" + varName, line: line, initialLine: line}
-		}
 		inner := resolveBindingAt(pf, id.Name, at)
 		if inner.initialLine == 0 {
 			inner.initialLine = line
@@ -132,8 +186,8 @@ func bindingFromExpr(pf *parsedFunc, expr ast.Expr, line int, pkgLevel bool, var
 	return b
 }
 
-// applyFieldModifications 调用前的接收者字段覆盖 / 别名修改 / 未知调用。
-func applyFieldModifications(pf *parsedFunc, varName string, at token.Pos, b *bindingInfo) {
+// applyFieldModifications 只应用**当前实例 id** 上的覆盖（旧别名修改不算）。
+func applyFieldModifications(pf *parsedFunc, varName, currentID string, at token.Pos, b *bindingInfo) {
 	fields := map[string]string{}
 	explicit := b.explicit
 	if b.sig != "" && b.sig != "{}" {
@@ -146,11 +200,7 @@ func applyFieldModifications(pf *parsedFunc, varName string, at token.Pos, b *bi
 	unknown := ""
 	ast.Inspect(pf.decl.Body, func(n ast.Node) bool {
 		as, ok := n.(*ast.AssignStmt)
-		if !ok {
-			return true
-		}
-		pos := as.Pos()
-		if pos >= at {
+		if !ok || as.Pos() >= at {
 			return true
 		}
 		for i, lhs := range as.Lhs {
@@ -158,12 +208,11 @@ func applyFieldModifications(pf *parsedFunc, varName string, at token.Pos, b *bi
 			if !ok {
 				continue
 			}
-			root, _, _ := resolveInstanceRoot(pf, sel.X, pos, 0)
-			if root != varName {
-				continue
+			if instanceIDAt(pf, sel.X, as.Pos()) != currentID {
+				continue // 别名指向旧实例/其他实例：不影响当前绑定
 			}
-			line := pf.fset.Position(pos).Line
-			conditional := !blockContains(blockContaining(pf.decl.Body, pf.fset, pos), pf.fset, at)
+			line := pf.fset.Position(as.Pos()).Line
+			conditional := !blockContains(blockContaining(pf.decl.Body, pf.fset, as.Pos()), pf.fset, at)
 			var val *ast.BasicLit
 			if len(as.Rhs) == len(as.Lhs) {
 				val, _ = as.Rhs[i].(*ast.BasicLit)
@@ -182,7 +231,7 @@ func applyFieldModifications(pf *parsedFunc, varName string, at token.Pos, b *bi
 		}
 		return true
 	})
-
+	// 调用前把当前实例传给未解析函数，或对其调用方法（Configure）→ 未知
 	ast.Inspect(pf.decl.Body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok || call.Pos() >= at {
@@ -192,10 +241,15 @@ func applyFieldModifications(pf *parsedFunc, varName string, at token.Pos, b *bi
 		if sel != nil && (asyncProducerCalls[toLowerASCII(sel.Sel.Name)] || asyncConsumerCalls[toLowerASCII(sel.Sel.Name)]) {
 			return true
 		}
+		if sel != nil && instanceIDAt(pf, sel.X, call.Pos()) == currentID {
+			unknown = "调用前对接收者调用方法 " + sel.Sel.Name + "（L" +
+				itoaSeq(pf.fset.Position(call.Pos()).Line) + "），配置可能被修改"
+			return true
+		}
 		for _, arg := range call.Args {
-			root, _, _ := resolveInstanceRoot(pf, arg, call.Pos(), 0)
-			if root == varName {
-				unknown = "调用前存在未解析的接收者/别名传递（L" + itoaSeq(pf.fset.Position(call.Pos()).Line) + "）"
+			if instanceIDAt(pf, arg, call.Pos()) == currentID {
+				unknown = "调用前存在未解析的接收者/别名传递（L" +
+					itoaSeq(pf.fset.Position(call.Pos()).Line) + "）"
 				break
 			}
 		}

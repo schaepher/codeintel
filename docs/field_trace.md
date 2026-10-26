@@ -5640,3 +5640,14 @@ seed 展开集合）都被当作 corroborated——需求指出这三样都**不
   identity_partial），诊断定位初始化/覆盖/调用行；调用后修改不倒推。
 - 正例：未改写配置、同配置不同实例保持四跳 corroborated；实际 API canonical
   目标与 binding_source 保留。
+
+## §? todo19：调用时绑定矩阵 / workspace 构建元数据 / PlantUML 产物（2026-11-01）
+
+逐项证据见 [`todo19-checklist.md`](todo19-checklist.md)。
+
+- 绑定：调用后重赋值不倒推；条件分支重赋值 → unknown；别名按实例位置 id
+  区分旧实例/新实例；调用接收者方法（Configure）视为未知修改 → unverified。
+- workspace：认领保留 BuildID/LastBuiltAt/构建 HeadCommit；未构建仍空、
+  HEAD 变化仍过期；两个真实 worktree 的 ext-chain 认领前后均续接。
+- PlantUML：`%% diag/evidence` → `' ...` 且多行压平；真实 JAR 输出 PNG 魔数
+  + `.puml` sidecar + `-checkonly` 通过；PNG 失败写 `.puml` 文本回退、非零退出。

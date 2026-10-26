@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -140,8 +141,12 @@ func renderCodeSeq(root *action.CodeSeqNode, mermaid, jsonOut bool, diagram, out
 	if mermaid {
 		m := renderCodeSeqMermaid(root)
 		if diagram == "plantuml" {
-			if puml := mermaidSequenceToPlantuml(m); puml != "" {
-				if png, err := plantumlRenderFunc(puml); err == nil {
+			puml := mermaidSequenceToPlantuml(m)
+			var renderErr error
+			if puml != "" {
+				var png []byte
+				png, renderErr = plantumlRenderFunc(puml)
+				if renderErr == nil {
 					if out != "" {
 						if !writeOutFile(out, png) {
 							return 1, true
@@ -156,8 +161,31 @@ func renderCodeSeq(root *action.CodeSeqNode, mermaid, jsonOut bool, diagram, out
 					fmt.Println("data:image/png;base64," + base64.StdEncoding.EncodeToString(png))
 					return 0, false
 				}
+			} else {
+				renderErr = fmt.Errorf("PlantUML 转换结果为空")
 			}
-			// 转换/渲染失败 → 写文本（mermaid 原文）
+			// todo19-8：渲染失败必须明确；PNG 目标不得把文本写进 .png
+			if out != "" && strings.EqualFold(filepath.Ext(out), ".png") {
+				fallback, data := pumlSidecarPath(out), puml
+				if data == "" {
+					fallback = strings.TrimSuffix(out, filepath.Ext(out)) + ".mmd"
+					data = m
+				}
+				if !writeOutFile(fallback, []byte(data)) {
+					return 1, true
+				}
+				fmt.Fprintf(os.Stderr, "error: plantuml 渲染失败: %v；未生成 PNG，已写文本回退 %s\n", renderErr, fallback)
+				fmt.Printf("已写入 %s（文本回退，不是 PNG）\n", fallback)
+				return 1, true
+			}
+			if out != "" {
+				if !writeOutFile(out, []byte(m)) {
+					return 1, true
+				}
+				fmt.Fprintf(os.Stderr, "warning: plantuml 渲染失败: %v；已写 Mermaid 文本到 %s（不是图片）\n", renderErr, out)
+				return 0, true
+			}
+			fmt.Fprintf(os.Stderr, "warning: plantuml 渲染失败: %v；输出 Mermaid 文本\n", renderErr)
 		}
 		if out != "" {
 			if !writeOutFile(out, []byte(m)) {

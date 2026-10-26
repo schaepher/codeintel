@@ -80,6 +80,14 @@ func mermaidSequenceToPlantuml(m string) string {
 	partRe := regexp.MustCompile(`^participant (\S+) as (.+)$`)
 	for _, l := range strings.Split(body, "\n") {
 		t := strings.TrimSpace(l)
+		// todo19-8：Mermaid 注释（%% diag/evidence）→ PlantUML 注释（'）；
+		// 多行诊断必须压成单行，否则裸换行会成为图语法错误。
+		if strings.HasPrefix(t, "%%") {
+			comment := strings.TrimSpace(strings.TrimPrefix(t, "%%"))
+			comment = strings.NewReplacer("\r", " ", "\n", " ", "\t", " ").Replace(comment)
+			b.WriteString("' " + comment + "\n")
+			continue
+		}
 		if pm := partRe.FindStringSubmatch(t); pm != nil {
 			// label 可能已带引号（mermaid `as "名字"`）——去引号统一重包；
 			// <br/>（mermaid 参与者两行）→ 字面 \n（plantuml 换行——真实

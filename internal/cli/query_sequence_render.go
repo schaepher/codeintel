@@ -22,7 +22,7 @@ func renderCodeSeqMermaid(root *action.CodeSeqNode) string {
 	// todo12-13：完整性与投影诊断（mermaid 注释不渲染，但保留可审计行）
 	if root.Meta != nil {
 		for _, d := range root.Meta.Diagnostics {
-			b.WriteString(fmt.Sprintf("%%%% diag %s x%d %s\n", d.Code, d.Count, d.Detail))
+			b.WriteString(fmt.Sprintf("%%%% diag %s x%d %s\n", d.Code, d.Count, seqCommentText(d.Detail)))
 		}
 	}
 
@@ -49,6 +49,11 @@ func renderCodeSeqMermaid(root *action.CodeSeqNode) string {
 	}
 	writeSeqNode(&b, alias, root.Label, "", root.Nodes)
 	return b.String()
+}
+
+// seqCommentText 注释内容压成单行（换行/制表符会破坏 Mermaid/PlantUML 注释）。
+func seqCommentText(s string) string {
+	return strings.NewReplacer("\r", " ", "\n", " ", "\t", " ").Replace(s)
 }
 
 // collectTypes 收集参与者 → 短类型名（首个出现的调用节点为准）。
