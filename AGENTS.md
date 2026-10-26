@@ -477,6 +477,12 @@ go build -o codeintel ./cmd/codeintel
 #   codeintel ask "<问题>"                # 项目上下文问答（无参数进入 REPL 多轮追问）
 #   codeintel mcp --repo <path>           # stdio MCP server（30 个工具，输出 schema 自描述）
 #   codeintel list|workspace init         # 全局注册台账 / 按需创建 git worktree（Q238）
+#                                          # 恢复丢失归属：workspace init --dir <ws>
+#                                          #   --repo <main-a> --repo <main-b> --repo <main-c>
+#                                          #   （主仓无需先 init/索引，git worktree 元数据证明归属；
+#                                          #    list --workspace <ws> 核对）
+#   codeintel query ext-chain ... --all-repos # 默认按同一 workspace 限定跨仓候选；
+#                                          # --all-repos 显式扩展全部已注册仓库（Q? todo13-15）
 #   codeintel rule add|list|remove        # 表间关联人工规则（query relations 合并）
 #   codeintel precompute relations        # 全量 relations 预计算（serve 首次请求也自动兜底）
 #   codeintel export graph --type <类型>   # mermaid/dot 导出（callees/value-trace/lifecycle/modules）

@@ -21,11 +21,12 @@ import (
 // cmdExtChain 实现 `query ext-chain <符号> [--json]`。
 // todo10-4：跨仓续接——候选仓库来自全局注册表（已索引仓库），
 // 目标仓库按需打开（只读视图）。
-func cmdExtChain(acts *action.Actions, repoAbs, symbol string, jsonOut bool) int {
+func cmdExtChain(acts *action.Actions, repoAbs, symbol string, jsonOut, allRepos bool) int {
+	cands, scope, reason := extChainCandidateRepos(repoAbs, allRepos)
 	root, err := acts.ExtChain(action.ExtChainRequest{
 		Symbol: symbol, RepoAbs: repoAbs,
-		CandidateRepos: extChainCandidateRepos(repoAbs),
-		Open:           openRepoActions,
+		CandidateRepos: cands, Scope: scope, ScopeReason: reason,
+		Open: openRepoActions,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -40,6 +41,12 @@ func cmdExtChain(acts *action.Actions, repoAbs, symbol string, jsonOut bool) int
 		return 0
 	}
 	fmt.Printf("== %s 外部系统调用链 ==\n", symbol)
+	if root.Scope != "" {
+		fmt.Printf("候选范围：%s（%s，%d 个候选）\n", root.Scope, root.ScopeReason, len(root.CandidateRepos))
+		for _, p := range root.CandidateRepos {
+			fmt.Printf("  · %s\n", p)
+		}
+	}
 	writeExtChain(root, 0, repoAbs)
 	return 0
 }
@@ -93,24 +100,46 @@ func writeExtChain(n *action.ExtChainNode, depth int, rootRepo string) {
 
 // extChainCandidateRepos 其它已注册且已构建的仓库（跨仓续接候选；起始仓库
 // 由 action 优先查，这里排除）。
-func extChainCandidateRepos(self string) []string {
+//
+// todo13-15：默认按**同一 workspace** 限定候选（当前仓库的 workspace 归属
+// 来自注册表）；范围外仓库（主仓/其他 workspace）不参与，避免旧索引污染。
+// allRepos=true（--all-repos）显式扩展为全部已注册仓库。
+func extChainCandidateRepos(self string, allRepos bool) (out []string, scope, reason string) {
 	r := openGlobalRegistry()
 	if r == nil {
-		return nil
+		return nil, "repo-only", "全局注册表不可用（只看起始仓库）"
 	}
 	defer r.Close()
 	repos, err := r.ListRepos()
 	if err != nil {
-		return nil
+		return nil, "repo-only", "注册表读取失败（只看起始仓库）"
 	}
-	var out []string
+	ws := ""
 	for _, rp := range repos {
-		if rp.Path == "" || rp.Path == self || rp.BuildID == "" {
+		if rp.Path == self && rp.Workspace != "" {
+			ws = rp.Workspace
+			break
+		}
+	}
+	if allRepos || ws == "" {
+		for _, rp := range repos {
+			if rp.Path == "" || rp.Path == self || rp.BuildID == "" {
+				continue
+			}
+			out = append(out, rp.Path)
+		}
+		if allRepos {
+			return out, "all-registered", "显式 --all-repos：全部已注册仓库"
+		}
+		return out, "registered", "当前仓库无 workspace 归属：全部已注册仓库"
+	}
+	for _, rp := range repos {
+		if rp.Path == "" || rp.Path == self || rp.BuildID == "" || rp.Workspace != ws {
 			continue
 		}
 		out = append(out, rp.Path)
 	}
-	return out
+	return out, "workspace:" + ws, "默认限定同一 workspace（--all-repos 可显式扩展）"
 }
 
 // openRepoActions 打开目标仓库的查询视图（跨仓续接用；调用方负责关闭）。

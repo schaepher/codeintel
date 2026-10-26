@@ -134,7 +134,7 @@ func cmdQuery(args []string) int {
 			return 2
 		}
 		if sub == "ext-chain" {
-			return cmdExtChain(acts, abs, f.positional[0], f.json)
+			return cmdExtChain(acts, abs, f.positional[0], f.json, f.allRepos)
 		}
 		return cmdChainGrpcHTTP(acts, f.positional[0], sub, f.json)
 	}

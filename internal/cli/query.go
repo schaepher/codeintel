@@ -28,6 +28,7 @@ type queryFlags struct {
 	since            string   // unused 的 --since <ref>（git diff 区间）
 	failOn           string   // unused 的 --fail-on unused|isolated（CI 退出码）
 	all              bool     // relations --all：全库关联聚合（Q160）
+	allRepos         bool     // todo13-15：ext-chain --all-repos——显式扩展候选范围
 	minConf          float64  // value-trace --min-conf：候选边置信度剪枝（Q161）
 	minConfSet       bool     // --min-conf 显式设置（Q163 默认 1.0）
 	includeContainer bool     // value-trace --include-container：父容器扩展（Q163）

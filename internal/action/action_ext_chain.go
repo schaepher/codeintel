@@ -41,6 +41,10 @@ type ExtChainGrpc struct {
 type ExtChainNode struct {
 	Symbol string         `json:"symbol"`
 	Repo   string         `json:"repo,omitempty"` // 该节点所在仓库（todo10-4 跨仓可见）
+	// todo13-15：候选范围与依据（workspace 限定时不含范围外仓库）
+	Scope          string   `json:"scope,omitempty"`
+	ScopeReason    string   `json:"scope_reason,omitempty"`
+	CandidateRepos []string `json:"candidate_repos,omitempty"`
 	Grpc   []ExtChainGrpc `json:"grpc,omitempty"`
 	HTTP   []ChainCallOut `json:"http,omitempty"`
 	// todo12-2：本节点查询不完整（读取失败/预算/候选探测失败）
@@ -56,8 +60,11 @@ type ExtChainRepoOpener func(repoPath string) (*Actions, func() error, error)
 type ExtChainRequest struct {
 	Symbol         string
 	RepoAbs        string             // 起始仓库绝对路径
-	CandidateRepos []string           // 其它已注册仓库（cli 从注册表提供）
+	CandidateRepos []string           // 其它已注册仓库（cli 按 workspace 范围提供）
 	Open           ExtChainRepoOpener // 打开候选仓库（nil = 只看起始仓库）
+	// todo13-15：候选范围标签/依据（workspace:<dir> | all-registered | registered）
+	Scope       string
+	ScopeReason string
 }
 
 // ext-chain 诊断代码（分析停止原因，与 seq 共用 SeqStop 结构）。
@@ -78,6 +85,7 @@ func (a *Actions) ExtChain(req ExtChainRequest) (*ExtChainNode, error) {
 	logger.Info("enter (Actions).ExtChain", zap.String("symbol", req.Symbol))
 	defer logger.Info("exit (Actions).ExtChain")
 	root := a.extChain(req, a, req.RepoAbs, map[string]bool{}, 0)
+	root.Scope, root.ScopeReason, root.CandidateRepos = req.Scope, req.ScopeReason, req.CandidateRepos
 	return &root, nil
 }
 

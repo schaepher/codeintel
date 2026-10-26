@@ -68,6 +68,8 @@ func parseQueryFlags(args []string) queryFlags {
 			f.followIndirect = true
 		case a == "--all":
 			f.all = true
+		case a == "--all-repos":
+			f.allRepos = true
 		case a == "--type" && i+1 < len(args):
 			f.relTypes = append(f.relTypes, strings.Split(args[i+1], ",")...)
 			i++

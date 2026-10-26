@@ -103,14 +103,38 @@ func cmdWorkspaceInit(args []string) int {
 	}
 	// 子集解析（Q6 短名/后缀/module）→ 目标 = 主仓库条目（is_worktree=0）
 	var targets []sqlite.RegistryRepo
+	var claimedBefore, failedBefore int
 	if len(subset) > 0 {
+		matched := map[string]bool{}
 		for _, s := range subset {
 			ref := ResolveRepoRef(s)
 			for _, rp := range repos {
 				if rp.Path == ref && !rp.IsWorktree {
 					targets = append(targets, rp)
+					matched[s] = true
 					break
 				}
+			}
+		}
+		// todo13-15：未登记的主仓库——只要能由 git worktree 元数据证明
+		// 归属，就认领 wsDir 下**已存在**的 worktree（无需先 init 主仓库，
+		// 也不索引主仓库）。无法证明 → 明确失败，不猜。
+		for _, s := range subset {
+			if matched[s] {
+				continue
+			}
+			ref, err := filepath.Abs(ResolveRepoRef(s))
+			if err != nil || !isGitMainRepo(ref) {
+				fmt.Printf("  失败 %s: 不是已登记主仓库，也不是 git 主仓库（无法证明归属）\n", s)
+				failedBefore++
+				continue
+			}
+			c, f, found := claimExistingWorktrees(r, wsDir, ref)
+			claimedBefore += c
+			failedBefore += f
+			if !found && f == 0 {
+				fmt.Printf("  失败 %s: %s 下未找到属于 %s 的既有 worktree\n", s, wsDir, ref)
+				failedBefore++
 			}
 		}
 	} else {
@@ -122,6 +146,13 @@ func cmdWorkspaceInit(args []string) int {
 	}
 	if len(targets) == 0 {
 		if len(subset) > 0 {
+			if claimedBefore > 0 || failedBefore > 0 {
+				fmt.Printf("汇总: 创建 0，认领 %d，失败 %d\n", claimedBefore, failedBefore)
+				if failedBefore > 0 {
+					return 1
+				}
+				return 0
+			}
 			fmt.Fprintln(os.Stderr, "error: 指定的 --repo 没有已登记的主仓库（先 codeintel init 注册）")
 			return 1
 		}
@@ -200,12 +231,20 @@ func cmdWorkspaceInit(args []string) int {
 			}
 		}
 	}
-	fmt.Printf("汇总: 创建 %d，认领 %d，失败 %d\n", created, claimed, failed)
-	if failed > 0 {
+	fmt.Printf("汇总: 创建 %d，认领 %d，失败 %d\n", created, claimed+claimedBefore, failed+failedBefore)
+	if failed+failedBefore > 0 {
 		return 1
 	}
 	return 0
 }
+
+// isGitMainRepo 路径是否为 git 主仓库（.git 是目录；worktree 的 .git 是文件）。
+
+// claimExistingWorktrees 认领 wsDir 下已存在、且 git worktree 元数据
+// （.git 文件里的 gitdir → 主仓库）证明属于 main 的 worktree。
+//
+// todo13-15：恢复丢失归属的既有工作树——官方命令即可完成，不需要先
+// init 主仓库、不额外索引未授权主仓库、也不手改注册 SQLite。
 
 // cmdWorkspacePrune 清理目录不存在的注册条目（Q11：list 标 [missing]，
 // prune 显式清理）。
