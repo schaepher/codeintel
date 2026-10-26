@@ -121,6 +121,21 @@ func parseQueryFlags(args []string) queryFlags {
 			i++
 		case strings.HasPrefix(a, "--scene="):
 			f.scene = append(f.scene, strings.TrimPrefix(a, "--scene="))
+		case a == "--target-field" && i+1 < len(args):
+			f.targetField, f.targetFieldSet = args[i+1], true
+			i++
+		case strings.HasPrefix(a, "--target-field="):
+			f.targetField, f.targetFieldSet = strings.TrimPrefix(a, "--target-field="), true
+		case a == "--target-return" && i+1 < len(args):
+			f.targetReturn, f.targetRetSet = args[i+1], true
+			i++
+		case strings.HasPrefix(a, "--target-return="):
+			f.targetReturn, f.targetRetSet = strings.TrimPrefix(a, "--target-return="), true
+		case a == "--path-budget" && i+1 < len(args):
+			f.pathBudget, _ = strconv.Atoi(args[i+1])
+			i++
+		case strings.HasPrefix(a, "--path-budget="):
+			f.pathBudget, _ = strconv.Atoi(strings.TrimPrefix(a, "--path-budget="))
 		case a == "--evidence":
 			f.evidence = true
 		case a == "--focus" && i+1 < len(args):

@@ -15,7 +15,7 @@ import (
 )
 
 // scanEffectsAST 读本函数源码，扫事务调用、返回语句与错误变量赋值。
-func (a *Actions) scanEffectsAST(repoAbs string, n *domain.CodeEntity, scene Scene, args map[string]string) effectsScanResult {
+func (a *Actions) scanEffectsAST(repoAbs string, n *domain.CodeEntity, scene Scene, args map[string]string, budget int) effectsScanResult {
 	out := effectsScanResult{
 		tx:     TxScope{Kind: "none", Verdict: SeqVerdictUnverified, Detail: "本函数未观察到事务调用"},
 		result: ResultEffect{Verdict: SeqVerdictUnverified, Detail: "未观察到 return（无源码或方法体缺失）"},
@@ -35,11 +35,14 @@ func (a *Actions) scanEffectsAST(repoAbs string, n *domain.CodeEntity, scene Sce
 		out.tx.Detail = "源码解析失败"
 		return out
 	}
-	body := findFuncBody(fset, f, n.LineStart)
+	body, decl := findFuncDecl(fset, f, n.LineStart)
 	if body == nil {
 		out.tx.Detail = "按索引行号定位不到函数声明"
 		return out
 	}
+	out.fset, out.src, out.fn = fset, src, decl
+	out.varTypes = effectVarTypes(fset, decl, src)
+	out.pkgPath = pkgPathOf(string(n.ID))
 	// 1) 事务调用（Begin/Commit/Rollback/Transaction）
 	var beginLine, commitLine, rollbackLine, wrapperLine int
 	ast.Inspect(body, func(node ast.Node) bool {
@@ -80,9 +83,11 @@ func (a *Actions) scanEffectsAST(repoAbs string, n *domain.CodeEntity, scene Sce
 			Detail: "观察到 Tx/Transaction 包装调用——回调内部边界未展开（不推断）"}
 	}
 
-	// 2) 路径枚举（todo11-4）：分支两侧各一条；return 终止当前路径
-	out.paths = a.effectPaths(fset, src, body, scene, args)
+	// 2) 路径枚举（todo11-4/12-7）：分支两侧各一条；return 终止当前路径
+	out.paths, out.stats = a.effectPaths(fset, src, body, scene, args, budget)
 	// 3) 返回结果 + 4) 可疑错误覆盖
+	names := resultNamesOf(decl.Type.Results)
+	out.resultNames = names
 	var returns []string
 	var slots []string
 	retLine := 0
@@ -117,16 +122,24 @@ func (a *Actions) scanEffectsAST(repoAbs string, n *domain.CodeEntity, scene Sce
 					}
 				}
 			}
+			for i := range x.Results {
+				slots = append(slots, seqResultSlot(i, len(x.Results), names))
+			}
+			if len(x.Results) == 0 && len(names) > 0 {
+				for i := range names {
+					slots = append(slots, seqResultSlot(i, len(names), names))
+				}
+			}
 		}
 		return true
 	})
-	names := make([]string, 0, len(errVars))
+	var errNames []string
 	for v := range errVars {
-		names = append(names, v)
+		errNames = append(errNames, v)
 	}
-	sortStrings(names)
+	sortStrings(errNames)
 	out.result = ResultEffect{Returns: returns, Slots: slots, Line: retLine,
-		ErrorVars: names, Suspicious: dedupStrings(suspicious)}
+		ErrorVars: errNames, Suspicious: dedupStrings(suspicious)}
 	if retLine > 0 {
 		out.result.Verdict = SeqVerdictCorroborated
 		out.result.Detail = "返回值/错误来自源码 return 语句"
@@ -140,7 +153,14 @@ func (a *Actions) scanEffectsAST(repoAbs string, n *domain.CodeEntity, scene Sce
 
 // findFuncBody 按索引行号定位函数体（行号落在声明区间内即命中）。
 func findFuncBody(fset *token.FileSet, f *ast.File, line int) *ast.BlockStmt {
+	body, _ := findFuncDecl(fset, f, line)
+	return body
+}
+
+// findFuncDecl 按索引行号定位函数声明（body + 声明——返回槽/参数类型需要）。
+func findFuncDecl(fset *token.FileSet, f *ast.File, line int) (*ast.BlockStmt, *ast.FuncDecl) {
 	var body *ast.BlockStmt
+	var decl *ast.FuncDecl
 	ast.Inspect(f, func(node ast.Node) bool {
 		fd, ok := node.(*ast.FuncDecl)
 		if !ok || fd.Body == nil || body != nil {
@@ -149,12 +169,107 @@ func findFuncBody(fset *token.FileSet, f *ast.File, line int) *ast.BlockStmt {
 		start := fset.Position(fd.Pos()).Line
 		end := fset.Position(fd.End()).Line
 		if line >= start && line <= end {
-			body = fd.Body
+			body, decl = fd.Body, fd
 			return false
 		}
 		return true
 	})
-	return body
+	return body, decl
+}
+
+// effectVarTypes 形参/接收者/局部变量的类型短名（字段身份匹配用）。
+func effectVarTypes(fset *token.FileSet, fn *ast.FuncDecl, src []byte) map[string]string {
+	out := map[string]string{}
+	addFields := func(fl *ast.FieldList) {
+		if fl == nil {
+			return
+		}
+		for _, f := range fl.List {
+			typ := starTypeName(f.Type)
+			for _, n := range f.Names {
+				out[n.Name] = typ
+			}
+		}
+	}
+	addFields(fn.Recv)
+	addFields(fn.Type.Params)
+	if fn.Body == nil {
+		return out
+	}
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.DeclStmt:
+			gd, ok := x.Decl.(*ast.GenDecl)
+			if !ok {
+				return true
+			}
+			for _, sp := range gd.Specs {
+				vs, ok := sp.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				typ := exprTypeName(vs.Type)
+				for i, name := range vs.Names {
+					t := typ
+					if t == "" && len(vs.Values) == len(vs.Names) {
+						t = typeFromValue(vs.Values[i])
+					}
+					if t != "" {
+						out[name.Name] = t
+					}
+				}
+			}
+		case *ast.AssignStmt:
+			if len(x.Lhs) != len(x.Rhs) {
+				return true
+			}
+			for i, lhs := range x.Lhs {
+				id, ok := lhs.(*ast.Ident)
+				if !ok || id.Name == "_" {
+					continue
+				}
+				if t := typeFromValue(x.Rhs[i]); t != "" {
+					out[id.Name] = t
+				}
+			}
+		}
+		return true
+	})
+	return out
+}
+
+// starTypeName 类型表达式 → 短类型名（剥指针/括号）。
+func starTypeName(t ast.Expr) string {
+	for {
+		switch x := t.(type) {
+		case *ast.StarExpr:
+			t = x.X
+			continue
+		case *ast.ParenExpr:
+			t = x.X
+			continue
+		}
+		return exprTypeName(t)
+	}
+}
+
+// typeFromValue 赋值右值的类型短名（复合字面量/构造器/类型转换）。
+func typeFromValue(e ast.Expr) string {
+	if t := implTypeFromExpr(e); t != "" {
+		return t
+	}
+	switch x := e.(type) {
+	case *ast.CallExpr:
+		if id, ok := x.Fun.(*ast.Ident); ok && len(x.Args) == 1 {
+			// T(v) 类型转换：仅当 T 是已知类型名时由调用方接受（保守）
+			return id.Name
+		}
+	case *ast.UnaryExpr:
+		return typeFromValue(x.X)
+	case *ast.ParenExpr:
+		return typeFromValue(x.X)
+	}
+	return ""
 }
 
 // errLikeName 变量名是否像错误（err / *Err / e）。

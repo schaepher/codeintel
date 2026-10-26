@@ -48,6 +48,12 @@ type queryFlags struct {
 	focus            []string // todo10-2：sequence --code --focus——关注目标（字段路径 / return）
 	evidence         bool     // todo10-8：sequence --code --evidence——输出箭头证据清单
 	scene            []string // todo10-5：--scene k=v——场景条件（静态可判定，用于分支裁剪）
+	// todo12-1：effects 目标筛选（互斥）
+	targetField    string
+	targetFieldSet bool
+	targetReturn   string
+	targetRetSet   bool
+	pathBudget     int // todo12-7：effects 路径枚举预算（0=默认 24）
 }
 
 // edgeCandidateJSON 边级候选标注（Q161：动态 argument/returns 边元数据）。

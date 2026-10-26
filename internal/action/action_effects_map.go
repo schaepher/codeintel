@@ -2,7 +2,11 @@ package action
 
 // todo10-7 的表列映射与字符串助手（从 action_effects.go 拆出——行数治理）。
 
-import "fmt"
+import (
+	"fmt"
+	"go/ast"
+	"go/token"
+)
 
 // tableColumnIndex 表列索引（列名 → 表.列），用于字段→表列映射。
 type tableColumnIndex struct {
@@ -108,6 +112,14 @@ type effectsScanResult struct {
 	tx     TxScope
 	result ResultEffect
 	paths  []pathSpec // todo11-4：执行路径（分支两侧 + return 终止）
+	stats  *pathWalkStats
+	fn     *ast.FuncDecl
+	fset   *token.FileSet
+	src    []byte
+	// todo12-1：字段身份解析上下文
+	varTypes    map[string]string
+	pkgPath     string
+	resultNames []string
 }
 
 // String 便于日志/诊断输出。

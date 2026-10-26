@@ -11,21 +11,59 @@ import (
 	"github.com/schaepher/codeintel/internal/action"
 )
 
-// queryEffects 实现 `query effects <函数> [--depth N] [--json]`。
-func queryEffects(acts *action.Actions, abs, target string, depth int, scene []string, jsonOut bool) int {
-	res, err := acts.Effects(action.EffectsRequest{Target: target, RepoAbs: abs, Depth: depth,
-		Scene: action.NewScene(scene)})
+// queryEffectsOpts `query effects` 参数（cli 只做转发）。
+type queryEffectsOpts struct {
+	abs          string
+	target       string
+	depth        int
+	scene        []string
+	jsonOut      bool
+	targetField  string // todo12-1：类型限定字段路径（互斥）
+	targetReturn string // todo12-1：返回槽名字或 #序号
+	pathBudget   int    // todo12-7：路径预算（0=默认）
+	targetSet    bool   // 显式指定了目标（区分未指定/空值）
+}
+
+// queryEffects 实现 `query effects <函数> [--depth N] [--target-field ...]
+// [--target-return ...] [--path-budget N] [--json]`。
+func queryEffects(acts *action.Actions, o queryEffectsOpts) int {
+	res, err := acts.Effects(action.EffectsRequest{Target: o.target, RepoAbs: o.abs, Depth: o.depth,
+		Scene: action.NewScene(o.scene), TargetField: o.targetField,
+		TargetReturn: o.targetReturn, TargetSet: o.targetSet, PathBudget: o.pathBudget})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
-	if jsonOut {
+	if o.jsonOut {
 		encodeJSON(res)
 		return 0
 	}
 	fmt.Printf("== %s 副作用与返回 ==\n", shortSymbolNameID(res.Function))
 	if res.File != "" {
 		fmt.Printf("源码：%s\n", res.File)
+	}
+	// todo12-1/7：目标与分析完整性
+	if res.TargetInfo != nil {
+		switch res.TargetInfo.Kind {
+		case "field":
+			fmt.Printf("目标：字段 %s\n", res.TargetInfo.Field)
+		case "return":
+			name := res.TargetInfo.Name
+			if name == "" {
+				name = "（匿名）"
+			}
+			fmt.Printf("目标：返回值 %s（%s）\n", res.TargetInfo.Slot, name)
+		}
+	}
+	if res.Analysis != nil {
+		fmt.Printf("分析：%s（深度 %d）\n", res.Analysis.Status, res.Analysis.Depth)
+		for _, d := range res.Analysis.Diagnostics {
+			fmt.Printf("  · 诊断 %s ×%d", d.Code, d.Count)
+			if d.Detail != "" {
+				fmt.Printf("：%s", d.Detail)
+			}
+			fmt.Println()
+		}
 	}
 	fmt.Println("\n数据库写入：")
 	if len(res.DBWrites) == 0 {
@@ -36,7 +74,11 @@ func queryEffects(acts *action.Actions, abs, target string, depth int, scene []s
 		if w.Table == "" {
 			loc = "（无表列映射）"
 		}
-		fmt.Printf("  · %s ← %s（%s:%d）%s\n", loc, fieldLeafText(w.Field), w.Function, w.Line,
+		file := w.File
+		if file == "" || file == res.File {
+			file = shortSymbolNameID(w.Function)
+		}
+		fmt.Printf("  · %s ← %s（%s:%d）%s\n", loc, fieldLeafText(w.Field), file, w.Line,
 			effectEvidenceNote(w.Evidence))
 	}
 	fmt.Println("\n远程写（出站）：")
@@ -56,6 +98,9 @@ func queryEffects(acts *action.Actions, abs, target string, depth int, scene []s
 	}
 	fmt.Printf("\n事务范围：%s%s\n", res.Tx.Kind, txScopeNote(&res.Tx))
 	fmt.Printf("\n返回结果：%s\n", strings.Join(res.Result.Returns, ", "))
+	if len(res.Result.Slots) > 0 {
+		fmt.Printf("  结果槽：%s\n", strings.Join(res.Result.Slots, ", "))
+	}
 	if len(res.Result.ErrorVars) > 0 {
 		fmt.Printf("  错误变量：%s\n", strings.Join(res.Result.ErrorVars, ", "))
 	}
@@ -85,9 +130,24 @@ func queryEffects(acts *action.Actions, abs, target string, depth int, scene []s
 					if w.Table != "" {
 						loc = w.Table + "." + w.Column
 					}
-					ws = append(ws, loc+fmt.Sprintf("(L%d)", w.Line))
+					pos := fmt.Sprintf("(L%d)", w.Line)
+					if w.File != "" && w.File != res.File {
+						pos = fmt.Sprintf("(%s:%d)", w.File, w.Line)
+					}
+					ws = append(ws, loc+pos)
 				}
 				fmt.Printf("      写入：%s\n", strings.Join(ws, ", "))
+			}
+			if len(p.Calls) > 0 {
+				var cs []string
+				for _, c := range p.Calls {
+					mark := ""
+					if c.Target {
+						mark = " ⭑目标"
+					}
+					cs = append(cs, shortSymbolNameID(c.Function)+fmt.Sprintf("(L%d)%s", c.Line, mark))
+				}
+				fmt.Printf("      调用：%s\n", strings.Join(cs, ", "))
 			}
 			if len(p.Remote) > 0 {
 				var rs []string
@@ -97,7 +157,14 @@ func queryEffects(acts *action.Actions, abs, target string, depth int, scene []s
 				fmt.Printf("      远程：%s\n", strings.Join(rs, ", "))
 			}
 			if p.Result != nil {
-				fmt.Printf("      返回：%s（L%d）\n", strings.Join(p.Result.Returns, ", "), p.Result.Line)
+				slots := ""
+				if len(p.Result.Slots) > 0 {
+					slots = " [" + strings.Join(p.Result.Slots, ", ") + "]"
+				}
+				fmt.Printf("      返回：%s%s（L%d）\n", strings.Join(p.Result.Returns, ", "), slots, p.Result.Line)
+				if p.Result.Detail != "" {
+					fmt.Printf("      依据：%s\n", p.Result.Detail)
+				}
 			}
 			for _, n := range p.Notes {
 				fmt.Printf("      注：%s\n", n)

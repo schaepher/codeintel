@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
@@ -101,7 +102,17 @@ func cmdQuery(args []string) int {
 			fmt.Fprintln(os.Stderr, "error: query effects 需要一个函数/方法")
 			return 2
 		}
-		return queryEffects(acts, abs, f.positional[0], f.depth, f.scene, f.json)
+		if f.targetFieldSet && strings.TrimSpace(f.targetField) == "" {
+			fmt.Fprintln(os.Stderr, "error: --target-field 需要一个非空的类型限定字段路径")
+			return 2
+		}
+		if f.targetRetSet && strings.TrimSpace(f.targetReturn) == "" {
+			fmt.Fprintln(os.Stderr, "error: --target-return 需要一个非空的返回槽名字或 #序号")
+			return 2
+		}
+		return queryEffects(acts, queryEffectsOpts{abs: abs, target: f.positional[0], depth: f.depth,
+			scene: f.scene, jsonOut: f.json, targetField: f.targetField, targetReturn: f.targetReturn,
+			pathBudget: f.pathBudget, targetSet: f.targetFieldSet || f.targetRetSet})
 	}
 	// todo10-6：异步生命周期关联（人工/审核/定时/消费）
 	if sub == "async" {
