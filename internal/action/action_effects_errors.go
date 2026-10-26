@@ -12,7 +12,7 @@ import (
 //   - overwritten：返回的不是最近的错误值（被后续赋值覆盖）
 //   - stale：返回的名字不是最近的错误来源
 //   - nil / unknown：无错误或无法判定
-func effectErrorSources(sp pathSpec, resultNames, slots []string) []ErrorSource {
+func effectErrorSources(sp pathSpec, resultNames, resultTypes, slots []string) []ErrorSource {
 	if sp.returnLine == 0 {
 		return nil
 	}
@@ -25,14 +25,48 @@ func effectErrorSources(sp pathSpec, resultNames, slots []string) []ErrorSource 
 				slot = n
 			}
 		}
+		if !errorSlot(slot, resultNames, resultTypes) {
+			continue
+		}
 		out = append(out, effectErrorSource(sp, slot, expr, sp.returnExprs[i]))
 	}
 	if len(sp.returnVals) == 0 && len(resultNames) > 0 {
 
 		for i := range resultNames {
-			if i < len(resultNames) && errLikeName(resultNames[i]) {
+			if i < len(resultNames) && errorSlot(i, resultNames, resultTypes) {
 				out = append(out, effectErrorSource(sp, i, resultNames[i], nil))
 			}
+		}
+	}
+	return out
+}
+
+// errorSlot 返回槽是否是 error（todo13-8：按类型判定，不靠变量名/末槽
+// 猜测——`(approval, audit string)` 的 audit 不是错误槽）。
+func errorSlot(i int, resultNames, resultTypes []string) bool {
+	if i >= 0 && i < len(resultTypes) {
+		return strings.Contains(strings.ToLower(resultTypes[i]), "error")
+	}
+	if i < len(resultNames) {
+		return errLikeName(resultNames[i])
+	}
+	return false
+}
+
+// resultTypeNames 返回槽类型短名（与槽顺序对齐）。
+func resultTypeNames(fl *ast.FieldList) []string {
+	if fl == nil {
+		return nil
+	}
+	var out []string
+	for _, f := range fl.List {
+		typ := starTypeName(f.Type)
+		n := len(f.Names)
+		if n == 0 {
+			n = 1
+		}
+		for i := 0; i < n; i++ {
+			out = append(out, typ)
 		}
 	}
 	return out
@@ -72,7 +106,6 @@ func effectErrorSource(sp pathSpec, slot int, expr string, returnExpr ast.Expr) 
 	//   - RHS 是错误构造/错误返回调用；或
 	//   - 是本次返回表达式引用的变量（错误槽的返回值）
 	wantVar := strings.TrimSpace(es.Expr)
-	isErrSlot := slotNameErrorLike(slot, sp) || slotIsLast(sp, slot)
 	type ev struct {
 		name string
 		line int
@@ -82,9 +115,6 @@ func effectErrorSource(sp pathSpec, slot int, expr string, returnExpr ast.Expr) 
 	var evs []ev
 	for _, la := range sp.locals {
 		if !errLikeName(la.name) && !rhsLooksLikeErrorCall(la.rhs) && la.name != wantVar {
-			continue
-		}
-		if la.name == wantVar && !isErrSlot && !errLikeName(la.name) && !rhsLooksLikeErrorCall(la.rhs) {
 			continue
 		}
 		nilRHS := isNilIdent(la.rhs)
@@ -125,7 +155,7 @@ func effectErrorSource(sp pathSpec, slot int, expr string, returnExpr ast.Expr) 
 		return es
 	}
 	exprName := strings.TrimSpace(es.Expr)
-	if errLikeName(exprName) || (wantVar == exprName && isErrSlot) {
+	if errLikeName(exprName) || wantVar == exprName {
 		es.Var = exprName
 		// 该变量在返回前的最后一次赋值
 		var mine, mineNonNil ev
@@ -175,19 +205,6 @@ func effectErrorSource(sp pathSpec, slot int, expr string, returnExpr ast.Expr) 
 		}
 	}
 	return es
-}
-
-// slotNameErrorLike 返回槽名是否像错误（具名结果 err）。
-func slotNameErrorLike(slot int, sp pathSpec) bool {
-	if slot < 0 || slot >= len(sp.returnVals) {
-		return false
-	}
-	return errLikeName(strings.TrimSpace(sp.returnVals[slot]))
-}
-
-// slotIsLast 是否最后一个返回槽（Go 习惯：error 为末槽）。
-func slotIsLast(sp pathSpec, slot int) bool {
-	return len(sp.returnExprs) > 0 && slot == len(sp.returnExprs)-1
 }
 
 // rhsLooksLikeErrorCall RHS 是否明显产生 error（errors.New / fmt.Errorf /

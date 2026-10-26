@@ -17,6 +17,7 @@ type buildParams struct {
 	target *effectsTarget
 	// 被调写入归属（todo12-1 A6 / todo12-8）
 	file         string            // 当前函数文件（证据定位用）
+	resultTypes  []string          // 返回槽类型短名（error 槽判定）
 	varTypes     map[string]string // 局部变量/形参 → 类型短名
 	pkgPath      string
 	callTargets  map[int][]string      // 调用行 → 被调符号
@@ -90,7 +91,7 @@ func buildEffectPaths(specs []pathSpec, bp buildParams) ([]EffectPath, int) {
 		if bp.target != nil {
 			p.Result = bp.target.filterPathResult(sp, bp.resultNames)
 			if p.Result != nil {
-				p.Result.ErrorSources = effectErrorSources(sp, bp.resultNames, p.Result.Slots)
+				p.Result.ErrorSources = effectErrorSources(sp, bp.resultNames, bp.resultTypes, p.Result.Slots)
 			}
 			if bp.target.kind == "field" && p.Result == nil {
 				p.Notes = append(p.Notes, "该路径的返回不涉及目标字段")
@@ -110,7 +111,7 @@ func buildEffectPaths(specs []pathSpec, bp buildParams) ([]EffectPath, int) {
 					res.Suspicious = []string{s}
 				}
 			}
-			res.ErrorSources = effectErrorSources(sp, bp.resultNames, res.Slots)
+			res.ErrorSources = effectErrorSources(sp, bp.resultNames, bp.resultTypes, res.Slots)
 			p.Result = res
 		}
 		out = append(out, p)

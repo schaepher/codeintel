@@ -95,7 +95,7 @@ func TestTodo12EvidenceReplay(t *testing.T) {
 	if !strings.Contains(query, "(Handler).Wrap") {
 		t.Errorf("命令应使用 canonical ID: %s", query)
 	}
-	for _, want := range []string{"--depth 2", "--focus 'status,return'", "--scene 'platform=ios'", "--scene 'region=CN'"} {
+	for _, want := range []string{"--depth 2", "--focus 'status'", "--focus 'return'", "--scene 'platform=ios'", "--scene 'region=CN'"} {
 		if !strings.Contains(query, want) {
 			t.Errorf("命令应含 %q: %s", want, query)
 		}
@@ -155,7 +155,8 @@ func normalizeSeqJSON(v any) any {
 		out := map[string]any{}
 		for k, val := range x {
 			lk := strings.ToLower(k)
-			if lk == "timing" || lk == "trace_id" || lk == "span_id" || lk == "elapsed" {
+			// todo13-14：证据身份（版本/构建 argv）按环境不同，不属于语义树
+			if lk == "timing" || lk == "trace_id" || lk == "span_id" || lk == "elapsed" || lk == "evidence" {
 				continue
 			}
 			out[k] = normalizeSeqJSON(val)

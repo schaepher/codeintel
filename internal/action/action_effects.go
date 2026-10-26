@@ -181,6 +181,7 @@ func (a *Actions) Effects(req EffectsRequest) (*EffectsResult, error) {
 	res.Paths, unresolvedCalls = buildEffectPaths(scan.paths, buildParams{
 		colIdx: colIndex, remote: res.RemoteWrites, tx: res.Tx,
 		suspicious: res.Result.Suspicious, resultNames: scan.resultNames,
+		resultTypes: resultTypeNames(scan.fn.Type.Results),
 		target: tgt, file: n.FilePath, varTypes: scan.varTypes, pkgPath: scan.pkgPath,
 		callTargets: callTargets, calleeWrites: calleeWrites, calleeFiles: fileOfStrings(fileOf),
 	})
