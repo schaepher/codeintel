@@ -47,12 +47,15 @@ func TestSeqEvidenceIdentityAndCompare(t *testing.T) {
 		id.Analyzer == "" || id.ConfigHash == "" {
 		t.Errorf("身份字段缺失: %+v", id)
 	}
-	argv := strings.Join(id.Argv, " ")
-	for _, want := range []string{"--scene 'region=#1'", "--focus 'return'", "--evidence",
-		"--format 'mermaid'", "--out 'out file.txt'", "--depth 2"} {
+	argv := strings.Join(id.Argv, "\x00")
+	for _, want := range []string{"region=#1", "return", "--evidence",
+		"mermaid", "out file.txt", "--depth"} {
 		if !strings.Contains(argv, want) {
 			t.Errorf("argv 应含 %q: %s", want, argv)
 		}
+	}
+	if strings.Contains(joinedArgv(id.Argv), "'") {
+		t.Errorf("结构化 argv 不得含 shell 引号: %v", id.Argv)
 	}
 	if id.Filter == nil || len(id.Filter.Pkgs) == 0 || len(id.StopPkgs) != 1 {
 		t.Errorf("请求快照应含 filter/stop_packages: %+v", id)
@@ -105,3 +108,6 @@ func TestSeqEvidenceIdentityAndCompare(t *testing.T) {
 		t.Error("坏 JSON 应报错")
 	}
 }
+
+// joinedArgv 仅用于测试断言（避免每处 strings.Join）。
+func joinedArgv(argv []string) string { return strings.Join(argv, "\x00") }

@@ -55,8 +55,8 @@ func TestSeqEvidenceIdentityCLI(t *testing.T) {
 			t.Errorf("身份应含 %q: %+v", k, id)
 		}
 	}
-	argv := strings.Join(anyStrings(id["argv"]), " ")
-	for _, want := range []string{"--scene 'cart=#1'", "--focus 'return'", "--format 'mermaid'" , "--evidence"} {
+	argv := strings.Join(anyStrings(id["argv"]), "\x00")
+	for _, want := range []string{"cart=#1", "return", "mermaid", "--evidence"} {
 		if !strings.Contains(argv, want) {
 			t.Errorf("argv 应含 %q: %s", want, argv)
 		}

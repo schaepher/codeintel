@@ -108,32 +108,61 @@ func seqEvidenceSnapshot(req CodeSequenceRequest, symbol string) *SeqEvidenceReq
 	return snap
 }
 
-// seqEvidenceArgv 规范化语义 argv（shell quoting；顺序稳定）。
+// seqEvidenceArgv 规范化语义 argv（**结构化原始参数**，不做 shell 转义；
+// todo14-14：数组元素必须能直接 execve——空格/括号/#1/引号保持原字符）。
 func seqEvidenceArgv(snap *SeqEvidenceRequest) []string {
-	args := []string{"codeintel", "query", "sequence", shellQuote(snap.Symbol),
-		"--repo", shellQuote(snap.Repo), "--code", "--depth", itoaSeq(snap.Depth)}
+	args := []string{"codeintel", "query", "sequence", snap.Symbol,
+		"--repo", snap.Repo, "--code", "--depth", itoaSeq(snap.Depth)}
 	keys := make([]string, 0, len(snap.Scene))
 	for k := range snap.Scene {
 		keys = append(keys, k)
 	}
 	sortStrings(keys)
 	for _, k := range keys {
-		args = append(args, "--scene", shellQuote(k+"="+snap.Scene[k]))
+		args = append(args, "--scene", k+"="+snap.Scene[k])
 	}
 	for _, f := range snap.Focus {
-		args = append(args, "--focus", shellQuote(f))
+		args = append(args, "--focus", f)
 	}
 	if snap.Evidence {
 		args = append(args, "--evidence")
 	}
 	if snap.Format != "" {
-		args = append(args, "--format", shellQuote(snap.Format))
+		args = append(args, "--format", snap.Format)
 	}
 	if snap.Out != "" {
-		args = append(args, "--out", shellQuote(snap.Out))
+		args = append(args, "--out", snap.Out)
 	}
 	args = append(args, "--json")
 	return args
+}
+
+// seqEvidenceDisplayCommand 展示命令：对**参数值**做 shell quoting（供人复制
+// 到 bash/zsh）。与结构化 Argv 是两个出口：Argv 不转义、可直接 execve。
+func seqEvidenceDisplayCommand(argv []string) string {
+	out := make([]string, 0, len(argv))
+	for i, a := range argv {
+		// 命令词/flag/纯数字保持原样；其余参数值一律 shell 引用（可读性
+		// 与既有展示一致——safe 值也加引号，避免复制时歧义）
+		if i < 3 || strings.HasPrefix(a, "-") || isAllDigits(a) {
+			out = append(out, a)
+			continue
+		}
+		out = append(out, shellQuote(a))
+	}
+	return strings.Join(out, " ")
+}
+
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // seqEvidenceQuery 证据的可复现命令（规范化；结构化字段见 Request）。
@@ -148,7 +177,7 @@ func seqEvidenceQuery(req CodeSequenceRequest, symbolID string) (string, *SeqEvi
 	if snap.CLI == "" {
 		snap.CLI = "unknown"
 	}
-	return strings.Join(snap.Argv, " "), snap
+	return seqEvidenceDisplayCommand(snap.Argv), snap
 }
 
 // seqEvidenceIdentity meta 级身份（整次分析一份，比对用）。

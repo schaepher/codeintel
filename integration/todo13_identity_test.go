@@ -139,12 +139,28 @@ func (h *Handler) Run(region string) string {
 		t.Fatalf("meta.evidence 缺失: %+v", meta)
 	}
 	argv, _ := id["argv"].([]any)
-	argvStr := strings.Join(interfaceStrings(argv), " ")
-	for _, want := range []string{"'region=#1'", "'return'", "'" + outFile + "'",
-		"'symbol:go:example.com/sp:(Handler).Run'", "'" + fixture + "'"} {
+	argvList := interfaceStrings(argv)
+	argvStr := strings.Join(argvList, "\x00")
+	for _, want := range []string{"region=#1", "return", outFile, sym, fixture} {
 		if !strings.Contains(argvStr, want) {
-			t.Errorf("argv 应逐项保留 %q:\n%s", want, argvStr)
+			t.Errorf("argv 应逐项保留原始值 %q:\n%v", want, argvList)
 		}
+	}
+	for _, a := range argvList {
+		if strings.Contains(a, "'") {
+			t.Errorf("结构化 argv 不得混入 shell 引号: %q", a)
+		}
+	}
+	verifyDirectArgvExec(t, bin, nonModule, env, argvList, argvStr)
+	// 展示命令（evidence.query）仍可被 shell 重放
+	var displayQuery string
+	walkSeqJSON(res, func(n map[string]any) {
+		if ev, _ := n["evidence"].(map[string]any); ev != nil && displayQuery == "" {
+			displayQuery, _ = ev["query"].(string)
+		}
+	})
+	if displayQuery == "" || !strings.Contains(displayQuery, "'"+fixture+"'") {
+		t.Errorf("应生成 shell-quoted 展示命令: %q", displayQuery)
 	}
 	if id["format"] != "mermaid" || id["out"] != outFile {
 		t.Errorf("输出选项应进身份/请求: %+v", id)
@@ -152,11 +168,12 @@ func (h *Handler) Run(region string) string {
 	if id["build_id"] == "" || id["index_sha"] == "" {
 		t.Errorf("应含索引构建身份: %+v", id)
 	}
-	// zsh 可用时同样可执行
-	if _, err := exec.LookPath("zsh"); err == nil {
-		code, _, zerr := shellRun("zsh")
-		if code != 0 {
-			t.Errorf("zsh 重放失败: code=%d\n%s", code, zerr)
+	// zsh 可用时展示命令同样可执行
+	if _, err := exec.LookPath("zsh"); err == nil && displayQuery != "" {
+		cmd := exec.Command("zsh", "-c", "cd '"+nonModule+"' && "+displayQuery)
+		cmd.Env = env
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Errorf("zsh 展示命令重放失败: %v\n%s", err, out)
 		}
 	}
 	// 保存证据（整份输出）
