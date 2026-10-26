@@ -38,9 +38,12 @@ type AsyncNode struct {
 type AsyncLink struct {
 	From    string `json:"from"`
 	To      string `json:"to"`
-	Reason  string `json:"reason"`  // field:<F>|call_chain|id_field:<col>|shared_scope_only
+	Reason  string `json:"reason"`  // call_path|value_origin|field_shared|name_only|shared_scope_only
 	Verdict string `json:"verdict"` // direct|corroborated|unverified
-	Detail  string `json:"detail,omitempty"`
+	// EvidenceKind 证据种类（todo11-3）：把"启发式候选"与"经调用路径/值来源
+	// 验证的因果"分开——field_shared/name_only/shared_scope_only 都是启发式
+	EvidenceKind string `json:"evidence_kind"`
+	Detail       string `json:"detail,omitempty"`
 }
 
 // AsyncLifecycleRequest query async 参数。
@@ -183,6 +186,11 @@ func (a *Actions) AsyncLifecycle(req AsyncLifecycleRequest) (*AsyncLifecycleResu
 			}
 		}
 	}
+	// todo11-3：真实可达索引（calls 边）——"双方都在展开集合"不再算可达
+	reach := a.callsReachIndex()
+	// todo11-3：值来源指纹（summary_origins：callee + 调用行）。AllSummaries
+	// 不带 origins，故按候选函数逐个取（节点数 ≤20，成本可控）。
+	origins := a.asyncOriginIndex(funcsForOrigins(seed, candidates))
 
 	res := &AsyncLifecycleResult{Seed: req.Seed, Nodes: []AsyncNode{}, Links: []AsyncLink{}}
 	if scope == "" {
@@ -226,7 +234,7 @@ func (a *Actions) AsyncLifecycle(req AsyncLifecycleRequest) (*AsyncLifecycleResu
 	}
 	for i := 0; i < limit; i++ {
 		for j := i + 1; j < limit; j++ {
-			if link, ok := asyncLink(res.Nodes[i], res.Nodes[j], facts, chain); ok {
+			if link, ok := asyncLink(res.Nodes[i], res.Nodes[j], facts, reach, origins); ok {
 				res.Links = append(res.Links, link)
 			}
 		}

@@ -8,57 +8,134 @@ package action
 //   (c) id_field:<col> 同名 ID 类字段 → corroborated
 //   (none) shared_scope_only → unverified（明确不构成因果，但不隐藏）
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/schaepher/codeintel/internal/domain"
+)
 
 // asyncLink 两个入口的关联判定（Q3 的三条判据 + 仅同作用域的 unverified）。
-func asyncLink(x, y AsyncNode, facts map[string]*asyncFnFacts, chain map[string]bool) (AsyncLink, bool) {
+func asyncLink(x, y AsyncNode, facts map[string]*asyncFnFacts, reach reachIndex,
+	origins map[string]map[string]string) (AsyncLink, bool) {
 	link := AsyncLink{From: x.ID, To: y.ID}
-	// (b) 调用链可达（两者都在 chainSymbols 的链上——seed 自身也标记在链里，
-	// 故必须是"双方都在"，否则 seed 与任意节点的对都会被误判为 call_chain）
-	if chain[x.ID] && chain[y.ID] {
-		link.Reason, link.Verdict = "call_chain", SeqVerdictCorroborated
-		link.Detail = "同一调用链（calls 边可达）"
+
+	// (1) 调用路径可达（todo11-3 收紧）：必须是**真实可达**——x 能沿 calls 边
+	// 走到 y（或反向），而不是"双方都在 seed 的展开集合里"（同入口下互不
+	// 调用的两个分支会被误判）。
+	if reach.reaches(x.ID, y.ID) || reach.reaches(y.ID, x.ID) {
+		link.Reason, link.Verdict, link.EvidenceKind = "call_path", SeqVerdictCorroborated, "call_path"
+		link.Detail = "调用路径可达（calls 边 BFS）"
 		return link, true
 	}
+
 	fx, fy := facts[x.ID], facts[y.ID]
 	if fx == nil || fy == nil {
 		return link, false
 	}
-	// (a) 字段链路：一方写、另一方读/写同名字段
-	for p := range fx.writes {
-		if fy.reads[p] || fy.writes[p] {
-			link.Reason, link.Verdict = "field:"+p, SeqVerdictCorroborated
-			link.Detail = "状态字段读写关联（" + p + "）——值流可达性未逐跳验证"
-			return link, true
-		}
-	}
-	// (c) 标识同源：同名 ID 类字段
+	// (2) 身份字段（*_id/*Id/_no/_code）优先——异步生命周期靠身份传递串起来：
+	// 值来源指纹一致 → value_origin（corroborated）；都非空但不同 →
+	// name_only + 明确"不构成同一生命周期"；来源未知 → name_only（启发式）。
 	for p := range allFields(fx) {
-		if !asyncIDLike(fieldLeaf(p)) {
+		leaf := fieldLeaf(p)
+		if !asyncIDLike(leaf) {
 			continue
 		}
 		for q := range allFields(fy) {
-			if fieldLeaf(q) == fieldLeaf(p) {
-				link.Reason, link.Verdict = "id_field:"+fieldLeaf(p), SeqVerdictCorroborated
-				link.Detail = "同名标识字段（" + fieldLeaf(p) + "）"
+			if fieldLeaf(q) != leaf {
+				continue
+			}
+			ox, oy, ok := identityOrigins(origins, x.ID, y.ID, p)
+			switch {
+			case ok && ox == oy:
+				link.Reason, link.Verdict, link.EvidenceKind = "value_origin:"+leaf, SeqVerdictCorroborated, "value_origin"
+				link.Detail = "同名标识值来源一致（" + leaf + "：" + ox + "）"
+				return link, true
+			case ok && ox != oy:
+				link.Reason, link.Verdict, link.EvidenceKind = "name_only:"+leaf, SeqVerdictUnverified, "name_only"
+				link.Detail = "同名标识但值来源不同（" + ox + " vs " + oy + "）——不构成同一生命周期"
+				return link, true
+			default:
+				link.Reason, link.Verdict, link.EvidenceKind = "name_only:"+leaf, SeqVerdictUnverified, "name_only"
+				link.Detail = "仅同名标识字段（" + leaf + "），值来源未知——启发式候选"
 				return link, true
 			}
 		}
 	}
-	// 仅同作用域：明确标注不构成因果
+	// (3) 字段链路：一方写、另一方读/写同名字段——只是**启发式**（读写同一
+	// 字段不等于同一次异步因果；身份字段已在 (2) 处理）。
+	for p := range fx.writes {
+		if fy.reads[p] || fy.writes[p] {
+			ox, oy, ok := identityOrigins(origins, x.ID, y.ID, p)
+			if ok && ox == oy {
+				link.Reason, link.Verdict, link.EvidenceKind = "value_origin:"+p, SeqVerdictCorroborated, "value_origin"
+				link.Detail = "字段值来源指纹一致（" + p + "：" + ox + "）"
+				return link, true
+			}
+			link.Reason, link.Verdict, link.EvidenceKind = "field_shared:"+p, SeqVerdictUnverified, "field_shared"
+			link.Detail = "共享字段读写（" + p + "）——启发式，未验证值流可达"
+			return link, true
+		}
+	}
+	// (4) 仅同作用域：明确标注不构成因果
 	sx, sy := asyncScopeOf(allFields(fx)), asyncScopeOf(allFields(fy))
 	if sx != "" && sx == sy {
-		link.Reason, link.Verdict = "shared_scope_only", SeqVerdictUnverified
+		link.Reason, link.Verdict, link.EvidenceKind = "shared_scope_only", SeqVerdictUnverified, "field_shared"
 		link.Detail = "只共享作用域（类型/表），不构成因果证据"
 		return link, true
 	}
 	// 同一包（无字段摘要时）：同样只是"作用域"，标 unverified
 	if asyncPkgPrefix(x.ID) == asyncPkgPrefix(y.ID) {
-		link.Reason, link.Verdict = "shared_scope_only", SeqVerdictUnverified
+		link.Reason, link.Verdict, link.EvidenceKind = "shared_scope_only", SeqVerdictUnverified, "field_shared"
 		link.Detail = "只共享包作用域，不构成因果证据"
 		return link, true
 	}
 	return link, false
+}
+
+// identityOrigins 两个函数对同一字段的"值来源指纹"（summary_origins 的
+// callee + 调用行；空表示索引没给来源）。指纹相同 → 值来源相同（身份传递
+// 可核验）；都非空且不同 → 同名不同源（不得认定同一生命周期）。
+func identityOrigins(origins map[string]map[string]string, x, y, field string) (ox, oy string, ok bool) {
+	ox = origins[x][field]
+	oy = origins[y][field]
+	if ox == "" || oy == "" {
+		return ox, oy, false
+	}
+	return ox, oy, true
+}
+
+// reachIndex 调用路径可达（calls 边邻接表 + 按起点缓存 BFS）。
+type reachIndex struct {
+	adj   map[string][]string
+	cache map[string]map[string]bool
+}
+
+// reaches from 是否能沿 calls 边走��� to。
+func (r reachIndex) reaches(from, to string) bool {
+	if from == "" || to == "" || from == to {
+		return false
+	}
+	if r.cache == nil {
+		return false
+	}
+	seen, ok := r.cache[from]
+	if !ok {
+		seen = map[string]bool{}
+		queue := []string{from}
+		for len(queue) > 0 {
+			cur := queue[0]
+			queue = queue[1:]
+			for _, nxt := range r.adj[cur] {
+				if seen[nxt] {
+					continue
+				}
+				seen[nxt] = true
+				queue = append(queue, nxt)
+			}
+		}
+		r.cache[from] = seen
+	}
+	return seen[to]
 }
 
 // allFields 函数涉及的字段集合（读 + 写）。
@@ -98,4 +175,68 @@ func asyncPkgPrefix(id string) string {
 		return ""
 	}
 	return id[:i+1]
+}
+
+// callsReachIndex 构建 calls 边邻接表（一次加载；按起点惰性 BFS）。
+func (a *Actions) callsReachIndex() reachIndex {
+	idx := reachIndex{adj: map[string][]string{}, cache: map[string]map[string]bool{}}
+	facts, err := a.repo.GetFactsByKinds(string(domain.FactCalls))
+	if err != nil {
+		return idx
+	}
+	for _, f := range facts {
+		src, dst := string(f.SourceID), string(f.TargetID)
+		idx.adj[src] = append(idx.adj[src], dst)
+	}
+	return idx
+}
+
+// funcsForOrigins 取指纹的函数集合（seed + 候选；去重）。
+func funcsForOrigins(seed *domain.CodeEntity, candidates map[string]bool) []domain.CanonicalID {
+	var out []domain.CanonicalID
+	if seed != nil {
+		out = append(out, seed.ID)
+	}
+	for id := range candidates {
+		out = append(out, domain.CanonicalID(id))
+	}
+	return out
+}
+
+// asyncOriginIndex 值来源指纹：function → field → "callee@line,callee@line"。
+// 只取写类摘要的 origins（间接写来源）；同函数同字段多来源按排序拼接。
+func (a *Actions) asyncOriginIndex(funcs []domain.CanonicalID) map[string]map[string]string {
+	var sums []*domain.FunctionFieldSummary
+	for _, id := range funcs {
+		rows, err := a.repo.GetFunctionFields(id)
+		if err != nil {
+			continue
+		}
+		sums = append(sums, rows...)
+	}
+	out := map[string]map[string]string{}
+	agg := map[string]map[string][]string{}
+	for _, s := range sums {
+		if len(s.Origins) == 0 {
+			continue
+		}
+		if s.AccessKind == domain.SummaryDirectRead {
+			continue
+		}
+		fn := string(s.FunctionID)
+		if agg[fn] == nil {
+			agg[fn] = map[string][]string{}
+		}
+		for _, o := range s.Origins {
+			agg[fn][s.FieldPath] = append(agg[fn][s.FieldPath], string(o.CalleeID)+"@"+itoaSeq(o.CallLine))
+		}
+	}
+	for fn, byField := range agg {
+		out[fn] = map[string]string{}
+		for field, items := range byField {
+			sortStrings(items)
+			out[fn][field] = strings.Join(items, ",")
+		}
+	}
+	return out
 }

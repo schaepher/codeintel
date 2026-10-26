@@ -5433,3 +5433,29 @@ result, reachable, notes[]}`）；函数级 `db_writes/remote_writes/tx/result`
 - 测试：`action_effects_paths_test.go`（三路径区分/提前返回不含后续写入/
   部分成功返回来源/场景可达性 + 不过滤写入）、`query_effects_test.go`
   （文本"执行路径"节 + JSON `paths/reachable/conditions`）。
+
+### 3. 异步关联的身份与因果验证（P1，todo11-3）
+
+原先 `field:`（共享字段读写）、`id_field:`（同名标识）、`call_chain`（双方都在
+seed 展开集合）都被当作 corroborated——需求指出这三样都**不能证明具体异步因果**。
+
+- **证据分级**：`links[].evidence_kind` = `call_path` / `value_origin` /
+  `field_shared` / `name_only` / `shared_scope_only`。只有 `call_path` 与
+  `value_origin` 是 `corroborated`；其余一律 `unverified`（启发式候选仍输出，
+  但明示"不构成因果"）。
+- **可达性收紧**：`call_chain` → `call_path`，判据改为**真实 BFS 可达**
+  （`calls` 边邻接表 + 按起点缓存），不再是"双方都在 seed 的展开集合里"——
+  同一入口下互斥的两个分支（`if/else` 各调一个）不再被判成可达。
+- **身份传递验证**：`value_origin` 用 `summary_origins` 的值来源指纹
+  （`callee@call_line` 排序拼接）比对——两函数对同一标识字段的指纹一致 →
+  corroborated；**都非空但不同 → `name_only` + 明确"同名标识但值来源不同，
+  不构成同一生命周期"**；来源未知 → `name_only`（启发式）。
+  `AllSummaries()` 不带 origins，故按候选函数逐个 `GetFunctionFields` 取
+  （节点上限 20，成本可控）。
+- 判据顺序：`call_path` → 身份字段（*_id/*Id/_no/_code，值来源）→ 其他字段
+  共享（field_shared）→ 仅同作用域（shared_scope_only）。
+- 测试：`action_async_identity_test.go`（同名不同源 → name_only/unverified；
+  来源指纹一致 → value_origin/corroborated；同入口互斥分支不判 call_path）、
+  原有 async 测试改为启发式口径、CLI 文本显示 `[verdict · evidence_kind]`。
+- 踩坑：`SaveBatchStats` 的 origins 走**显式参数**（`summaries[].Origins` 不落库），
+  夹具必须用第 4 个参数写 origins。

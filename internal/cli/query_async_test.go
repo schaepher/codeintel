@@ -52,7 +52,9 @@ func TestQueryAsyncText(t *testing.T) {
 			t.Errorf("query async exit = %d", code)
 		}
 	})
-	for _, want := range []string{"异步生命周期", "human", "cron", "关联（证据）", "field:example.com/m.Order.State", "corroborated"} {
+	// todo11-3：共享字段读写是启发式（unverified · field_shared），文本要能看出来
+	for _, want := range []string{"异步生命周期", "human", "cron", "关联（证据）",
+		"field_shared:example.com/m.Order.State", "unverified", "field_shared"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("输出应含 %q:\n%s", want, out)
 		}

@@ -41,8 +41,9 @@ func queryAsync(acts *action.Actions, abs, seed string, jsonOut bool) int {
 	if len(res.Links) > 0 {
 		fmt.Println("\n关联（证据）：")
 		for _, l := range res.Links {
-			fmt.Printf("  · %s ↔ %s → %s [%s]%s\n", shortSymbolNameID(l.From), shortSymbolNameID(l.To),
-				l.Reason, l.Verdict, asyncLinkNote(l))
+			// todo11-3：把"启发式候选"与"经调用路径/值来源验证的因果"分开显示
+			fmt.Printf("  · %s ↔ %s → %s [%s · %s]%s\n", shortSymbolNameID(l.From), shortSymbolNameID(l.To),
+				l.Reason, l.Verdict, l.EvidenceKind, asyncLinkNote(l))
 		}
 	}
 	if len(res.Diagnostics) > 0 {

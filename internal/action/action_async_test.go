@@ -43,8 +43,10 @@ func TestAsyncFieldLink(t *testing.T) {
 	if found == nil {
 		t.Fatalf("Approve 与 Sweep 应有关联: %+v", res.Links)
 	}
-	if found.Verdict != SeqVerdictCorroborated || !strings.HasPrefix(found.Reason, "field:") {
-		t.Errorf("关联应有字段证据（corroborated + field:）: %+v", found)
+	// todo11-3：仅"共享字段读写"是**启发式**——标 unverified + evidence_kind，
+	// 只有值来源/调用路径可验证时才升级为 corroborated
+	if found.Verdict != SeqVerdictUnverified || found.EvidenceKind != "field_shared" {
+		t.Errorf("共享字段读写应标记为启发式（unverified/field_shared）: %+v", found)
 	}
 	if !strings.Contains(found.Reason, "State") {
 		t.Errorf("证据应指出状态字段: %+v", found)
@@ -72,14 +74,14 @@ func TestAsyncDualAdvance(t *testing.T) {
 	var chainLink, scopeOnly bool
 	for _, l := range res.Links {
 		switch {
-		case l.Reason == "call_chain" && l.Verdict == SeqVerdictCorroborated:
+		case l.Reason == "call_path" && l.Verdict == SeqVerdictCorroborated && l.EvidenceKind == "call_path":
 			chainLink = true
 		case l.Reason == "shared_scope_only" && l.Verdict == SeqVerdictUnverified:
 			scopeOnly = true
 		}
 	}
 	if !chainLink {
-		t.Errorf("Review → AdvanceBySystem 应有调用链证据: %+v", res.Links)
+		t.Errorf("Review → AdvanceBySystem 应有调用路径证据（call_path）: %+v", res.Links)
 	}
 	if !scopeOnly {
 		t.Errorf("仅共享作用域的关系必须标 unverified（不构成因果）: %+v", res.Links)
