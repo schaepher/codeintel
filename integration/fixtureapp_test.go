@@ -23,6 +23,12 @@ func copyDir(t *testing.T, src, dst string) {
 		t.Fatalf("mkdir %s: %v", dst, err)
 	}
 	for _, e := range entries {
+		// 跳过本地遗留的索引/版本库目录：fixture 只应复制源码（Q/11-1 教训：
+		// 本地跑过 init 后 `.codeintel/` 会带着旧 schema 一起进临时仓库，
+		// 让 integration 在 schema 升级后误报）。
+		if e.IsDir() && (e.Name() == ".codeintel" || e.Name() == ".git" || e.Name() == ".tmp") {
+			continue
+		}
 		s, d := filepath.Join(src, e.Name()), filepath.Join(dst, e.Name())
 		if e.IsDir() {
 			copyDir(t, s, d)
