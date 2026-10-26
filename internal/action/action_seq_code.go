@@ -7,11 +7,14 @@ package action
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"go/ast"
 	"strings"
 	"time"
 
+	"github.com/schaepher/codeintel/internal/domain"
 	"go.uber.org/zap"
 )
 
@@ -53,6 +56,16 @@ type SeqMeta struct {
 	Scene       *sceneSummary  `json:"scene,omitempty"`       // todo10-5：场景裁剪统计
 	Focus       *SeqFocusMeta  `json:"focus,omitempty"`       // todo10-2 part3：焦点过滤是否生效
 	Diagnostics []SeqDiagCount `json:"diagnostics,omitempty"` // todo10-3：展开终点聚合（按 code）
+	// todo12-13：索引覆盖/降级（与展开诊断分开——只有 success 不算覆盖完整）
+	Coverage *SeqCoverage `json:"coverage,omitempty"`
+}
+
+// SeqCoverage 构建期覆盖/降级信息（查询携带；与 SQL 解析统计分开）。
+type SeqCoverage struct {
+	BuildStatus  string         `json:"build_status,omitempty"`
+	BuildError   string         `json:"build_error,omitempty"`
+	IndexSHA     string         `json:"index_sha,omitempty"`
+	DegradeStats map[string]any `json:"degrade_stats,omitempty"`
 }
 
 // SeqFocusMeta 焦点过滤结果（matched=0 时 applied=false——输出保留全量，
@@ -73,6 +86,25 @@ type seqTimingAcc struct {
 
 // millis Duration → 毫秒（保留小数——单次阶段可能远小于 1ms）。
 func millis(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
+
+// seqCoverage 构建期覆盖信息（build_metadata → meta.coverage）。
+func seqCoverage(m *domain.BuildMeta) *SeqCoverage {
+	if m == nil {
+		return nil
+	}
+	cov := &SeqCoverage{BuildStatus: string(m.Status), BuildError: m.ErrorMsg, IndexSHA: m.CommitSHA}
+	if m.DegradeStats != "" {
+		switch m.DegradeStats[0] {
+		case '{', '[':
+			if err := json.Unmarshal([]byte(m.DegradeStats), &cov.DegradeStats); err != nil {
+				cov.DegradeStats = map[string]any{"raw": m.DegradeStats}
+			}
+		default:
+			cov.DegradeStats = map[string]any{"raw": m.DegradeStats}
+		}
+	}
+	return cov
+}
 
 // countSeqNodes 展开规模（节点总数——含分支/else/循环/嵌套）。
 func countSeqNodes(n *CodeSeqNode) int {
@@ -207,10 +239,12 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 		req.focus = a.newSeqFocus(req.Focus)
 	}
 	ctx := req.ctx()
-	if req.indexSHA == "" {
-		if meta, merr := a.repo.GetLatest(); merr == nil && meta != nil {
-			req.indexSHA = meta.CommitSHA
-		}
+	var buildMeta *domain.BuildMeta
+	if m, merr := a.repo.GetLatest(); merr == nil {
+		buildMeta = m
+	}
+	if req.indexSHA == "" && buildMeta != nil {
+		req.indexSHA = buildMeta.CommitSHA
 	}
 
 	// 阶段 1：符号解析（只查库，不读源码——与阶段 2/3 不重叠）
@@ -271,15 +305,29 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 		Depth:     req.Depth,
 		Stop:      stopCode,
 	}
+	// todo12-13：原分析诊断先固定下来（焦点/场景投影不得顶替 depth/unknown）
+	analysisDiags := aggregateSeqStops(root)
+	var projectionDiags []SeqDiagCount
 	// todo10-2 part3：焦点过滤（无命中 → 保留全量并在 meta 标记，避免静默空图）
 	if req.focusActive() {
+		before := countSeqNodes(root)
 		filtered := pruneToFocus(root.Nodes, req.focus)
 		if req.focus.matched > 0 {
 			root.Nodes = filtered
+			removed := before - countSeqNodes(root)
+			projectionDiags = append(projectionDiags, SeqDiagCount{Code: SeqDiagFocusProjection,
+				Count: 1, Detail: fmt.Sprintf("焦点投影移除 %d 个节点；原分析诊断保留（筛选不改变分析完整性）", removed)})
 		}
 	}
 	root.Meta = &SeqMeta{Version: 1, Target: req.Target, Timing: timing,
-		Diagnostics: aggregateSeqStops(root)}
+		Diagnostics: append(analysisDiags, projectionDiags...),
+		Coverage:    seqCoverage(buildMeta)}
+	// todo12-13：索引降级必须可见（build success 只代表构建流程完成）
+	if cov := root.Meta.Coverage; cov != nil && cov.BuildStatus != "" && cov.BuildStatus != string(domain.BuildSuccess) {
+		root.Meta.Diagnostics = append(root.Meta.Diagnostics, SeqDiagCount{
+			Code: "index_degraded", Count: 1,
+			Detail: "构建状态 " + cov.BuildStatus + "：" + cov.BuildError})
+	}
 	if req.focusActive() {
 		root.Meta.Focus = &SeqFocusMeta{Targets: req.Focus, Matched: req.focus.matched, Applied: req.focus.matched > 0}
 		timing.Nodes = countSeqNodes(root)
@@ -287,6 +335,11 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	// todo10-5：场景裁剪统计（仅指定了 --scene 时输出）
 	if !req.Scene.Empty() {
 		sum := *req.sceneCount
+		if sum.Applied {
+			root.Meta.Diagnostics = append(root.Meta.Diagnostics, SeqDiagCount{Code: SeqDiagSceneProjection,
+				Count: sum.Excluded, Detail: fmt.Sprintf("场景投影：taken=%d excluded=%d unknown=%d；排除分支内容被裁剪，原分析诊断保留",
+					sum.Taken, sum.Excluded, sum.Unknown)})
+		}
 		sum.Applied = true
 		root.Meta.Scene = &sum
 		timing.Nodes = countSeqNodes(root)

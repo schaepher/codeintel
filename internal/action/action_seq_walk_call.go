@@ -71,6 +71,9 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 			// 未解析到项目内符号：外部库调用或索引覆盖缺失
 			req.acc.unresolved++
 			node.Evidence = &SeqEvidence{Source: SeqEvidenceAST, CallFile: curFile, CallLine: pos.Line}
+			// todo12-13：AST 调用表达式存在 ≠ 目标实现已解析——明确终点诊断
+			node.Stop = &SeqStop{Code: SeqStopUnresolved,
+				Detail: "调用点未解析（外部库或索引覆盖缺失）——仅证明表达式存在"}
 		}
 
 		if depth <= 1 {

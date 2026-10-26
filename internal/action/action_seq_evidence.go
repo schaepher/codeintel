@@ -27,6 +27,9 @@ const (
 	SeqStopFuncNotFound = "func_not_found" // 源码里按行号定位不到函数声明
 	SeqStopParseError   = "parse_error"    // 源码语法解析失败
 	SeqStopFiltered     = "filtered"       // 被时序过滤规则排除
+	// todo12-13：筛选/投影诊断（与原分析诊断分开——筛选不得顶替原诊断）
+	SeqDiagFocusProjection = "focus_projection"
+	SeqDiagSceneProjection = "scene_projection"
 )
 
 // 解析依据（Evidence.Source）。

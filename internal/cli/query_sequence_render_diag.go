@@ -90,7 +90,20 @@ func seqDiagText(root *action.CodeSeqNode) string {
 	if b.Len() == 0 {
 		return ""
 	}
-	return "\n-- 展开终点诊断 --\n" + b.String()
+	out := "\n-- 展开终点诊断 --\n" + b.String()
+	// todo12-13：meta 级诊断（原分析 + 投影分开列出；筛选不得顶替原诊断）
+	if root.Meta != nil && len(root.Meta.Diagnostics) > 0 {
+		var mb strings.Builder
+		for _, d := range root.Meta.Diagnostics {
+			mb.WriteString(fmt.Sprintf("- %s ×%d", d.Code, d.Count))
+			if d.Detail != "" {
+				mb.WriteString("：" + d.Detail)
+			}
+			mb.WriteString("\n")
+		}
+		out += "\n-- 完整性与投影诊断 --\n" + mb.String()
+	}
+	return out
 }
 
 // seqEvidenceFile 节点证据里的文件（调用点文件优先，其次符号定义文件）。

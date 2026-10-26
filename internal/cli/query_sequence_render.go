@@ -19,6 +19,12 @@ func renderCodeSeqMermaid(root *action.CodeSeqNode) string {
 	}
 	var b strings.Builder
 	b.WriteString("sequenceDiagram\n")
+	// todo12-13：完整性与投影诊断（mermaid 注释不渲染，但保留可审计行）
+	if root.Meta != nil {
+		for _, d := range root.Meta.Diagnostics {
+			b.WriteString(fmt.Sprintf("%%%% diag %s x%d %s\n", d.Code, d.Count, d.Detail))
+		}
+	}
 
 	parts := []string{root.Label}
 	seen := map[string]bool{root.Label: true}
