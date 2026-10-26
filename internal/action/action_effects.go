@@ -23,100 +23,19 @@ import (
 )
 
 // EffectsRequest query effects 参数。
-type EffectsRequest struct {
-	Target  string // 函数/方法（canonical ID 或名称）
-	RepoAbs string
-	Depth   int // 展开层级（1 = 只本函数；默认 1）
-	Scene   Scene
-	// todo12-1：目标筛选（互斥；空 = 不筛选，保持既有契约）
-	TargetField  string // 类型限定字段路径（pkg.Type.Field）
-	TargetReturn string // 返回槽名字或 #序号
-	TargetSet    bool   // 是否显式指定了目标（用于区分"未指定"与"空值"）
-	PathBudget   int    // 路径枚举预算（0 = 默认 24）
-}
 
 // DBEffect 一次表列写入。
-type DBEffect struct {
-	Table       string       `json:"table,omitempty"`
-	Column      string       `json:"column,omitempty"`
-	Field       string       `json:"field"`                  // SSA 摘要的字段路径
-	Function    string       `json:"function"`               // 写入函数（canonical ID）
-	File        string       `json:"file,omitempty"`         // 写入函数所在文件（被调写入定位用）
-	Line        int          `json:"line,omitempty"`         // 写入行
-	Access      string       `json:"access"`                 // direct_write / indirect_write
-	Origin      string       `json:"origin,omitempty"`       // todo12-8：ast|callee|summary（写点来源）
-	Kind        string       `json:"kind,omitempty"`         // todo12-8 R2：field_assign|db_write|callee_write
-	CommitScope string       `json:"commit_scope,omitempty"` // begin_commit|outside_or_unknown|none
-	Evidence    *SeqEvidence `json:"evidence,omitempty"`
-}
 
 // RemoteEffect 一次远程写（grpc/http 出站）。
-type RemoteEffect struct {
-	Kind     string       `json:"kind"` // grpc | http
-	Service  string       `json:"service"`
-	Method   string       `json:"method,omitempty"`
-	Path     string       `json:"path,omitempty"`
-	Function string       `json:"function"`
-	Line     int          `json:"line,omitempty"`
-	Evidence *SeqEvidence `json:"evidence,omitempty"`
-}
 
 // TxScope 事务范围（观察到的事实，不含"是否回滚"的推断）。
-type TxScope struct {
-	Kind         string `json:"kind"` // none|begin_commit|tx_wrapper
-	BeginLine    int    `json:"begin_line,omitempty"`
-	CommitLine   int    `json:"commit_line,omitempty"`
-	RollbackLine int    `json:"rollback_line,omitempty"`
-	CoversWrites bool   `json:"covers_writes"` // 写入行是否落在 [begin, commit) 之间
-	Verdict      string `json:"verdict"`
-	Detail       string `json:"detail,omitempty"`
-}
 
 // ResultEffect 返回结果与可疑覆盖。
 // ErrorSource 一条返回槽的错误来源判定（todo12-8 R3）。
-type ErrorSource struct {
-	Slot          int    `json:"slot"`
-	Expr          string `json:"expr"`
-	Var           string `json:"var,omitempty"`
-	Line          int    `json:"line,omitempty"`
-	Status        string `json:"status"` // returned|wrapped|swallowed|overwritten|stale|nil|unknown
-	OverwrittenAt int    `json:"overwritten_at,omitempty"`
-	Detail        string `json:"detail,omitempty"`
-}
-
-type ResultEffect struct {
-	Returns    []string `json:"returns,omitempty"`    // 返回表达式文本
-	Slots      []string `json:"slots,omitempty"`      // 结果槽
-	Line       int      `json:"line,omitempty"`       // return 行
-	ErrorVars  []string `json:"error_vars,omitempty"` // 被当作错误的变量
-	Suspicious []string `json:"suspicious"`           // "错误被后续赋值覆盖"的可疑点（file:line；空数组也输出）
-	// todo12-8：每条返回槽的错误来源（区分返回/覆盖/吞掉/旧错误）
-	ErrorSources []ErrorSource `json:"error_sources,omitempty"`
-	Verdict      string        `json:"verdict"`
-	Detail       string        `json:"detail,omitempty"`
-}
 
 // EffectsResult query effects 输出契约。
-type EffectsResult struct {
-	Target   string `json:"target"`
-	Function string `json:"function"`
-	File     string `json:"file,omitempty"`
-	// todo12-1：目标筛选（不指定目标时省略，保持既有契约）
-	TargetInfo   *EffectsTarget   `json:"target_info,omitempty"`
-	Analysis     *EffectsAnalysis `json:"analysis,omitempty"`
-	DBWrites     []DBEffect       `json:"db_writes"`
-	RemoteWrites []RemoteEffect   `json:"remote_writes"`
-	Paths        []EffectPath     `json:"paths,omitempty"` // todo11-4：按执行路径
-	Tx           TxScope          `json:"tx"`
-	Result       ResultEffect     `json:"result"`
-	Diagnostics  []SeqDiagCount   `json:"diagnostics,omitempty"`
-}
 
 // tx 调用名（扫描 AST 用）。
-var txBeginNames = map[string]bool{"begin": true, "begintx": true, "beginx": true}
-var txCommitNames = map[string]bool{"commit": true, "committx": true}
-var txRollbackNames = map[string]bool{"rollback": true, "rollbacktx": true}
-var txWrapperNames = map[string]bool{"transaction": true, "tx": true, "withtransaction": true}
 
 // Effects 收集指定函数的副作用与返回结果。
 func (a *Actions) Effects(req EffectsRequest) (*EffectsResult, error) {
@@ -321,146 +240,18 @@ func (a *Actions) effectWriteRow(fid domain.CanonicalID, file string, r *domain.
 }
 
 // fileOfStrings 文件映射（canonical ID → file）转字符串键。
-func fileOfStrings(m map[domain.CanonicalID]string) map[string]string {
-	out := make(map[string]string, len(m))
-	for k, v := range m {
-		out[string(k)] = v
-	}
-	return out
-}
 
 // unionPathWrites 路径写入并集（目标返回槽模式的函数级汇总）。
-func unionPathWrites(paths []EffectPath) []DBEffect {
-	seen := map[string]bool{}
-	out := []DBEffect{}
-	for _, p := range paths {
-		for _, w := range p.Writes {
-			key := w.Function + "\x00" + w.Field + "\x00" + itoaSeq(w.Line)
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			out = append(out, w)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Field != out[j].Field {
-			return out[i].Field < out[j].Field
-		}
-		return out[i].Line < out[j].Line
-	})
-	return out
-}
 
 // targetResultSummary 目标模式的函数级返回汇总（路径返回槽并集，不重编号）。
-func targetResultSummary(paths []EffectPath, old ResultEffect) ResultEffect {
-	seen := map[string]bool{}
-	var returns, slots []string
-	line := 0
-	for _, p := range paths {
-		if p.Result == nil {
-			continue
-		}
-		if line == 0 {
-			line = p.Result.Line
-		}
-		for i := range p.Result.Returns {
-			key := itoaSeq(i) + "\x00" + p.Result.Returns[i]
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			returns = append(returns, p.Result.Returns[i])
-			if i < len(p.Result.Slots) {
-				slots = append(slots, p.Result.Slots[i])
-			}
-		}
-	}
-	res := ResultEffect{Returns: returns, Slots: slots, Line: line,
-		Verdict: SeqVerdictCorroborated, ErrorVars: old.ErrorVars,
-		Detail: "目标筛选后的函数级汇总（按路径返回槽）"}
-	return res
-}
 
 // effectPartialCodes 判为 partial 的诊断代码。
-var effectPartialCodes = map[string]bool{
-	EffectDiagPathBudget:       true,
-	EffectDiagPathNesting:      true,
-	EffectDiagLoopUnrefined:    true,
-	EffectDiagSwitchUnrefine:   true,
-	EffectDiagTargetUnknown:    true,
-	EffectDiagSlotUnresolved:   true,
-	EffectDiagCalleeUnresolved: true,
-}
 
 // effectAnalysis 聚合完整性诊断（未知/截断 → partial）。
-func effectAnalysis(depth int, st *pathWalkStats, tgt *effectsTarget, writes []DBEffect, unresolvedCalls int) *EffectsAnalysis {
-	a := &EffectsAnalysis{Status: "complete", Depth: depth, Diagnostics: []SeqDiagCount{}}
-	add := func(code, detail string, count int) {
-		if count <= 0 {
-			return
-		}
-		a.Diagnostics = append(a.Diagnostics, SeqDiagCount{Code: code, Count: count, Detail: detail})
-		if effectPartialCodes[code] {
-			a.Status = "partial"
-		}
-	}
-	if st != nil {
-		add(EffectDiagPathBudget,
-			fmt.Sprintf("路径预算已达上限（丢弃 %d 个未展开终态；用 --path-budget 提高预算）", st.dropped), st.dropped)
-		add(EffectDiagPathNesting, "分支嵌套超过 12 层，未继续展开", st.nestTrunc)
-		add(EffectDiagLoopUnrefined, "循环体按 0..N 次计（未逐次展开）", st.loops)
-		add(EffectDiagSwitchUnrefine, "switch/select 分支未细化为独立路径", st.switches)
-	}
-	add("path_callee_unresolved", "路径上存在未映射索引的调用点（被调写入可能遗漏）", unresolvedCalls)
-	if tgt != nil {
-		add(EffectDiagTargetUnknown,
-			"目标依赖里有类型无法判定的写入（已保守保留，未证明与目标同类型）", tgt.unknown)
-		add(EffectDiagSlotUnresolved,
-			"部分路径的 return 未提供目标槽（多值调用/表达式个数不足）", tgt.slotMiss)
-		add(EffectDiagTargetNoWrite, "目标合法但未观察到写入", boolCount(len(writes) == 0))
-	}
-	return a
-}
 
 // setEffectCommitScope 标注每个写点是否落在观察到的 begin/commit 范围内
 // （只陈述事实：不在范围内/无事务 → outside_or_unknown / none）。
-func setEffectCommitScope(writes []DBEffect, tx *TxScope) {
-	for i := range writes {
-		switch {
-		case tx == nil || tx.Kind == "none":
-			writes[i].CommitScope = "none"
-		case tx.Kind == "begin_commit" && writes[i].Line >= tx.BeginLine &&
-			(tx.CommitLine <= 0 || writes[i].Line < tx.CommitLine):
-			writes[i].CommitScope = "begin_commit"
-		default:
-			writes[i].CommitScope = "outside_or_unknown"
-		}
-	}
-}
 
 // boolCount 条件计数（true = 1）。
-func boolCount(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
-}
 
 // txCovers 写点是否落在 [begin, commit) 之间（事务范围判定的事实陈述）。
-func txCovers(tx *TxScope, writes []DBEffect) bool {
-	if tx.BeginLine <= 0 {
-		return false
-	}
-	end := tx.CommitLine
-	if end <= 0 {
-		end = int(^uint(0) >> 1) // 无 commit：视为开放范围
-	}
-	covers := 0
-	for _, w := range writes {
-		if w.Line >= tx.BeginLine && w.Line < end {
-			covers++
-		}
-	}
-	return covers > 0
-}
