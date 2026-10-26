@@ -184,8 +184,10 @@ func resultNamesOf(fl *ast.FieldList) []string {
 	}
 	var out []string
 	for _, f := range fl.List {
-		for range f.Names {
-			out = append(out, f.Names[0].Name)
+		// 同组多名 `(state, reason string)` 必须逐名展开——曾误用
+		// f.Names[0] 复制，两个槽都叫 state（todo12-12）。
+		for _, nm := range f.Names {
+			out = append(out, nm.Name)
 		}
 		if len(f.Names) == 0 {
 			out = append(out, "")

@@ -147,6 +147,13 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		for i := range ret.Values {
 			ret.Slots = append(ret.Slots, seqResultSlot(i, len(ret.Values), req.resultNames))
 		}
+		// todo12-12：裸 return（具名结果）——没有返回表达式，但槽身份仍按
+		// 声明顺序展开（不能因为没有表达式就丢掉槽）。
+		if len(s.Results) == 0 && len(req.resultNames) > 0 {
+			for i := range req.resultNames {
+				ret.Slots = append(ret.Slots, seqResultSlot(i, len(req.resultNames), req.resultNames))
+			}
+		}
 		if len(ret.Values) > 0 {
 			ret.Label = "return " + strings.Join(ret.Values, ", ")
 		}
