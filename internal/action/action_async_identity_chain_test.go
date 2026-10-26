@@ -31,11 +31,14 @@ func findChain(res *AsyncLifecycleResult, field string) *AsyncChain {
 func TestAsyncIdentityChainHops(t *testing.T) {
 	review := "symbol:go:example.com/app/review:(ReviewHandler).AfterReview"
 	jobs := "symbol:go:example.com/app/jobs:Advance"
-	reg := "symbol:go:example.com/app/scheduler:ScheduleAdvance"
+	api := "symbol:go:example.com/app/scheduler:(Scheduler).RegisterJob"
+	setup := "symbol:go:example.com/app/scheduler:Setup"
 	nodes := []*domain.CodeEntity{
 		asyncFunc(review, "(ReviewHandler).AfterReview", 5),
 		asyncFunc(jobs, "Advance", 9),
-		asyncFunc(reg, "ScheduleAdvance", 20),
+		asyncFunc(setup, "Setup", 20),
+		{ID: domain.CanonicalID(api), Kind: domain.KindMethod, Name: "(Scheduler).RegisterJob",
+			FilePath: "flow.go", LineStart: 25},
 	}
 	fields := []*domain.FunctionFieldSummary{
 		asyncSummary(review, "example.com/app/review.Job.RecordID", domain.SummaryDirectWrite, 6),
@@ -43,8 +46,11 @@ func TestAsyncIdentityChainHops(t *testing.T) {
 		asyncSummary(jobs, "example.com/app/review.Job.RecordID", domain.SummaryDirectRead, 11),
 	}
 	facts := []*domain.Fact{
-		{SourceID: domain.CanonicalID(reg), TargetID: domain.CanonicalID(jobs),
+		// 真实注册：Setup → RegisterJob（位置），RegisterJob 持有 Advance 回调
+		{SourceID: domain.CanonicalID(setup), TargetID: domain.CanonicalID(api),
 			Kind: domain.FactCalls, Confidence: 0.8, Metadata: map[string]any{"line_num": 21}},
+		{SourceID: domain.CanonicalID(api), TargetID: domain.CanonicalID(jobs),
+			Kind: domain.FactPassesTo, Confidence: 0.8},
 	}
 	dir, acts := seedAsyncScopeRepo(t, nodes, fields, facts)
 	res, err := acts.AsyncLifecycle(AsyncLifecycleRequest{Seed: review, RepoAbs: dir})
@@ -62,7 +68,7 @@ func TestAsyncIdentityChainHops(t *testing.T) {
 		t.Fatalf("定时入口应进入节点: %+v", res.Nodes)
 	}
 	if jobsNode.Role != AsyncRoleCron || !strings.HasPrefix(jobsNode.RoleEvidence, "registration:") ||
-		!strings.Contains(jobsNode.RoleEvidence, "ScheduleAdvance") {
+		!strings.Contains(jobsNode.RoleEvidence, "RegisterJob") {
 		t.Errorf("注册证据应把无关键词入口判为 cron: %+v", jobsNode)
 	}
 	if jobsNode.Verdict != SeqVerdictCorroborated {

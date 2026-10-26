@@ -56,9 +56,15 @@ func Advance(job *review.Job) {
 	}
 }
 
-// 调度注册（名称含 schedule → 入口注册证据；Advance 本身无 cron 关键词）
-func ScheduleAdvance() {
-	Advance(&review.Job{RecordID: "pending"})
+// 真实调度注册（todo13-6）：回调绑定 Advance（passes_to）+ 注册 API 调用点。
+type Scheduler struct{}
+
+func (s *Scheduler) RegisterJob(name string, fn func(*review.Job)) {}
+
+var scheduler = &Scheduler{}
+
+func Setup() {
+	scheduler.RegisterJob("advance", Advance)
 }
 `)
 	write("unrelated/unrelated.go", `package unrelated

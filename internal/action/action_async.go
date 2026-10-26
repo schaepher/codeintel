@@ -229,9 +229,9 @@ func (a *Actions) AsyncLifecycle(req AsyncLifecycleRequest) (*AsyncLifecycleResu
 		role, rule := asyncClassifyRole(n.Name)
 		verdict := SeqVerdictUnverified // 名称启发式：低等级标记（todo12-6 R3）
 		evidence := ""
-		if ev := reg[id]; ev != "" {
-			role, rule = asyncRoleFromRegistration(ev)
-			verdict, evidence = SeqVerdictCorroborated, "registration:"+ev
+		if ev, ok := reg[id]; ok {
+			role, rule = ev.role, "registration:"+ev.api
+			verdict, evidence = SeqVerdictCorroborated, ev.evidence
 		}
 		nd := AsyncNode{ID: id, Name: n.Name, Role: role, RoleRule: rule,
 			RoleEvidence: evidence, File: n.FilePath, Line: n.LineStart, Verdict: verdict}
