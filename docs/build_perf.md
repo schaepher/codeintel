@@ -321,3 +321,29 @@ value-trace `sql_queries` = GetLatest + CTE，符号查询/条件行/派发分�
 
 **未声称**：未做关闭缓存的 before/after 耗时 A/B；未测更大 module 图/不同
 GOGC；并发样本为进程内独立连接，不代表 serve 长生命周期下的内存曲线。
+
+## todo15-17 缓存 A/B 与大仓矩阵/资源（2026-11）
+
+**A/B（同源码/索引/配置/负载）**：`TestValueTraceCacheAB`，单节点字段访问
+固定索引，n=6 次同请求：
+cache-off wall **7.2ms** / sql **12** / sym **6** / miss 6；
+cache-on wall **1.4ms** / sql **7** / sym **1** / hit 5；结果行数一致。
+（cache-on 仍每次 GetLatest 1 次 SQL，故 sql=2+5。）
+
+**大仓矩阵**：`integration/todo15_perf_test.go`，fixture **2212 节点/1706 边**
+（300 无关类型 + 接口实现 + 未知回调 + Many 120 次读写）。配置默认
+min-conf=1.0、CODEINTEL_SEQ_TIMING=1。
+
+| 组 | 实测 |
+|---|---|
+| sequence depth1 vs depth2（Use） | 覆盖节点数增加；接口 Impl.Do 展开；CB unresolved |
+| value-trace unknown（cold） | rows=3、sql=2、sym=2、cond=2、dispatch=1 |
+| value-trace unknown（warm） | cache hit=1 |
+| value-trace simple | rows=3 |
+| 并发 value-trace 4×2（独立连接） | p50=35ms / max=40ms；行数一致 |
+| 目标查询峰值（/usr/bin/time -v） | Maximum RSS=27MB（目标进程口径） |
+| 工作开始后取消 | 5ms 预算：delay≈7ms，`sql_queries=2`（入口拒绝不算） |
+
+**口径**：`sql_queries` 为 action 层显式仓储调用；符号/条件/派发分别计数；
+adapter 内部 SQL 与渲染不计入（`stats_scope`/`uncovered_ops` 明示）。
+RSS 用 `/usr/bin/time -v` 采样，缺失时明确 unavailable，不把 0 当采样成功。

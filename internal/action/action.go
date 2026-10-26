@@ -112,8 +112,9 @@ type Actions struct {
 	vtBuild string
 	vtCache      map[string][]*domain.TraceRow
 	vtOrder      []string // FIFO 请求键（容量上限淘汰用）
-	vtCacheLimit int      // 0 = vtCacheDefaultLimit
-	vtEvictions  int
+	vtCacheLimit    int  // 0 = vtCacheDefaultLimit
+	vtEvictions     int
+	vtCacheDisabled bool // A/B 对照：关闭缓存重算
 }
 
 // AddRelationRule 添加用户连线规则（Q226，薄封装）。
@@ -187,6 +188,14 @@ type TraceParams struct {
 }
 
 // SetValueTraceCacheLimit 设置 value-trace 缓存容量（测试/serve 可调）。
+// SetValueTraceCacheEnabled 打开/关闭 value-trace 缓存（todo15-17 A/B）。
+func (a *Actions) SetValueTraceCacheEnabled(on bool) {
+	logger := zap.L()
+	logger.Info("enter (Actions).SetValueTraceCacheEnabled", zap.Bool("on", on))
+	defer logger.Info("exit (Actions).SetValueTraceCacheEnabled")
+	a.vtCacheDisabled = !on
+}
+
 func (a *Actions) SetValueTraceCacheLimit(n int) {
 	logger := zap.L()
 	logger.Info("enter (Actions).SetValueTraceCacheLimit", zap.Int("limit", n))

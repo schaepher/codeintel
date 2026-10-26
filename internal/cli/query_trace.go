@@ -39,10 +39,15 @@ func queryValueTrace(acts *action.Actions, nodeID string, maxDepth int, minConf 
 	rows, stats, err := acts.ValueTraceWithContext(ctx, domain.CanonicalID(nodeID), maxDepth, minConf, includeContainer)
 	if err != nil {
 		if errors.Is(err, action.ErrTraceCanceled) {
+			progress := ""
+			if stats != nil {
+				progress = fmt.Sprintf("；已执行 sql_queries=%d symbol_lookups=%d condition_rows=%d dispatch_calls=%d",
+					stats.SQLQueries, stats.SymbolLookups, stats.ConditionRows, stats.DispatchCalls)
+			}
 			if timeout > 0 && ctx.Err() == context.DeadlineExceeded {
-				fmt.Fprintf(os.Stderr, "error: value-trace 超过查询预算 %s——已停止后台遍历，结果不完整不输出\n", timeout)
+				fmt.Fprintf(os.Stderr, "error: value-trace 超过查询预算 %s——已停止后台遍历，结果不完整不输出%s\n", timeout, progress)
 			} else {
-				fmt.Fprintln(os.Stderr, "error: value-trace 已取消（未完成的遍历不作为结果输出）")
+				fmt.Fprintf(os.Stderr, "error: value-trace 已取消（未完成的遍历不作为结果输出）%s\n", progress)
 			}
 			return 1
 		}

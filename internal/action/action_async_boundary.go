@@ -1,16 +1,15 @@
 package action
 
-// todo14-6：持久化/消息边界的「同一记录」静态证明。
+// todo14-6 / todo15-6：持久化/消息边界的「同一记录」静态证明。
 //
-// 判据（只在证据齐备时升级，表列映射/同名指纹不算）：
-//   - 写入侧：记录键字段被赋值为**字面量**（记录键值 K），并调用
-//     存储/消息 API（Send/Publish/Consume/Put/Save/Get…），实参含主题/表
-//     字面量 T 与键（字段或字面量 K）
-//   - 读取侧：调用同一 API 族且主题字面量同为 T，并用字面量 K 做过滤
-//     （== K / 调用实参 K）
-//   - 两条路径各自有真实源码位置；K 唯一（多分支字面量 → 歧义，不升级）
-// 证明成功：chain.Verdict=corroborated、identity_partial=false，逐跳带
-// 文件/行/键；失败：保留 unverified 并给出具体不一致的一跳与位置。
+// 只在证据齐备时升级，且必须来自实际值/实例/路径：
+//   - 写入侧：实际 Send 实参的键（字段→同实例字面量 / 直接字面量 / 变量字面量）
+//     与载荷实例一致；主题字面量来自该调用
+//   - 读取侧：Receive 返回值绑定的键变量参与 ==/!= 比较，且字段读取位于
+//     对应控制分支（== then / != else）
+//   - 主题相同、键值相同、API 包身份一致 → 四跳 corroborated
+//   - 键不同 → mismatch；!= 分支/无关变量/读取不在分支 → excluded/unverified
+// 不拿别的字段常量补位，也不因方法短名/字符串相同独立升级。
 
 import (
 	"strings"
@@ -20,32 +19,22 @@ import (
 type AsyncBoundary struct {
 	Kind        string `json:"kind,omitempty"` // queue|store
 	Topic       string `json:"topic,omitempty"`
-	Key         string `json:"key,omitempty"`
+	Key         string `json:"key,omitempty"` // 实际发送键值
 	KeyField    string `json:"key_field,omitempty"`
+	ProducerAPI string `json:"producer_api,omitempty"`
+	ConsumerAPI string `json:"consumer_api,omitempty"`
+	APIIdentity string `json:"api_identity,omitempty"`
 	ProduceFile string `json:"produce_file,omitempty"`
 	ProduceLine int    `json:"produce_line,omitempty"`
+	SendKeyLine int    `json:"send_key_line,omitempty"`
 	ConsumeFile string `json:"consume_file,omitempty"`
 	ConsumeLine int    `json:"consume_line,omitempty"`
 	FilterLine  int    `json:"filter_line,omitempty"`
-	Verdict     string `json:"verdict"` // corroborated|unverified|mismatch|ambiguous
+	ReadLine    int    `json:"read_line,omitempty"`
+	FilterOp    string `json:"filter_op,omitempty"`
+	Verdict     string `json:"verdict"` // corroborated|unverified|mismatch|ambiguous|excluded
 	Detail      string `json:"detail,omitempty"`
 }
-
-var (
-	asyncProducerCalls = map[string]bool{"send": true, "sendmessage": true, "publish": true,
-		"produce": true, "put": true, "save": true, "insert": true, "write": true, "store": true}
-	asyncConsumerCalls = map[string]bool{"receive": true, "consumemessage": true, "consume": true,
-		"subscribe": true, "read": true, "get": true, "find": true, "findbyid": true,
-		"load": true, "fetch": true, "query": true}
-)
-
-// readFileCached 读取源码文件（边界分析一次查询内复用；失败返回错误）。
-
-// fieldLiteralAssignments 记录键字段被赋的字面量（字段赋值 + 复合字面量）。
-
-// boundaryCall 一条候选边界调用（producer 或 consumer）。
-
-// consumerFilterLiterals 读取侧的过滤字面量（== / != 比较 + 调用实参）。
 
 // proveAsyncBoundary 写入/读取函数 + 字段 → 边界证明（无证据返回 nil）。
 func (a *Actions) proveAsyncBoundary(producerID, consumerID, fieldPath string, readLine int) *AsyncBoundary {
@@ -58,105 +47,106 @@ func (a *Actions) proveAsyncBoundary(producerID, consumerID, fieldPath string, r
 	if pf == nil || cf == nil {
 		return nil
 	}
-	prodCalls := collectBoundaryCalls(pf, asyncProducerCalls, leaf)
-	consCalls := collectBoundaryCalls(cf, asyncConsumerCalls, leaf)
-	if len(prodCalls) == 0 && len(consCalls) == 0 {
+	send := findSend(pf, leaf)
+	recv := findRecv(cf, leaf, readLine)
+	if send == nil && recv == nil {
 		return nil
 	}
-	literals := fieldLiteralAssignments(pf, leaf)
-	// 多分支不同键值 → 歧义（不把互斥路径串成一次生命周期）
-	uniq := map[string]bool{}
-	for _, l := range literals {
-		uniq[l.value] = true
+	b := &AsyncBoundary{Kind: "queue", KeyField: leaf, ProduceFile: pf.file, ConsumeFile: cf.file}
+	if send != nil {
+		b.ProduceLine, b.SendKeyLine = send.line, send.keyLine
+		b.Topic, b.Key, b.ProducerAPI = send.topic, send.keyValue, send.api
 	}
-	if len(uniq) > 1 {
-		var vals []string
-		for v := range uniq {
-			vals = append(vals, v)
+	if recv != nil {
+		b.ConsumeLine, b.ConsumerAPI = recv.line, recv.api
+		if b.Topic == "" {
+			b.Topic = recv.topic
 		}
-		sortStrings(vals)
-		b := &AsyncBoundary{Kind: "ambiguous", KeyField: leaf, Verdict: "ambiguous",
-			Detail:      "记录键有多个互斥字面量（" + strings.Join(vals, ", ") + "），无法证明一次实际生命周期",
-			ProduceFile: pf.file}
-		if len(prodCalls) > 0 {
-			b.ProduceLine = prodCalls[0].line
-		}
+	}
+	if send == nil {
+		b.Verdict = "unverified"
+		b.Detail = "写入侧未找到存储/消息发送调用（边界未建模）"
 		return b
 	}
-	var prod, cons *boundaryCall
-	for i := range prodCalls {
-		if prodCalls[i].topic != "" {
-			prod = &prodCalls[i]
-			break
+	if send.issue != "" {
+		b.Verdict = "ambiguous"
+		if !strings.Contains(send.issue, "多个") {
+			b.Verdict = "unverified"
 		}
+		b.Detail = send.issue
+		return b
 	}
-	for i := range consCalls {
-		if prod != nil && consCalls[i].topic == prod.topic {
-			cons = &consCalls[i]
-			break
-		}
+	if recv == nil {
+		b.Verdict = "unverified"
+		b.Detail = "读取侧未找到主题 " + send.topic + " 的消费/查询调用（边界未闭环）"
+		return b
 	}
-	if prod == nil {
-		if len(prodCalls) > 0 {
-			return &AsyncBoundary{Kind: "store", KeyField: leaf, Verdict: "unverified",
-				ProduceFile: pf.file, ProduceLine: prodCalls[0].line,
-				Detail: "写入侧边界调用未提供可比较的主题/表字面量——边界未建模"}
-		}
-		return nil
+	if recv.issue != "" {
+		b.Verdict = "unverified"
+		b.Detail = recv.issue
+		return b
 	}
-	b := &AsyncBoundary{Kind: "queue", Topic: prod.topic, KeyField: leaf,
-		ProduceFile: pf.file, ProduceLine: prod.line, ConsumeFile: cf.file,
-		Key: func() string {
-			if len(literals) == 1 {
-				return literals[0].value
-			}
-			return prod.key
-		}(),
+	if send.topic == "" || recv.topic == "" || send.topic != recv.topic {
+		b.Verdict = "mismatch"
+		b.Detail = "发送主题 " + send.topic + "（L" + itoaSeq(send.line) + "）与接收主题 " +
+			recv.topic + "（L" + itoaSeq(recv.line) + "）不一致"
+		return b
 	}
-	if cons != nil {
-		b.ConsumeLine = cons.line
+	if pf.pkg != cf.pkg {
+		b.Verdict = "unverified"
+		b.APIIdentity = pf.pkg + " ↔ " + cf.pkg
+		b.Detail = "生产/消费 API 包不同（" + b.APIIdentity + "），未证明同一消息/存储系统"
+		return b
 	}
+	b.APIIdentity = pf.pkg + "：" + send.api + " ↔ " + recv.api
 	if b.Key == "" {
 		b.Verdict = "unverified"
-		b.Detail = "记录键不是字面量（" + strings.TrimSpace(prod.keyExpr) + "），无法证明同一记录"
+		b.Detail = "实际发送键不是可追踪字面量（" + send.keyExpr + "）"
 		return b
 	}
-	if cons == nil {
+	if len(recv.filters) == 0 {
 		b.Verdict = "unverified"
-		b.Detail = "读取侧未找到主题 " + prod.topic + " 的消费/查询调用（边界未闭环）"
+		b.Detail = "读取侧未发现 Receive 返回键参与的过滤谓词（值依赖缺失）"
 		return b
 	}
-	filters := consumerFilterLiterals(cf)
-	matchLine := 0
-	for _, f := range filters {
-		if f.value == b.Key {
-			matchLine = f.line
-			break
-		}
+	// 只看键变量参与的比较；多个不同值 → 歧义
+	vals := map[string]bool{}
+	for _, f := range recv.filters {
+		vals[f.value] = true
 	}
-	if matchLine == 0 {
+	if len(vals) > 1 {
+		b.Verdict = "ambiguous"
+		b.FilterLine = recv.filters[0].line
+		b.Detail = "读取侧对接收键有多个互斥过滤字面量，无法证明单次实际生命周期"
+		return b
+	}
+	f := recv.filters[0]
+	b.FilterLine = f.line
+	b.FilterOp = f.op.String()
+	b.ReadLine = readLine
+	if !f.readOK {
+		b.Verdict = "excluded"
+		b.Detail = "过滤谓词 " + f.expr + " " + f.op.String() + " \"" + f.value +
+			"\"（L" + itoaSeq(f.line) + "）；读取 L" + itoaSeq(readLine) +
+			" 不在 key == \"" + b.Key + "\" 的控制分支内，排除该身份路径"
+		return b
+	}
+	if f.value != b.Key {
 		b.Verdict = "mismatch"
-		b.Detail = "读取过滤键与写入键不一致（期望 " + b.Key + "）"
-		for _, f := range filters {
-			if f.value != prod.topic {
-				b.Detail += "；实际过滤 " + f.value + "（L" + itoaSeq(f.line) + "）"
-				break
-			}
-		}
+		b.Detail = "发送键实际为 \"" + b.Key + "\"（L" + itoaSeq(b.SendKeyLine) +
+			"），过滤键为 \"" + f.value + "\"（L" + itoaSeq(f.line) +
+			"）；两处值不一致，不构成同记录链"
 		return b
-	}
-	b.FilterLine = matchLine
-	if readLine > 0 {
-		b.ConsumeLine = cons.line
 	}
 	b.Verdict = SeqVerdictCorroborated
-	b.Detail = "写入键 " + leaf + "=" + b.Key + " → 消息主题 " + b.Topic +
-		"/键 " + b.Key + " → 读取过滤键一致"
+	b.Detail = "实际发送键 " + leaf + "=\"" + b.Key + "\"（L" + itoaSeq(b.SendKeyLine) +
+		"）→ 主题 " + b.Topic + "（" + b.APIIdentity + "）→ 读取过滤 " +
+		f.expr + " == \"" + f.value + "\"（L" + itoaSeq(f.line) + "）且读取 L" +
+		itoaSeq(readLine) + " 位于相等分支"
 	return b
 }
 
-// applyAsyncBoundaries 对每条身份链尝试边界证明；返回诊断（不一致/歧义/
-// 未建模）。证明成功时重写逐跳为「写入键 → 消息/存储键 → 读取/过滤键」。
+// applyAsyncBoundaries 对每条身份链尝试边界证明；返回诊断。
 func (a *Actions) applyAsyncBoundaries(chains []AsyncChain) []SeqDiagCount {
 	var diags []SeqDiagCount
 	for i := range chains {
@@ -183,41 +173,49 @@ func (a *Actions) applyAsyncBoundaries(chains []AsyncChain) []SeqDiagCount {
 				h := &c.Hops[j]
 				switch h.Kind {
 				case "write":
-					h.Detail = "字段写入；记录键 " + b.KeyField + "=\"" + b.Key + "\"（源码赋值）"
+					h.Detail = "字段写入；实际记录键 " + b.KeyField + "=\"" + b.Key + "\"（L" + itoaSeq(b.SendKeyLine) + "）"
 				case "persistence", "persistence_or_queue":
 					h.Kind = "persistence_or_queue"
 					h.Field = b.Topic
 					h.File, h.Line = b.ProduceFile, b.ProduceLine
 					h.Verdict = SeqVerdictCorroborated
-					h.Detail = "消息/存储边界：主题 " + b.Topic + "；记录键 " + b.Key + "（Send/Write 调用）"
+					h.Detail = "发送实参键 \"" + b.Key + "\"（L" + itoaSeq(b.SendKeyLine) +
+						"）；主题 " + b.Topic + "；API " + b.APIIdentity
 				case "read":
 					h.File, h.Line = b.ConsumeFile, b.ConsumeLine
 					h.Verdict = SeqVerdictCorroborated
-					h.Detail = "消费/查询调用（同一主题 " + b.Topic + "）"
+					h.Detail = "接收调用（主题 " + b.Topic + "）返回键；字段读取 L" + itoaSeq(readLine)
 				case "filter":
 					h.File, h.Line = b.ConsumeFile, b.FilterLine
 					h.Verdict = SeqVerdictCorroborated
-					h.Detail = "过滤键 == \"" + b.Key + "\"（与写入键一致）"
+					h.Detail = "过滤键 == \"" + b.Key + "\"（L" + itoaSeq(b.FilterLine) + "）且读取位于相等分支"
 				}
 			}
 			c.Verdict = SeqVerdictCorroborated
 			c.Reason = "message_key"
 			continue
 		}
-		// 未证明：把具体一跳/位置写进 hop + 诊断（不升级）
+		// 未证明：把实际值/位置写进对应一跳，并明确排除/缺口
 		for j := range c.Hops {
 			h := &c.Hops[j]
-			if h.Kind == "persistence" || h.Kind == "persistence_or_queue" {
+			switch h.Kind {
+			case "persistence", "persistence_or_queue":
 				h.Kind = "persistence_or_queue"
 				if b.ProduceFile != "" {
 					h.File, h.Line = b.ProduceFile, b.ProduceLine
 				}
 				h.Field = b.Topic
 				h.Detail = b.Detail
-			}
-			if h.Kind == "filter" && b.ConsumeLine > 0 {
-				h.File, h.Line = b.ConsumeFile, b.FilterLine
+			case "filter":
+				if b.FilterLine > 0 {
+					h.File, h.Line = b.ConsumeFile, b.FilterLine
+				}
 				h.Detail = b.Detail
+			case "read":
+				if h.Detail == "" {
+					h.Detail = "字段读取（SSA 摘要）"
+				}
+				h.Detail += "；读取 L" + itoaSeq(readLine) + "（不满足过滤分支/值一致）"
 			}
 		}
 		code := "boundary_identity_unproven"
@@ -226,6 +224,9 @@ func (a *Actions) applyAsyncBoundaries(chains []AsyncChain) []SeqDiagCount {
 			code = "boundary_key_mismatch"
 		case "ambiguous":
 			code = "boundary_key_ambiguous"
+		case "excluded":
+			code = "boundary_condition_mismatch"
+			c.Reason = "identity_excluded"
 		}
 		diags = append(diags, SeqDiagCount{Code: code, Count: 1,
 			Detail: "字段 " + c.Field + "：" + b.Detail + "（生产跳 " + b.ProduceFile + ":" + itoaSeq(b.ProduceLine) +

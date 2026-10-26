@@ -87,8 +87,10 @@ func (a *Actions) ValueTraceWithContext(ctx context.Context, nodeID domain.Canon
 	st.SQLMS += float64(time.Since(sqlStart).Microseconds()) / 1000
 	st.SQLQueries++
 	key := fmt.Sprintf("%s|%s|%d|%.3f|%v", build, nodeID, maxDepth, minConf, includeContainer)
-	if rows, ok := a.vtCacheGet(build, key, st); ok {
-		return rows, st, nil
+	if !a.vtCacheDisabled {
+		if rows, ok := a.vtCacheGet(build, key, st); ok {
+			return rows, st, nil
+		}
 	}
 	st.CacheMisses = 1
 
@@ -142,7 +144,9 @@ func (a *Actions) ValueTraceWithContext(ctx context.Context, nodeID domain.Canon
 	if traceStage(ctx, "after_dispatch") {
 		return nil, st, ErrTraceCanceled
 	}
-	a.vtCachePut(build, key, rows, st)
+	if !a.vtCacheDisabled {
+		a.vtCachePut(build, key, rows, st)
+	}
 	return rows, st, nil
 }
 

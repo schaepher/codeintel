@@ -5589,3 +5589,18 @@ seed 展开集合）都被当作 corroborated——需求指出这三样都**不
 - **查询统计/取消**：value-trace 分阶段真实计数（SQL/符号/条件/派发）、
   覆盖口径、逐行 ctx 检查；缓存容量 128 FIFO、build_id 失效；固定大仓
   矩阵/并发/停止延迟/VmHWM 实测见 `build_perf.md`。
+
+## §? todo15：边界实际值身份 / 缓存 A/B / 大仓矩阵与峰值（2026-11-01）
+
+逐项证据见 [`todo15-checklist.md`](todo15-checklist.md)。
+
+- **边界证明收紧**：实际 Send 实参键（字段→同实例/直接/变量字面量）与载荷
+  实例一致；读取侧只认 Receive 返回键参与的 `==/!=`，读取必须位于对应
+  分支（`==` then / `!=` else）。`!=` 读取 → `boundary_condition_mismatch`
+  并排除路径；发送 JOB-99/过滤 JOB-42 → mismatch 且显示实际 99；无关变量/
+  无关调用常量/同字段不同实例/多发送均不升级。
+- **缓存 A/B**：固定索引 n=6，cache-off sql12/sym6/miss6 vs
+  cache-on sql7/sym1/hit5（wall 7.2ms→1.4ms），结果规模一致。
+- **大仓矩阵/资源**：2212 节点/1706 边夹具覆盖 depth1/2、接口实现、未知
+  回调、少结果/异常 value-trace 冷暖与 4×2 并发；`/usr/bin/time -v` 峰值
+  27MB；5ms 预算在 SQL 后取消（sql_queries=2，delay≈7ms）。

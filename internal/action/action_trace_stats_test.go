@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
@@ -116,10 +117,70 @@ func TestTraceCancelEachStage(t *testing.T) {
 				cancel()
 			}
 		}
-		_, _, err := acts.ValueTraceWithContext(ctx, id, 5+i, 1.0, false)
+		_, st, err := acts.ValueTraceWithContext(ctx, id, 5+i, 1.0, false)
 		cancel()
 		if !errors.Is(err, ErrTraceCanceled) {
 			t.Errorf("阶段 %s 预算耗尽应取消（不得 complete）: err=%v", phase, err)
 		}
+		// 证明取消时工作已开始（不是入口拒绝）
+		if st == nil || (st.SQLQueries == 0 && st.SymbolLookups == 0 && st.ConditionRows == 0) {
+			t.Errorf("阶段 %s 取消前应已执行工作: %+v", phase, st)
+		}
+	}
+}
+
+// todo15-17 A/B：同一源码/索引/配置/负载，缓存开/关的重复工作与耗时对照。
+func TestValueTraceCacheAB(t *testing.T) {
+	_, dir := seedTraceStatsRepo(t)
+	id := domain.CanonicalID("symbol:go:example.com/m:(T).Fn#h.State.write@3")
+	const n = 6
+	openActs := func() *Actions {
+		db, err := sqlite.Open(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { db.Close() })
+		return New(sqlite.NewRepo(db))
+	}
+	type ab struct {
+		wall  time.Duration
+		sql   int
+		sym   int
+		rows  int
+		hit   int
+		miss  int
+	}
+	run := func(enabled bool) ab {
+		a := openActs()
+		a.SetValueTraceCacheEnabled(enabled)
+		var out ab
+		start := time.Now()
+		for i := 0; i < n; i++ {
+			rows, st, err := a.ValueTraceWithContext(context.Background(), id, 8, 1.0, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			out.rows += len(rows)
+			out.sql += st.SQLQueries
+			out.sym += st.SymbolLookups
+			out.hit += st.CacheHits
+			out.miss += st.CacheMisses
+		}
+		out.wall = time.Since(start)
+		return out
+	}
+	off := run(false)
+	on := run(true)
+	t.Logf("fixed index/config/load n=%d: cache-off wall=%s sql=%d sym=%d miss=%d; cache-on wall=%s sql=%d sym=%d hit=%d miss=%d",
+		n, off.wall.Round(time.Microsecond), off.sql, off.sym, off.miss,
+		on.wall.Round(time.Microsecond), on.sql, on.sym, on.hit, on.miss)
+	if off.sql != 2*n || off.sym != n {
+		t.Errorf("关闭缓存应每次重做 SQL/符号查找: %+v", off)
+	}
+	if on.sql >= off.sql || on.sym >= off.sym || on.hit != n-1 {
+		t.Errorf("开启缓存应减少重复查找并命中 n-1 次: on=%+v off=%+v", on, off)
+	}
+	if on.rows != off.rows {
+		t.Errorf("缓存开关不得改变结果规模: on=%+v off=%+v", on, off)
 	}
 }

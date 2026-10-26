@@ -2536,7 +2536,7 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
 | P1 工程 | ssa-cache | SSA 缓存余项：`instancePath`/`recoverVarName`/`allocTypeShort`/`marshalProps` | 低风险 |
 | P1 工程 | #20 | 表字段类型剩余 10 列（`~/.codeintel` 全局注册表） | 需全局 db/yaml |
 | P1 工程 | #18 | go2o 表别名 AI 补缺（缺 148 表） | 需 AI/网络 |
-| P1 性能 | todo14-17 | 重复工作减少的关闭缓存 A/B 对照 | 统计口径/逐阶段取消/缓存上限/大仓矩阵与并发已完成，见 `docs/todo14-checklist.md` |
+| P1 验证 | #1（范围） | 真实业务系统端到端 / 更大仓并发与资源曲线 | 固定夹具矩阵/A-B/峰值已完成（todo15）；真实系统与更大规模仍需外部环境 |
 | P2 验证 | #17 | 新人实测演练（陌生项目 wiki onboarding） | 需外部项目 |
 | P2 验证 | #19 | ext-chain 跨仓库递归 | 需多仓库 |
 | P2 验证 | #21 | F2 实体分组对非 DDD 项目效果 | 需外部项目 |
