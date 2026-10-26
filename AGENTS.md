@@ -613,7 +613,11 @@ defer logger.Debug("exit <name>")
 2. **置信度体系**：SCIP=1.0、CodeGraph(AST)=0.8、Git=1.0。CLI 查询阈值
    **0.8**（不要改回 0.85——TD.md 决策 10 的 0.85 与 5.1 表的 CodeGraph=0.8 矛盾，
    0.85 会把全部调用边过滤掉，这是已确认的偏差）。
-3. **同边合并**：edges 有 UNIQUE(source_id, target_id, kind)，UPSERT 保留最高置信度；
+3. **同边合并**：edges 有 `UNIQUE(source_ref, target_ref, kind, edge_key)`（Q254c 整数
+   代理键 + todo11-1 关系身份），UPSERT 保留最高置信度；`edge_key` 是"同
+   (source,target,kind) 下需要区分的子身份"——目前只有 `grpc_call` 用它存
+   **RPC 方法名**（否则同一函数调同服务的 Submit/Cancel 会被合并、ext-chain
+   断链）。改它要同步 `schemaCols`（旧库报错 → reindex，方法元数据无法还原）。
    节点按 id UPSERT 合并 properties（json_patch），SCIP 写入的 kind/行号不被覆盖。
 4. **外键约束**：edge 端点节点必须存在；不存在的边（如 Git 追踪到未索引文件）
    在 SaveBatchStats 中静默跳过并计数，不中断构建。
