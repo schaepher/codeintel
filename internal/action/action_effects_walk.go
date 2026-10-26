@@ -32,6 +32,9 @@ func walkEffectPaths(fset *token.FileSet, src []byte, stmts []ast.Stmt, pending 
 			case *ast.ReturnStmt:
 				done := cur
 				done.intervals = append(done.intervals, span(x))
+				// todo13-8：return 表达式里的调用同样属于该路径（此前只收集
+				// 独立调用语句 → `return TraceError(l,t)` 的被调写入整条丢失）。
+				done.calls = append(done.calls, collectCallSites(fset, src, x)...)
 				done.returnLine = fset.Position(x.Pos()).Line
 				for _, r := range x.Results {
 					done.returnVals = append(done.returnVals, strings.TrimSpace(nodeText(fset, src, r)))

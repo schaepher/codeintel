@@ -182,6 +182,21 @@ func queryEffects(acts *action.Actions, o queryEffectsOpts) int {
 				if p.Result.Detail != "" {
 					fmt.Printf("      依据：%s\n", p.Result.Detail)
 				}
+				// todo13-8：错误来源（返回/覆盖/吞掉/被调返回）在文本中可见
+				for _, es := range p.Result.ErrorSources {
+					loc := ""
+					if es.Line > 0 {
+						loc = fmt.Sprintf("（L%d）", es.Line)
+					}
+					if es.OverwrittenAt > 0 {
+						loc += fmt.Sprintf("（覆盖@L%d）", es.OverwrittenAt)
+					}
+					detail := ""
+					if es.Detail != "" {
+						detail = " · " + es.Detail
+					}
+					fmt.Printf("      错误来源：%s %s%s%s\n", es.Status, es.Expr, loc, detail)
+				}
 			}
 			for _, n := range p.Notes {
 				fmt.Printf("      注：%s\n", n)

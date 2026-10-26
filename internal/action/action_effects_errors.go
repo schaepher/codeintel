@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// effectErrorSources 每条返回槽的错误来源（todo12-8 R3）：
+// effectErrorSources 每条返回槽的错误来源（todo12-8 R3 / todo13-8）：
 //   - returned：返回当前错误变量（含显式检查后返回）
 //   - wrapped：返回表达式包裹了错误值
 //   - swallowed：错误变量非 nil 后被 nil 赋值/最终返回 nil
@@ -25,13 +25,13 @@ func effectErrorSources(sp pathSpec, resultNames, slots []string) []ErrorSource 
 				slot = n
 			}
 		}
-		out = append(out, effectErrorSource(sp, slot, expr))
+		out = append(out, effectErrorSource(sp, slot, expr, sp.returnExprs[i]))
 	}
 	if len(sp.returnVals) == 0 && len(resultNames) > 0 {
 
 		for i := range resultNames {
 			if i < len(resultNames) && errLikeName(resultNames[i]) {
-				out = append(out, effectErrorSource(sp, i, resultNames[i]))
+				out = append(out, effectErrorSource(sp, i, resultNames[i], nil))
 			}
 		}
 	}
@@ -53,27 +53,43 @@ func slotIndex(s string) (int, bool) {
 	return n, true
 }
 
-// effectErrorSource 单槽判定（沿路径的局部错误变量赋值序列）。
-func effectErrorSource(sp pathSpec, slot int, expr string) ErrorSource {
+// effectErrorSource 单槽判定（沿路径的局部变量赋值序列）。
+//
+// todo13-8：不只按变量名匹配——RHS 是错误构造/被调错误返回、或该槽本身
+// 是错误槽（末槽/err 类名）时，按**定义/赋值顺序**（值身份）分析；变量
+// 重命名不改变结论。return 表达式直接调用 → returned_call（被调返回错误）。
+func effectErrorSource(sp pathSpec, slot int, expr string, returnExpr ast.Expr) ErrorSource {
 	es := ErrorSource{Slot: slot, Expr: strings.TrimSpace(expr), Status: "unknown"}
-	// 收集错误类局部变量赋值（按路径顺序）
+	// 返回表达式直接调用：错误来源是被调返回值（调用位置可定位）
+	if call, ok := returnExpr.(*ast.CallExpr); ok {
+		es.Status = "returned_call"
+		es.Line = sp.returnLine
+		es.Detail = "返回被调函数的错误值（" + callName(call) + "；不推断回滚）"
+		return es
+	}
+	// 收集候选错误变量赋值（按路径顺序）：
+	//   - 名字像错误；或
+	//   - RHS 是错误构造/错误返回调用；或
+	//   - 是本次返回表达式引用的变量（错误槽的返回值）
+	wantVar := strings.TrimSpace(es.Expr)
+	isErrSlot := slotNameErrorLike(slot, sp) || slotIsLast(sp, slot)
 	type ev struct {
 		name string
 		line int
 		nil  bool
+		call bool
 	}
 	var evs []ev
 	for _, la := range sp.locals {
-		if !errLikeName(la.name) {
+		if !errLikeName(la.name) && !rhsLooksLikeErrorCall(la.rhs) && la.name != wantVar {
 			continue
 		}
-		nilRHS := false
-		if len(la.rhs) == 1 {
-			if id, ok := la.rhs[0].(*ast.Ident); ok && id.Name == "nil" {
-				nilRHS = true
-			}
+		if la.name == wantVar && !isErrSlot && !errLikeName(la.name) && !rhsLooksLikeErrorCall(la.rhs) {
+			continue
 		}
-		evs = append(evs, ev{name: la.name, line: la.line, nil: nilRHS})
+		nilRHS := isNilIdent(la.rhs)
+		evs = append(evs, ev{name: la.name, line: la.line, nil: nilRHS,
+			call: rhsLooksLikeErrorCall(la.rhs)})
 	}
 	if len(evs) == 0 {
 		if es.Expr == "nil" {
@@ -109,7 +125,7 @@ func effectErrorSource(sp pathSpec, slot int, expr string) ErrorSource {
 		return es
 	}
 	exprName := strings.TrimSpace(es.Expr)
-	if errLikeName(exprName) {
+	if errLikeName(exprName) || (wantVar == exprName && isErrSlot) {
 		es.Var = exprName
 		// 该变量在返回前的最后一次赋值
 		var mine, mineNonNil ev
@@ -130,7 +146,8 @@ func effectErrorSource(sp pathSpec, slot int, expr string) ErrorSource {
 		es.Line = mine.line
 		if mine.nil {
 			es.Status = "swallowed"
-			es.Detail = "返回的错误变量最终被赋值为 nil（错误被吞）"
+			es.OverwrittenAt = mine.line
+			es.Detail = "返回的错误变量最终被赋值为 nil（原非 nil 错误被覆盖；错误被吞）"
 			return es
 		}
 		if lastNonNil.name != "" && lastNonNil.name != exprName && lastNonNil.line > mine.line {
@@ -158,6 +175,45 @@ func effectErrorSource(sp pathSpec, slot int, expr string) ErrorSource {
 		}
 	}
 	return es
+}
+
+// slotNameErrorLike 返回槽名是否像错误（具名结果 err）。
+func slotNameErrorLike(slot int, sp pathSpec) bool {
+	if slot < 0 || slot >= len(sp.returnVals) {
+		return false
+	}
+	return errLikeName(strings.TrimSpace(sp.returnVals[slot]))
+}
+
+// slotIsLast 是否最后一个返回槽（Go 习惯：error 为末槽）。
+func slotIsLast(sp pathSpec, slot int) bool {
+	return len(sp.returnExprs) > 0 && slot == len(sp.returnExprs)-1
+}
+
+// rhsLooksLikeErrorCall RHS 是否明显产生 error（errors.New / fmt.Errorf /
+// *Error 构造 / 名为 Error/Wrap 的调用）——用于类型信息缺失时的保守识别。
+func rhsLooksLikeErrorCall(rhs []ast.Expr) bool {
+	if len(rhs) != 1 {
+		return false
+	}
+	call, ok := rhs[0].(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	name := strings.ToLower(callName(call))
+	if strings.Contains(name, "error") || strings.HasPrefix(name, "wrap") {
+		return true
+	}
+	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+		if id, ok := sel.X.(*ast.Ident); ok {
+			pkg := strings.ToLower(id.Name)
+			if (pkg == "errors" && (name == "new" || name == "unwrap")) ||
+				(pkg == "fmt" && name == "errorf") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // errorVarKnownNil 路径条件是否已证明错误变量为 nil。
