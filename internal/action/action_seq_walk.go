@@ -57,7 +57,12 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		if req.focusActive() {
 			line := fset.Position(s.Pos()).Line
 			node := &CodeSeqNode{Kind: "assign", Label: assignLabel(fset, src, s), Line: line}
-			if (req.focusLines != nil && req.focusLines[line]) || assignsFocusField(s, req.focus.fields) {
+			focusHit := req.focusLines != nil && req.focusLines[line]
+			if !focusHit && len(req.focus.fieldIDs) == 0 {
+				// 局部变量焦点（无类型身份）：按变量名匹配
+				focusHit = assignsFocusField(s, req.focus.fields)
+			}
+			if focusHit {
 				node.Focus = true
 			}
 			out = append(out, node)

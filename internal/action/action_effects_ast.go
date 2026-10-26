@@ -259,11 +259,6 @@ func typeFromValue(e ast.Expr) string {
 		return t
 	}
 	switch x := e.(type) {
-	case *ast.CallExpr:
-		if id, ok := x.Fun.(*ast.Ident); ok && len(x.Args) == 1 {
-			// T(v) 类型转换：仅当 T 是已知类型名时由调用方接受（保守）
-			return id.Name
-		}
 	case *ast.UnaryExpr:
 		return typeFromValue(x.X)
 	case *ast.ParenExpr:

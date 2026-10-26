@@ -229,7 +229,10 @@ type focusDep struct {
 	assigns  []focusAssign
 	ifs      []focusIf
 	returns  []ast.Expr
-	resolved []string // 已解析的字段身份（pkg.T.F）或字段名
+	resolved []string          // 已解析的字段身份（pkg.T.F）或字段名
+	varTypes map[string]string // 局部变量/形参 → 类型短名（类型身份匹配）
+	pkgPath  string
+	unknown  int // 类型无法判定而保守保留的写入数
 	lines    map[int]bool
 	names    map[string]bool
 	seen     map[string]bool
@@ -485,12 +488,13 @@ func focusNameHit(name string, fields []string) bool {
 // focusLinesForFunc 焦点模式下的关注行：SSA 字段写入行 + 目标值的到达定义
 // （初始化/条件改写/必要调用），排除与目标无值依赖的调用（todo12-9 R1）。
 func (a *Actions) focusLinesForFunc(funcID domain.CanonicalID, fn *ast.FuncDecl,
-	fset *token.FileSet, src []byte, f *seqFocus) map[int]bool {
+	fset *token.FileSet, src []byte, f *seqFocus) (map[int]bool, int) {
 	if f == nil || fn == nil || fn.Body == nil {
-		return nil
+		return nil, 0
 	}
 	d := &focusDep{fset: fset, body: fn.Body, lines: map[int]bool{},
-		names: map[string]bool{}, seen: map[string]bool{}, resolved: f.fields}
+		names: map[string]bool{}, seen: map[string]bool{}, resolved: f.fields,
+		varTypes: effectVarTypes(fset, fn, src), pkgPath: pkgPathOf(string(funcID))}
 	if len(f.fields) > 0 {
 		d.resolved = append(d.resolved, f.fieldIDs...)
 	}
@@ -523,11 +527,7 @@ func (a *Actions) focusLinesForFunc(funcID domain.CanonicalID, fn *ast.FuncDecl,
 			if as.field == "" {
 				continue
 			}
-			leaf := as.field
-			if i := strings.LastIndex(leaf, "."); i >= 0 {
-				leaf = leaf[i+1:]
-			}
-			if !focusLeafHit(leaf, f.fields) && !focusFieldHit(as.field, f.fieldIDs) {
+			if !d.fieldSelected(as.field) {
 				continue
 			}
 			d.lines[as.line] = true
@@ -542,9 +542,35 @@ func (a *Actions) focusLinesForFunc(funcID domain.CanonicalID, fn *ast.FuncDecl,
 	}
 	d.fixpoint()
 	if len(d.lines) == 0 {
-		return nil
+		return nil, d.unknown
 	}
-	return d.lines
+	return d.lines, d.unknown
+}
+
+// fieldSelected AST 字段文本是否命中焦点目标（todo12-9 R2：类型身份优先，
+// 同名不同类型不串线；类型未知保守保留并计 partial）。
+func (d *focusDep) fieldSelected(text string) bool {
+	leaf := text
+	if i := strings.LastIndex(leaf, "."); i >= 0 {
+		leaf = leaf[i+1:]
+	}
+	if len(d.resolved) > 0 {
+		if id, known := writeIdentity(text, d.varTypes, d.pkgPath); known {
+			for _, want := range d.resolved {
+				if want == id {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	if focusLeafHit(leaf, d.resolved) {
+		if _, known := writeIdentity(text, d.varTypes, d.pkgPath); !known && len(d.resolved) > 0 {
+			d.unknown++
+		}
+		return true
+	}
+	return false
 }
 
 // collect 收集赋值/条件/返回语句。
@@ -643,7 +669,7 @@ func (d *focusDep) addExpr(e ast.Expr, before token.Pos, depth int) {
 			}
 		case *ast.SelectorExpr:
 			text := exprTextShallow(x)
-			if focusLeafHit(x.Sel.Name, d.resolved) && x.Pos() < before {
+			if d.fieldSelected(text) && x.Pos() < before {
 				d.addField(text, before, depth+1)
 			}
 		case *ast.CallExpr:

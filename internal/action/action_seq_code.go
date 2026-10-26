@@ -74,14 +74,17 @@ type SeqFocusMeta struct {
 	Targets []string `json:"targets"`
 	Matched int      `json:"matched"`
 	Applied bool     `json:"applied"`
+	// todo12-9 R2：依赖里有类型无法判定的写入（保守保留，但标 partial）
+	Partial bool `json:"partial,omitempty"`
 }
 
 // seqTimingAcc 展开期间的累加器（req 按值传递——用指针共享）。
 type seqTimingAcc struct {
-	read       time.Duration // 读源码 + 语法解析（递归展开累加，互不重叠）
-	depth      bool          // 有可展开而未展开的调用点（depth 截断）
-	cancel     bool
-	unresolved int // 未解析到项目内符号的调用点数（诊断用）
+	read            time.Duration // 读源码 + 语法解析（递归展开累加，互不重叠）
+	depth           bool          // 有可展开而未展开的调用点（depth 截断）
+	cancel          bool
+	unresolved      int // 未解析到项目内符号的调用点数（诊断用）
+	focusUnresolved int // todo12-9：焦点依赖里类型无法判定的写入数
 }
 
 // millis Duration → 毫秒（保留小数——单次阶段可能远小于 1ms）。
@@ -356,8 +359,14 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 		}
 	}
 	if req.focusActive() {
-		root.Meta.Focus = &SeqFocusMeta{Targets: req.Focus, Matched: req.focus.matched, Applied: req.focus.matched > 0}
+		root.Meta.Focus = &SeqFocusMeta{Targets: req.Focus, Matched: req.focus.matched,
+			Applied: req.focus.matched > 0, Partial: req.acc.focusUnresolved > 0}
 		timing.Nodes = countSeqNodes(root)
+		if req.acc.focusUnresolved > 0 {
+			root.Meta.Diagnostics = append(root.Meta.Diagnostics, SeqDiagCount{
+				Code: "focus_dependency_unresolved", Count: req.acc.focusUnresolved,
+				Detail: "焦点依赖里有类型无法判定的写入（已保守保留，未证明与目标同类型）"})
+		}
 	}
 	// todo10-5：场景裁剪统计（仅指定了 --scene 时输出）
 	if !req.Scene.Empty() {

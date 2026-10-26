@@ -126,7 +126,9 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 	req.sceneSrc = paramSourceArgs(fn.Type.Params, req.callArgLits, req.callArgSrcs)
 	if req.focusActive() {
 		// todo12-9：焦点行 = SSA 字段写入 + 目标值/字段的到达定义闭包
-		req.focusLines = a.focusLinesForFunc(domain.CanonicalID(symID), fn, fset, src, req.focus)
+		var unknown int
+		req.focusLines, unknown = a.focusLinesForFunc(domain.CanonicalID(symID), fn, fset, src, req.focus)
+		req.acc.focusUnresolved += unknown
 	} else {
 		req.focusLines = nil
 	}
