@@ -39,6 +39,14 @@ type SeqCoverage struct {
 	BuildError   string         `json:"build_error,omitempty"`
 	IndexSHA     string         `json:"index_sha,omitempty"`
 	DegradeStats map[string]any `json:"degrade_stats,omitempty"`
+	// todo13-13：具体失败包/错误位置（计数之外的覆盖范围）
+	ErrorPackages []SeqPkgError `json:"error_packages,omitempty"`
+}
+
+// SeqPkgError 一个构建期失败包（路径 + 最多 3 条错误位置/文本）。
+type SeqPkgError struct {
+	Path   string   `json:"path"`
+	Errors []string `json:"errors,omitempty"`
 }
 
 // SeqFocusMeta 焦点过滤结果（matched=0 时 applied=false——输出保留全量，
@@ -93,6 +101,31 @@ func seqCoverage(m *domain.BuildMeta) *SeqCoverage {
 			}
 		default:
 			cov.DegradeStats = map[string]any{"raw": m.DegradeStats}
+		}
+	}
+	// todo13-13：失败包明细（degrade_stats.error_packages → 结构化）
+	if raw, ok := cov.DegradeStats["error_packages"]; ok {
+		if arr, ok := raw.([]any); ok {
+			for _, x := range arr {
+				m, ok := x.(map[string]any)
+				if !ok {
+					continue
+				}
+				pe := SeqPkgError{}
+				if p, _ := m["path"].(string); p != "" {
+					pe.Path = p
+				}
+				if es, ok := m["errors"].([]any); ok {
+					for _, e := range es {
+						if s, ok := e.(string); ok && s != "" {
+							pe.Errors = append(pe.Errors, s)
+						}
+					}
+				}
+				if pe.Path != "" {
+					cov.ErrorPackages = append(cov.ErrorPackages, pe)
+				}
+			}
 		}
 	}
 	return cov

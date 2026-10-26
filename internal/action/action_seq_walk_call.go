@@ -68,12 +68,12 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 				return node
 			}
 		} else {
-			// 未解析到项目内符号：外部库调用或索引覆盖缺失
+			// 未解析到项目内符号：按消费者可区分的类别给出原因（todo13-13）
 			req.acc.unresolved++
+			code, detail := classifyUnresolvedCall(f, fun, curPkg, req.pkgSet)
 			node.Evidence = &SeqEvidence{Source: SeqEvidenceAST, CallFile: curFile, CallLine: pos.Line}
 			// todo12-13：AST 调用表达式存在 ≠ 目标实现已解析——明确终点诊断
-			node.Stop = &SeqStop{Code: SeqStopUnresolved,
-				Detail: "调用点未解析（外部库或索引覆盖缺失）——仅证明表达式存在"}
+			node.Stop = &SeqStop{Code: code, Detail: detail}
 		}
 
 		if depth <= 1 {
@@ -161,7 +161,7 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		args := a.resolveSceneArgLiterals(fset, src, call, req.curBody, req.curParams,
 			req.incomingArgs, req.incomingSrc, maxSceneFlowDepth)
 		req.callArgLits, req.callArgSrcs, req.callArgWhy = sceneArgValues(args)
-		if strings.Contains(tid, ":(") {
+		if a.isIfaceMethodID(tid) {
 			if impl, cands, ok := a.seqIfaceMethodImpl(tid); ok {
 				node.ImplType = implTypeShort(impl)
 				node.Evidence = seqIfaceEvidence(curFile, pos.Line, impl, cands, tg.confidence)
@@ -171,6 +171,12 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 				} else if stop != nil {
 					node.Stop = stop
 				}
+			} else {
+				// todo13-13：接口身份与调用位置已知，但无可证明实现——
+				// 不得把“调用边已知”当作“实现已验证”，也不冒充索引缺失。
+				node.Stop = &SeqStop{Code: SeqStopUnknownImpl,
+					Detail: "接口方法 " + tid + " 无可证明实现（调用边/接口身份已知，实现未验证）"}
+				return node
 			}
 		}
 

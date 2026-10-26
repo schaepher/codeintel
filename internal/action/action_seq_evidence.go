@@ -27,6 +27,12 @@ const (
 	SeqStopFuncNotFound = "func_not_found" // 源码里按行号定位不到函数声明
 	SeqStopParseError   = "parse_error"    // 源码语法解析失败
 	SeqStopFiltered     = "filtered"       // 被时序过滤规则排除
+	// todo13-13：消费者可区分的调用分类（不再把所有未解析笼统称 index_gap）
+	SeqStopExternalTarget = "external_target"     // 外部库目标（调用表达式已知，库内实现未展开）
+	SeqStopUnknownImpl    = "unknown_implementation" // 接口方法无可证明实现
+	SeqDegradedPackage    = "degraded_package"    // 构建期失败的具体包（含错误位置）
+	SeqTargetCoverage     = "target_coverage"     // 目标与失败包的隔离判断
+	SeqSQLDegraded        = "sql_degraded"        // SQL 解析降级统计（与包失败分开）
 	// todo12-13：筛选/投影诊断（与原分析诊断分开——筛选不得顶替原诊断）
 	SeqDiagFocusProjection = "focus_projection"
 	SeqDiagSceneProjection = "scene_projection"

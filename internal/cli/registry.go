@@ -19,6 +19,11 @@ import (
 // registryDirFn 全局注册表目录（可注入；默认 ~/.codeintel）。
 // cli 包测试经 TestMain 注入临时目录，避免写真实 home。
 var registryDirFn = func() string {
+	// todo13-13：测试/CI 可注入独立注册表目录（避免集成测试把临时仓库
+	// 写进真实 home，进而让 ext-chain 打开上千个历史仓库）。
+	if d := os.Getenv("CODEINTEL_REGISTRY_DIR"); d != "" {
+		return d
+	}
 	h, err := os.UserHomeDir()
 	if err != nil {
 		return ""

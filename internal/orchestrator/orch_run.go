@@ -75,6 +75,9 @@ func (o *Orchestrator) finishBuild(start time.Time, results []AdapterResult, ski
 	statsMap["pkg_total"] = cov.Packages
 	statsMap["pkg_with_errors"] = cov.PackagesWithErrs
 	statsMap["typecheck_errors"] = cov.TypeErrors
+	if len(cov.ErrorPackages) > 0 {
+		statsMap["error_packages"] = cov.ErrorPackages
+	}
 	statsJSON, _ := json.Marshal(statsMap)
 	// 类型检查失败 = 覆盖不完整：success 不算完整（scip 失败仍 failed）
 	if cov.TypeErrors > 0 || cov.PackagesWithErrs > 0 {
