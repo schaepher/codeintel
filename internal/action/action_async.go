@@ -30,9 +30,12 @@ type AsyncNode struct {
 	Name     string `json:"name"` // 短名
 	Role     string `json:"role"` // human|audit|cron|consumer|auto|other
 	RoleRule string `json:"role_rule,omitempty"`
-	File     string `json:"file,omitempty"`
-	Line     int    `json:"line,omitempty"`
-	Verdict  string `json:"verdict"` // 角色判定的支持程度
+	// todo12-6：入口注册证据（如 registration:ScheduleAdvance）——名称启发式
+	// 只保留低等级标记，注册证据才是 corroborated。
+	RoleEvidence string `json:"role_evidence,omitempty"`
+	File         string `json:"file,omitempty"`
+	Line         int    `json:"line,omitempty"`
+	Verdict      string `json:"verdict"` // 角色判定的支持程度
 }
 
 // AsyncLink 两个入口之间的关联（带因果证据）。
@@ -64,6 +67,30 @@ type AsyncLifecycleResult struct {
 	CandidateTotal  int  `json:"candidate_total,omitempty"`
 	CandidateBudget int  `json:"candidate_budget,omitempty"`
 	Partial         bool `json:"partial,omitempty"`
+	// todo12-6：跨入口身份链（写 → 持久化/队列边界 → 读/过滤）与完整性
+	Chains          []AsyncChain `json:"chains,omitempty"`
+	IdentityPartial bool         `json:"identity_partial,omitempty"`
+}
+
+// AsyncChain 跨入口值身份链（逐跳可核对；边界未建模 → partial）。
+type AsyncChain struct {
+	From    string     `json:"from"`
+	To      string     `json:"to"`
+	Field   string     `json:"field"`
+	Hops    []AsyncHop `json:"hops"`
+	Verdict string     `json:"verdict"`
+	Reason  string     `json:"reason,omitempty"`
+}
+
+// AsyncHop 身份链的一跳（写入/边界/读取/过滤）。
+type AsyncHop struct {
+	Kind     string `json:"kind"` // write|persistence|persistence_or_queue|read|filter
+	Function string `json:"function,omitempty"`
+	Field    string `json:"field,omitempty"`
+	File     string `json:"file,omitempty"`
+	Line     int    `json:"line,omitempty"`
+	Verdict  string `json:"verdict"`
+	Detail   string `json:"detail,omitempty"`
 }
 
 // asyncCandidateBudget 候选入口预算（防止把全仓字段摘要函数当相关入口）。
@@ -109,6 +136,9 @@ type asyncFnFacts struct {
 	node   *domain.CodeEntity
 	writes map[string]bool
 	reads  map[string]bool
+	// todo12-6：字段读写行（身份链逐跳位置）
+	wlines map[string]int
+	rlines map[string]int
 }
 
 // AsyncLifecycle 关联入口相关的生命周期事件（人工/审核/定时/消费）与因果。
@@ -134,14 +164,21 @@ func (a *Actions) AsyncLifecycle(req AsyncLifecycleRequest) (*AsyncLifecycleResu
 		id := string(s.FunctionID)
 		f := facts[id]
 		if f == nil {
-			f = &asyncFnFacts{writes: map[string]bool{}, reads: map[string]bool{}}
+			f = &asyncFnFacts{writes: map[string]bool{}, reads: map[string]bool{},
+				wlines: map[string]int{}, rlines: map[string]int{}}
 			facts[id] = f
 		}
 		switch s.AccessKind {
 		case domain.SummaryDirectWrite, domain.SummaryIndirectWrite:
 			f.writes[s.FieldPath] = true
+			if s.LineStart > 0 {
+				f.wlines[s.FieldPath] = s.LineStart
+			}
 		default:
 			f.reads[s.FieldPath] = true
+			if s.LineStart > 0 {
+				f.rlines[s.FieldPath] = s.LineStart
+			}
 		}
 	}
 	// seed 的字段集合（决定作用域）
@@ -236,6 +273,8 @@ func (a *Actions) AsyncLifecycle(req AsyncLifecycleRequest) (*AsyncLifecycleResu
 		}
 	}
 	res.Scope = scope
+	// todo12-6：入口注册证据（calls 边来源名）——名称启发式只作低等级
+	reg := a.asyncRegistrationIndex()
 	if total > asyncCandidateBudget {
 		res.Partial = true
 		res.Diagnostics = append(res.Diagnostics, SeqDiagCount{Code: "candidates_truncated",
@@ -250,12 +289,14 @@ func (a *Actions) AsyncLifecycle(req AsyncLifecycleRequest) (*AsyncLifecycleResu
 			return nil
 		}
 		role, rule := asyncClassifyRole(n.Name)
-		verdict := SeqVerdictCorroborated
-		if rule == "name:none" {
-			verdict = SeqVerdictUnverified
+		verdict := SeqVerdictUnverified // 名称启发式：低等级标记（todo12-6 R3）
+		evidence := ""
+		if ev := reg[id]; ev != "" {
+			role, rule = asyncRoleFromRegistration(ev)
+			verdict, evidence = SeqVerdictCorroborated, "registration:"+ev
 		}
 		nd := AsyncNode{ID: id, Name: n.Name, Role: role, RoleRule: rule,
-			File: n.FilePath, Line: n.LineStart, Verdict: verdict}
+			RoleEvidence: evidence, File: n.FilePath, Line: n.LineStart, Verdict: verdict}
 		res.Nodes = append(res.Nodes, nd)
 		return &res.Nodes[len(res.Nodes)-1]
 	}
@@ -288,6 +329,24 @@ func (a *Actions) AsyncLifecycle(req AsyncLifecycleRequest) (*AsyncLifecycleResu
 	if len(res.Links) == 0 {
 		res.Diagnostics = append(res.Diagnostics, SeqDiagCount{Code: "no_related_links", Count: 1,
 			Detail: "未发现与 seed 有证据的关联（共享作用域不算因果）——不是空成功，也不填充无关关系"})
+	}
+	// todo12-6：跨入口身份链（写 → 边界 → 读/过滤），边界未建模独立标 partial
+	res.Chains = a.asyncIdentityChains(res.Links, res.Nodes, facts)
+	boundaryMiss := 0
+	for _, c := range res.Chains {
+		for _, h := range c.Hops {
+			if h.Kind == "persistence_or_queue" {
+				boundaryMiss++
+			}
+		}
+		if c.Verdict != SeqVerdictCorroborated {
+			res.IdentityPartial = true
+		}
+	}
+	if boundaryMiss > 0 {
+		res.Diagnostics = append(res.Diagnostics, SeqDiagCount{Code: "persistence_boundary_unverified",
+			Count:  boundaryMiss,
+			Detail: "写入与读取之间的持久化/消息边界未建模（静态仅见字段身份；同一列不代表同一条记录）"})
 	}
 	return res, nil
 }

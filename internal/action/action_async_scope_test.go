@@ -205,3 +205,27 @@ func TestAsyncScopeSeedMustExist(t *testing.T) {
 		t.Fatal("不存在的 canonical seed 应报错")
 	}
 }
+
+// seedAsyncScopeRepoOrigins 同 seedAsyncScopeRepo，另写 summary_origins。
+func seedAsyncScopeRepoOrigins(t *testing.T, nodes []*domain.CodeEntity,
+	fields []*domain.FunctionFieldSummary, facts []*domain.Fact,
+	origins []*domain.SummaryOrigin) (string, *Actions) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/app\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	r := sqlite.NewRepo(db)
+	if _, err := r.SaveBatchStats(nodes, facts, fields, origins); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Save(&domain.BuildMeta{BuildID: "asyncscope-origins", ToolName: "test", Status: "success"}); err != nil {
+		t.Fatal(err)
+	}
+	return dir, New(r)
+}

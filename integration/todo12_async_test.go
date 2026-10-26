@@ -55,6 +55,11 @@ func Advance(job *review.Job) {
 		job.RecordID = "advanced"
 	}
 }
+
+// 调度注册（名称含 schedule → 入口注册证据；Advance 本身无 cron 关键词）
+func ScheduleAdvance() {
+	Advance(&review.Job{RecordID: "pending"})
+}
 `)
 	write("unrelated/unrelated.go", `package unrelated
 
@@ -115,6 +120,57 @@ func (o *Only) Run() { o.Unique = "x" }
 		if strings.Contains(l.From, "unrelated") || strings.Contains(l.To, "unrelated") {
 			t.Errorf("无关模块不得进入关系: %+v", l)
 		}
+	}
+
+	// todo12-6：入口注册证据 + 跨入口身份链
+	var jobsNode *action.AsyncNode
+	for i := range res.Nodes {
+		if strings.HasPrefix(res.Nodes[i].ID, "symbol:go:example.com/app/jobs:Advance") {
+			jobsNode = &res.Nodes[i]
+		}
+	}
+	if jobsNode == nil {
+		t.Fatalf("定时入口缺失: %+v", res.Nodes)
+	}
+	if jobsNode.Role != action.AsyncRoleCron || !strings.HasPrefix(jobsNode.RoleEvidence, "registration:") {
+		t.Errorf("调度注册证据应判为 cron: %+v", jobsNode)
+	}
+	var chain *action.AsyncChain
+	for i := range res.Chains {
+		if strings.Contains(res.Chains[i].Field, "RecordID") {
+			chain = &res.Chains[i]
+		}
+	}
+	if chain == nil {
+		t.Fatalf("应有 RecordID 身份链: %+v", res.Chains)
+	}
+	kinds := map[string]action.AsyncHop{}
+	for _, h := range chain.Hops {
+		kinds[h.Kind] = h
+	}
+	if w, ok := kinds["write"]; !ok || w.File == "" || w.Line == 0 {
+		t.Errorf("写跳应带文件/行: %+v", chain.Hops)
+	}
+	if _, ok := kinds["persistence_or_queue"]; !ok {
+		t.Errorf("未建模边界应显式列出: %+v", chain.Hops)
+	}
+	if r, ok := kinds["read"]; !ok || r.Line == 0 {
+		t.Errorf("读跳应带行号: %+v", chain.Hops)
+	}
+	if f, ok := kinds["filter"]; !ok || !strings.Contains(f.Detail, "同一条记录") {
+		t.Errorf("过滤条件应显式说明无法证明同一条记录: %+v", chain.Hops)
+	}
+	if chain.Verdict != action.SeqVerdictUnverified || !res.IdentityPartial {
+		t.Errorf("边界未建模应 unverified + identity_partial: %+v", res)
+	}
+	boundaryDiag := false
+	for _, d := range res.Diagnostics {
+		if d.Code == "persistence_boundary_unverified" {
+			boundaryDiag = true
+		}
+	}
+	if !boundaryDiag {
+		t.Errorf("应独立诊断持久化边界: %+v", res.Diagnostics)
 	}
 
 	// 无关系：lonely.Only.Run 的 Unique 字段无其他使用者
