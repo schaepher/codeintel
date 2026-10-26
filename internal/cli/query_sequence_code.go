@@ -208,6 +208,10 @@ func finishSeqTiming(timing *action.SeqTiming, jsonOut bool, renderStart time.Ti
 	fmt.Fprintf(os.Stderr, "[seq] resolve=%.3fms read=%.3fms walk=%.3fms render=%.3fms total=%.3fms nodes=%d depth=%d stop=%s\n",
 		timing.ResolveMS, timing.ReadMS, timing.WalkMS, timing.RenderMS, timing.TotalMS,
 		timing.Nodes, timing.Depth, timing.Stop)
+	fmt.Fprintf(os.Stderr, "[seq.stage] sym=%d/%.3fms sql=%d/%.3fms sig=%d/%.3fms dispatch=%d/%.3fms cache=hit:%d miss:%d\n",
+		timing.SymLookups, timing.SymMS, timing.SQLQueries, timing.SQLMS,
+		timing.Signature, timing.SignatureMS, timing.Dispatch, timing.DispatchMS,
+		timing.CacheHits, timing.CacheMisses)
 }
 
 // seqTimingEnabled CODEINTEL_SEQ_TIMING 是否开启。

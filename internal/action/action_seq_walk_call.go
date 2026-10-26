@@ -11,6 +11,7 @@ import (
 	"go/ast"
 	"go/token"
 	"strings"
+	"time"
 
 	"github.com/schaepher/codeintel/internal/domain"
 )
@@ -57,7 +58,11 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 				node.Stop = &SeqStop{Code: SeqStopDepthLimit,
 					Detail: "depth 上限（--depth " + itoaSeq(req.Depth) + "），未展开该调用内部"}
 			}
-			if args, rets, ok2 := sigTypesOf(a, sigID); ok2 {
+			sigStart := time.Now()
+			args, rets, ok2 := sigTypesOf(a, sigID)
+			req.acc.sigLookups++
+			req.acc.sigDur += time.Since(sigStart)
+			if ok2 {
 				node.Args, node.Returns = args, rets
 			}
 			if depth <= 1 {
@@ -88,8 +93,12 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		if strings.Contains(tid, ":(") {
 			if sel, isSel := fun.(*ast.SelectorExpr); isSel {
 				if recv, isID := sel.X.(*ast.Ident); isID {
-					if impl, reason, cands, guard, ok := a.sceneImplChoice(req, fset, pos.Offset, f, recv.Name,
-						sel.Sel.Name, pkgOfID(domain.CanonicalID(tid))); ok {
+					dispStart := time.Now()
+					impl, reason, cands, guard, ok := a.sceneImplChoice(req, fset, pos.Offset, f, recv.Name,
+						sel.Sel.Name, pkgOfID(domain.CanonicalID(tid)))
+					req.acc.dispatch++
+					req.acc.dispatchDur += time.Since(dispStart)
+					if ok {
 						ev := seqIfaceEvidence(curFile, pos.Line, impl, cands, tg.confidence)
 						if !guard {
 							// todo13-4：到达定义存在但场景未唯一确定——**不把首个实现
@@ -162,7 +171,11 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 			req.incomingArgs, req.incomingSrc, maxSceneFlowDepth)
 		req.callArgLits, req.callArgSrcs, req.callArgWhy = sceneArgValues(args)
 		if a.isIfaceMethodID(tid) {
-			if impl, cands, ok := a.seqIfaceMethodImpl(tid); ok {
+			dispStart := time.Now()
+			impl, cands, ok := a.seqIfaceMethodImpl(tid)
+			req.acc.dispatch++
+			req.acc.dispatchDur += time.Since(dispStart)
+			if ok {
 				node.ImplType = implTypeShort(impl)
 				node.Evidence = seqIfaceEvidence(curFile, pos.Line, impl, cands, tg.confidence)
 				if child, stop := codeSeqForSymbol(a, req, impl, depth-1); child != nil {

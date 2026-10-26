@@ -264,3 +264,33 @@ SSA 计算，不在重复扫描。
 - 旧/新版同二进制对照产物逐行全等；跨版本（含分块缓存）此前记录的
   SSA 值名/dispatch_to.register_site/code_snippet 差异属既有同版本不确定性。
 - 目标仓库存在部分编译/类型错误包，A/B 以相同口径运行，未声称覆盖全部调用关系。
+
+## todo13-17 查询预算/阶段计数（2026-11，固定中立大仓）
+
+**固定夹具**（脚本化在 `integration/todo13_perf_test.go`）：单 module
+`example.com/largeperf`，1 个文件；3 层调用链（`(Handler).Entry → Mid → Leaf`）
++ 800 个无关类型（各 2 个方法，Cache 字段）；索引规模 **9018 节点 / 9618 边**
+（构建 590ms，SCIP/SSA 各约 90ms）。查询配置：默认 `--min-conf 1.0`、
+`CODEINTEL_SEQ_TIMING=1`，`--depth 3`；本机口径，不外推其他仓库。
+
+| 查询 | 条件 | 样本 | 结果 |
+|---|---|---|---|
+| `query sequence ... --code --depth 3 --timeout 2s` | 冷/暖（同一索引） | 3 次 | 16.0ms / 13.5ms / 15.9ms，全部 complete |
+| `value-trace <write> --max-depth 8` | 冷（Actions 新实例） | 1 次 | 7 行；SQL 173.6ms、符号标注 14.3ms、miss=1 |
+| `value-trace <write>` | 暖（同 Actions） | 1 次 | 7 行；cache hit=1、miss=0（0 SQL 遍历） |
+
+**阶段计数可见**：`sequence` 输出 `meta.timing`（`sym_lookups/sym_ms`、
+`sql_queries/sql_ms`、`signature_lookups/signature_ms`、`dispatch_lookups/
+dispatch_ms`、`cache_hits/cache_misses`）与 stderr `[seq.stage]` 行；
+`value-trace` 输出 `analysis.sql_ms/sql_queries/symbol_ms/symbol_lookups/
+cache_hits/cache_misses`。源码解析按文件缓存（同文件多函数展开命中，
+不再重复读盘/parser.ParseFile）。
+
+**预算语义**：`sequence` 与 `value-trace` 都接受 `--timeout`；`1us` 预算
+在声明停止宽限内非零退出并说明“超过查询预算/已取消”，不输出完整成功；
+SQL 遍历使用 `QueryContext`（递归 CTE 可真正中止）。value-trace 结果缓存键
+含索引 `build_id`——同 SHA 重建后旧正/负缓存不再命中（单测覆盖）。
+
+**未声称**：未测并发查询分布、未测不同 GOGC/内存上限；样本为单文件
+800 类型夹具，不代表大型多 module 仓库的最坏情形。既有 `sequence --out`
+渲染耗时不在本表（与查询逻辑分离）。

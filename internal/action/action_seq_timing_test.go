@@ -180,3 +180,27 @@ func TestCountSeqNodes(t *testing.T) {
 		t.Errorf("countSeqNodes(nil) = %d; want 0", got)
 	}
 }
+
+// todo13-17：sequence 阶段计数（符号/SQL/签名/派发/缓存）在 meta.timing 可见。
+func TestSeqStageCounters(t *testing.T) {
+	acts, dir := seedSceneReachRepo(t)
+	root, err := acts.CodeSequence(CodeSequenceRequest{Target: "example.com/m:Reassign", RepoAbs: dir, Depth: 3})
+	if err != nil || root == nil || root.Meta == nil || root.Meta.Timing == nil {
+		t.Fatalf("应输出 timing: %v", err)
+	}
+	tm := root.Meta.Timing
+	if tm.SymLookups == 0 || tm.SQLQueries == 0 {
+		t.Errorf("应有符号/SQL 次数: %+v", tm)
+	}
+	if tm.CacheMisses == 0 {
+		t.Errorf("首次展开应统计源码缓存未命中: %+v", tm)
+	}
+	// 同文件多函数展开：第二次读取命中缓存
+	root2, err := acts.CodeSequence(CodeSequenceRequest{Target: "example.com/m:ConditionalReassign", RepoAbs: dir, Depth: 3})
+	if err != nil || root2 == nil || root2.Meta == nil || root2.Meta.Timing == nil {
+		t.Fatal(err)
+	}
+	if root2.Meta.Timing.CacheHits == 0 {
+		t.Errorf("同文件多函数应命中源码缓存: %+v", root2.Meta.Timing)
+	}
+}

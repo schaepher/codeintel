@@ -161,7 +161,7 @@ func cmdQuery(args []string) int {
 		if !f.minConfSet {
 			mc = 1.0
 		}
-		return queryValueTrace(acts, target, f.maxDepth, mc, f.includeContainer, opts, f.format)
+		return queryValueTrace(acts, target, f.maxDepth, mc, f.includeContainer, opts, f.format, f.timeout)
 	case "summary":
 		return querySummary(acts, target, opts, f.format)
 	case "context":

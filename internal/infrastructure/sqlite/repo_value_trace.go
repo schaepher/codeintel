@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
 	"strings"
 
@@ -26,6 +27,16 @@ import (
 // tbl 为递归目标节点别名（反向 n_prev / 正向 n_next）。
 
 func (r *Repo) GetValueTrace(nodeID domain.CanonicalID, maxDepth int, minConf float64, includeContainer bool) ([]*domain.TraceRow, error) {
+	return r.getValueTrace(context.Background(), nodeID, maxDepth, minConf, includeContainer)
+}
+
+// GetValueTraceContext 可取消版本（todo13-17：--timeout 必须真正停止 SQL 遍历）。
+func (r *Repo) GetValueTraceContext(ctx context.Context, nodeID domain.CanonicalID,
+	maxDepth int, minConf float64, includeContainer bool) ([]*domain.TraceRow, error) {
+	return r.getValueTrace(ctx, nodeID, maxDepth, minConf, includeContainer)
+}
+
+func (r *Repo) getValueTrace(ctx context.Context, nodeID domain.CanonicalID, maxDepth int, minConf float64, includeContainer bool) ([]*domain.TraceRow, error) {
 	logger := zap.L()
 	logger.Debug("enter (Repo).GetValueTrace")
 	defer logger.Debug("exit (Repo).GetValueTrace")
@@ -40,14 +51,14 @@ func (r *Repo) GetValueTrace(nodeID domain.CanonicalID, maxDepth int, minConf fl
 		file_path FROM nodes WHERE id = ? AND kind = 'field_access'`, string(nodeID)).Scan(&anchorCtx, &anchorInst, &anchorFile); err != nil {
 		anchorCtx, anchorInst, anchorFile = sql.NullString{}, sql.NullString{}, sql.NullString{}
 	}
-	ctx, inst := "", ""
+	ctxField, inst := "", ""
 	if anchorCtx.Valid {
-		ctx, inst = anchorCtx.String, anchorInst.String
+		ctxField, inst = anchorCtx.String, anchorInst.String
 	}
-	backFilter := valueTraceFilter(ctx, inst, true, "n_prev", includeContainer)
-	fwdFilter := valueTraceFilter(ctx, inst, false, "n_next", includeContainer)
+	backFilter := valueTraceFilter(ctxField, inst, true, "n_prev", includeContainer)
+	fwdFilter := valueTraceFilter(ctxField, inst, false, "n_next", includeContainer)
 
-	rows, err := r.Query(`WITH RECURSIVE
+	rows, err := r.QueryContext(ctx, `WITH RECURSIVE
 vt(id, dir, depth, parent, kind, seed, c_iface, c_origin, c_conf) AS (
     SELECT ?, 0, 0, '', (SELECT n0.kind FROM nodes n0 WHERE n0.id = ?), 1, '', '', 0
     UNION

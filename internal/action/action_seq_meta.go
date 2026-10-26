@@ -19,6 +19,17 @@ type SeqTiming struct {
 	Nodes     int     `json:"nodes"`      // 展开规模（节点总数）
 	Depth     int     `json:"depth"`      // 请求的嵌套层级
 	Stop      string  `json:"stop"`       // 终止原因：none | depth | canceled
+	// todo13-17：分阶段次数/耗时 + 缓存命中/覆盖（定位重复查找）
+	SymLookups    int     `json:"sym_lookups,omitempty"`    // 符号解析次数
+	SymMS         float64 `json:"sym_ms,omitempty"`         // 符号解析耗时
+	Signature     int     `json:"signature_lookups,omitempty"` // 签名解析次数
+	SignatureMS   float64 `json:"signature_ms,omitempty"`
+	Dispatch      int     `json:"dispatch_lookups,omitempty"` // 接口派发候选查询次数
+	DispatchMS    float64 `json:"dispatch_ms,omitempty"`
+	SQLQueries    int     `json:"sql_queries,omitempty"`
+	SQLMS         float64 `json:"sql_ms,omitempty"`
+	CacheHits     int     `json:"cache_hits,omitempty"`   // 源码解析/符号缓存命中
+	CacheMisses   int     `json:"cache_misses,omitempty"` // 未命中（读盘/解析）
 }
 
 // SeqMeta 根节点元信息（只有根 CodeSeqNode 携带）。
@@ -68,6 +79,10 @@ type seqTimingAcc struct {
 	cancel          bool
 	unresolved      int // 未解析到项目内符号的调用点数（诊断用）
 	focusUnresolved int // todo12-9：焦点依赖里类型无法判定的写入数
+	// todo13-17：阶段次数/耗时与缓存
+	symLookups, sigLookups, dispatch, sqlQueries int
+	symDur, sigDur, dispatchDur, sqlDur          time.Duration
+	cacheHits, cacheMisses                       int
 }
 
 // millis Duration → 毫秒（保留小数——单次阶段可能远小于 1ms）。

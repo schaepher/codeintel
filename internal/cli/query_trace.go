@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -13,7 +15,7 @@ import (
 
 // queryValueTrace 输出数据值在整条链路上的处理过程，按函数上下文分组
 // （field_trace.md §14.2 数据值全链追踪）。
-func queryValueTrace(acts *action.Actions, nodeID string, maxDepth int, minConf float64, includeContainer bool, opts outputOpts, format string) int {
+func queryValueTrace(acts *action.Actions, nodeID string, maxDepth int, minConf float64, includeContainer bool, opts outputOpts, format string, timeout time.Duration) int {
 	logger := zap.L()
 	logger.Debug("enter queryValueTrace")
 	defer logger.Debug("exit queryValueTrace")
@@ -27,18 +29,33 @@ func queryValueTrace(acts *action.Actions, nodeID string, maxDepth int, minConf 
 	if effectiveDepth <= 0 {
 		effectiveDepth = 8
 	}
+	ctx := context.Background()
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
 	vtStart := time.Now()
-	rows, err := acts.ValueTrace(domain.CanonicalID(nodeID), maxDepth, minConf, includeContainer)
+	rows, stats, err := acts.ValueTraceWithContext(ctx, domain.CanonicalID(nodeID), maxDepth, minConf, includeContainer)
 	if err != nil {
+		if errors.Is(err, action.ErrTraceCanceled) {
+			if timeout > 0 && ctx.Err() == context.DeadlineExceeded {
+				fmt.Fprintf(os.Stderr, "error: value-trace 超过查询预算 %s——已停止后台遍历，结果不完整不输出\n", timeout)
+			} else {
+				fmt.Fprintln(os.Stderr, "error: value-trace 已取消（未完成的遍历不作为结果输出）")
+			}
+			return 1
+		}
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
 
-	rows, err = acts.TraceConditions(rows)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: 条件标注: %v\n", err)
-	}
 	analysis := valueTraceCompleteness(rows, effectiveDepth)
+	if stats != nil {
+		analysis.SQLMS, analysis.SQLQueries = stats.SQLMS, stats.SQLQueries
+		analysis.SymbolMS, analysis.SymbolLookups = stats.SymbolMS, stats.SymbolLookups
+		analysis.CacheHits, analysis.CacheMisses = stats.CacheHits, stats.CacheMisses
+	}
 	analysis.ElapsedMS = float64(time.Since(vtStart).Microseconds()) / 1000
 	if opts.json {
 		type flowRow struct {
@@ -171,8 +188,14 @@ type valueTraceCompletenessT struct {
 	StopDetail string `json:"stop_detail,omitempty"`
 	StopFile   string `json:"stop_file,omitempty"`
 	StopLine   int    `json:"stop_line,omitempty"`
-	// todo12-17 R1：查询耗时（值图遍历 + 条件标注；SQL/查符号未细分）
-	ElapsedMS float64 `json:"elapsed_ms,omitempty"`
+	// todo12-17 R1 / todo13-17：分阶段计数（SQL/符号）与缓存命中
+	ElapsedMS     float64 `json:"elapsed_ms,omitempty"`
+	SQLMS         float64 `json:"sql_ms,omitempty"`
+	SQLQueries    int     `json:"sql_queries,omitempty"`
+	SymbolMS      float64 `json:"symbol_ms,omitempty"`
+	SymbolLookups int     `json:"symbol_lookups,omitempty"`
+	CacheHits     int     `json:"cache_hits,omitempty"`
+	CacheMisses   int     `json:"cache_misses,omitempty"`
 }
 
 func valueTraceCompleteness(rows []*domain.TraceRow, depth int) valueTraceCompletenessT {

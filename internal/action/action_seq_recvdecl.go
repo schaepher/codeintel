@@ -30,7 +30,10 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 	}
 	req.visited[symID] = true
 	defer delete(req.visited, symID)
+	symStart := time.Now()
 	n, err := a.repo.GetSymbol(domain.CanonicalID(symID))
+	req.acc.symLookups++
+	req.acc.symDur += time.Since(symStart)
 	if err != nil {
 		return nil, &SeqStop{Code: SeqStopIndexGap, Detail: symID + "（索引中没有该符号）"}
 	}
@@ -39,17 +42,28 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 	}
 	// 阶段 2：源码读取 + 语法解析（todo10-9 计时）
 	readStart := time.Now()
-	src, err := os.ReadFile(filepath.Join(req.RepoAbs, n.FilePath))
-	if err != nil {
-		req.acc.read += time.Since(readStart)
-		return nil, &SeqStop{Code: SeqStopSourceMiss, Detail: n.FilePath}
+	var src []byte
+	var fset *token.FileSet
+	var f *ast.File
+	if fc := req.fileCache[n.FilePath]; fc != nil {
+		req.acc.cacheHits++
+		src, fset, f = fc.src, fc.fset, fc.file
+	} else {
+		req.acc.cacheMisses++
+		src, err = os.ReadFile(filepath.Join(req.RepoAbs, n.FilePath))
+		if err != nil {
+			req.acc.read += time.Since(readStart)
+			return nil, &SeqStop{Code: SeqStopSourceMiss, Detail: n.FilePath}
+		}
+		fset = token.NewFileSet()
+		f, err = parser.ParseFile(fset, n.FilePath, src, 0)
+		if err != nil {
+			req.acc.read += time.Since(readStart)
+			return nil, &SeqStop{Code: SeqStopParseError, Detail: n.FilePath + ": " + err.Error()}
+		}
+		req.fileCache[n.FilePath] = &seqParsedFile{fset: fset, file: f, src: src}
 	}
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, n.FilePath, src, 0)
 	req.acc.read += time.Since(readStart)
-	if err != nil {
-		return nil, &SeqStop{Code: SeqStopParseError, Detail: n.FilePath + ": " + err.Error()}
-	}
 	// 阶段 3：定位函数 + 取调用点 + 遍历展开（walk 墙钟由 CodeSequence
 	// 外层统一推导——这里只累加 read，避免递归时重复计数）
 	// 定位目标函数（LineStart 在函数体范围内）
@@ -74,7 +88,11 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 	// 具体化留给 walk 层，才能记录候选集合与 ambiguous；否则
 	// CalleesConcrete 会静默把接口调用替换成"第一个实现"。
 	tgts := &seqTargets{}
-	if facts, err := a.Callees(domain.CanonicalID(symID), 1); err == nil {
+	sqlStart := time.Now()
+	facts, calleeErr := a.Callees(domain.CanonicalID(symID), 1)
+	req.acc.sqlQueries++
+	req.acc.sqlDur += time.Since(sqlStart)
+	if calleeErr == nil {
 		for _, f := range facts {
 			if ln, ok := f.Metadata["line_num"].(float64); ok {
 				if tgts.byLine == nil {
