@@ -40,7 +40,9 @@ func renderCodeSeqMermaid(root *action.CodeSeqNode) string {
 	for i, p := range parts {
 		alias[p] = fmt.Sprintf("P%d", i)
 		label := p
-		if t := typeOf[p]; t != "" {
+		if t := typeOf[p]; t == seqUnresolvedImplMark {
+			label = p + "（实现未消歧）"
+		} else if t != "" {
 			label = p + "<br/>" + t
 		}
 		b.WriteString(fmt.Sprintf("  participant %s as %s\n", alias[p], label))
@@ -52,21 +54,40 @@ func renderCodeSeqMermaid(root *action.CodeSeqNode) string {
 // collectTypes 收集参与者 → 短类型名（首个出现的调用节点为准）。
 // P0-5：数据流具体化命中时合并"声明接口 → 数据流实现"双行
 // （s.manager 字段声明 IManager、数据流实现 orderManagerImpl）。
+// todo13-4：多候选未消歧的接口参与者不得显示成首个实现（标“实现未消歧”）。
 func collectTypes(nodes []*action.CodeSeqNode, out map[string]string) {
 	for _, n := range nodes {
-		if n.Kind == "call" && n.Type != "" && out[n.Actor] == "" {
-			t := n.Type
-			switch {
-			case n.DeclType != "" && n.ImplType != "":
-				t = n.DeclType + " → " + n.ImplType
-			case n.ImplType != "" && n.ImplType != t:
-				t += " → " + n.ImplType
+		if n.Kind == "call" && n.Actor != "" && out[n.Actor] == "" {
+			if n.Evidence != nil && n.Evidence.Ambiguous && len(n.Evidence.Candidates) > 0 {
+				out[n.Actor] = seqUnresolvedImplMark
+			} else if n.Type != "" {
+				t := n.Type
+				switch {
+				case n.DeclType != "" && n.ImplType != "":
+					t = n.DeclType + " → " + n.ImplType
+				case n.ImplType != "" && n.ImplType != t:
+					t += " → " + n.ImplType
+				}
+				out[n.Actor] = t
 			}
-			out[n.Actor] = t
 		}
 		collectTypes(n.Nodes, out)
 		collectTypes(n.Else, out)
 	}
+}
+
+// seqUnresolvedImplMark 接口实现未消歧的参与者标记（Mermaid 参与者标签）。
+const seqUnresolvedImplMark = "\x00unresolved-impl"
+
+// seqCandidateShort canonical 候选 ID → 简短身份（(ImplCN).Do → ImplCN.Do）。
+func seqCandidateShort(id string) string {
+	s := strings.TrimPrefix(id, "symbol:go:")
+	if i := strings.LastIndex(s, ":"); i >= 0 {
+		s = s[i+1:]
+	}
+	s = strings.TrimPrefix(s, "(")
+	s = strings.Replace(s, ").", ".", 1)
+	return s
 }
 
 // collectParts 收集参与者（R83：调用对象 Actor 去重——s.manager/
@@ -141,8 +162,7 @@ func writeSeqNode(b *strings.Builder, alias map[string]string, from, caller stri
 			}
 			if len(n.Args) > 0 {
 				label += "<br/>(" + strings.Join(n.Args, ", ") + ")"
-			}
-			// todo10-8：箭头附证据身份（同一 ID/位置/依据，可在文件里核验；
+			} // todo10-8：箭头附证据身份（同一 ID/位置/依据，可在文件里核验；
 			// mermaid 注释不参与渲染，仅保留可审计行）
 			if ev := seqEvidenceComment(alias[from], to, n); ev != "" {
 				b.WriteString(ev)
@@ -153,6 +173,19 @@ func writeSeqNode(b *strings.Builder, alias map[string]string, from, caller stri
 				b.WriteString(fmt.Sprintf("  Note over %s,%s: 并发启动（完成顺序未知）\n", alias[from], to))
 			} else {
 				b.WriteString(fmt.Sprintf("  %s->>%s: %s\n", alias[from], to, label))
+			}
+			// todo13-4：接口多候选未消歧——完整候选与依据写进图内（不只注
+			// 释）；不得把首个实现画成已确定参与者/调用。
+			if n.Evidence != nil && n.Evidence.Ambiguous && len(n.Evidence.Candidates) > 0 {
+				cands := make([]string, 0, len(n.Evidence.Candidates))
+				for _, c := range n.Evidence.Candidates {
+					cands = append(cands, seqCandidateShort(c))
+				}
+				detail := "实现未消歧（unverified）；候选 " + strings.Join(cands, "、")
+				if n.Evidence.Reason != "" && n.Evidence.Reason != "unique" {
+					detail += "；依据 " + n.Evidence.Reason
+				}
+				b.WriteString(fmt.Sprintf("  Note over %s,%s: %s\n", alias[from], to, detail))
 			}
 			if len(n.Nodes) > 0 {
 				// R81：嵌套展开——From 切换为被调者 Actor
@@ -228,68 +261,9 @@ func writeSeqNode(b *strings.Builder, alias map[string]string, from, caller stri
 }
 
 // writeSeqText 缩进文本渲染（默认输出）。
-func writeSeqText(nodes []*action.CodeSeqNode, depth int) {
-	fmt.Print(seqText(nodes, depth))
-}
 
 // seqText 缩进文本渲染 → 字符串（R100：--out 文件输出复用）。
-func seqText(nodes []*action.CodeSeqNode, depth int) string {
-	var b strings.Builder
-	pad := strings.Repeat("  ", depth)
-	for _, n := range nodes {
-		switch n.Kind {
-		case "call":
-			// todo10-2：defer（返回时执行）/ go（并发启动）在文本里也要可见
-			b.WriteString(fmt.Sprintf("%s%d. %s%s%s%s\n", pad, n.Line, seqAmbiguousMark(n), seqExecPrefix(n), n.Label,
-				seqFocusMark(n)))
-			if len(n.Nodes) > 0 {
-				b.WriteString(seqText(n.Nodes, depth+1)) // 嵌套展开（--depth >1）
-			}
-		case "branch":
-			b.WriteString(fmt.Sprintf("%sif %s%s\n", pad, n.Label, seqSceneMark(n)))
-			b.WriteString(seqText(n.Nodes, depth+1))
-			if len(n.Else) > 0 {
-				b.WriteString(fmt.Sprintf("%selse\n", pad))
-				b.WriteString(seqText(n.Else, depth+1))
-			}
-		case "loop":
-			b.WriteString(fmt.Sprintf("%sloop %s\n", pad, n.Label))
-			b.WriteString(seqText(n.Nodes, depth+1))
-		case "return":
-			// todo10-2：返回值 + 结果槽（具名结果名 / #序号）
-			b.WriteString(fmt.Sprintf("%s%d. %s%s\n", pad, n.Line, seqReturnLabel(n), seqFocusMark(n)))
-		case "assign":
-			b.WriteString(fmt.Sprintf("%s%d. %s%s\n", pad, n.Line, n.Label, seqFocusMark(n)))
-		case "continue", "break":
-			b.WriteString(fmt.Sprintf("%s%s\n", pad, n.Label))
-		}
-	}
-	return b.String()
-}
 
 // rootLabel 取参与者 alias 里最小序号的（fallback 用）。
-func rootLabel(alias map[string]string) string {
-	best, bestID := "", ""
-	for _, id := range alias {
-		if bestID == "" || id < bestID {
-			bestID = id
-		}
-	}
-	for name, id := range alias {
-		if id == bestID {
-			best = name
-		}
-	}
-	return best
-}
 
 // seqExecPrefix 执行语义前缀（defer=返回时执行 / go=并发启动 / 空=同步）。
-func seqExecPrefix(n *action.CodeSeqNode) string {
-	switch n.Exec {
-	case action.SeqExecDefer:
-		return "defer "
-	case action.SeqExecAsync:
-		return "go "
-	}
-	return ""
-}

@@ -90,18 +90,22 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 				if recv, isID := sel.X.(*ast.Ident); isID {
 					if impl, reason, cands, guard, ok := a.sceneImplChoice(req, fset, pos.Offset, f, recv.Name,
 						sel.Sel.Name, pkgOfID(domain.CanonicalID(tid))); ok {
-						node.ImplType = implTypeShort(impl)
 						ev := seqIfaceEvidence(curFile, pos.Line, impl, cands, tg.confidence)
-						if guard {
-							ev.Reason = reason
-							ev.Ambiguous = false
-							ev.Candidates = []string{impl}
-						} else {
-							// 到达定义存在但场景无法唯一确定：保留候选并明确 ambiguous
+						if !guard {
+							// todo13-4：到达定义存在但场景未唯一确定——**不把首个实现
+							// 当结论、不展开单一实现**；保留完整候选集合供 JSON/文本/
+							// 图共用（未知候选不得绘成已确定调用）。
 							ev.Reason = "reaching-guard-unknown"
 							ev.Ambiguous = true
 							ev.Candidates = cands
+							ev.SymbolID = ""
+							node.Evidence = ev
+							return node
 						}
+						node.ImplType = implTypeShort(impl)
+						ev.Reason = reason
+						ev.Ambiguous = false
+						ev.Candidates = []string{impl}
 						node.Evidence = ev
 						if child, stop := codeSeqForSymbol(a, req, impl, depth-1); child != nil {
 							node.Nodes, node.Stop = child.Nodes, child.Stop
