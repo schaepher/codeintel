@@ -113,9 +113,14 @@ type CodeSequenceRequest struct {
 	focusLines  map[int]bool
 	resultNames []string
 	focus       *seqFocus
-	// 内部（todo10-5）：一层条件传播——调用点实参字面量（按位置）与形参映射
+	// 内部（todo10-5/11-2）：条件传播——调用点实参字面量（按位置）与形参映射
 	callArgLits []string
-	sceneArgs   map[string]string
+	// 内部（todo11-2）：当前函数 canonical ID / 文件（值流解析向上找调用点用）
+	incomingArgs []string
+	curBody      *ast.BlockStmt
+	curParams    *ast.FieldList
+	curFile      string
+	sceneArgs    map[string]string
 	// 内部（todo10-5）：场景统计（meta 汇总；req 按值传递——用指针共享）
 	sceneCount *sceneSummary
 }

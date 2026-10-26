@@ -11,6 +11,8 @@ import (
 	"go/ast"
 	"go/token"
 	"strings"
+
+	"github.com/schaepher/codeintel/internal/domain"
 )
 
 // newSeqCallNode 返回"位置 → 调用节点"的构造函数（闭包捕获遍历上下文，
@@ -75,6 +77,31 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		}
 		tid := tg.tid
 
+		// 0) todo11-2：接口方法调用的实现选择——场景守卫优先；多候选标 ambiguous
+		if strings.Contains(tid, ":(") {
+			if sel, isSel := fun.(*ast.SelectorExpr); isSel {
+				if recv, isID := sel.X.(*ast.Ident); isID {
+					if impl, reason, cands, guard, ok := a.sceneImplChoice(req, fset, f, recv.Name,
+						sel.Sel.Name, pkgOfID(domain.CanonicalID(tid))); ok {
+						node.ImplType = implTypeShort(impl)
+						ev := seqIfaceEvidence(curFile, pos.Line, impl, cands, tg.confidence)
+						if guard {
+							ev.Reason = reason
+							ev.Ambiguous = false
+							ev.Candidates = []string{impl}
+						}
+						node.Evidence = ev
+						if child, stop := codeSeqForSymbol(a, req, impl, depth-1); child != nil {
+							node.Nodes, node.Stop = child.Nodes, child.Stop
+							return node
+						} else if stop != nil {
+							node.Stop = stop
+						}
+					}
+				}
+			}
+		}
+
 		// 1) receiver 字段数据流具体化（R97-2）
 		if sel, isSel := fun.(*ast.SelectorExpr); isSel && recvType != "" {
 			if field, ok2 := receiverFieldSel(sel, recvType); ok2 {
@@ -113,8 +140,9 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		}
 
 		// 3) 接口方法 → 实现方法（implements 边 + 方法名；候选可多个）
-		// todo10-5：实参字面量随展开传给被调函数（一层条件传播）
-		req.callArgLits = callArgLiterals(call)
+		// todo11-2：实参字面量走有界值流解析（变量链 + 形参向上，深度 ≤2）——
+		// 一层字面量只是它的特例；解析不到保持空串（不猜）
+		req.callArgLits = a.resolveSceneArgLiterals(fset, src, call, req.curBody, req.curParams, req.incomingArgs, maxSceneFlowDepth)
 		if strings.Contains(tid, ":(") {
 			if impl, cands, ok := a.seqIfaceMethodImpl(tid); ok {
 				node.ImplType = implTypeShort(impl)

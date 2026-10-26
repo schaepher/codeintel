@@ -5459,3 +5459,27 @@ seed 展开集合）都被当作 corroborated——需求指出这三样都**不
   原有 async 测试改为启发式口径、CLI 文本显示 `[verdict · evidence_kind]`。
 - 踩坑：`SaveBatchStats` 的 origins 走**显式参数**（`summaries[].Origins` 不落库），
   夹具必须用第 4 个参数写 origins。
+
+### 2. 场景条件的值流传播与实现选择（P1，todo11-2）
+
+原先 `--scene` 只有"字面量分支 + 一层实参字面量"。
+
+- **值流传播（有界）**：`resolveSceneArgLiterals` 解析调用点每个实参 →
+  `resolveLiteralExpr`：① 同**当前函数体**的字面量赋值（`region := "CN"`）
+  ② 当前函数形参 → 本次调用**入站实参**（`incomingArgs`，按形参位置）。
+  串起来即"变量链 + 两层传参"（`Dispatch{region := "CN"} → RouteFrom(region)
+  → Route(region)` 的最内层分支仍 `taken`，`reason=scene-arg:region=CN`）。
+  深度上限 2（`maxSceneFlowDepth`），非字面量即 `unknown`（不猜）。
+- **两个"扫全文件"的坑（本轮实测）**：`paramIndex`/`localAssignLiteral` 最初
+  在**整个文件**里找同名变量/形参 → 把别的函数的 `region := "CN"` 串进来，
+  导致"实参来自请求字段"和"变量名相似但不同源"两种情形被误判 `taken`。
+  改为限定 `req.curBody`（当前函数体）与 `req.curParams`（当前形参表）后，
+  这两种情形正确落到 `unknown`——**不做字段名相似推断**（用户要求）。
+  中途还试过"向上找任意调用者"的解析（`GetCallers`）——同样会串分支，已删。
+- **实现选择**：`sceneImplChoice` 在同函数内找被调接口变量 `d` 的具体赋值
+  （`d = &ImplCN{}` / `NewImpl()`），若赋值被场景守卫的 `if` 覆盖且场景命中
+  → 选中该实现，`evidence.reason=scene-guard:<k=v>`、`ambiguous=false`；
+  否则保留**候选集合** + `ambiguous=true`（不静默把第一个当结论）。该分支
+  先于 localvar/receiver 数据流执行（否则数据流会先挑第一个赋值，忽略场景）。
+- 测试：`action_scene_flow_test.go`（两层传参 taken、请求字段 unknown、
+  相似变量名不推断、场景守卫选中 ImplCN 且无场景保留候选 ambiguous）。

@@ -17,7 +17,7 @@ type Reader interface {
 	GetSymbol(id domain.CanonicalID) (*domain.CodeEntity, error)
 	GetSymbolByName(name string) ([]*domain.CodeEntity, error)
 	GetSymbolsByIDs(ids []domain.CanonicalID) ([]*domain.CodeEntity, error) // 批量取节点（callers/callees JSON 富化）
-	SearchKind(name, kind string) ([]*domain.CodeEntity, error) // #234 搜索按类型过滤（kind 空=不过滤）
+	SearchKind(name, kind string) ([]*domain.CodeEntity, error)             // #234 搜索按类型过滤（kind 空=不过滤）
 	GetCallers(id domain.CanonicalID, depth int, minConfidence float64) ([]*domain.Fact, error)
 	GetCallees(id domain.CanonicalID, depth int, minConfidence float64) ([]*domain.Fact, error)
 	GetImpact(id domain.CanonicalID, depth int) ([]*domain.CodeEntity, error)
@@ -72,9 +72,9 @@ type Reader interface {
 	GetPbServerInterfaces() ([]*domain.CodeEntity, error)                       // R100：带 pb_servers 的接口（grpc-composites 收口）
 	GetFieldWriters(fieldPath string) ([]string, error)                         // R97-2：字段 direct_write 写入函数（数据流具体化）
 	// R94：外部依赖（redis/kafka）与外部接口调用（query external-*）
-	GetRedisKeyNodes() ([]*domain.CodeEntity, error)         // kind=redis_key（properties.write/cmd）
-	GetKafkaTopicNodes() ([]*domain.CodeEntity, error)       // kind=kafka_topic
-	GetFactsByKinds(kinds ...string) ([]*domain.Fact, error) // 指定 kind 的调用边（metadata 全量）
+	GetRedisKeyNodes() ([]*domain.CodeEntity, error)                       // kind=redis_key（properties.write/cmd）
+	GetKafkaTopicNodes() ([]*domain.CodeEntity, error)                     // kind=kafka_topic
+	GetFactsByKinds(kinds ...string) ([]*domain.Fact, error)               // 指定 kind 的调用边（metadata 全量）
 	QAForSymbols(keywords []string, limit int) ([]*domain.QARecord, error) // R100：wiki --with-qa 参考资料
 	Counts() (nodes int, edges int, err error)
 	GetLatest() (*domain.BuildMeta, error)
