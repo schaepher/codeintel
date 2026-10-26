@@ -28,7 +28,7 @@ import (
 // 写文本（S4——用户：配置 plantuml.jar 用它转图片，失败才写文本）。
 // out：非空时主输出写文件（plantuml 成功 → PNG 字节；否则文本），
 // stdout 打印路径。
-func cmdQuerySequenceCode(acts *action.Actions, abs, target string, depth int, mermaid bool, jsonOut bool, diagram, out string, focus []string, evidence bool, scene []string, timeout time.Duration) int {
+func cmdQuerySequenceCode(acts *action.Actions, abs, target string, depth int, mermaid bool, jsonOut bool, diagram, out string, focus []string, evidence bool, scene []string, timeout time.Duration, verifyEvidence string) int {
 	if depth <= 0 {
 		depth = 1
 	}
@@ -39,9 +39,12 @@ func cmdQuerySequenceCode(acts *action.Actions, abs, target string, depth int, m
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
-	root, err := acts.CodeSequence(action.CodeSequenceRequest{
+	req := action.CodeSequenceRequest{
 		Target: target, RepoAbs: abs, Depth: depth, StopPackages: loadSeqStopPkgs(),
-		Filter: loadSeqFilter(), Focus: focus, Scene: action.NewScene(scene), Ctx: ctx})
+		Filter: loadSeqFilter(), Focus: focus, Scene: action.NewScene(scene), Ctx: ctx,
+		Evidence: evidence || verifyEvidence != "", Format: diagram, Out: out}
+	req.SetCLIVersion(version())
+	root, err := acts.CodeSequence(req)
 	if err != nil {
 		// todo10-9：主动终止（取消）不得报告为成功
 		if errors.Is(err, action.ErrSeqCanceled) {
@@ -74,7 +77,40 @@ func cmdQuerySequenceCode(acts *action.Actions, abs, target string, depth int, m
 	renderStart := time.Now()
 	code, _ := renderCodeSeq(root, mermaid, jsonOut, diagram, out, evidence)
 	finishSeqTiming(timing, jsonOut, renderStart, enabled)
+	// todo13-14：验证原证据身份（执行新分析 ≠ 复现同一次分析）
+	if verifyEvidence != "" {
+		if vcode := verifySeqEvidence(root, verifyEvidence); vcode != 0 {
+			return vcode
+		}
+	}
 	return code
+}
+
+// verifySeqEvidence 比对当前分析与保存的证据身份；差异写 stderr 并非零退出。
+func verifySeqEvidence(root *action.CodeSeqNode, priorPath string) int {
+	if root == nil || root.Meta == nil || root.Meta.Evidence == nil {
+		fmt.Fprintln(os.Stderr, "error: 当前分析没有证据身份（--evidence 未生效）")
+		return 1
+	}
+	prior, err := action.ReadSeqEvidenceFile(priorPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: 读取原证据失败: %v\n", err)
+		return 1
+	}
+	diffs, err := action.CompareSeqEvidenceIdentity(root.Meta.Evidence, prior)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: 解析原证据身份失败: %v\n", err)
+		return 1
+	}
+	if len(diffs) == 0 {
+		fmt.Fprintln(os.Stderr, "证据身份匹配：同一次分析（源码 SHA/构建身份/分析器/配置/argv 一致）")
+		return 0
+	}
+	fmt.Fprintln(os.Stderr, "证据身份不一致（这是新分析，不是原证据的复现）：")
+	for _, d := range diffs {
+		fmt.Fprintf(os.Stderr, "  · %s\n", d)
+	}
+	return 1
 }
 
 // renderCodeSeq 把时序树渲染成目标格式并输出（wrote=true 表示已写文件，

@@ -31,6 +31,8 @@ type SeqMeta struct {
 	Diagnostics []SeqDiagCount `json:"diagnostics,omitempty"` // todo10-3：展开终点聚合（按 code）
 	// todo12-13：索引覆盖/降级（与展开诊断分开——只有 success 不算覆盖完整）
 	Coverage *SeqCoverage `json:"coverage,omitempty"`
+	// todo13-14：证据身份（整次分析一份：argv/版本/构建/配置）
+	Evidence *SeqEvidenceIdentity `json:"evidence,omitempty"`
 }
 
 // SeqCoverage 构建期覆盖/降级信息（查询携带；与 SQL 解析统计分开）。

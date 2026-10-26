@@ -70,6 +70,11 @@ func parseQueryFlags(args []string) queryFlags {
 			f.all = true
 		case a == "--all-repos":
 			f.allRepos = true
+		case a == "--verify-evidence" && i+1 < len(args):
+			f.verifyEvidence = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--verify-evidence="):
+			f.verifyEvidence = strings.TrimPrefix(a, "--verify-evidence=")
 		case a == "--type" && i+1 < len(args):
 			f.relTypes = append(f.relTypes, strings.Split(args[i+1], ",")...)
 			i++

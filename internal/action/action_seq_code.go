@@ -96,6 +96,13 @@ type CodeSequenceRequest struct {
 	sceneSrc     map[string]string // todo12-3：形参 → 值来源（分支判定证据）
 	sceneWhy     map[string]string // todo13-3：形参 → 未知原因（partial 诊断）
 	pkgSet       map[string]bool   // todo13-13：已索引包集合（调用分类用，一次构建）
+	// todo13-14：证据/输出选项与身份（argv 为权威；版本来自实际构建）
+	Evidence   bool
+	Format     string
+	Out        string
+	buildID    string
+	builtAt    string
+	cliVersion string
 	// 内部（todo10-5）：场景统计（meta 汇总；req 按值传递——用指针共享）
 	sceneCount *sceneSummary
 }
@@ -111,17 +118,8 @@ type seqFocus struct {
 }
 
 // focusActive 是否启用焦点过滤。
-func (r CodeSequenceRequest) focusActive() bool {
-	return r.focus != nil && (r.focus.returns || len(r.focus.fields) > 0)
-}
 
 // ctx 取消上下文（nil 安全）。
-func (r CodeSequenceRequest) ctx() context.Context {
-	if r.Ctx != nil {
-		return r.Ctx
-	}
-	return context.Background()
-}
 
 // CodeSeqNode 代码级时序节点（树——分支/循环/嵌套调用）。
 
@@ -153,8 +151,11 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	if m, merr := a.repo.GetLatest(); merr == nil {
 		buildMeta = m
 	}
-	if req.indexSHA == "" && buildMeta != nil {
-		req.indexSHA = buildMeta.CommitSHA
+	if buildMeta != nil {
+		if req.indexSHA == "" {
+			req.indexSHA = buildMeta.CommitSHA
+		}
+		req.buildID = buildMeta.BuildID
 	}
 
 	if req.pkgSet == nil {
@@ -235,6 +236,9 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	root.Meta = &SeqMeta{Version: 1, Target: req.Target, Timing: timing,
 		Diagnostics: append(analysisDiags, projectionDiags...),
 		Coverage:    seqCoverage(buildMeta)}
+	if req.Evidence {
+		root.Meta.Evidence = seqEvidenceIdentity(req)
+	}
 	// todo12-13：索引降级必须可见（build success 只代表构建流程完成）
 	if cov := root.Meta.Coverage; cov != nil && cov.BuildStatus != "" && cov.BuildStatus != string(domain.BuildSuccess) {
 		root.Meta.Diagnostics = append(root.Meta.Diagnostics, SeqDiagCount{
