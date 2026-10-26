@@ -72,7 +72,7 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		node := &CodeSeqNode{Kind: "branch", Label: seqExprText(fset, src, s.Cond), Line: fset.Position(s.Cond.Pos()).Line}
 		// todo10-5：场景条件判定（taken/excluded/unknown）——排除的分支
 		// 保留节点但剔除内容（用户能看到"此处被场景排除"及其依据）
-		fit := req.Scene.matchCond(s.Cond, req.sceneArgs)
+		fit := req.Scene.matchCondSrc(s.Cond, req.sceneArgs, req.sceneSrc)
 		node.Scene = &fit
 		switch fit.Status {
 		case SceneTaken:

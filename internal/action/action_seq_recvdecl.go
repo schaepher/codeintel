@@ -117,11 +117,13 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 	req.resultNames = resultNamesOf(fn.Type.Results)
 	// todo11-2：本次调用的入站实参（形参 → 值只沿当前展开路径取，不跨分支）
 	req.incomingArgs = req.callArgLits
+	req.incomingSrc = req.callArgSrcs
 	req.curBody = fn.Body
 	req.curParams = fn.Type.Params
 	req.curFile = n.FilePath
 	// todo10-5：一层条件传播——调用点实参字面量按形参名对齐（下次展开覆盖）
 	req.sceneArgs = paramLiteralArgs(fn.Type.Params, req.callArgLits)
+	req.sceneSrc = paramSourceArgs(fn.Type.Params, req.callArgLits, req.callArgSrcs)
 	if req.focus != nil && len(req.focus.fields) > 0 {
 		req.focusLines = a.focusLinesFor(domain.CanonicalID(symID), req.focus)
 	} else {

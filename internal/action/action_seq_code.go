@@ -115,12 +115,15 @@ type CodeSequenceRequest struct {
 	focus       *seqFocus
 	// 内部（todo10-5/11-2）：条件传播——调用点实参字面量（按位置）与形参映射
 	callArgLits []string
+	callArgSrcs []string // todo12-3：实参值来源（定义位置/传播依据）
 	// 内部（todo11-2）：当前函数 canonical ID / 文件（值流解析向上找调用点用）
 	incomingArgs []string
+	incomingSrc  []string // todo12-3：入站实参来源
 	curBody      *ast.BlockStmt
 	curParams    *ast.FieldList
 	curFile      string
 	sceneArgs    map[string]string
+	sceneSrc     map[string]string // todo12-3：形参 → 值来源（分支判定证据）
 	// 内部（todo10-5）：场景统计（meta 汇总；req 按值传递——用指针共享）
 	sceneCount *sceneSummary
 }

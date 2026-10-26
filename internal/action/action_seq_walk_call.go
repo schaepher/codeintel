@@ -81,7 +81,7 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		if strings.Contains(tid, ":(") {
 			if sel, isSel := fun.(*ast.SelectorExpr); isSel {
 				if recv, isID := sel.X.(*ast.Ident); isID {
-					if impl, reason, cands, guard, ok := a.sceneImplChoice(req, fset, f, recv.Name,
+					if impl, reason, cands, guard, ok := a.sceneImplChoice(req, fset, pos.Offset, f, recv.Name,
 						sel.Sel.Name, pkgOfID(domain.CanonicalID(tid))); ok {
 						node.ImplType = implTypeShort(impl)
 						ev := seqIfaceEvidence(curFile, pos.Line, impl, cands, tg.confidence)
@@ -89,6 +89,11 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 							ev.Reason = reason
 							ev.Ambiguous = false
 							ev.Candidates = []string{impl}
+						} else {
+							// 到达定义存在但场景无法唯一确定：保留候选并明确 ambiguous
+							ev.Reason = "reaching-guard-unknown"
+							ev.Ambiguous = true
+							ev.Candidates = cands
 						}
 						node.Evidence = ev
 						if child, stop := codeSeqForSymbol(a, req, impl, depth-1); child != nil {
@@ -142,7 +147,9 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		// 3) 接口方法 → 实现方法（implements 边 + 方法名；候选可多个）
 		// todo11-2：实参字面量走有界值流解析（变量链 + 形参向上，深度 ≤2）——
 		// 一层字面量只是它的特例；解析不到保持空串（不猜）
-		req.callArgLits = a.resolveSceneArgLiterals(fset, src, call, req.curBody, req.curParams, req.incomingArgs, maxSceneFlowDepth)
+		args := a.resolveSceneArgLiterals(fset, src, call, req.curBody, req.curParams,
+			req.incomingArgs, req.incomingSrc, maxSceneFlowDepth)
+		req.callArgLits, req.callArgSrcs = sceneArgValues(args)
 		if strings.Contains(tid, ":(") {
 			if impl, cands, ok := a.seqIfaceMethodImpl(tid); ok {
 				node.ImplType = implTypeShort(impl)

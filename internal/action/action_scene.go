@@ -35,6 +35,7 @@ type SceneFit struct {
 	Literal  string `json:"literal,omitempty"`  // 条件里的字面量（"CN"）
 	Expected string `json:"expected,omitempty"` // 场景给出的值（CN）
 	Reason   string `json:"reason,omitempty"`   // scene:<k=v> / scene-arg:<param>=<lit> / unknown:*
+	Source   string `json:"source,omitempty"`   // todo12-3：值来源（定义位置/传播依据）
 }
 
 // NewScene 解析 `--scene` 参数：每项为 `k=v`（也接受逗号分隔的多个）。
@@ -70,6 +71,11 @@ type sceneSummary struct {
 // （一层传播；nil 表示没传）。只识别 `field == "lit"` / `field != "lit"`
 // 与 `"lit" == field` 形态（必要时剥离一层括号/取反 `!`）。
 func (s Scene) matchCond(cond ast.Expr, args map[string]string) SceneFit {
+	return s.matchCondSrc(cond, args, nil)
+}
+
+// matchCondSrc 同 matchCond，另带形参值来源（SceneFit.Source，证据用）。
+func (s Scene) matchCondSrc(cond ast.Expr, args, srcs map[string]string) SceneFit {
 	negated := false
 	for {
 		switch e := cond.(type) {
@@ -105,16 +111,26 @@ func (s Scene) matchCond(cond ast.Expr, args map[string]string) SceneFit {
 	}
 	// 值来源：形参传播优先，其次场景键
 	expected, key, reason := "", "", ""
-	if v, ok := args[field]; ok && v != "" {
-		expected, key, reason = v, field, "scene-arg:"+field+"="+v
-	} else if k, v, found := s.lookup(field); found {
-		expected, key, reason = v, k, "scene:"+k+"="+v
-	} else {
-		reason := "unknown:no-scene-key"
-		if s.Empty() {
-			reason = "unknown:no-scene"
+	if v, ok := args[field]; ok {
+		if v == sceneArgUnknown {
+			// 调用点有定义但无法证明唯一值 → unknown（不回退场景键）
+			return SceneFit{Status: SceneUnknown, Field: field, Literal: lit,
+				Reason: "unknown:arg-value", Source: srcs[field]}
 		}
-		return SceneFit{Status: SceneUnknown, Field: field, Literal: lit, Reason: reason}
+		if v != "" {
+			expected, key, reason = v, field, "scene-arg:"+field+"="+v
+		}
+	}
+	if expected == "" {
+		if k, v, found := s.lookup(field); found {
+			expected, key, reason = v, k, "scene:"+k+"="+v
+		} else {
+			reason := "unknown:no-scene-key"
+			if s.Empty() {
+				reason = "unknown:no-scene"
+			}
+			return SceneFit{Status: SceneUnknown, Field: field, Literal: lit, Reason: reason}
+		}
 	}
 	equal := lit == expected
 	if negated {
@@ -124,8 +140,12 @@ func (s Scene) matchCond(cond ast.Expr, args map[string]string) SceneFit {
 	if (op == "==" && equal) || (op == "!=" && !equal) {
 		status = SceneTaken
 	}
+	source := "scene:" + key
+	if reason != "" && strings.HasPrefix(reason, "scene-arg:") {
+		source = srcs[field]
+	}
 	return SceneFit{Status: status, Key: key, Field: field, Literal: lit,
-		Expected: expected, Reason: reason}
+		Expected: expected, Reason: reason, Source: source}
 }
 
 // lookup 场景键匹配字段名：大小写不敏感；字段末段相等或以 key 结尾
@@ -186,6 +206,45 @@ func callArgLiterals(call *ast.CallExpr) []string {
 			continue
 		}
 		out = append(out, "")
+	}
+	return out
+}
+
+// sceneArgValues 实参解析结果 → (值, 来源) 两切片。
+func sceneArgValues(args []sceneArg) ([]string, []string) {
+	vals := make([]string, 0, len(args))
+	srcs := make([]string, 0, len(args))
+	for _, a := range args {
+		vals = append(vals, a.val)
+		srcs = append(srcs, a.source)
+	}
+	return vals, srcs
+}
+
+// paramSourceArgs 形参名 → 值来源（与 paramLiteralArgs 位置对齐）。
+func paramSourceArgs(fl *ast.FieldList, lits, srcs []string) map[string]string {
+	if fl == nil || len(lits) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	idx := 0
+	for _, f := range fl.List {
+		n := len(f.Names)
+		if n == 0 {
+			n = 1
+		}
+		for i := 0; i < n; i++ {
+			if idx < len(lits) && lits[idx] != "" {
+				name := ""
+				if i < len(f.Names) {
+					name = f.Names[i].Name
+				}
+				if name != "" && idx < len(srcs) {
+					out[name] = srcs[idx]
+				}
+			}
+			idx++
+		}
 	}
 	return out
 }
