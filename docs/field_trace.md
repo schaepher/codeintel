@@ -5748,3 +5748,46 @@ sqlite_master，库不存在返回空且**不创建文件**）+ `cli.globalSchem
 4. **`make it` 不带 GOPATH/bin**：CLI 子进程找不到 scip-go → init 失败，
    看似"集成测试红"。已修 Makefile（与 `make test` 同款 PATH 注入），
    并记入 runbook #26
+
+## §106 todo20：PlantUML 默认 headless / 重复调用点身份 / 大图裁切提示（2026-11-02）
+
+### todo20-8 默认 Java 启动模式
+
+- `plantumlRender` 固定加 `-Djava.awt.headless=true`（不看调用方
+  `JAVA_TOOL_OPTIONS`）——命令行场景不做 AWT GUI 初始化；macOS/Java 26
+  默认路径 30s 超时被杀的问题在标准 headless 下 <2s 完成。`plantumlJavaArgs`
+  抽成纯函数，单测锁定 headless/tmpdir/-tpng/-pipe 参数
+- 超时错误改为明确的“plantuml 渲染超时（预算 30s，java 进程已终止）”，
+  不再只报 `signal: killed`（预算仍 30s，不靠延长掩盖启动模式问题）
+- 验收：集成测试显式 `unset JAVA_TOOL_OPTIONS` → init → CLI 两个图变体
+  （depth=1 / depth=2+focus+scene）真实 JAR 成功、PNG 魔数、`.puml` 保留
+  分支/返回/诊断注释、`java -headless -checkonly` 通过（`TestTodo20PlantumlDefaultHeadless`）
+
+### todo20-9 重复调用点目标身份
+
+- 根因：calls 边按 `(source,target,kind,edge_key)` 合并，同函数重复调用同一
+  目标只有**首个**位置的 `pos/line_num` metadata → 后续调用点按位置查不到边，
+  被误判 unresolved（夹具 100 次 Step 实测 99 个 unresolved）
+- 修法：`seqTargets` 额外保存本函数目标集合（按符号短名索引）；位置未命中时
+  `matchAggregated` 用 **调用名 + 包路径/函数-方法类别** 过滤，唯一候选才回退
+  （同名多目标仍 unresolved，不猜）。证据 `source=call_edge`、
+  `reason=index-call-edge-aggregated`、`verdict=corroborated`（位置→目标是汇总
+  边推断，不是该位置的直接 metadata）；纯 AST 且无目标 ID 的调用改判 `unverified`
+- `--focus return` 下回退调用仍须命中调用点依赖行才展开（否则被调者内部字段
+  写入会把无关实例的调用误算命中——`TestSeqFocusReturnAliasWrites` 锁定）
+- 回归：`action_seq_repeat_test.go`（同层连续/分支/循环后调用/递归按路径防环）、
+  `query_sequence_repeat_test.go`（CLI JSON 两位置+depth/展开）+
+  `TestTodo20RepeatedCallSequence`（真实 init → CLI depth1/depth2 + Mermaid 诊断）
+- depth=1 两处均 `depth`（不再 unresolved）；depth=2 两处都展开
+  `return "pending"`；递归在**当前路径**命中 `cycle`（访问过的目标不残留）
+
+### todo20-10 大图尺寸上限提示
+
+- 渲染成功 ≠ 完整图：读 PNG IHDR 宽高，任一维达到 `PLANTUML_LIMIT_SIZE`
+  （默认 4096）→ stderr 警告“可能被裁切 + 实际上限”，并给可执行出口
+  （`PLANTUML_LIMIT_SIZE=16384` 重跑 / `java -jar … -tsvg` 完整矢量图）；
+  显式放大上限后仍触顶照样提示（不是把 4096 换成另一个常数）
+- 验收：同一 `.puml` 对照 PNG/SVG——默认 PNG 高=4096 且有提示；放大上限后
+  PNG 高度与 SVG 自然高度 ±20px、SVG/`.puml` 含全部 100 次 Step 与最后
+  `return "done"`（`TestTodo20PlantumlSizeLimitWarning`）；小图/失败出口仍由
+  `TestTodo20PlantumlDefaultHeadless`、`TestPlantumlPngFailureDoesNotWriteTextToPng` 覆盖

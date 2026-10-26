@@ -28,6 +28,11 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		node = &CodeSeqNode{Kind: "call", Label: callLabel(fset, src, fun), Actor: callActor(fset, src, fun), Line: pos.Line}
 
 		tg, resolved := tgts.lookup(pos)
+		if !resolved {
+			// todo20-9：索引 calls 边按 (caller,target,kind) 汇总，重复调用
+			// 只有首个位置的 metadata——按本函数目标集合 + 调用名回退。
+			tg, resolved = tgts.matchAggregated(fun, f, curPkg, recvType, recvDecl)
+		}
 		if resolved {
 			tid := tg.tid
 			if seqFilterHit(req.Filter, tid, curFile, node.Label) {
@@ -41,8 +46,14 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 			}
 			node.Type = implTypeShort(tid)
 			// todo10-3：调用点证据（calls 边 + 置信度 + 调用位置）
+			reason := "index-call-edge"
+			if tg.aggregated {
+				// 目标身份来自同函数汇总边（调用名唯一匹配），不是该位置的
+				// pos 直接命中——证据只能标 corroborated。
+				reason = SeqReasonAggregatedCallEdge
+			}
 			node.Evidence = &SeqEvidence{Source: SeqEvidenceCallEdge, CallFile: curFile,
-				CallLine: pos.Line, SymbolID: tid, Confidence: tg.confidence, Reason: "index-call-edge"}
+				CallLine: pos.Line, SymbolID: tid, Confidence: tg.confidence, Reason: reason}
 			// todo10-2 part3：被调者写焦点字段 → 该调用点命中
 			if req.focus != nil && req.focus.writers[tid] {
 				node.Focus = true
@@ -91,6 +102,13 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 			return node
 		}
 		tid := tg.tid
+		// todo20-9：重复调用点恢复目标后，仍要遵守 --focus return 的调用点
+		// 依赖——不在返回依赖行上的调用不展开（否则被调者内部的字段写入
+		// 会把无关实例的调用误判为命中）。
+		if req.focusActive() && req.focus.returns && len(req.focus.fields) == 0 &&
+			req.focusLines != nil && !req.focusLines[pos.Line] {
+			return node
+		}
 
 		// 0) todo11-2：接口方法调用的实现选择——场景守卫优先；多候选标 ambiguous
 		if strings.Contains(tid, ":(") {

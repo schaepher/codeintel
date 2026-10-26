@@ -107,6 +107,23 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 				}
 				tgts.byPos[int(p)] = seqTarget{tid: string(f.TargetID), confidence: f.Confidence}
 			}
+			// todo20-9：边按 (caller,target,kind) 汇总——重复调用只有首个
+			// 位置的 metadata。保留目标集合供未命中位置按调用名回退。
+			if name := seqTargetName(string(f.TargetID)); name != "" {
+				if tgts.byName == nil {
+					tgts.byName = map[string][]seqTarget{}
+				}
+				dup := false
+				for _, e := range tgts.byName[name] {
+					if e.tid == string(f.TargetID) {
+						dup = true
+						break
+					}
+				}
+				if !dup {
+					tgts.byName[name] = append(tgts.byName[name], seqTarget{tid: string(f.TargetID), confidence: f.Confidence})
+				}
+			}
 		}
 	}
 
@@ -168,37 +185,6 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 		}
 	}
 	return root, nil
-}
-
-// seqTargets 时序图调用点 → 被调符号映射（R99-3——用户检查发现：
-// 原 map[int]string 按行号，同一行多个调用时后写覆盖先写，两个
-// 时序节点都拿到同一个 target）。byPos 按字节 offset（发射端
-// metadata pos——同行各调用独立，精确匹配）；byLine 按行号
-// （兼容无 pos 的旧索引——同行覆盖为旧行为，仅 fallback）。
-type seqTargets struct {
-	byPos  map[int]seqTarget
-	byLine map[int]seqTarget
-}
-
-// seqTarget 调用点对应的被调符号 + 边置信度（todo10-3 证据用）。
-type seqTarget struct {
-	tid        string
-	confidence float64
-}
-
-// lookup 查调用位置对应的被调符号：offset 优先，行号 fallback。
-func (t *seqTargets) lookup(pos token.Position) (seqTarget, bool) {
-	if t.byPos != nil {
-		if tg, ok := t.byPos[pos.Offset]; ok {
-			return tg, true
-		}
-	}
-	if t.byLine != nil {
-		if tg, ok := t.byLine[pos.Line]; ok {
-			return tg, true
-		}
-	}
-	return seqTarget{}, false
 }
 
 // resultNamesOf 函数签名的具名结果（无具名/无结果返回空——此时 return

@@ -28,11 +28,11 @@ const (
 	SeqStopParseError   = "parse_error"    // 源码语法解析失败
 	SeqStopFiltered     = "filtered"       // 被时序过滤规则排除
 	// todo13-13：消费者可区分的调用分类（不再把所有未解析笼统称 index_gap）
-	SeqStopExternalTarget = "external_target"     // 外部库目标（调用表达式已知，库内实现未展开）
+	SeqStopExternalTarget = "external_target"        // 外部库目标（调用表达式已知，库内实现未展开）
 	SeqStopUnknownImpl    = "unknown_implementation" // 接口方法无可证明实现
-	SeqDegradedPackage    = "degraded_package"    // 构建期失败的具体包（含错误位置）
-	SeqTargetCoverage     = "target_coverage"     // 目标与失败包的隔离判断
-	SeqSQLDegraded        = "sql_degraded"        // SQL 解析降级统计（与包失败分开）
+	SeqDegradedPackage    = "degraded_package"       // 构建期失败的具体包（含错误位置）
+	SeqTargetCoverage     = "target_coverage"        // 目标与失败包的隔离判断
+	SeqSQLDegraded        = "sql_degraded"           // SQL 解析降级统计（与包失败分开）
 	// todo12-13：筛选/投影诊断（与原分析诊断分开——筛选不得顶替原诊断）
 	SeqDiagFocusProjection = "focus_projection"
 	SeqDiagSceneProjection = "scene_projection"
@@ -47,6 +47,10 @@ const (
 	SeqEvidenceLocalVar  = "localvar"       // 局部变量初始化来源（构造器/字面量）
 	SeqEvidenceGrpcImpl  = "grpc_impl"      // grpc 服务实现方法
 )
+
+// SeqReasonAggregatedCallEdge 目标由同函数汇总边的调用名唯一匹配恢复
+// （todo20-9：重复调用点的 pos 未单独入库）。
+const SeqReasonAggregatedCallEdge = "index-call-edge-aggregated"
 
 // SeqStop 展开终点诊断（挂在"在那里停下"的调用节点上）。
 type SeqStop struct {
@@ -214,11 +218,22 @@ func seqEvidenceVerdict(ev *SeqEvidence) string {
 	}
 	switch ev.Source {
 	case SeqEvidenceCallEdge:
+		if ev.Reason == SeqReasonAggregatedCallEdge {
+			// 位置→目标的对应关系由汇总边推断（不是该位置的直接 metadata）
+			return SeqVerdictCorroborated
+		}
 		if ev.Confidence >= MinConfidence {
 			return SeqVerdictDirect
 		}
 		return SeqVerdictCorroborated
-	case SeqEvidenceAST, SeqEvidenceFieldFlow, SeqEvidenceLocalVar, SeqEvidenceGrpcImpl, SeqEvidenceIface:
+	case SeqEvidenceAST:
+		// 只有调用表达式存在、没有目标身份 → 不是已被证明的调用
+		// （todo20-9：不能把语法节点存在误读为目标已解析）。
+		if ev.SymbolID == "" {
+			return SeqVerdictUnverified
+		}
+		return SeqVerdictCorroborated
+	case SeqEvidenceFieldFlow, SeqEvidenceLocalVar, SeqEvidenceGrpcImpl, SeqEvidenceIface:
 		return SeqVerdictCorroborated
 	}
 	return SeqVerdictUnverified

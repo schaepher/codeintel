@@ -147,6 +147,11 @@ func renderCodeSeq(root *action.CodeSeqNode, mermaid, jsonOut bool, diagram, out
 				var png []byte
 				png, renderErr = plantumlRenderFunc(puml)
 				if renderErr == nil {
+					// todo20-10：渲染成功 ≠ 完整图——尺寸触顶必须显式提示
+					// （PNG 任一维达到 PlantUML 上限时会被裁切）。
+					if warn := plantumlSizeWarning(png); warn != "" {
+						fmt.Fprintf(os.Stderr, "warning: %s\n", warn)
+					}
 					if out != "" {
 						if !writeOutFile(out, png) {
 							return 1, true
