@@ -1,6 +1,7 @@
 package ssa
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/schaepher/codeintel/internal/domain"
@@ -89,5 +90,70 @@ func phi(c bool, a, b *T) int {
 	}
 	if a.TargetID != b.TargetID {
 		t.Errorf("phi operands must share target, got %s vs %s", a.TargetID, b.TargetID)
+	}
+}
+
+// TestPhiOperandConstantSource（todo12-10）：状态初始化/条件改写的常量
+// 必须有 phi_operand 边与 literal 节点——否则 value-trace 追不到来源。
+func TestPhiOperandConstantSource(t *testing.T) {
+	nodes, facts, _ := indexFixtureFull(t, map[string]string{
+		"go.mod": moduleGoMod,
+		"main.go": `package m
+
+type State string
+
+const (
+	StateQueued   State = "queued"
+	StateRejected State = "rejected"
+)
+
+type H struct{ State State }
+
+func (h *H) Apply(reject bool) State {
+	status := StateQueued
+	if reject {
+		status = StateRejected
+	}
+	h.State = status
+	return status
+}
+`,
+	})
+	funcID := "symbol:go:example.com/mtest:(H).Apply"
+	// 两个常量节点（literal）
+	want := map[string]bool{`"queued"`: false, `"rejected"`: false}
+	for _, n := range nodes {
+		if n.Kind != domain.KindSSAValue {
+			continue
+		}
+		if n.Property("origin_kind") != "literal" {
+			continue
+		}
+		if _, ok := want[n.Name]; ok {
+			want[n.Name] = true
+			if n.Property("const_value") != n.Name {
+				t.Errorf("常量节点应带 const_value: %+v", n.Properties)
+			}
+		}
+	}
+	for val, ok := range want {
+		if !ok {
+			t.Errorf("缺少常量节点 %s", val)
+		}
+	}
+	// 两条 phi_operand 边均指向同一 phi
+	var phiTargets []string
+	for _, f := range facts {
+		if f.Kind != domain.FactPhiOperand {
+			continue
+		}
+		src := string(f.SourceID)
+		if strings.HasPrefix(src, funcID+"#const:") &&
+			(strings.HasSuffix(src, `:"queued"`) || strings.HasSuffix(src, `:"rejected"`)) {
+			phiTargets = append(phiTargets, string(f.TargetID))
+		}
+	}
+	if len(phiTargets) != 2 || phiTargets[0] != phiTargets[1] {
+		t.Fatalf("常量应各有 phi_operand 边且共享 phi: %+v", phiTargets)
 	}
 }

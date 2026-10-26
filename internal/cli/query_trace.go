@@ -16,6 +16,16 @@ func queryValueTrace(acts *action.Actions, nodeID string, maxDepth int, minConf 
 	logger := zap.L()
 	logger.Debug("enter queryValueTrace")
 	defer logger.Debug("exit queryValueTrace")
+	// todo12-10 R2：value-trace 的输入契约是**节点 ID**（写点/SSA 值节点），
+	// 字段名锚点属于 query trace 语义——分开说明，避免静默空结果。
+	if !strings.HasPrefix(nodeID, "symbol:") && !strings.HasPrefix(nodeID, "file:") && !strings.HasPrefix(nodeID, "commit:") {
+		fmt.Fprintf(os.Stderr, "error: value-trace 需要节点 ID（写点/SSA 值节点）；字段名锚点请用 codeintel query trace <字段> --func <函数>\n")
+		return 2
+	}
+	effectiveDepth := maxDepth
+	if effectiveDepth <= 0 {
+		effectiveDepth = 8
+	}
 	rows, err := acts.ValueTrace(domain.CanonicalID(nodeID), maxDepth, minConf, includeContainer)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -26,6 +36,7 @@ func queryValueTrace(acts *action.Actions, nodeID string, maxDepth int, minConf 
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: 条件标注: %v\n", err)
 	}
+	analysis := valueTraceCompleteness(rows, effectiveDepth)
 	if opts.json {
 		type flowRow struct {
 			ID            string             `json:"id"`
@@ -57,12 +68,15 @@ func queryValueTrace(acts *action.Actions, nodeID string, maxDepth int, minConf 
 				FuncID: r.FuncID, FuncName: shortFuncName(r.FuncID), Conditions: r.Conditions,
 				Dispatch: disp, EdgeCandidate: ec})
 		}
-		encodeJSON(map[string]any{"flows": jrows})
+		encodeJSON(map[string]any{"flows": jrows, "analysis": analysis})
 		return 0
 	}
 	if len(rows) == 0 {
-		fmt.Println("无数据流（节点不存在或无数据流边）")
+		fmt.Printf("无数据流（节点不存在或无数据流边）；分析：%s（%s）\n", analysis.Status, analysis.Stop)
 		return 0
+	}
+	if analysis.Status != "complete" {
+		fmt.Printf("分析：%s（%s；--max-depth %d）\n", analysis.Status, analysis.Stop, effectiveDepth)
 	}
 	// Q235-10：四格式渲染（文本分组 / tree / mermaid / json 在前）
 	if format == "" {
@@ -134,4 +148,28 @@ func querySummary(acts *action.Actions, input string, opts outputOpts, format st
 		fmt.Printf("  %-8s %-40s %s %s\n", "["+st.Kind+"]", st.Name, loc, st.Func)
 	}
 	return 0
+}
+
+// valueTraceAnalysis 值追踪完整性（todo12-10 R2）：深度截断/无流 → partial，
+// 不把"只看到几跳"表现为完整分析。
+type valueTraceCompletenessT struct {
+	Status string `json:"status"` // complete|partial
+	Depth  int    `json:"depth"`
+	Stop   string `json:"stop,omitempty"` // depth|no_flow|empty
+	Nodes  int    `json:"nodes"`
+}
+
+func valueTraceCompleteness(rows []*domain.TraceRow, depth int) valueTraceCompletenessT {
+	out := valueTraceCompletenessT{Status: "complete", Depth: depth, Nodes: len(rows)}
+	if len(rows) == 0 {
+		out.Status, out.Stop = "partial", "no_flow"
+		return out
+	}
+	for _, r := range rows {
+		if r.Depth >= depth {
+			out.Status, out.Stop = "partial", "depth"
+			break
+		}
+	}
+	return out
 }
