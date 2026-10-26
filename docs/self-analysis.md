@@ -2536,6 +2536,13 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
 | P1 工程 | ssa-cache | SSA 缓存余项：`instancePath`/`recoverVarName`/`allocTypeShort`/`marshalProps` | 低风险 |
 | P1 工程 | #20 | 表字段类型剩余 10 列（`~/.codeintel` 全局注册表） | 需全局 db/yaml |
 | P1 工程 | #18 | go2o 表别名 AI 补缺（缺 148 表） | 需 AI/网络 |
+| P1 工程 | todo12-6 | 跨入口值身份闭环（持久化/队列边界 + 角色注册证据） | 需边界建模，见 `docs/todo12-checklist.md` |
+| P1 工程 | todo12-10 | value-trace 从写点追到状态常量（SSA 值身份补链） | 需 SSA 值图整改 |
+| P1 工程 | todo12-13 | 构建保存包/文件/类型检查失败明细并随查询携带 | 当前只有 build status/SQL 降级统计 |
+| P1 工程 | todo12-8 | write kind 区分字段赋值/ORM-SQL 写调用/提交范围 | 当前 origin + tx 陈述 |
+| P1 工程 | todo12-9 | 跨函数别名改写的焦点依赖（保守→可证明） | 需别名分析，暂保持 conservative |
+| P1 工程 | todo12-16 | 多服务框架 RPC 识别覆盖（包装/自定义注册/DI） | 需中立多服务夹具 |
+| P1 性能 | todo12-17 | 大仓 sequence/value-trace 查询成本基准 + 取消/超时 | 需固定大仓基准 |
 | P2 验证 | #17 | 新人实测演练（陌生项目 wiki onboarding） | 需外部项目 |
 | P2 验证 | #19 | ext-chain 跨仓库递归 | 需多仓库 |
 | P2 验证 | #21 | F2 实体分组对非 DDD 项目效果 | 需外部项目 |

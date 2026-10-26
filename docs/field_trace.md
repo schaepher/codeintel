@@ -5483,3 +5483,45 @@ seed 展开集合）都被当作 corroborated——需求指出这三样都**不
   先于 localvar/receiver 数据流执行（否则数据流会先挑第一个赋值，忽略场景）。
 - 测试：`action_scene_flow_test.go`（两层传参 taken、请求字段 unknown、
   相似变量名不推断、场景守卫选中 ImplCN 且无场景保留候选 ambiguous）。
+
+## §? todo12：目标筛选 / 资源生命周期 / 到达定义 / 异步范围（2026-10-29）
+
+用户交付 17 项任务（todo12）；本轮完成 13 项、部分完成 2 项（#8 写点 kind、
+#13 构建失败明细），保留 4 项（#6 跨入口值身份、#10 value-trace 常量、
+#16 多服务 RPC 识别、#17 查询成本）与部分子项。逐项状态/测试名/缺口见
+[`docs/todo12-checklist.md`](todo12-checklist.md)。
+
+关键实现（每项一个 commit）：
+
+- **effects 目标筛选 + 路径预算**（#1/#7）：`--target-field` 按
+  `pkg.Type.Field` 身份解析（同名不同结构体不混用），`--target-return`
+  名字/#槽归一化且不重编号；路径与函数级汇总同步筛选，被调写入按调用行
+  归属；`analysis.status=partial` 覆盖预算/嵌套/循环/switch/未知类型，
+  `--path-budget` 可提高预算。
+- **ext-chain 目标库所有权**（#2）：`resolveRemoteMethod` 不再 defer 关闭
+  被选中的目标 DB——`closeFn` 交给调用方在递归结束后 `release`；读取失败
+  给 `query_failed` + partial，合法无下游保持 Stop=nil。
+- **场景到达定义**（#3/#4）：`reachingLiteralAt` 做作用域感知的前向抽象
+  解释（定义顺序/无条件覆盖/条件合流/遮蔽/循环保守），有定义但无法证明
+  唯一值时传播 `sceneArgUnknown`（不回退 `--scene` 键）；实现选择按到达
+  定义 + 守卫极性（else/else-if/后续覆盖），无场景保持候选+ambiguous。
+- **异步范围**（#5）：候选只取字段身份精确相同/同结构体类型/ID 列同源/
+  调用链；预算 200 + 稳定排序，`candidates_truncated`/`no_related_links`
+  诊断；nodes/links 共用同一集合。
+- **焦点依赖闭包 + Mermaid 赋值**（#9/#11）：焦点按返回值/字段值的到达
+  定义闭合初始化、条件改写、必要调用；mermaid 用 `Note over` 渲染 assign，
+  与文本/JSON 共用节点切片；不存在焦点报错、合法无写入正常返回。
+- **具名返回槽**（#12）：`resultNamesOf` 逐名展开（修复同组两名都取第一个
+  名字），裸 return 按声明顺序填槽。
+- **诊断完整性**（#13）：未解析调用点标 `unresolved`；原分析诊断在投影前
+  固定，另加 `focus_projection`/`scene_projection`；`meta.coverage` 透传
+  build status/SHA/降级统计并给 `index_degraded`。
+- **证据重放**（#14）：`evidence.query` 含 repo/canonical ID/depth/focus/
+  scene + POSIX quoting，`evidence.request` 快照含 `index_sha`；非模块目录
+  bash/zsh 实跑与进程内结果归一化一致。
+- **workspace 归属恢复**（#15）：clean 默认保留台账元数据（`--forget` 才
+  注销），init 重建读回 workspace/worktree；workspace init 对已有目录按
+  git worktree 元数据认领（不猜目录名），不匹配明确失败。
+- **effects 被调写入 + 错误来源**（#8）：路径写点带 `origin`；if/switch
+  初始化语句纳入路径；`error_sources` 判定 returned/swallowed/stale/
+  overwritten/wrapped；未映射调用点进 `path_callee_unresolved` → partial。
