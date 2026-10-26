@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
@@ -26,6 +27,7 @@ func queryValueTrace(acts *action.Actions, nodeID string, maxDepth int, minConf 
 	if effectiveDepth <= 0 {
 		effectiveDepth = 8
 	}
+	vtStart := time.Now()
 	rows, err := acts.ValueTrace(domain.CanonicalID(nodeID), maxDepth, minConf, includeContainer)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -37,6 +39,7 @@ func queryValueTrace(acts *action.Actions, nodeID string, maxDepth int, minConf 
 		fmt.Fprintf(os.Stderr, "warning: 条件标注: %v\n", err)
 	}
 	analysis := valueTraceCompleteness(rows, effectiveDepth)
+	analysis.ElapsedMS = float64(time.Since(vtStart).Microseconds()) / 1000
 	if opts.json {
 		type flowRow struct {
 			ID            string             `json:"id"`
@@ -157,6 +160,8 @@ type valueTraceCompletenessT struct {
 	Depth  int    `json:"depth"`
 	Stop   string `json:"stop,omitempty"` // depth|no_flow|empty
 	Nodes  int    `json:"nodes"`
+	// todo12-17 R1：查询耗时（值图遍历 + 条件标注；SQL/查符号未细分）
+	ElapsedMS float64 `json:"elapsed_ms,omitempty"`
 }
 
 func valueTraceCompleteness(rows []*domain.TraceRow, depth int) valueTraceCompletenessT {

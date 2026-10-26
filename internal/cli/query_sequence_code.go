@@ -8,6 +8,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -27,17 +28,28 @@ import (
 // 写文本（S4——用户：配置 plantuml.jar 用它转图片，失败才写文本）。
 // out：非空时主输出写文件（plantuml 成功 → PNG 字节；否则文本），
 // stdout 打印路径。
-func cmdQuerySequenceCode(acts *action.Actions, abs, target string, depth int, mermaid bool, jsonOut bool, diagram, out string, focus []string, evidence bool, scene []string) int {
+func cmdQuerySequenceCode(acts *action.Actions, abs, target string, depth int, mermaid bool, jsonOut bool, diagram, out string, focus []string, evidence bool, scene []string, timeout time.Duration) int {
 	if depth <= 0 {
 		depth = 1
 	}
+	ctx := context.Background()
+	if timeout > 0 {
+		// todo12-17 R3：查询预算——超时取消展开，失败退出（不返回看似完整的成功）
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
 	root, err := acts.CodeSequence(action.CodeSequenceRequest{
 		Target: target, RepoAbs: abs, Depth: depth, StopPackages: loadSeqStopPkgs(),
-		Filter: loadSeqFilter(), Focus: focus, Scene: action.NewScene(scene)})
+		Filter: loadSeqFilter(), Focus: focus, Scene: action.NewScene(scene), Ctx: ctx})
 	if err != nil {
 		// todo10-9：主动终止（取消）不得报告为成功
 		if errors.Is(err, action.ErrSeqCanceled) {
-			fmt.Fprintln(os.Stderr, "error: 代码级时序展开已取消（未完成的分析不作为结果输出）")
+			if timeout > 0 && ctx.Err() == context.DeadlineExceeded {
+				fmt.Fprintf(os.Stderr, "error: 代码级时序超过查询预算 %s——已停止后台展开，结果不完整不输出\n", timeout)
+			} else {
+				fmt.Fprintln(os.Stderr, "error: 代码级时序展开已取消（未完成的分析不作为结果输出）")
+			}
 			return 1
 		}
 		var diag *action.SeqDiagError

@@ -3,6 +3,7 @@ package cli
 import (
 	"strconv"
 	"strings"
+	"time"
 )
 
 // parseQueryFlags 手动解析 query 参数（flags 与位置参数任意顺序）。
@@ -131,6 +132,11 @@ func parseQueryFlags(args []string) queryFlags {
 			i++
 		case strings.HasPrefix(a, "--target-return="):
 			f.targetReturn, f.targetRetSet = strings.TrimPrefix(a, "--target-return="), true
+		case a == "--timeout" && i+1 < len(args):
+			f.timeout = parseTimeout(args[i+1])
+			i++
+		case strings.HasPrefix(a, "--timeout="):
+			f.timeout = parseTimeout(strings.TrimPrefix(a, "--timeout="))
 		case a == "--path-budget" && i+1 < len(args):
 			f.pathBudget, _ = strconv.Atoi(args[i+1])
 			i++
@@ -177,4 +183,19 @@ func splitComma(s string) []string {
 		}
 	}
 	return out
+}
+
+// parseTimeout --timeout 解析：纯数字按秒；否则 time.ParseDuration。
+func parseTimeout(s string) time.Duration {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	if n, err := strconv.Atoi(s); err == nil && n > 0 {
+		return time.Duration(n) * time.Second
+	}
+	if d, err := time.ParseDuration(s); err == nil && d > 0 {
+		return d
+	}
+	return 0
 }

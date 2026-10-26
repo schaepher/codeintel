@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"os"
+	"time"
 )
 
 // encodeJSON 输出结构化 JSON（stdout 唯一内容；query 命令共用）。
@@ -53,7 +54,8 @@ type queryFlags struct {
 	targetFieldSet bool
 	targetReturn   string
 	targetRetSet   bool
-	pathBudget     int // todo12-7：effects 路径枚举预算（0=默认 24）
+	pathBudget     int           // todo12-7：effects 路径枚举预算（0=默认 24）
+	timeout        time.Duration // todo12-17：sequence 查询预算（0=不限）
 }
 
 // edgeCandidateJSON 边级候选标注（Q161：动态 argument/returns 边元数据）。
