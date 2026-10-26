@@ -10,12 +10,14 @@ package action
 
 import (
 	"bytes"
+	"context"
 	"go/ast"
 	"go/format"
 	"go/parser"
 	"go/token"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/schaepher/codeintel/internal/domain"
 	"go.uber.org/zap"
@@ -99,13 +101,27 @@ func (a *Actions) TraceConditions(rows []*domain.TraceRow) ([]*domain.TraceRow, 
 	logger := zap.L()
 	logger.Info("enter (Actions).TraceConditions", zap.Int("rows", len(rows)))
 	defer logger.Info("exit (Actions).TraceConditions")
+	out, _, err := a.TraceConditionsContext(context.Background(), rows)
+	return out, err
+}
+
+// TraceConditionsContext 可取消版本 + 真实分阶段计数（todo14-17）：
+// 逐行检查 ctx；GetSymbol 与条件解析分别计数/计时（不把行数当符号查找数）。
+func (a *Actions) TraceConditionsContext(ctx context.Context, rows []*domain.TraceRow) ([]*domain.TraceRow, *TraceConditionStats, error) {
+	logger := zap.L()
+	logger.Info("enter (Actions).TraceConditionsContext", zap.Int("rows", len(rows)))
+	defer logger.Info("exit (Actions).TraceConditionsContext")
+	st := &TraceConditionStats{}
 	if len(rows) == 0 {
-		return rows, nil
+		return rows, st, nil
 	}
 	// 节点 file_path 缓存（GetSymbol 查询）
 	fileOf := map[string]string{}
 	out := make([]*domain.TraceRow, len(rows))
 	for i, r := range rows {
+		if traceCtxExpired(ctx) {
+			return nil, st, ErrTraceCanceled
+		}
 		cp := *r // 复制行：不得修改入参（S5：此前共享指针原地覆盖原行）
 		out[i] = &cp
 		if r.Line <= 0 {
@@ -113,7 +129,10 @@ func (a *Actions) TraceConditions(rows []*domain.TraceRow) ([]*domain.TraceRow, 
 		}
 		fp, ok := fileOf[string(r.ID)]
 		if !ok {
+			start := time.Now()
 			n, err := a.repo.GetSymbol(r.ID)
+			st.SymbolLookups++
+			st.SymbolMS += float64(time.Since(start).Microseconds()) / 1000
 			if err != nil || n.FilePath == "" {
 				fileOf[string(r.ID)] = "" // 查不到：跳过
 				continue
@@ -125,9 +144,13 @@ func (a *Actions) TraceConditions(rows []*domain.TraceRow) ([]*domain.TraceRow, 
 			continue
 		}
 		full := filepath.Join(a.repo.RepoPath(), filepath.FromSlash(fp))
-		if c := ExtractCondition(full, r.Line); c != "" {
+		start := time.Now()
+		c := ExtractCondition(full, r.Line)
+		st.ConditionMS += float64(time.Since(start).Microseconds()) / 1000
+		st.ConditionRows++
+		if c != "" {
 			out[i].Conditions = []string{c}
 		}
 	}
-	return out, nil
+	return out, st, nil
 }

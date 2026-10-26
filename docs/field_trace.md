@@ -5573,3 +5573,19 @@ seed 展开集合）都被当作 corroborated——需求指出这三样都**不
   固定 9018 节点夹具 sequence 13.5–16ms×3、value-trace 冷 173ms/暖命中。
 - **仍待办**：任务 6 持久化/消息边界到「同一记录」的静态证明；任务 17
   并发分布/资源峰值采样（见 checklist 未完成项）。
+
+## §? todo14：同记录身份 / 错误汇总 / 可执行 argv / 查询统计（2026-11-01）
+
+逐项证据见 [`todo14-checklist.md`](todo14-checklist.md)。
+
+- **持久化/消息边界**：仅当「记录键字面量 K + 同一主题字面量 T + 读取侧
+  同 K 过滤」齐备时，链升级 corroborated/identity_partial=false，逐跳带
+  写/发/收/过滤位置与键；键不一致 → `boundary_key_mismatch`，互斥分支
+  多键 → `boundary_key_ambiguous`，无边界 → unverified + 写入侧位置。
+- **错误汇总**：错误变量按名字/类型/错误构造识别，`failure` 与 `err`
+  的路径/汇总/目标筛选结论一致（swallowed + suspicious 覆盖行 + unverified）。
+- **结构化 argv**：`meta.evidence.argv` 为可直接 execve 的原始参数；展示
+  命令单独 shell quoting；非模块目录直接执行 argv[1:] 验证。
+- **查询统计/取消**：value-trace 分阶段真实计数（SQL/符号/条件/派发）、
+  覆盖口径、逐行 ctx 检查；缓存容量 128 FIFO、build_id 失效；固定大仓
+  矩阵/并发/停止延迟/VmHWM 实测见 `build_perf.md`。

@@ -4,6 +4,7 @@
 package action
 
 import (
+	"context"
 	"sync"
 
 	"github.com/schaepher/codeintel/internal/domain"
@@ -109,7 +110,10 @@ type Actions struct {
 	// todo13-17：value-trace 结果缓存（按索引构建身份 + 查询参数；nil=未启用）
 	vtMu    sync.Mutex
 	vtBuild string
-	vtCache map[string][]*domain.TraceRow
+	vtCache      map[string][]*domain.TraceRow
+	vtOrder      []string // FIFO 请求键（容量上限淘汰用）
+	vtCacheLimit int      // 0 = vtCacheDefaultLimit
+	vtEvictions  int
 }
 
 // AddRelationRule 添加用户连线规则（Q226，薄封装）。
@@ -182,11 +186,24 @@ type TraceParams struct {
 	FollowIndirect bool // Q172：trace-backward --follow-indirect（跨函数间接写链）
 }
 
+// SetValueTraceCacheLimit 设置 value-trace 缓存容量（测试/serve 可调）。
+func (a *Actions) SetValueTraceCacheLimit(n int) {
+	logger := zap.L()
+	logger.Info("enter (Actions).SetValueTraceCacheLimit", zap.Int("limit", n))
+	defer logger.Info("exit (Actions).SetValueTraceCacheLimit")
+	a.vtCacheLimit = n
+}
+
 // markDispatchCandidates 标注候选派发（Q157 P1）：value-trace 行所属
 // 函数是接口 dispatch_to 边 target（候选实现）时标记来源与置信度——
 // 链路混入多个接口候选实现时可区分。
 
 func (a *Actions) markDispatchCandidates(rows []*domain.TraceRow) ([]*domain.TraceRow, error) {
+	return a.markDispatchCandidatesContext(context.Background(), rows)
+}
+
+// markDispatchCandidatesContext 可取消版本（每行检查 ctx——todo14-17）。
+func (a *Actions) markDispatchCandidatesContext(ctx context.Context, rows []*domain.TraceRow) ([]*domain.TraceRow, error) {
 	targets, err := a.repo.GetDispatchTargets()
 	if err != nil {
 		return nil, err
@@ -195,6 +212,9 @@ func (a *Actions) markDispatchCandidates(rows []*domain.TraceRow) ([]*domain.Tra
 		return rows, nil
 	}
 	for _, r := range rows {
+		if traceCtxExpired(ctx) {
+			return nil, ErrTraceCanceled
+		}
 		if r.FuncID == "" {
 			continue
 		}

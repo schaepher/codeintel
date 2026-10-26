@@ -54,7 +54,11 @@ func queryValueTrace(acts *action.Actions, nodeID string, maxDepth int, minConf 
 	if stats != nil {
 		analysis.SQLMS, analysis.SQLQueries = stats.SQLMS, stats.SQLQueries
 		analysis.SymbolMS, analysis.SymbolLookups = stats.SymbolMS, stats.SymbolLookups
+		analysis.ConditionMS, analysis.ConditionRows = stats.ConditionMS, stats.ConditionRows
+		analysis.DispatchMS, analysis.DispatchCalls = stats.DispatchMS, stats.DispatchCalls
 		analysis.CacheHits, analysis.CacheMisses = stats.CacheHits, stats.CacheMisses
+		analysis.CacheEntries, analysis.CacheEvictions = stats.CacheEntries, stats.CacheEvictions
+		analysis.CoveredOps, analysis.UncoveredOps = stats.CoveredOps, stats.UncoveredOps
 	}
 	analysis.ElapsedMS = float64(time.Since(vtStart).Microseconds()) / 1000
 	if opts.json {
@@ -194,8 +198,16 @@ type valueTraceCompletenessT struct {
 	SQLQueries    int     `json:"sql_queries,omitempty"`
 	SymbolMS      float64 `json:"symbol_ms,omitempty"`
 	SymbolLookups int     `json:"symbol_lookups,omitempty"`
+	ConditionMS   float64 `json:"condition_ms,omitempty"`
+	ConditionRows int     `json:"condition_rows,omitempty"`
+	DispatchMS    float64 `json:"dispatch_ms,omitempty"`
+	DispatchCalls int     `json:"dispatch_calls,omitempty"`
 	CacheHits     int     `json:"cache_hits,omitempty"`
 	CacheMisses   int     `json:"cache_misses,omitempty"`
+	CacheEntries  int     `json:"cache_entries,omitempty"`
+	CacheEvictions int    `json:"cache_evictions,omitempty"`
+	CoveredOps    []string `json:"covered_ops,omitempty"`
+	UncoveredOps  []string `json:"uncovered_ops,omitempty"`
 }
 
 func valueTraceCompleteness(rows []*domain.TraceRow, depth int) valueTraceCompletenessT {

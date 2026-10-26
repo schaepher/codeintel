@@ -46,8 +46,8 @@ func (a *Actions) asyncIdentityChains(links []AsyncLink, nodes []AsyncNode,
 				Detail:  "字段→表列映射（列名匹配）；同一列不代表同一条记录"})
 		} else {
 			hops = append(hops, AsyncHop{Kind: "persistence_or_queue", Field: leaf,
-				Verdict: SeqVerdictUnverified,
-				Detail:  "未建模持久化/消息边界（静态仅见字段身份）"})
+				File: fileOf[wfn], Line: wline, Verdict: SeqVerdictUnverified,
+				Detail: "未建模持久化/消息边界（静态仅见字段身份；位置=写入侧）"})
 		}
 		hops = append(hops, AsyncHop{
 			Kind: "read", Function: rfn, Field: rfield,

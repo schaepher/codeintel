@@ -30,6 +30,9 @@ type SeqTiming struct {
 	SQLMS         float64 `json:"sql_ms,omitempty"`
 	CacheHits     int     `json:"cache_hits,omitempty"`   // 源码解析/符号缓存命中
 	CacheMisses   int     `json:"cache_misses,omitempty"` // 未命中（读盘/解析）
+	// todo14-17：计数口径（避免把上层请求数/结果数当底层次数）
+	StatsScope   string `json:"stats_scope,omitempty"`
+	UncoveredOps string `json:"uncovered_ops,omitempty"`
 }
 
 // SeqMeta 根节点元信息（只有根 CodeSeqNode 携带）。

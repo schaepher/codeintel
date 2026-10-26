@@ -33,6 +33,7 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 	symStart := time.Now()
 	n, err := a.repo.GetSymbol(domain.CanonicalID(symID))
 	req.acc.symLookups++
+	req.acc.sqlQueries++
 	req.acc.symDur += time.Since(symStart)
 	if err != nil {
 		return nil, &SeqStop{Code: SeqStopIndexGap, Detail: symID + "（索引中没有该符号）"}

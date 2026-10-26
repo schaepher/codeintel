@@ -61,6 +61,9 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 			sigStart := time.Now()
 			args, rets, ok2 := sigTypesOf(a, sigID)
 			req.acc.sigLookups++
+			req.acc.symLookups++ // 签名解析内部 ResolveSymbol
+			req.acc.sqlQueries++
+			req.acc.symDur += time.Since(sigStart)
 			req.acc.sigDur += time.Since(sigStart)
 			if ok2 {
 				node.Args, node.Returns = args, rets
@@ -174,6 +177,7 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 			dispStart := time.Now()
 			impl, cands, ok := a.seqIfaceMethodImpl(tid)
 			req.acc.dispatch++
+			req.acc.sqlQueries += 2 // InterfaceMethodImpl + GetImplementsEdges
 			req.acc.dispatchDur += time.Since(dispStart)
 			if ok {
 				node.ImplType = implTypeShort(impl)

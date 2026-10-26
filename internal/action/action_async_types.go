@@ -59,6 +59,8 @@ type AsyncChain struct {
 	Hops    []AsyncHop `json:"hops"`
 	Verdict string     `json:"verdict"`
 	Reason  string     `json:"reason,omitempty"`
+	// todo14-6：持久化/消息边界证据（证明成功才 corroborated）
+	Boundary *AsyncBoundary `json:"boundary,omitempty"`
 }
 
 // AsyncHop 身份链的一跳（写入/边界/读取/过滤）。

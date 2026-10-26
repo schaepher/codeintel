@@ -99,6 +99,7 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	symStart := time.Now()
 	n, err := a.ResolveSymbol(req.Target)
 	req.acc.symLookups++
+	req.acc.sqlQueries++ // ResolveSymbol 实际走到仓储查询
 	req.acc.symDur += time.Since(symStart)
 	if err != nil {
 		return nil, err
@@ -165,6 +166,8 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 		SQLMS:       millis(req.acc.sqlDur),
 		CacheHits:   req.acc.cacheHits,
 		CacheMisses: req.acc.cacheMisses,
+		StatsScope: "explicit_repo_calls: get_latest/resolve_symbol/get_symbol/callees/interface_impl/implements_edges",
+		UncoveredOps: "SSA adapter 内部 SQL 与预计算（计入 walk_ms）；源码读取（read_ms）",
 	}
 	// todo12-13：原分析诊断先固定下来（焦点/场景投影不得顶替 depth/unknown）
 	analysisDiags := aggregateSeqStops(root)

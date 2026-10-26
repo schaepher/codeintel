@@ -9,11 +9,9 @@ package action
 //       reason=call_chain
 //   (c) 标识同源：两个入口都触碰同名 ID 类字段（*_id/*_no/*_code/Id/No/Code）
 //       → corroborated reason=id_field:<col>
-// 仅同作用域（字段前缀相同）而无上述证据 → **unverified** +
-// reason=shared_scope_only（明确标注"不构成因果"，但不隐藏）。
+// 仅同作用域而无上述证据 → unverified + shared_scope_only（不隐藏）。
 //
-// 角色（人工动作/内部审核/定时任务/消息消费者）按符号名启发式判定，标注为
-// corroborated 并给出 rule；无法判定为 unknown（不猜）。
+// 角色：真实注册绑定（todo13-6）才 corroborated；名称启发式保持低等级。
 
 import (
 	"fmt"
@@ -270,10 +268,12 @@ func (a *Actions) AsyncLifecycle(req AsyncLifecycleRequest) (*AsyncLifecycleResu
 	}
 	// todo12-6：跨入口身份链（写 → 边界 → 读/过滤），边界未建模独立标 partial
 	res.Chains = a.asyncIdentityChains(res.Links, res.Nodes, facts)
+	// todo14-6：持久化/消息边界的同记录证明（仅证据齐备时升级）
+	res.Diagnostics = append(res.Diagnostics, a.applyAsyncBoundaries(res.Chains)...)
 	boundaryMiss := 0
 	for _, c := range res.Chains {
 		for _, h := range c.Hops {
-			if h.Kind == "persistence_or_queue" {
+			if h.Kind == "persistence_or_queue" && h.Verdict != SeqVerdictCorroborated {
 				boundaryMiss++
 			}
 		}

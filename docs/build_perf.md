@@ -294,3 +294,30 @@ SQL 遍历使用 `QueryContext`（递归 CTE 可真正中止）。value-trace �
 **未声称**：未测并发查询分布、未测不同 GOGC/内存上限；样本为单文件
 800 类型夹具，不代表大型多 module 仓库的最坏情形。既有 `sequence --out`
 渲染耗时不在本表（与查询逻辑分离）。
+
+## todo14-17 查询矩阵/并发/资源（2026-11，200 无关类型夹具）
+
+**夹具**：`integration/todo14_perf_test.go`；module `example.com/matrix`，
+3 层链 + 未知回调 + 接口无实现 + 200 个无关类型。固定配置：默认
+`--min-conf 1.0`、`CODEINTEL_SEQ_TIMING=1`；本机口径。
+
+| 组 | 样本 | 实测 |
+|---|---|---|
+| sequence depth=1 | 1 | 4ms；sym=6/sql=8/sig=4/cache miss=1 |
+| sequence depth=2 | 1 | 6ms；sym=11/sql=17/sig=5/cache hit=4 |
+| sequence depth=3 + focus=return | 1 | 5ms；sym=12/sql=19/sig=5 |
+| sequence depth=3 + focus=State | 1 | 6ms；nodes=8 |
+| 并发（4 goroutine × 2 轮，独立连接） | 8 | p50=9ms / max=10ms |
+| value-trace 少结果 | 1 | 19ms（含条件/派发） |
+| 停止延迟（1µs） | 各 1 | sequence≈2.3ms、value-trace≈1.3ms（<2s 宽限） |
+| 峰值 RSS（VmHWM） | — | before 40MB → after 41MB |
+
+**统计口径**：sequence `sql_queries` 是 action 层显式仓储调用
+（GetLatest/ResolveSymbol/GetSymbol/Callees/InterfaceMethodImpl+
+GetImplementsEdges），签名解析内部的 ResolveSymbol 计在 sym/sig；
+adapter 内部 SQL 与源码读取不混入（`stats_scope`/`uncovered_ops` 明示）。
+value-trace `sql_queries` = GetLatest + CTE，符号查询/条件行/派发分别计数；
+缓存上限 128（FIFO），`cache_entries/cache_evictions` 可观察。
+
+**未声称**：未做关闭缓存的 before/after 耗时 A/B；未测更大 module 图/不同
+GOGC；并发样本为进程内独立连接，不代表 serve 长生命周期下的内存曲线。
