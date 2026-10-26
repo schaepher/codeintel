@@ -97,13 +97,23 @@ func (a *Actions) scanEffectsAST(repoAbs string, n *domain.CodeEntity, scene Sce
 	ast.Inspect(body, func(node ast.Node) bool {
 		switch x := node.(type) {
 		case *ast.AssignStmt:
-			for _, lhs := range x.Lhs {
-				if id, ok := lhs.(*ast.Ident); ok && errLikeName(id.Name) {
-					assigned[id.Name] = append(assigned[id.Name], fset.Position(x.Pos()).Line)
-					errVars[id.Name] = true
-					if isNilIdent(x.Rhs) && len(assigned[id.Name]) > 1 {
-						suspicious = append(suspicious, fileLine(n.FilePath, fset.Position(x.Pos()).Line))
-					}
+			for i, lhs := range x.Lhs {
+				id, ok := lhs.(*ast.Ident)
+				if !ok {
+					continue
+				}
+				rhs := x.Rhs
+				if len(x.Rhs) == len(x.Lhs) {
+					rhs = []ast.Expr{x.Rhs[i]}
+				}
+				// todo14-8：错误变量按类型/构造识别（不只 err 名字）
+				if !isErrorVarAssignment(id.Name, rhs, out.varTypes, assigned) {
+					continue
+				}
+				assigned[id.Name] = append(assigned[id.Name], fset.Position(x.Pos()).Line)
+				errVars[id.Name] = true
+				if isNilIdent(rhs) && len(assigned[id.Name]) > 1 {
+					suspicious = append(suspicious, fileLine(n.FilePath, fset.Position(x.Pos()).Line))
 				}
 			}
 		case *ast.ReturnStmt:
@@ -112,8 +122,10 @@ func (a *Actions) scanEffectsAST(repoAbs string, n *domain.CodeEntity, scene Sce
 			}
 			for _, r := range x.Results {
 				returns = append(returns, strings.TrimSpace(nodeText(fset, src, r)))
-				if id, ok := r.(*ast.Ident); ok && errLikeName(id.Name) {
-					errVars[id.Name] = true
+				if id, ok := r.(*ast.Ident); ok {
+					if errLikeName(id.Name) || isErrorTypeName(out.varTypes[id.Name]) || len(assigned[id.Name]) > 0 {
+						errVars[id.Name] = true
+					}
 				}
 				if id, ok := r.(*ast.Ident); ok && isNilIdent([]ast.Expr{id}) {
 					// 返回 nil：若此前给错误变量赋过值 → 可能被吞

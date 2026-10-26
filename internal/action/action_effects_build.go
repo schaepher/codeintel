@@ -91,6 +91,13 @@ func buildEffectPaths(specs []pathSpec, bp buildParams) ([]EffectPath, int) {
 		if bp.target != nil {
 			p.Result = bp.target.filterPathResult(sp, bp.resultNames)
 			if p.Result != nil {
+				// todo14-8：目标筛选汇总也保留覆盖/吞掉的可疑结论
+				// （函数级可疑点；多路径下保守保留，不按变量名猜归属）
+				p.Result.Suspicious = dedupStrings(append([]string{}, bp.suspicious...))
+				if len(p.Result.Suspicious) > 0 {
+					p.Result.Verdict = SeqVerdictUnverified
+					p.Result.Detail = "存在错误被覆盖/被返回 nil 吞掉的形态（可疑，需人工确认）"
+				}
 				p.Result.ErrorSources = effectErrorSources(sp, bp.resultNames, bp.resultTypes, p.Result.Slots)
 			}
 			if bp.target.kind == "field" && p.Result == nil {
@@ -104,12 +111,10 @@ func buildEffectPaths(specs []pathSpec, bp buildParams) ([]EffectPath, int) {
 				res.Slots = append(res.Slots, seqResultSlot(i, len(sp.returnVals), bp.resultNames))
 				_ = v
 			}
-			for _, s := range bp.suspicious {
-				if strings.HasSuffix(s, ":"+itoaSeq(sp.returnLine)) {
-					res.Verdict = SeqVerdictUnverified
-					res.Detail = "该路径存在错误被覆盖/吞掉的形态（可疑）"
-					res.Suspicious = []string{s}
-				}
+			if len(bp.suspicious) > 0 {
+				res.Verdict = SeqVerdictUnverified
+				res.Detail = "该路径存在错误被覆盖/吞掉的形态（可疑）"
+				res.Suspicious = dedupStrings(append([]string{}, bp.suspicious...))
 			}
 			res.ErrorSources = effectErrorSources(sp, bp.resultNames, bp.resultTypes, res.Slots)
 			p.Result = res

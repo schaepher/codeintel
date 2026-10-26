@@ -53,6 +53,21 @@ func errorSlot(i int, resultNames, resultTypes []string) bool {
 	return false
 }
 
+// isErrorTypeName 类型短名是否 error（含 error 包装类型）。
+func isErrorTypeName(t string) bool {
+	return strings.Contains(strings.ToLower(t), "error")
+}
+
+// isErrorVarAssignment 赋值目标是否为错误变量（todo14-8：名字、类型、
+// 右值错误构造/被调错误返回三选一——改名不改变结论）。
+func isErrorVarAssignment(name string, rhs []ast.Expr, varTypes map[string]string, assigned map[string][]int) bool {
+	if errLikeName(name) || isErrorTypeName(varTypes[name]) || rhsLooksLikeErrorCall(rhs) {
+		return true
+	}
+	// 已认定错误变量的后续赋值（failure = nil）沿用身份
+	return len(assigned[name]) > 0
+}
+
 // resultTypeNames 返回槽类型短名（与槽顺序对齐）。
 func resultTypeNames(fl *ast.FieldList) []string {
 	if fl == nil {

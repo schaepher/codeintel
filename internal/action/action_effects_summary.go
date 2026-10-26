@@ -62,8 +62,19 @@ func targetResultSummary(paths []EffectPath, old ResultEffect) ResultEffect {
 			}
 		}
 	}
+	var suspicious []string
+	for _, p := range paths {
+		if p.Result != nil {
+			suspicious = append(suspicious, p.Result.Suspicious...)
+		}
+	}
+	suspicious = dedupStrings(suspicious)
 	res := ResultEffect{Returns: returns, Slots: slots, Line: line,
 		Verdict: SeqVerdictCorroborated, ErrorVars: old.ErrorVars,
-		Detail: "目标筛选后的函数级汇总（按路径返回槽）"}
+		Suspicious: suspicious, Detail: "目标筛选后的函数级汇总（按路径返回槽）"}
+	if len(suspicious) > 0 {
+		res.Verdict = SeqVerdictUnverified
+		res.Detail = "存在错误被覆盖/被返回 nil 吞掉的形态（可疑，需人工确认）"
+	}
 	return res
 }
