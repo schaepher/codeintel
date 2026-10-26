@@ -5543,3 +5543,33 @@ seed 展开集合）都被当作 corroborated——需求指出这三样都**不
     typeFromValue 把单参调用当类型转换的误判（commit 50e03a2）。
   - #17（部分）：`query sequence --timeout` 取消/失败退出；value-trace
     elapsed_ms；大仓基准与细分计数器保留（commit b58724d）。
+
+## §? todo13：调用语义完整性 / 查询身份与预算（2026-11-01）
+
+逐项状态与证据见 [`todo13-checklist.md`](todo13-checklist.md)；要点：
+
+- **场景值失效**：取址/别名传入调用使旧字面量失效（`call-may-write`），
+  两分支保留 + scene partial；两层传参来源为正行号；depth 上限不保留确定值。
+- **接口实现未消歧**：Mermaid 参与者标“实现未消歧”，图内列完整候选；
+  JSON/文本/图同一身份；指定场景仍唯一选择。
+- **async 范围**：无字段摘要 seed 只取调用/值身份（正向 callee + 反向
+  caller；可直接被调者摘要推导），2000 无关类型大反例输出 1266B。
+- **effects**：return 表达式内调用写点入路径（writes 0/1/2）；错误来源按
+  赋值/构造/末槽分析（改名不变）；预算诊断带 24/24、停止位置、前沿=1、
+  额外终态 unknown。
+- **焦点/值流**：`--focus return` 沿别名保留被调写入、排除无关实例；
+  未知回调写入 `call_unknown`，value-trace 输出 partial + 文件:行号。
+- **调用分级/降级**：`external_target` / `unknown_implementation` /
+  `index_gap` / `no_calls` 分开；失败包明细（error_packages）与
+  `target_coverage`、`sql_degraded` 随查询携带。
+- **证据身份**：结构化 argv + CLI/分析器版本 + 索引 build_id/SHA + 配置
+  hash；`--verify-evidence` 比对（同 SHA 重建报构建身份变化；配置差异）。
+  真实二进制在非模块目录 sh/zsh 重放空格/括号/#1/--out。
+- **workspace/proto**：ext-chain 默认限定同一 workspace（--all-repos 显式
+  扩展）；既有 worktree 可由 git 元数据认领；同名服务按完整服务 ID 消歧，
+  多候选报 `service_identity_ambiguous`。
+- **预算/缓存**：sequence 阶段计数（sym/sql/sig/dispatch/cache）与
+  value-trace `--timeout`（QueryContext 真取消）、结果缓存按 build_id 失效；
+  固定 9018 节点夹具 sequence 13.5–16ms×3、value-trace 冷 173ms/暖命中。
+- **仍待办**：任务 6 持久化/消息边界到「同一记录」的静态证明；任务 17
+  并发分布/资源峰值采样（见 checklist 未完成项）。

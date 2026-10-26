@@ -2536,9 +2536,8 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
 | P1 工程 | ssa-cache | SSA 缓存余项：`instancePath`/`recoverVarName`/`allocTypeShort`/`marshalProps` | 低风险 |
 | P1 工程 | #20 | 表字段类型剩余 10 列（`~/.codeintel` 全局注册表） | 需全局 db/yaml |
 | P1 工程 | #18 | go2o 表别名 AI 补缺（缺 148 表） | 需 AI/网络 |
-| P1 工程 | todo12-6 | 跨入口持久化/队列/过滤条件建模（同一条记录身份） | 当前链边界未建模 → unverified/identity_partial |
-| P1 工程 | todo12-16 | 同名服务不同 proto 包的冲突消歧 | 当前按服务名匹配；其余识别覆盖已完成 |
-| P1 性能 | todo12-17 | 固定大仓查询基准/并行分布 + SQL/查符号细分计数器 | 取消/预算已完成；需固定大仓 profile |
+| P1 工程 | todo13-6 | 跨入口持久化/消息边界 → 同一记录静态证明（含完整可编译夹具） | 注册证据/角色已改真实绑定（todo13）；边界仍 identity_partial，见 `docs/todo13-checklist.md` |
+| P1 性能 | todo13-17 | 并发查询分布 / depth-focus 矩阵 / 取消后 RSS 峰值 | 单查询冷/暖与阶段计数已完成（`build_perf.md` 固定夹具）；剩余需固定大仓并发采样 |
 | P2 验证 | #17 | 新人实测演练（陌生项目 wiki onboarding） | 需外部项目 |
 | P2 验证 | #19 | ext-chain 跨仓库递归 | 需多仓库 |
 | P2 验证 | #21 | F2 实体分组对非 DDD 项目效果 | 需外部项目 |
