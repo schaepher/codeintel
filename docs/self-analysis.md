@@ -2518,42 +2518,46 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
 保留以便交叉引用。**“需大仓/外部”= 依赖真实系统或大仓 profile 才能验收，
 当前不做**（用户 2026-10-16 指示）。
 
-| 优先级 | ID | 事项 | 依赖 / 说明 |
-|---|---|---|---|
-| P0 | #1 | 真实业务系统端到端验证（grpc 识别形态/DI/字段流/`query grpc-routes`/wiki） | **需外部真实系统** |
-| P0 | #7 | `--with-qa` 实战验证（wiki --ai 参考资料生效） | 需真实问答/agent |
-| P0 | #8 | go2o domains.services 人工确认（30 服务归属） | 人在环 |
-| P0 | #9 | 术语表 24 条 / flows 5 条人工 review | 人在环 |
-| P1 性能 | R13 | 内存与 GC：无用调用记录/字段产物重复物化/暖缓存字符串/无指针记录（空结构实参调用记录已裁剪；其余需大仓 profile） | **需大仓 profile** |
-| P1 性能 | R14 | 暖构建准备：分离别名/全局 init/派发所需数据，包缓存命中少建图 | **需大仓 profile** |
-| P1 性能 | #14 | 构建期内存线复测/收尾（gob 分配是否回退、SSA 剩余热点） | **需大仓** |
-| P1 性能 | cl4-P1 | `emitValue` 产物分配降低（属性 map/装箱/重复字符串） | **需大仓 profile** |
-| P1 性能 | #11 | Stage 2b：`summary`/`summary_origins`/`idx_nodes_func_id` 整数化 | **需大仓** |
-| P1 性能 | #13 | SCIP 重复加载依赖图 + 按包增量 | 需外部工具评估 |
-| P1 性能 | #12 | 写库/流水线单写者串行（flush p95） | **需大仓** |
-| P1 工程 | #15 | 邻接表缓存推广到 4 处全扫边集消费者（`repo_chain`/`repo_flows`/`repo_unused`/`rg_bfs`） | 边 kind 集不同，需新视图/逐消费者验证 |
-| P1 工程 | #16 | cli → action 迁移收尾（~100 文件按 R89 模式） | 机械大批量 |
-| P1 工程 | ssa-cache | SSA 缓存余项：`instancePath`/`recoverVarName`/`allocTypeShort`/`marshalProps` | 低风险 |
-| P1 工程 | #20 | 表字段类型剩余 10 列（`~/.codeintel` 全局注册表） | 需全局 db/yaml |
-| P1 工程 | #18 | go2o 表别名 AI 补缺（缺 148 表） | 需 AI/网络 |
-| P1 工程 | todo19-6 | 运行时配置/反射/外部 broker 的真实系统绑定 | 调用前后顺序/条件/别名实例/方法修改矩阵已完成；动态/运行时绑定仍 unverified |
-| P1 验证 | #1（范围） | 真实业务系统端到端 / 更大仓并发与资源曲线 | 固定夹具矩阵/A-B/峰值已完成（todo15/16）；真实系统与更大规模仍需外部环境 |
-| P2 验证 | #17 | 新人实测演练（陌生项目 wiki onboarding） | 需外部项目 |
-| P2 验证 | #19 | ext-chain 跨仓库递归 | 需多仓库 |
-| P2 验证 | #21 | F2 实体分组对非 DDD 项目效果 | 需外部项目 |
-| P2 验证 | plugin | VSIX 打包/安装（`make plugin`/`install-plugin`） | 需联网 |
-| P2 验证 | env | PlantUML jar/Git 身份配置后的全量验收 + chaincheck 历史基线 | 需环境 |
-| P3 候选 | #23 | analyzer 版本粒度（按适配器/功能细分哈希） | 复杂度高、收益边际 |
-| P3 候选 | #24 | ER 500 边细分复用 + 实体对级调用 Top-N | |
-| P3 候选 | #25 | 系统平台域人工拆分（100+ 包兜底） | |
-| P3 候选 | #26 | 测试基建：asttool split fixture 保护 | |
-| P3 候选 | #27 | 性能 profile 分布（SSA/SCIP/AST 各占比） | 并入 #13 |
-| P3 候选 | #28 | R50 残留：4 个空 mermaid pre（go2o 559 图中） | 极小影响 |
-| P3 候选 | #29 | 流程页深度：入口调用链 → 关键数据流（value-trace 串联） | |
-| P3 候选 | #30 | 服务归属静态兜底改进（排除服务实现包再投票） | |
-| P3 候选 | #31 | 外部依赖识别形态扩展（kafka 等，待真实项目） | |
-| P3 候选 | #32 | `precompute relations` 的 10% 打印统一到 `domain.Progress` | 现自打印 stdout |
-| P3 候选 | #33 | NDJSON 进度事件流（出现真实消费者再加） | 可选 |
+| 新编号 | 原 ID/来源 | 优先级 | 事项 | 依赖 / 说明 |
+|---|---|---|---|---|
+| P0-01 | #1 | P0 | 真实业务系统端到端验证（gRPC 识别形态/DI/字段流/`query grpc-routes`/wiki） | **需外部真实系统** |
+| P0-02 | #7 | P0 | `--with-qa` 实战验证（wiki --ai 参考资料生效） | 需真实问答/agent |
+| P0-03 | #8 | P0 | go2o domains.services 人工确认（30 服务归属） | 人在环 |
+| P0-04 | #9 | P0 | 术语表 24 条 / flows 5 条人工 review | 人在环 |
+| P1-01 | todo19-6 | P1 工程 | 运行时配置、反射/动态别名、外部 broker 的真实系统绑定 | 调用前后顺序/条件/别名实例/方法修改矩阵已完成；动态/运行时绑定仍 unverified |
+| P1-02 | #15 | P1 工程 | 邻接表缓存推广到 4 处全扫边集消费者（`repo_chain`/`repo_flows`/`repo_unused`/`rg_bfs`） | 边 kind 集不同，需新视图/逐消费者验证 |
+| P1-03 | #16 | P1 工程 | cli → action 迁移收尾（~100 文件按 R89 模式） | 机械大批量 |
+| P1-04 | ssa-cache | P1 工程 | SSA 缓存余项：`instancePath`/`recoverVarName`/`allocTypeShort`/`marshalProps` | 低风险 |
+| P1-05 | #20 | P1 工程 | 表字段类型剩余 10 列（`~/.codeintel` 全局注册表） | 需全局 db/yaml |
+| P1-06 | #18 | P1 工程 | go2o 表别名 AI 补缺（缺 148 表） | 需 AI/网络 |
+| P1-07 | R13 | P1 性能 | 内存与 GC：无用调用记录/字段产物重复物化/暖缓存字符串/无指针记录（空结构实参调用记录已裁剪；其余需大仓 profile） | **需大仓 profile** |
+| P1-08 | R14 | P1 性能 | 暖构建准备：分离别名/全局 init/派发所需数据，包缓存命中少建图 | **需大仓 profile** |
+| P1-09 | #14 | P1 性能 | 构建期内存线复测/收尾（gob 分配是否回退、SSA 剩余热点） | **需大仓** |
+| P1-10 | cl4-P1 | P1 性能 | `emitValue` 产物分配降低（属性 map/装箱/重复字符串） | **需大仓 profile** |
+| P1-11 | #11 | P1 性能 | Stage 2b：`summary`/`summary_origins`/`idx_nodes_func_id` 整数化 | **需大仓** |
+| P1-12 | #13 | P1 性能 | SCIP 重复加载依赖图 + 按包增量 | 需外部工具评估 |
+| P1-13 | #12 | P1 性能 | 写库/流水线单写者串行（flush p95） | **需大仓** |
+| P1-14 | #1（范围扩展） | P1 验证 | 真实业务系统端到端 / 更大仓并发与资源曲线 | 固定夹具矩阵/A-B/峰值已完成（todo15/16）；真实系统与更大规模仍需外部环境 |
+| P2-01 | #17 | P2 验证 | 新人实测演练（陌生项目 wiki onboarding） | 需外部项目 |
+| P2-02 | #19 | P2 验证 | ext-chain 跨仓库递归 | 需多仓库 |
+| P2-03 | #21 | P2 验证 | F2 实体分组对非 DDD 项目效果 | 需外部项目 |
+| P2-04 | plugin | P2 验证 | VSIX 打包/安装（`make plugin`/`install-plugin`） | 需联网 |
+| P2-05 | env | P2 验证 | PlantUML jar/Git 身份配置后的全量验收 + chaincheck 历史基线 | 需环境 |
+| P3-01 | #23 | P3 候选 | analyzer 版本粒度（按适配器/功能细分哈希） | 复杂度高、收益边际 |
+| P3-02 | #24 | P3 候选 | ER 500 边细分复用 + 实体对级调用 Top-N | |
+| P3-03 | #25 | P3 候选 | 系统平台域人工拆分（100+ 包兜底） | |
+| P3-04 | #26 | P3 候选 | 测试基建：asttool split fixture 保护 | |
+| P3-05 | #27 | P3 候选 | 性能 profile 分布（SSA/SCIP/AST 各占比） | 并入 #13 |
+| P3-06 | #28 | P3 候选 | R50 残留：4 个空 mermaid pre（go2o 559 图中） | 极小影响 |
+| P3-07 | #29 | P3 候选 | 流程页深度：入口调用链 → 关键数据流（value-trace 串联） | |
+| P3-08 | #30 | P3 候选 | 服务归属静态兜底改进（排除服务实现包再投票） | |
+| P3-09 | #31 | P3 候选 | 外部依赖识别形态扩展（kafka 等，待真实项目） | |
+| P3-10 | #32 | P3 候选 | `precompute relations` 的 10% 打印统一到 `domain.Progress` | 现自打印 stdout |
+| P3-11 | #33 | P3 候选 | NDJSON 进度事件流（出现真实消费者再加） | 可选 |
+
+**编号说明（2026-11-01）**：自本次起按优先级重排为 `P0-01…`/`P1-01…`；
+原 `#N`/`RN`/`todoNN-M` 保留在「原 ID/来源」列（历史文档/commit/checklist
+仍用原 ID 交叉引用，不因重排失效）。
 
 **进度显示现状**（非待办，供参考）：loadPackages/scip/ast/git/ssaBuild/
 dispatchRegs/emitFunction 循环均有真实分母；funcSnapshot 为心跳（AllFunctions
