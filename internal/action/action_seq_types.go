@@ -84,6 +84,12 @@ type CodeSequenceRequest struct {
 	// diRegsAll todo22 P1：当前包 + 跨包引导函数的 DI 注册证据（请求内缓存；
 	// 外层键为哨兵，值为 key→注册列表）
 	diRegsAll map[string]map[string][]seqDIReg
+	// todo22 P2 §7.3：receiver 字段类型/工厂来源的请求内缓存（同一字段的
+	// 多次调用不重复查字段写入者/不重复解析写入函数源码）。
+	fieldWriters map[string][]string
+	fieldTypes   map[string][]writeSource // key: writerID\x00field
+	funcRets     map[string][]writeSource // key: pkg\x00func（跨包构造器返回类型）
+	varChains    map[string][]writeSource // key: file\x00var（变量链回溯）
 	// todo22 §7.3：请求内接口实现候选缓存（ifaceID → 实现类型列表；nil =
 	// 明确未命中，同样缓存，避免同一请求重复查库/重复全库发现）
 	ifaceImpls map[string]seqIfaceCached

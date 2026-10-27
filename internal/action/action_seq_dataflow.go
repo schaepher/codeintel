@@ -1,12 +1,11 @@
 package action
 
-import "go/ast"
-import "go/parser"
-import "go/token"
-import "os"
-import "path/filepath"
-import "strings"
-import "github.com/schaepher/codeintel/internal/domain"
+import (
+	"go/ast"
+	"strings"
+
+	"github.com/schaepher/codeintel/internal/domain"
+)
 
 // recvTypeName receiver 类型 AST → 类型名（*T / T → T；跨包形态
 // pkg.T → T——同包字段写入常见）。
@@ -50,9 +49,19 @@ type writeSource struct {
 // 链/条件分支多候选）→ 构造 (Impl).Method。找不到（无写入摘要/形态
 // 不支持）返回空——调用方 fallback 接口类型匹配（InterfaceMethodImpl）。
 func (a *Actions) receiverFieldImpl(req CodeSequenceRequest, recvType, field, method string) string {
-
-	writers, err := a.repo.GetFieldWriters("." + recvType + "." + field)
-	if err != nil || len(writers) == 0 {
+	key := "." + recvType + "." + field
+	writers, cached := req.fieldWriters[key]
+	if !cached {
+		var err error
+		writers, err = a.repo.GetFieldWriters(key)
+		if err != nil {
+			writers = nil
+		}
+		if req.fieldWriters != nil {
+			req.fieldWriters[key] = writers // 命中/未命中都缓存（请求内）
+		}
+	}
+	if len(writers) == 0 {
 		return ""
 	}
 
@@ -75,19 +84,26 @@ func (a *Actions) receiverFieldImpl(req CodeSequenceRequest, recvType, field, me
 //
 // 条件分支各分支的赋值都收集（多候选——去重后返回）。
 func (a *Actions) fieldWriteTypes(req CodeSequenceRequest, writerID, field string) []writeSource {
+	cacheKey := writerID + "\x00" + field
+	if v, ok := req.fieldTypes[cacheKey]; ok {
+		return v
+	}
 	n, err := a.repo.GetSymbol(domain.CanonicalID(writerID))
 	if err != nil || n.FilePath == "" {
+		if req.fieldTypes != nil {
+			req.fieldTypes[cacheKey] = nil
+		}
 		return nil
 	}
-	src, err := os.ReadFile(filepath.Join(req.RepoAbs, n.FilePath))
-	if err != nil {
+	// todo22 P2：共享请求级 AST 缓存（同一写入函数只读盘/解析一次）
+	ctx := seqFileCtxFor(req, n.FilePath)
+	if ctx == nil {
+		if req.fieldTypes != nil {
+			req.fieldTypes[cacheKey] = nil
+		}
 		return nil
 	}
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, n.FilePath, src, 0)
-	if err != nil {
-		return nil
-	}
+	f := ctx.file
 
 	curPkg := pkgPathOf(writerID)
 	imports := importAliases(f)
@@ -104,6 +120,9 @@ func (a *Actions) fieldWriteTypes(req CodeSequenceRequest, writerID, field strin
 		out = appendUnique(out, rhsTypes(a, req, f, imports, as.Rhs[0], 3, curPkg)...)
 		return true
 	})
+	if req.fieldTypes != nil {
+		req.fieldTypes[cacheKey] = out
+	}
 	return out
 }
 
@@ -223,54 +242,27 @@ func funcReturnTypes(a *Actions, req CodeSequenceRequest, f *ast.File, imports m
 // indexedFuncReturnTypes 跨包构造器：索引节点（GetSymbol）→ 读源码 →
 // 同包逻辑（该文件自身的 import 映射）。
 func indexedFuncReturnTypes(a *Actions, req CodeSequenceRequest, pkg, name string, depth int) []writeSource {
+	cacheKey := pkg + "\x00" + name + "\x00" + itoaSeq(depth)
+	if v, ok := req.funcRets[cacheKey]; ok {
+		return v
+	}
 	n, err := a.repo.GetSymbol(domain.CanonicalID("symbol:go:" + pkg + ":" + name))
 	if err != nil || n.FilePath == "" {
+		if req.funcRets != nil {
+			req.funcRets[cacheKey] = nil
+		}
 		return nil
 	}
-	src, err := os.ReadFile(filepath.Join(req.RepoAbs, n.FilePath))
-	if err != nil {
+	ctx := seqFileCtxFor(req, n.FilePath)
+	if ctx == nil {
+		if req.funcRets != nil {
+			req.funcRets[cacheKey] = nil
+		}
 		return nil
 	}
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, n.FilePath, src, 0)
-	if err != nil {
-		return nil
-	}
-	return funcReturnTypes(a, req, f, importAliases(f), name, depth, pkg)
-}
-
-// varChainTypes 变量链回溯：找 "v := RHS" / "v = RHS" 赋值 → 递归解析
-// RHS（多赋值处都收集——条件分支形态）。
-func varChainTypes(a *Actions, req CodeSequenceRequest, f *ast.File, imports map[string]string, name string, depth int, curPkg string) []writeSource {
-	var out []writeSource
-	ast.Inspect(f, func(node ast.Node) bool {
-		as, ok := node.(*ast.AssignStmt)
-		if !ok || len(as.Lhs) != 1 || len(as.Rhs) != 1 {
-			return true
-		}
-		id, ok := as.Lhs[0].(*ast.Ident)
-		if !ok || id.Name != name {
-			return true
-		}
-		out = appendUnique(out, rhsTypes(a, req, f, imports, as.Rhs[0], depth, curPkg)...)
-		return true
-	})
-	return out
-}
-
-// appendUnique 去重追加（同 typeName+pkgPath 只保留一个）。
-func appendUnique(out []writeSource, more ...writeSource) []writeSource {
-	for _, m := range more {
-		dup := false
-		for _, e := range out {
-			if e == m {
-				dup = true
-				break
-			}
-		}
-		if !dup {
-			out = append(out, m)
-		}
+	out := funcReturnTypes(a, req, ctx.file, importAliases(ctx.file), name, depth, pkg)
+	if req.funcRets != nil {
+		req.funcRets[cacheKey] = out
 	}
 	return out
 }

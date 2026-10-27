@@ -147,18 +147,27 @@ func loadSeqFuncDecl(a *Actions, req CodeSequenceRequest, symID string) (*seqFil
 // seqFileCtxFor 取（并缓存）仓库文件的解析上下文。
 func seqFileCtxFor(req CodeSequenceRequest, rel string) *seqFileCtx {
 	if fc := req.fileCache[rel]; fc != nil {
+		if req.acc != nil {
+			req.acc.cacheHits++ // todo22 P2：共享源码缓存的命中计数
+		}
 		return &seqFileCtx{fset: fc.fset, file: fc.file, src: fc.src, rel: rel}
 	}
 	src, err := os.ReadFile(filepath.Join(req.RepoAbs, rel))
 	if err != nil {
 		return nil
 	}
+	if req.acc != nil {
+		req.acc.cacheMisses++
+	}
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, rel, src, parser.ParseComments)
 	if err != nil {
 		return nil
 	}
-	req.fileCache[rel] = &seqParsedFile{fset: fset, file: f, src: src}
+	// fileCache 可能为 nil（直接调 helper 的单测）：此时只解析不缓存
+	if req.fileCache != nil {
+		req.fileCache[rel] = &seqParsedFile{fset: fset, file: f, src: src}
+	}
 	return &seqFileCtx{fset: fset, file: f, src: src, rel: rel}
 }
 

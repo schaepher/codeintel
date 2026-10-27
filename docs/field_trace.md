@@ -7046,3 +7046,27 @@ cwd，主模块 go.mod 没有该间接依赖 require 时会定位失败。
 
 **边界**：结构体字段键仍是 `var.Field` 名称口径（词法作用域栈已隔离同名
 变量），不引入字段声明对象；函数值环境保持原实现。
+
+## §134 todo22 P2 §7.3：receiver 字段类型/工厂来源请求内缓存（2026-10-27）
+
+**先量化**：同一请求里同一 receiver 字段被调用 N 次时，每次
+`receiverFieldImpl` 都 `GetFieldWriters` 查一次、`fieldWriteTypes` 都
+`os.ReadFile + parser.ParseFile` 写入函数源码一次；跨包构造器
+`indexedFuncReturnTypes` 同理。
+
+**改法**（全部请求级缓存，nil map = 未启用，单测直调 helper 行为不变）：
+- `fieldWriters[".T.field"]`：写入者查询（命中/未命中都缓存）。
+- `fieldTypes[writerID\x00field]`：写入 RHS 的类型来源；写入函数文件改用
+  `seqFileCtxFor` 共享 AST 缓存（不再每次读盘/解析）。
+- `funcRets[pkg\x00func\x00depth]`、`varChains[pkg\x00file\x00name\x00depth]`：
+  工厂返回类型/变量链回溯（depth 进键，避免深/浅预算互相污染）。
+- `seqFileCtxFor` 增加 nil fileCache 防护与 `acc.cacheHits/cacheMisses`
+  计数（共享 AST 缓存的量化依据）。
+- 跨仓 RPC 子树的这四张表显式清空（不同仓库同名类型不串）。
+
+**实测**（`TestReceiverFieldTypeCachePerRequest`，3 处同字段调用）：
+`GetFieldWriters` **3 → 1** 次；写入函数源码解析 3 → 1 次（`cache_misses=1`，
+`cache_hits=12`）；三处结论不变（都是 `m.orderManagerImpl`）。另有
+`TestIndexedConstructorReturnCache` 锁定工厂返回类型缓存命中同一结果。
+**判定**：缓存收益成立（查询/解析次数随调用点线性下降的隐患已消除），
+故落地；未做更激进的"跨请求缓存"（源码可能随工作区变化，请求级最安全）。
