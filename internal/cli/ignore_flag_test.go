@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/schaepher/codeintel/internal/action"
 )
 
 // TestNormalizeIgnoreDir：忽略目录归一与非法输入拒绝。
@@ -101,12 +103,12 @@ func TestBuildRepoAutoIgnore(t *testing.T) {
 // TestFilterIgnoredFiles：增量检测/指纹过滤忽略目录内的文件。
 func TestFilterIgnoredFiles(t *testing.T) {
 	files := []string{"vendor/a.go", "pkg/b.go", "third_party/gen/c.go", "go.mod"}
-	got := filterIgnoredFiles(files, []string{"vendor", "third_party"})
+	got := action.FilterIgnoredFiles(files, []string{"vendor", "third_party"})
 	want := []string{"pkg/b.go", "go.mod"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("filterIgnoredFiles = %v; want %v", got, want)
 	}
-	if all := filterIgnoredFiles(files, nil); !reflect.DeepEqual(all, files) {
+	if all := action.FilterIgnoredFiles(files, nil); !reflect.DeepEqual(all, files) {
 		t.Fatalf("无忽略目录应原样返回")
 	}
 }

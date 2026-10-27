@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
 
@@ -27,11 +28,11 @@ import (
 //
 // 非 git 仓库 / 无构建记录 / 不过期 → 返回空。
 func staleInfo(repoAbs string, r *sqlite.Repo) string {
-	changed, err := detectChangedGoFiles(repoAbs) // 含"索引 commit 落后"的提交差异
+	changed, err := action.DetectChangedGoFiles(repoAbs) // 含"索引 commit 落后"的提交差异
 	if err != nil {
 		return "" // 非 git 仓库：无法比较
 	}
-	dirty, derr := dirtyGoFiles(repoAbs) // 指纹口径：只看工作区相对 HEAD
+	dirty, derr := action.DirtyGoFiles(repoAbs) // 指纹口径：只看工作区相对 HEAD
 	if derr != nil {
 		return ""
 	}
@@ -47,9 +48,12 @@ func staleInfo(repoAbs string, r *sqlite.Repo) string {
 		return fmt.Sprintf("索引可能过期（基于 commit %s，HEAD 为 %s，%d 个 Go 文件变更）；运行 codeintel update",
 			shortSHA(buildSHA), shortSHA(headSHA), len(changed))
 	}
+	// 忽略目录内的脏文件与构建期指纹同口径过滤（否则 codeintel.yaml 配了
+	// ignore_dirs 时，生成目录的改动会让指纹永远对不上）
+	dirty = action.FilterIgnoredFiles(dirty, action.LoadIgnoreDirs(repoAbs))
 	if len(dirty) > 0 {
-		cur := currentDirtyHashes(repoAbs, dirty)
-		changedN, addedN, removedN, ok := fingerprintDiff(buildFP, cur)
+		cur := action.CurrentDirtyHashes(repoAbs, dirty)
+		changedN, addedN, removedN, ok := action.FingerprintDiff(buildFP, cur)
 		switch {
 		case ok && changedN+addedN+removedN == 0:
 			return "" // 构建时已包含这些变更（"改文件→重索引"闭环）

@@ -2546,14 +2546,19 @@ P1-05（全局注册表 schema 作为仓库外事实源，repos 表 10 列补类
 `summary`/`summary_origins` 的 function_id 整数化与 `idx_nodes_func_id`
 （合计约 22% 库体量）仍待做，判据与触发条件见 `field_trace.md` §107。
 
-**2026-11-03 P1-03（迁移收尾）部分完成**：审计后改了三类真实残留——①符号
-派发候选组合下沉 `action.SymbolDetail`（CLI/MCP 同源，MCP `symbol` 工具
-描述承诺的 candidates 已兑现）②`rule` 命令的表达式解析/分类文案下沉
-`action_rule.go`（cli 只留参数+渲染）③cli 裸 SQL 清零（`stale` →
-`Repo.LatestBuildFreshness`、`update_detect` → `sqlite.LatestCommitSHAFromPath`）
-并删除 R100 遗留的死代码 `cli archSvcPkgs`。证据见 `field_trace.md` §108；
-审计结论：查询/wiki/渲染侧确已薄壳，**运维/配置/服务/AI 子进程仍留 cli
-（R98 决定）——与 P1-03 的"~100 文件"口径冲突，待用户确认是否推翻**。
+**2026-11-03 P1-03（迁移收尾）完成**：审计（`field_trace.md` §108）+ 构建
+流程收口（§109，用户定案"只迁构建流程"）：
+
+- 查询侧：①符号派发候选组合下沉 `action.SymbolDetail`（CLI/MCP 同源，MCP
+  `symbol` 承诺的 candidates 已兑现）②`rule` 表达式解析/分类文案下沉
+  `action_rule.go` ③cli 裸 SQL 清零（`Repo.LatestBuildFreshness` /
+  `sqlite.LatestCommitSHAFromPath`）+ 删除死代码 `cli archSvcPkgs`。
+- 构建侧：`action.Build`（+ `action_build_detect.go`、`action_ignore.go`）
+  成为 CLI `init/update/reindex` 与 MCP `init/update`、serve `/incremental`
+  的唯一构建实现——修掉"MCP 全量构建不写工作区指纹 → 之后查询误报过期"
+  的行为分叉；顺手修 stale 指纹按 `ignore_dirs` 过滤。
+- 剩余按 R98 保留 cli：`list/registry/workspace*/clean`（全局台账与
+  worktree 运维）、`config_*`、`serve/mcp*`、`ask*/agent*`、全部渲染。
 
 | 新编号 | 原 ID/来源 | 优先级 | 事项 | 依赖 / 说明 |
 |---|---|---|---|---|
@@ -2561,7 +2566,7 @@ P1-05（全局注册表 schema 作为仓库外事实源，repos 表 10 列补类
 | P0-02 | #7 | P0 | `--with-qa` 实战验证（wiki --ai 参考资料生效） | 需真实问答/agent |
 | P0-03 | #8 | P0 | go2o domains.services 人工确认（30 服务归属） | 人在环 |
 | P0-04 | #9 | P0 | 术语表 24 条 / flows 5 条人工 review | 人在环 |
-| P1-03 | #16 | P1 工程 | cli → action 迁移收尾（查询侧已完成，见上） | 剩余为运维/构建流程/配置/AI 子进程——R98 决定保留 cli，需用户确认是否迁移 |
+| P1-03 | #16 | P1 工程 | cli → action 迁移收尾（查询侧 + 构建流程已完成，见上） | 剩余运维台账/配置/AI 子进程按 R98 保留 cli（用户 2026-11-03 定案） |
 | P1-06 | #18 | P1 工程 | go2o 表别名 AI 补缺（缺 148 表） | 需 AI/网络 |
 | P1-11 | #11 | P1 性能 | Stage 2b 余项：`summary`/`summary_origins` 的 function_id 改整数代理键 + `idx_nodes_func_id` 改 id 前缀范围扫（前缀冗余索引已删，−2.5%） | 需按 `reindex` 全量重建验证；判据与触发条件见 field_trace §107 |
 | P1-14 | #1（范围扩展） | P1 验证 | 真实业务系统端到端 / 更大仓并发与资源曲线 | 固定夹具矩阵/A-B/峰值已完成（todo15/16）；真实系统与更大规模仍需外部环境 |

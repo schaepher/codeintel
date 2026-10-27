@@ -7,72 +7,49 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
-	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 	"github.com/schaepher/codeintel/internal/orchestrator"
 	"go.uber.org/zap"
 )
 
 // runBuildTool 增量（full=false）/全量（full=true）重建，输出 JSON 摘要
-// （#228 写操作工具；复用 CLI update/init 同款核心调用）。
+// （#228 写操作工具）。
+// P1-03：构建流程统一走 action.Build——此前 MCP 自己拼一遍，缺 workers/
+// 适配器超时/工作区指纹/VACUUM 判定，导致"MCP 构建后 stale 判定误报"
+// 这类 CLI 与 MCP 行为分叉。
 func runBuildTool(ctx context.Context, abs string, full bool) (*mcp.CallToolResult, buildResult) {
 	logger := zap.L()
 	logger.Debug("enter runBuildTool", zap.Bool("full", full))
 	defer logger.Debug("exit runBuildTool")
+	mode := action.BuildIncremental
 	if full {
-		repo, err := buildRepo(abs)
-		if err != nil {
-			return toolErr(err.Error()), buildResult{}
-		}
-		db, err := sqlite.Open(abs)
-		if err != nil {
-			return toolErr(err.Error()), buildResult{}
-		}
-		defer db.Close()
-		orch := orchestrator.New(repo, db)
-		result, err := orch.FullBuild(ctx)
-		if err != nil {
-			return toolErr(err.Error()), buildResult{}
-		}
-		if result.CommitSHA != "" {
-			refreshRepoAfterUpdate(abs, result.CommitSHA)
-		}
-		out := buildSummary(result, 0)
-		return toolJSON(out), out
+		mode = action.BuildFull
 	}
-	changed, err := detectChangedGoFiles(abs)
+	out, err := action.Build(ctx, action.BuildRequest{RepoPath: abs, Mode: mode})
 	if err != nil {
+		if out != nil && out.NeedsFull {
+			res := buildResult{Status: "needs_full_build", Message: err.Error()}
+			return toolJSON(res), res
+		}
 		return toolErr(err.Error()), buildResult{}
 	}
-
-	for _, f := range changed {
-		if f == "go.mod" || f == "go.work" {
-			out := buildResult{Status: "needs_full_build", Message: "go.mod/go.work 已变更，影响模块范围，请用 init 全量重建"}
-			return toolJSON(out), out
+	if out.NoChange {
+		res := buildResult{Status: "up_to_date", Message: "无变更的 .go 文件（索引已是最新）"}
+		return toolJSON(res), res
+	}
+	if out.Result == nil {
+		return toolErr("构建未返回结果"), buildResult{}
+	}
+	res := buildSummary(out.Result, len(out.Changed))
+	// 台账刷新口径与 CLI 一致：全量走 registerRepoAfterBuild（含 module/
+	// worktree 归属），增量只刷新构建状态
+	if out.Repo != nil {
+		if full {
+			registerRepoAfterBuild(abs, out.Repo.Module, len(out.Repo.Modules), out.Result.CommitSHA)
+		} else {
+			refreshRepoAfterUpdate(abs, out.Result.CommitSHA)
 		}
 	}
-	if len(changed) == 0 {
-		out := buildResult{Status: "up_to_date", Message: "无变更的 .go 文件（索引已是最新）"}
-		return toolJSON(out), out
-	}
-	repo, err := buildRepo(abs)
-	if err != nil {
-		return toolErr(err.Error()), buildResult{}
-	}
-	db, err := sqlite.Open(abs)
-	if err != nil {
-		return toolErr(err.Error()), buildResult{}
-	}
-	defer db.Close()
-	orch := orchestrator.New(repo, db)
-	result, err := orch.IncrementalBuild(ctx, changed)
-	if err != nil {
-		return toolErr(err.Error()), buildResult{}
-	}
-	if result.CommitSHA != "" {
-		refreshRepoAfterUpdate(abs, result.CommitSHA)
-	}
-	out := buildSummary(result, len(changed))
-	return toolJSON(out), out
+	return toolJSON(res), res
 }
 
 // buildSummary 构建结果转契约摘要。

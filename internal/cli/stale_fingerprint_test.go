@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
@@ -54,14 +55,14 @@ func TestStaleInfoFreshWhenDirtyGoFileIndexed(t *testing.T) {
 	dir := seedGitRepo(t)
 	sha := strings.TrimSpace(gitRunOut(t, dir, "rev-parse", "HEAD"))
 	writeTestFile(t, filepath.Join(dir, "main.go"), "package m\n\nfunc main() { println(1) }\n")
-	changed, err := detectChangedGoFiles(dir)
+	changed, err := action.DetectChangedGoFiles(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(changed) == 0 {
 		t.Fatal("fixture 应有 1 个变更 Go 文件")
 	}
-	fp := worktreeFingerprint(dir, changed)
+	fp := action.WorktreeFingerprint(dir, changed)
 	if fp == "" {
 		t.Fatal("指纹不应为空")
 	}
@@ -77,9 +78,9 @@ func TestStaleInfoStaleAfterGoFileChangedPostBuild(t *testing.T) {
 	dir := seedGitRepo(t)
 	sha := strings.TrimSpace(gitRunOut(t, dir, "rev-parse", "HEAD"))
 	writeTestFile(t, filepath.Join(dir, "main.go"), "package m\n\nfunc main() { println(1) }\n")
-	changed, _ := detectChangedGoFiles(dir)
+	changed, _ := action.DetectChangedGoFiles(dir)
 	r := openStaleRepo(t, dir)
-	saveStaleMeta(t, r, sha, worktreeFingerprint(dir, changed))
+	saveStaleMeta(t, r, sha, action.WorktreeFingerprint(dir, changed))
 	writeTestFile(t, filepath.Join(dir, "main.go"), "package m\n\nfunc main() { println(2) }\n")
 	got := staleInfo(dir, r)
 	if got == "" {
@@ -95,7 +96,7 @@ func TestStaleInfoStaleWhenNewGoFileAdded(t *testing.T) {
 	dir := seedGitRepo(t)
 	sha := strings.TrimSpace(gitRunOut(t, dir, "rev-parse", "HEAD"))
 	r := openStaleRepo(t, dir)
-	saveStaleMeta(t, r, sha, worktreeFingerprint(dir, nil))
+	saveStaleMeta(t, r, sha, action.WorktreeFingerprint(dir, nil))
 	writeTestFile(t, filepath.Join(dir, "extra.go"), "package m\n\nfunc extra() {}\n")
 	got := staleInfo(dir, r)
 	if got == "" || !strings.Contains(got, "1 个 Go 文件") {
@@ -108,7 +109,7 @@ func TestWorktreeFingerprintContentOnly(t *testing.T) {
 	dir := seedGitRepo(t)
 	writeTestFile(t, filepath.Join(dir, "a.go"), "package m\n\nfunc a() {}\n")
 	files := []string{"a.go"}
-	first := worktreeFingerprint(dir, files)
+	first := action.WorktreeFingerprint(dir, files)
 	fi, err := os.Stat(filepath.Join(dir, "a.go"))
 	if err != nil {
 		t.Fatal(err)
@@ -116,21 +117,21 @@ func TestWorktreeFingerprintContentOnly(t *testing.T) {
 	if err := os.Chtimes(filepath.Join(dir, "a.go"), fi.ModTime().Add(-time.Hour), fi.ModTime().Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if second := worktreeFingerprint(dir, files); second != first {
+	if second := action.WorktreeFingerprint(dir, files); second != first {
 		t.Fatal("mtime 变化不应改变指纹")
 	}
 	writeTestFile(t, filepath.Join(dir, "a.go"), "package m\n\nfunc a() { println(1) }\n")
-	if third := worktreeFingerprint(dir, files); third == first {
+	if third := action.WorktreeFingerprint(dir, files); third == first {
 		t.Fatal("内容变化必须改变指纹")
 	}
-	if fourth := worktreeFingerprint(dir, []string{"gone.go"}); fourth == "" {
+	if fourth := action.WorktreeFingerprint(dir, []string{"gone.go"}); fourth == "" {
 		t.Fatal("删除文件也应有指纹（missing）")
 	}
 }
 
 // 无变更集合 → 空指纹（调用方据此判定"新鲜"）。
 func TestWorktreeFingerprintEmpty(t *testing.T) {
-	if fp := worktreeFingerprint(t.TempDir(), nil); fp != "" {
+	if fp := action.WorktreeFingerprint(t.TempDir(), nil); fp != "" {
 		t.Fatalf("无变更应为空指纹，得到 %q", fp)
 	}
 }
@@ -151,11 +152,11 @@ func TestStaleInfoFreshAfterReindexWhenIndexWasBehind(t *testing.T) {
 	sha2 := strings.TrimSpace(gitRunOut(t, dir, "rev-parse", "HEAD"))
 	writeTestFile(t, filepath.Join(dir, "main.go"), "package m\n\nfunc main() { println(9) }\n")
 
-	changed, err := detectChangedGoFiles(dir)
+	changed, err := action.DetectChangedGoFiles(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	dirty, err := dirtyGoFiles(dir)
+	dirty, err := action.DirtyGoFiles(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,8 +165,44 @@ func TestStaleInfoFreshAfterReindexWhenIndexWasBehind(t *testing.T) {
 		t.Fatalf("口径不符：changed=%v dirty=%v", changed, dirty)
 	}
 	// 模拟重索引后的记录：sha=HEAD + 工作区指纹（dirtyGoFiles 口径）
-	saveStaleMeta(t, r, sha2, worktreeFingerprint(dir, dirty))
+	saveStaleMeta(t, r, sha2, action.WorktreeFingerprint(dir, dirty))
 	if got := staleInfo(dir, r); got != "" {
 		t.Fatalf("重索引后不应报过期（否则就是口径漂移回归）：%s", got)
+	}
+}
+
+// TestStaleInfoIgnoresIgnoredDirs：仓库级忽略目录（codeintel.yaml）内的
+// 脏文件不应让索引报过期——构建期指纹按 ignore_dirs 过滤，查询期必须
+// 同口径（P1-03 修：此前查询期不过滤 → 生成目录一改就永远"过期"）。
+func TestStaleInfoIgnoresIgnoredDirs(t *testing.T) {
+	dir := seedGitRepo(t)
+	sha := strings.TrimSpace(gitRunOut(t, dir, "rev-parse", "HEAD"))
+	if err := action.SaveIgnoreDirs(dir, []string{"gen"}); err != nil {
+		t.Fatalf("SaveIgnoreDirs: %v", err)
+	}
+	writeTestFile(t, filepath.Join(dir, "gen", "fake.go"), "package gen\n\nfunc Gen() {}\n")
+	// 构建期口径：脏文件按 ignore_dirs 过滤后算指纹
+	dirty, err := action.DirtyGoFiles(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fp := action.WorktreeFingerprint(dir, action.FilterIgnoredFiles(dirty, []string{"gen"}))
+	if fp != "" {
+		t.Fatalf("忽略目录内文件不应进指纹，得到 %q", fp)
+	}
+	r := openStaleRepo(t, dir)
+	saveStaleMeta(t, r, sha, fp)
+	if got := staleInfo(dir, r); got != "" {
+		t.Fatalf("忽略目录内的改动不应报过期：%s", got)
+	}
+	// 再改一次忽略目录内文件：仍不报
+	writeTestFile(t, filepath.Join(dir, "gen", "fake.go"), "package gen\n\nfunc Gen2() {}\n")
+	if got := staleInfo(dir, r); got != "" {
+		t.Fatalf("忽略目录内的二次改动不应报过期：%s", got)
+	}
+	// 非忽略目录的 Go 改动 → 必须报过期
+	writeTestFile(t, filepath.Join(dir, "main.go"), "package m\n\nfunc main() { println(1) }\n")
+	if got := staleInfo(dir, r); got == "" {
+		t.Fatal("非忽略目录的改动应报过期")
 	}
 }

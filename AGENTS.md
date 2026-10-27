@@ -66,6 +66,11 @@ internal/cli        internal/action            internal/infrastructure
   SQL/不直连库（取数一律经 action → Reader；"新鲜度/最新 commit"这类
   只读查询也走仓储方法）③ 收口类改动要把**旧实现删除**作为验收项
   （R100 迁完 wiki 数据源后 cli 侧遗留的裸 SQL 死代码在 P1-03 才清掉）
+  ④ **同一命令的多个入口必须共用一份流程实现**——`init/update/reindex`
+  与 MCP `init/update`、serve `/incremental` 统一走 `action.Build`
+  （P1-03 前 MCP 那份缺 workers/超时/工作区指纹/VACUUM 判定，导致构建后
+  查询误报过期）；编排需要驱动 orchestrator/sqlite 属"进程级例外"，
+  在 action 包注释里写明
 - 数据模型/查询实现（infrastructure/sqlite 等）不动——只搬"命令逻辑"
 
 ## 强制流程（Q235-2，借鉴 GitNexus impact-before-edit）

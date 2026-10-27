@@ -15,7 +15,6 @@ import (
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 	"github.com/schaepher/codeintel/internal/logging"
-	"github.com/schaepher/codeintel/internal/orchestrator"
 	"github.com/schaepher/codeintel/internal/server"
 	"go.uber.org/zap"
 )
@@ -75,26 +74,23 @@ func cmdServe(ctx context.Context, args []string) int {
 	// P2b：wiki 网页版（/wiki/ 多页浏览，请求时内存渲染）
 	srv.SetWikiHandler(wikiServeHandler(abs, acts, qaRepo))
 	// 增量构建自动触发（field_trace.md §20.1）：POST /incremental →
-	// 变更检测（复用 update 的 git 逻辑）+ IncrementalBuild 异步执行
+	// action.Build（与 CLI update 同源：变更检测 + 指纹 + VACUUM 判定）
 	repo, err := buildRepo(abs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: 模块解析失败（增量更新不可用）: %v\n", err)
 		repo = &domain.Repository{Path: abs}
 	}
-	orch := orchestrator.New(repo, db)
 	srv.SetBuildFunc(func() (string, error) {
-		changed, err := detectChangedGoFiles(abs)
-		if err != nil {
-			return "", err
+		out, berr := action.Build(ctx, action.BuildRequest{
+			RepoPath: abs, Repo: repo, Mode: action.BuildIncremental,
+		})
+		if berr != nil {
+			return "", berr
 		}
-		if len(changed) == 0 {
+		if out.NoChange {
 			return "", fmt.Errorf("无变更的 Go 文件")
 		}
-		res, err := orch.IncrementalBuild(ctx, changed)
-		if err != nil {
-			return "", err
-		}
-		return string(res.Status), nil
+		return string(out.Result.Status), nil
 	})
 	httpSrv := &http.Server{
 		Addr:              *addr,

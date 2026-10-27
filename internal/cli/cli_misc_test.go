@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
@@ -229,9 +230,10 @@ func TestCmdInitNoRepoDefaultsToCwd(t *testing.T) {
 }
 
 // TestDefaultBuildWorkers Q221：默认并发 = min(NumCPU, 8)（1..8 区间）。
+// P1-03：实现迁 action.DefaultWorkers（CLI/MCP 共用）。
 func TestDefaultBuildWorkers(t *testing.T) {
-	n := defaultBuildWorkers()
+	n := action.DefaultWorkers()
 	if n < 1 || n > 8 {
-		t.Fatalf("defaultBuildWorkers = %d, want 1..8", n)
+		t.Fatalf("DefaultWorkers = %d, want 1..8", n)
 	}
 }

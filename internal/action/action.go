@@ -1,6 +1,11 @@
-// Package action 是 CLI 与 HTTP 共享的查询用例层（应用层）：
-// 命令行和 HTTP 接口本身只负责参数解析与结果展示，全部图查询
-// 经此层调用仓储。依赖方向：action → Reader 窄接口 ← *sqlite.Repo。
+// Package action 是 CLI 与 HTTP/MCP 共享的用例层（应用层）：
+// 命令行/HTTP/MCP 只负责参数解析与结果展示，图查询经此层调用仓储
+// （依赖方向：action → Reader 窄接口 ← *sqlite.Repo）。
+//
+// 构建流程（P1-03）同样收口在此（action_build.go / action_build_detect.go）：
+// 它需要驱动 orchestrator + sqlite + ssa 这类基础设施，属"进程级编排"的
+// 例外——目的是让 CLI 与 MCP 只有一份构建实现（此前 MCP 那份缺装配，
+// 与 CLI 行为分叉）。查询/logic 仍一律走 Reader 端口。
 package action
 
 import (

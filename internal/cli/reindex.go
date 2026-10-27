@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 	"github.com/schaepher/codeintel/internal/progress"
 )
@@ -61,7 +62,7 @@ func parseReindexArgs(args []string) (repoPath *string, adapterTimeout time.Dura
 	fs := flag.NewFlagSet("reindex", flag.ExitOnError)
 	// Q237：--repo 缺省当前工作目录
 	repoPath = fs.String("repo", ".", "仓库根目录（含 go.mod；默认当前目录）")
-	fs.Int("workers", defaultBuildWorkers(), "SSA 分析并发数（Q221/Q252e：默认 min(NumCPU, 8)；透传给 init）")
+	fs.Int("workers", action.DefaultWorkers(), "SSA 分析并发数（Q221/Q252e：默认 min(NumCPU, 8)；透传给 init）")
 	fs.String("progress", progress.ModeAuto, "构建进度显示（Q253：auto|plain|none；透传给 init）")
 	// 默认 0 = 未指定（不能把默认 10m 当作"用户传了 10m"——否则
 	// `--adapter-timeout 0` 与未传无法区分）

@@ -6016,3 +6016,87 @@ P1-03 原文只写"~100 文件按 R89 模式"，与 R98 的结论（"已基本�
    重新引回来。收口类改动应当把旧路径删除作为验收项。
 3. **删除文件前先确认文件里还有别的符号**（本轮 `wiki_arch_enhance.go`
    里同时有 `archLayerOf/archLayerName`，整文件删除直接编译失败）。
+
+## §109 P1-03（续）：构建流程收口——action.Build 成为 CLI/MCP/serve 的唯一实现（2026-11-03）
+
+§108 的审计发现"运维/构建流程仍留 cli"与 P1-03 文字冲突。用户定案：
+**只迁构建流程**（其余运维/配置按 R98 保留 cli），理由是这不是风格问题而是
+真实分叉：
+
+| 入口 | workers | --adapter-timeout | 工作区指纹 | VACUUM 判定 | 台账登记 |
+|---|---|---|---|---|---|
+| CLI `init` | ✅ min(NumCPU,8) | ✅ | ✅ | ✅ | registerRepoAfterBuild |
+| CLI `update` | ✅ | ✅ | ✅ | ✅ | refreshRepoAfterUpdate |
+| CLI `reindex` | ✅（透传 init） | ✅ | ✅ | ✅ | 同 init |
+| **MCP `init`**（旧） | ❌ | ❌ | ❌ | ❌ | refreshRepoAfterUpdate（当增量处理） |
+| **MCP `update`**（旧） | ❌ | ❌ | ❌ | ❌ | refreshRepoAfterUpdate |
+| **serve `/incremental`**（旧） | ❌ | ❌ | ❌ | ❌ | 不登记 |
+
+旧 MCP 全量构建不写 `worktree_fingerprint` → 之后 `query`/MCP 读同一仓库时
+把"构建时就已进索引的脏文件"误报过期（Q254b 修过的误报从另一个入口复现）。
+
+### 迁移内容
+
+- `action.Build(ctx, BuildRequest)`（`action_build.go`）：校验目标 →
+  变更检测（增量，含 `--base` 基准）→ 打开库 → `--base` 物化 → orchestrator
+  装配（workers / 适配器超时 / 工作区指纹 / 进度）→ Full/Incremental →
+  VACUUM 判定。返回 `BuildOutcome{Repo, Result, Changed, NoChange,
+  NeedsFull, AnalyzerDegraded, BaseMaterialized, BaseDir, Warnings, Vacuum}`。
+- `action_build_detect.go`：`DetectChangedGoFiles` / `DirtyGoFiles` /
+  `DetectChangedGoFilesSince` / `RepoCommitSHA` / `WorktreeFingerprint` /
+  `CurrentDirtyHashes` / `FingerprintDiff` / `FilterIgnoredFiles` 从 cli 迁入
+  （原 `update_detect.go` / `update_base.go` 删除）；`indexCommitSHA`
+  调用上一轮的 `sqlite.LatestCommitSHAFromPath`。
+- `action_ignore.go`：仓库级忽略目录（`codeintel.yaml`）读/归一/写迁入
+  （`LoadIgnoreDirs`/`SaveIgnoreDirs`/`NormalizeIgnoreDir`/`IgnoreConfigPath`），
+  cli 侧只剩命令解析 + 输出。
+- `action.DiscoverRepository` / `ValidateBuildTarget` / `DefaultWorkers` /
+  `AnalyzerVersionChanged`：模块发现、目标校验、默认并发、分析器标记判定；
+  cli 的 `buildRepo`/`readGoModule`/`resolveRepo` 保留（query/serve/wiki 共用，
+  `buildRepo` 成为 action 的薄转发）。
+- CLI：`init.go` 271→193 行、`update.go` 212→125 行，只留 flag/头部输出/
+  报告渲染/VACUUM 文案/台账登记；`reindex` 仍走 `cmdInit`（参数校验单独保留，
+  todo10-1：非法参数先于库操作拒绝）。
+- MCP `runBuildTool`：改调 `action.Build`，台账口径与 CLI 一致（全量
+  `registerRepoAfterBuild`、增量 `refreshRepoAfterUpdate`），`needs_full_build`
+  / `up_to_date` 仍作为工具状态返回。
+- serve `POST /incremental`：改调 `action.Build`（获得指纹 + VACUUM 判定）。
+- 输出顺序微调：`--base` 的"物化 base 索引: …"从构建前改为构建后打印
+  （outcome 才带 `BaseMaterialized`）；进度/报告/错误文案其余逐字不变。
+- 顺手修：`staleInfo` 指纹比对按 `ignore_dirs` 过滤脏文件——此前构建期
+  过滤、查询期不过滤，配了 `codeintel.yaml` 的仓库一改生成目录就永远"过期"。
+- 顺手删：cli 里无调用者的 `ensureGoEnv`。
+
+### 验收
+
+- 单测（action）：`TestBuildRequiresGoModule`、`TestBuildRejectsGoWorkRoot`、
+  `TestBuildInvalidAdapterTimeout`、`TestBuildIncrementalRequiresGit`、
+  `TestBuildFullThenIncremental`（含"构建前脏文件 → 指纹入库"）、
+  `TestBuildGoModChangedNeedsFull`、`TestBuildIgnoresIgnoredDirs`
+  （忽略目录内的改动不触发增量）；随迁的检测/指纹 8 个用例；
+  cli 侧 `TestStaleInfoIgnoresIgnoredDirs`（新行为）、原有
+  `TestCmdUpdateNoChanges/GoModChanged/NoGit/Base`、`TestMCPToolInit/Update`
+  原样通过。
+- `scripts/verify.sh --quick` 全绿（14 包）。
+- 真实仓库（/tmp 临时 module，git 仓库 + 未跟踪脏文件）：CLI `init` →
+  `build_metadata.worktree_fingerprint` 79 字节、`query` 无过期提示；
+  `update` → 提交后再跑 = "无变更"。
+- **MCP 分叉证据**（本轮修复点）：MCP `init` 工具建同一 fixture →
+  指纹同样 79 字节、随后 `query symbol` 无 stale 提示（旧实现在此会提示
+  "构建记录无工作区指纹"）。
+
+### 教训
+
+1. **同一命令出现两个入口 = 两份实现 = 必分叉**：MCP 那份不是"简化版"，
+   它漏掉的是数据正确性（指纹）。迁移的收益要用"行为差异表"证明，
+   而不是"分层更好看"。
+2. **早返回的 outcome 也要可渲染**：`Build` 在校验失败时返回 `nil, err`，
+   而增量分支返回 `out, err`（`NeedsFull`）——cli 必须先判 `out != nil`
+   再用字段（本轮 `TestUpdateNoGitRepo` 因 nil 解引用 panic 抓到）。
+3. **保留输出顺序要注入 hook，不要让调用方重算**：`update` 需要在构建前
+   打印变更清单，而清单在 Build 内部才算出——用 `OnPlan func(*BuildOutcome)`
+   回调（与 `PrecomputeRelations` 的 `progressFn` 同款），而不是在 cli 里
+   再跑一遍 `DetectChangedGoFiles`（两次检测会因构建期间的 git 变动而不一致）。
+4. **迁移测试要连"口径前提"一起搬**：`TestBuildFullThenIncremental` 第一版在
+   构建**之后**才写脏文件，却断言指纹非空——指纹记录的是构建时的脏文件，
+   正确写法是构建前就制造脏文件（错误假设被测试自己暴露）。

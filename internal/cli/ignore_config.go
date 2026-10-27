@@ -2,8 +2,11 @@ package cli
 
 // 仓库级忽略目录配置（`<repo>/codeintel.yaml`）：`codeintel config
 // ignore-dir add|rm|list` 管理；init/update/reindex 与所有读取路径经
-// buildRepo 自动加载（无对应的命令行选项）。文件在 .codeintel/
-// 之外，clean 不会删除。
+// buildRepo（action.DiscoverRepository）自动加载（无对应命令行选项）。
+// 文件在 .codeintel/ 之外，clean 不会删除。
+//
+// P1-03：读/归一/写实现在 action（构建流程与变更检测共用同一口径），
+// 本文件只保留命令参数解析与输出。
 
 import (
 	"fmt"
@@ -12,74 +15,22 @@ import (
 	"sort"
 	"strings"
 
-	"gopkg.in/yaml.v3"
+	"github.com/schaepher/codeintel/internal/action"
 )
 
-const ignoreConfigFile = "codeintel.yaml"
+// ignoreConfigPath 仓库级配置文件路径（实现见 action.IgnoreConfigPath）。
+func ignoreConfigPath(repoAbs string) string { return action.IgnoreConfigPath(repoAbs) }
 
-type ignoreConfig struct {
-	IgnoreDirs []string `yaml:"ignore_dirs"`
-}
+// loadIgnoreDirs 读仓库级配置的 ignore_dirs（实现见 action.LoadIgnoreDirs）。
+func loadIgnoreDirs(repoAbs string) []string { return action.LoadIgnoreDirs(repoAbs) }
 
-// ignoreConfigPath 仓库级配置文件路径。
-func ignoreConfigPath(repoAbs string) string {
-	return filepath.Join(repoAbs, ignoreConfigFile)
-}
-
-// normalizeIgnoreDir 归一忽略目录：仓库相对路径、去 "./" 与首尾 "/"、
-// 反斜杠转正斜杠；拒绝空/仓库根/绝对路径/越出仓库。
-func normalizeIgnoreDir(dir string) (string, error) {
-	if filepath.IsAbs(dir) || strings.HasPrefix(strings.TrimSpace(dir), "/") {
-		return "", fmt.Errorf("忽略目录必须是仓库相对路径：%s", dir)
-	}
-	d := strings.TrimSpace(strings.ReplaceAll(dir, "\\", "/"))
-	d = strings.TrimPrefix(d, "./")
-	d = strings.Trim(d, "/")
-	if d == "" || d == "." {
-		return "", fmt.Errorf("忽略目录不能为空或仓库根（.）")
-	}
-	if d == ".." || strings.HasPrefix(d, "../") {
-		return "", fmt.Errorf("忽略目录必须在仓库内：%s", dir)
-	}
-	return d, nil
-}
-
-// loadIgnoreDirs 读仓库级配置的 ignore_dirs（无文件/解析失败返回 nil）。
-func loadIgnoreDirs(repoAbs string) []string {
-	b, err := os.ReadFile(ignoreConfigPath(repoAbs))
-	if err != nil {
-		return nil
-	}
-	var c ignoreConfig
-	if yaml.Unmarshal(b, &c) != nil {
-		return nil
-	}
-	var out []string
-	for _, d := range c.IgnoreDirs {
-		if n, err := normalizeIgnoreDir(d); err == nil {
-			out = append(out, n)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
-// saveIgnoreDirs 写仓库级配置（无忽略目录时删除文件保持干净）。
+// saveIgnoreDirs 写仓库级配置（实现见 action.SaveIgnoreDirs）。
 func saveIgnoreDirs(repoAbs string, dirs []string) error {
-	if len(dirs) == 0 {
-		if err := os.Remove(ignoreConfigPath(repoAbs)); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		return nil
-	}
-	b, err := yaml.Marshal(ignoreConfig{IgnoreDirs: dirs})
-	if err != nil {
-		return err
-	}
-	header := "# codeintel 仓库配置（由 `codeintel config ignore-dir add|rm` 管理）\n" +
-		"# ignore_dirs：init/update/reindex 不解析这些目录及其子目录中的文件\n"
-	return os.WriteFile(ignoreConfigPath(repoAbs), append([]byte(header), b...), 0o644)
+	return action.SaveIgnoreDirs(repoAbs, dirs)
 }
+
+// normalizeIgnoreDir 归一忽略目录（实现见 action.NormalizeIgnoreDir）。
+func normalizeIgnoreDir(dir string) (string, error) { return action.NormalizeIgnoreDir(dir) }
 
 // cmdConfigIgnoreDir 实现 `codeintel config ignore-dir add|rm|list [<dir>...] [--repo <path>]`。
 func cmdConfigIgnoreDir(args []string) int {

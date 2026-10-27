@@ -5,14 +5,12 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
+	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
-	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 	"github.com/schaepher/codeintel/internal/logging"
 	"github.com/schaepher/codeintel/internal/orchestrator"
 	"github.com/schaepher/codeintel/internal/progress"
@@ -20,6 +18,8 @@ import (
 )
 
 // cmdInit 实现 `codeintel init --repo <path>`（TD.md 6.1）。
+// P1-03：构建流程在 action.Build（CLI init/update/reindex 与 MCP
+// init/update 同源）；本函数只做参数解析 → 转发 → 渲染 + 台账登记。
 func cmdInit(ctx context.Context, args []string) int {
 	logger := zap.L()
 	logger.Debug("enter cmdInit")
@@ -27,7 +27,7 @@ func cmdInit(ctx context.Context, args []string) int {
 	fs := flag.NewFlagSet("init", flag.ExitOnError)
 	// Q237：--repo 缺省当前工作目录（在目标仓库内直接 codeintel init）
 	repoPath := fs.String("repo", ".", "仓库根目录（含 go.mod；默认当前目录）")
-	workers := fs.Int("workers", defaultBuildWorkers(), "SSA 分析并发数（Q221/Q252e：默认 min(NumCPU, 8)——同时约束 ①模块包级 SSA 建图（Q252e 前逐包串行）②函数级发射；峰值内存与并发度正相关，小内存机器可调小，如 1）")
+	workers := fs.Int("workers", action.DefaultWorkers(), "SSA 分析并发数（Q221/Q252e：默认 min(NumCPU, 8)——同时约束 ①模块包级 SSA 建图（Q252e 前逐包串行）②函数级发射；峰值内存与并发度正相关，小内存机器可调小，如 1）")
 	progressMode := fs.String("progress", progress.ModeAuto, "构建进度显示（Q253：只写 stderr，stdout 仍只承载结果）：auto=stderr 是终端时用进度条、否则逐行；plain=逐行（agent/日志抓取）；none=不显示")
 	adapterTimeout := fs.Duration("adapter-timeout", orchestrator.AdapterTimeout, "每个适配器独立超时（默认 10m；大仓可显式调大，必须为正时长）")
 	fs.Parse(args)
@@ -38,19 +38,14 @@ func cmdInit(ctx context.Context, args []string) int {
 		fmt.Fprintf(os.Stderr, "error: resolve repo path: %v\n", err)
 		return 1
 	}
-	if fi, err := os.Stat(abs); err != nil || !fi.IsDir() {
-		fmt.Fprintf(os.Stderr, "error: %s is not a directory\n", abs)
+	// 目标校验（目录/go.work）先于任何头部输出
+	if err := action.ValidateBuildTarget(abs); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
-	// go.work 检测（field_trace.md §1.3）：workspace 根或上层目录存在 go.work
-	// 且当前目录非 module 根时，提示进入具体模块目录
-	if w := findGoWork(abs); w != "" {
-		if _, err := os.Stat(filepath.Join(abs, "go.mod")); err != nil {
-			fmt.Fprintf(os.Stderr, "error: 检测到 go.work（%s）。请进入具体模块目录后运行：codeintel init --repo <模块目录>\n", w)
-			return 1
-		}
-	}
-	repo, err := buildRepo(abs)
+	// 头部信息（module/忽略目录）要先于构建输出——只做一次发现，
+	// 结果注入 Build（不重复扫描 go.mod）
+	repo, err := action.DiscoverRepository(abs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
@@ -63,50 +58,18 @@ func cmdInit(ctx context.Context, args []string) int {
 	if err := logging.ToFile(abs); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: 日志切换失败: %v\n", err)
 	}
-	db, err := sqlite.Open(abs)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
-	}
-	defer db.Close()
-
-	if *adapterTimeout <= 0 {
-		fmt.Fprintf(os.Stderr, "error: --adapter-timeout 必须为正时长（收到 %s）\n", *adapterTimeout)
-		return 1
-	}
-	orch := orchestrator.New(repo, db)
-	orch.SetWorkers(*workers)
-	if err := orch.SetAdapterTimeout(*adapterTimeout); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
-	}
-	// Q254b：记录构建时的工作区变更指纹（stale 判定用——"改文件→重索引"
-	// 之后不该再报过期）
-	if dirtyGo, cerr := dirtyGoFiles(abs); cerr == nil {
-		orch.SetWorktreeFingerprint(worktreeFingerprint(abs, filterIgnoredFiles(dirtyGo, repo.IgnoreDirs)))
-	}
 	rep := progress.New(os.Stderr, progress.Config{Mode: *progressMode, Prefix: "[index] 步骤", Title: "构建索引"})
-	orch.SetProgress(rep)
-	result, err := orch.FullBuild(ctx)
+	out, err := action.Build(ctx, action.BuildRequest{
+		RepoPath: abs, Repo: repo, Mode: action.BuildFull,
+		Workers: *workers, AdapterTimeout: *adapterTimeout, Progress: rep,
+	})
 	rep.Finish() // 关闭进度活动行（无论成败）
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
-
-	// Q254：VACUUM 改为**按 freelist 判定**（原来无条件执行：而全量构建走
-	// DROP TABLE+重建，建完 freelist≈0 → VACUUM 回收不到任何页，却要重写整库
-	// ——真实业务库 13GB/7 分钟，且需 ≈13GB 临时空间）。判定依据与磁盘预检
-	// 在 sqlite.VacuumIfWorthwhile；跳过时把原因写给用户。
-	plan, err := db.VacuumIfWorthwhile("full build")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: VACUUM: %v\n", err)
-	} else if !plan.Run {
-		fmt.Fprintf(os.Stderr, "[index] 跳过 VACUUM：%s\n", plan.Reason)
-	} else {
-		fmt.Fprintf(os.Stderr, "[index] VACUUM 已回收 %dMB（freelist %dMB）\n",
-			plan.FreeListBytes>>20, plan.FreeListBytes>>20)
-	}
+	printVacuumOutcome(out.Vacuum)
+	result := out.Result
 
 	// 构建报告（TD.md 6.1）
 	fmt.Println()
@@ -155,7 +118,7 @@ func cmdInit(ctx context.Context, args []string) int {
 	// #234：询问安装 post-commit 自动更新 hook（仅交互终端；默认不装）
 	if isTerminal(os.Stdin) {
 		_ = maybeInstallHook(abs, func() bool {
-			fmt.Print("安装 post-commit hook（提交后自动更新索引）？[y/N] ")
+			fmt.Print("安装 post-commit hook（提交后自动更新索引）? [y/N] ")
 			var s string
 			if _, err := fmt.Scanln(&s); err != nil {
 				return false
@@ -166,26 +129,25 @@ func cmdInit(ctx context.Context, args []string) int {
 	return 0
 }
 
-// buildRepo 解析仓库的 module 信息（P2-3 多 go.mod monorepo）：
-// 递归扫描根下所有 go.mod，构造 Repository（根 module 在前）。
-// ignoreDirs：忽略目录（不进入/不作为目标 module；写入 Repository 供
-// 加载/适配器过滤）。
+// printVacuumOutcome VACUUM 判定结果输出（Q254：跳过时把原因写给用户）。
+func printVacuumOutcome(v action.VacuumOutcome) {
+	switch {
+	case !v.Evaluated:
+		return
+	case v.Err != "":
+		fmt.Fprintf(os.Stderr, "warning: VACUUM: %s\n", v.Err)
+	case v.Ran:
+		fmt.Fprintf(os.Stderr, "[index] VACUUM 已回收 %dMB（freelist %dMB）\n",
+			v.ReclaimedBytes>>20, v.ReclaimedBytes>>20)
+	default:
+		fmt.Fprintf(os.Stderr, "[index] 跳过 VACUUM：%s\n", v.Reason)
+	}
+}
+
+// buildRepo 仓库 module 发现（P1-03：实现迁 action.DiscoverRepository——
+// 保留此薄封装给 serve/wiki/query 等需要 Repository 的调用点）。
 func buildRepo(repoPath string, ignoreDirs ...string) (*domain.Repository, error) {
-	if len(ignoreDirs) == 0 {
-		// 未显式传入 → 读仓库级配置（codeintel.yaml 的 ignore_dirs）
-		ignoreDirs = loadIgnoreDirs(repoPath)
-	}
-	modules, dirs, err := orchestrator.DiscoverModules(repoPath, ignoreDirs)
-	if err != nil {
-		return nil, err
-	}
-	return &domain.Repository{
-		Path:       repoPath,
-		Module:     modules[0],
-		Modules:    modules,
-		ModuleDirs: dirs,
-		IgnoreDirs: ignoreDirs,
-	}, nil
+	return action.DiscoverRepository(repoPath, ignoreDirs...)
 }
 
 // readGoModule 读取 go.mod 的 module 行。
@@ -228,44 +190,4 @@ func resolveRepo(repoPath string) (string, string, error) {
 		return "", "", err
 	}
 	return abs, module, nil
-}
-
-// ensureGoEnv 检查 go 与 scip-go 可用（供诊断信息使用）。
-func ensureGoEnv() error {
-	logger := zap.L()
-	logger.Debug("enter ensureGoEnv")
-	defer logger.Debug("exit ensureGoEnv")
-	if _, err := exec.LookPath("go"); err != nil {
-		return fmt.Errorf("go not found in PATH")
-	}
-	return nil
-}
-
-// findGoWork 从目录向上（最多 4 层）查找 go.work；未找到返回空串。
-func findGoWork(dir string) string {
-	for i := 0; i < 4 && dir != "" && dir != "/"; i++ {
-		if _, err := os.Stat(filepath.Join(dir, "go.work")); err == nil {
-			return filepath.Join(dir, "go.work")
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-	return ""
-}
-
-// defaultBuildWorkers Q221：构建默认并发数 = min(NumCPU, 8)（1..8）——
-// 8 核实测冷启动 5m16s → 40s（峰值 RSS ~2.9G）；上限 8 防大机器内存
-// 翻倍。小内存机器可 --workers 1 调小。
-func defaultBuildWorkers() int {
-	n := runtime.NumCPU()
-	if n > 8 {
-		n = 8
-	}
-	if n < 1 {
-		n = 1
-	}
-	return n
 }
