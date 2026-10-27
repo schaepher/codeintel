@@ -149,7 +149,7 @@ func seqExpandSingleValue(a *Actions, req CodeSequenceRequest, call *ast.CallExp
 		sub.curFile = fv.ctx.rel
 		sub.curRecvType = fv.recvType
 		sub.curRecvDecl = fv.recvDecl
-		sub.sceneConsts = seqConstValues(req, fv.ctx.rel)
+		sub.sceneConsts = seqConstValues(a, req, fv.ctx.rel)
 		sub.paramValues = nil
 		node.Nodes = walkStmts(a, sub, fv.ctx.fset, fv.ctx.src, fv.lit.Body.List,
 			sub.curTgts, depth, fv.recvType, fv.recvDecl, fv.ctx.file, fv.pkgPath, fv.ctx.rel)

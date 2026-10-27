@@ -122,6 +122,8 @@ func seqRPCServiceAcrossRepos(a *Actions, req CodeSequenceRequest, fwd *domain.R
 		another.rpcSvcs = map[string]*seqRPCSvc{} // 目标仓库自己的解析缓存
 		another.rpcByFunc = map[string][]*domain.RPCForward{}
 		another.fileCache = nil
+		another.constPkgs = nil // 跨包常量表按仓库隔离
+		another.sceneConsts = nil
 		another.rpcRes = nil
 		svc := seqMicroService(acts, another, fwd)
 		if svc.stop != nil && svc.stop.Code == SeqStopRPCRegistrationMissing {

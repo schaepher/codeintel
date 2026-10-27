@@ -6891,3 +6891,27 @@ I/O/内存与链规模无关。
 `chainSymbols` 与 `chainGrpcHTTPDiag`，断言只用逐节点/精确查询且结果不变
 （接口具体化、Unimplemented 排除）。**剩余**：`GetImplementsEdges` /
 `AllNodeIDs` 仍保留给其它用例（wiki/relations）；本改动只收口链 BFS。
+
+## §128 todo22 P1：场景判定的跨包常量（2026-10-27）
+
+**问题**：`seqConstValues` 只建**当前包**（同目录 .go）常量表；`req.Source ==
+status.SourceB`（`status` 是另一个包）里的 `status.SourceB` 被当成字段/未知，
+条件恒 unknown——§9.2 的"跨函数来源分派"和真实项目里的枚举常量都无法裁剪。
+
+**改法**：
+- 常量表从 `map[string]string` 改为 `*seqConstTable`（实现 `sceneConstLookup`
+  `constValue(name)`）；比较表达式里的 `alias.Name` 按**该文件**的 import
+  别名反查 import path，再 `seqExternalPackage`（`go list -e -json -find
+  -mod=readonly` 离线只读）定位包目录、解析其 `const` 声明。
+- **按需**：只有比较表达式真的引用 `alias.Name` 才触发 go list；按 import
+  path 在请求内缓存包常量表（未命中/标准库也缓存）。包内常量支持前向/互相
+  引用（3 轮迭代解析）；只取导出常量（跨包可访问）。
+- 解析不到（包内没有该常量、非 const 选择器、无 import 别名）→ 保持未知，
+  不按名称猜值；本地包常量逻辑与旧实现等价（返回表同样含 name→值）。
+- 跨仓 RPC 子树的 `constPkgs` / `sceneConsts` 显式清空（目标仓库包路径不同）。
+
+**测试**（`action_scene_const_test.go`，真实 `go list` + 两包源码）：
+默认 import（`status.SourceB`）、别名 import（`st.SourceA`）、
+`int32(status.Source) == int32(status.SourceB)`、未声明常量（unknown）、
+无场景（unknown）——6 个子测试全部命中。**未做**：常量算术表达式
+（`Base + 12`）、dot-import；这些仍保持 unknown（不猜）。

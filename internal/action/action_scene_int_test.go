@@ -22,7 +22,7 @@ func sceneCond(t *testing.T, src string) ast.Expr {
 }
 
 func TestSceneIntConstAndConversion(t *testing.T) {
-	consts := map[string]string{"SourceA": "7", "SourceB": "19"}
+	consts := sceneConstsMap{"SourceA": "7", "SourceB": "19"}
 	cases := []struct {
 		cond   string
 		scene  string
@@ -51,7 +51,7 @@ func TestSceneIntConstAndConversion(t *testing.T) {
 }
 
 func TestSceneBoolShortCircuit(t *testing.T) {
-	consts := map[string]string{"SourceA": "7"}
+	consts := sceneConstsMap{"SourceA": "7"}
 	sc := NewScene([]string{"Source=19"})
 	// 短路：&& 左侧为假 → 整条为假（可排除分支，即使右侧未知）
 	fit := sc.matchCondSrc(sceneCond(t, "req.Source == SourceA && IsRegionX()"), nil, nil, consts)

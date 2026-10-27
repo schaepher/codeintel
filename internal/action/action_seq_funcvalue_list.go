@@ -14,14 +14,15 @@ import (
 // todo22 §5：场景判定要能比较整型/有类型常量（Source=7 vs const SourceA=7），
 // 值来自真实声明（含 `Source(7)` 这种转换），不按名称猜。
 //
-// 说明：跨包常量（`otherpkg.Const`）尚未解析（需要包目录/类型信息），这类
-// 条件保持 unknown 并保留候选。
-func seqConstValues(req CodeSequenceRequest, relFile string) map[string]string {
+// todo22 P1：返回带**跨包按需解析**的常量表（`otherpkg.Const`）——见
+// action_scene_const.go；当前包常量仍然一次建表（与旧实现等价）。
+func seqConstValues(a *Actions, req CodeSequenceRequest, relFile string) *seqConstTable {
 	consts := map[string]string{}
+	tbl := &seqConstTable{vals: consts, a: a, req: req, ctx: seqFileCtxFor(req, relFile)}
 	dir := filepath.Dir(filepath.Join(req.RepoAbs, relFile))
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return consts
+		return tbl
 	}
 	for _, ent := range entries {
 		if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".go") {
@@ -35,6 +36,8 @@ func seqConstValues(req CodeSequenceRequest, relFile string) map[string]string {
 		if ctx == nil {
 			continue
 		}
+		// 常量表达式里的跨包引用按**该文件**的 import 别名解析
+		fileTbl := &seqConstTable{vals: consts, a: a, req: req, ctx: ctx}
 		for _, decl := range ctx.file.Decls {
 			gd, ok := decl.(*ast.GenDecl)
 			if !ok || gd.Tok != token.CONST {
@@ -49,7 +52,7 @@ func seqConstValues(req CodeSequenceRequest, relFile string) map[string]string {
 					if i >= len(vs.Values) {
 						continue
 					}
-					if v, ok := sceneValueOf(vs.Values[i], consts); ok {
+					if v, ok := sceneValueOf(vs.Values[i], fileTbl); ok {
 						consts[name.Name] = v
 					} else if lit, ok := vs.Values[i].(*ast.BasicLit); ok {
 						consts[name.Name] = strings.Trim(lit.Value, "\"`")
@@ -58,7 +61,7 @@ func seqConstValues(req CodeSequenceRequest, relFile string) map[string]string {
 			}
 		}
 	}
-	return consts
+	return tbl
 }
 
 // seqRangeAmbiguous range 对象是函数值的多候选（多个互斥列表）时的诊断。

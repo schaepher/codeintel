@@ -85,7 +85,7 @@ func (s Scene) matchCond(cond ast.Expr, args map[string]string) SceneFit {
 // 包内常量表（todo22 §5：整型/有类型常量与内建转换参与判定）。
 // 布尔短路与取反按 Go 语义处理：`a && b` 任一为假即整条为假（可排除分支），
 // 全部为真才 taken；`||` 反之；`!` 翻转 taken/excluded。
-func (s Scene) matchCondSrc(cond ast.Expr, args, srcs, consts map[string]string) SceneFit {
+func (s Scene) matchCondSrc(cond ast.Expr, args, srcs map[string]string, consts sceneConstLookup) SceneFit {
 	negated := false
 	for {
 		switch e := cond.(type) {

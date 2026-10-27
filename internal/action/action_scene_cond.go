@@ -26,7 +26,7 @@ func sceneNegateFit(fit SceneFit, negated bool) SceneFit {
 }
 
 // matchBoolOp `&&` / `||` 的短路判定。
-func (s Scene) matchBoolOp(bin *ast.BinaryExpr, args, srcs, consts map[string]string) SceneFit {
+func (s Scene) matchBoolOp(bin *ast.BinaryExpr, args, srcs map[string]string, consts sceneConstLookup) SceneFit {
 	l := s.matchCondSrc(bin.X, args, srcs, consts)
 	r := s.matchCondSrc(bin.Y, args, srcs, consts)
 	if bin.Op.String() == "&&" {
@@ -71,7 +71,7 @@ func firstNonEmpty(vals ...string) string {
 }
 
 // matchCompareCond 单个比较（== / !=）的判定。
-func (s Scene) matchCompareCond(cond ast.Expr, args, srcs, consts map[string]string) SceneFit {
+func (s Scene) matchCompareCond(cond ast.Expr, args, srcs map[string]string, consts sceneConstLookup) SceneFit {
 	bin, ok := cond.(*ast.BinaryExpr)
 	if !ok {
 		return SceneFit{Status: SceneUnknown, Reason: "unknown:not-comparison"}
@@ -145,7 +145,7 @@ func (s Scene) lookup(field string) (key, value string, ok bool) {
 // sceneCompare 从比较两侧提取"字段表达式 + 字面量/常量值"。
 // todo22 §5：支持整型/浮点/字符字面量、包内常量与内建整数转换
 // （int32(x) / int(x) / Source(7) 等）——不把枚举名称当值。
-func sceneCompare(fieldExpr, litExpr ast.Expr, consts map[string]string) (field, lit string, ok bool) {
+func sceneCompare(fieldExpr, litExpr ast.Expr, consts sceneConstLookup) (field, lit string, ok bool) {
 	lit, ok = sceneValueOf(litExpr, consts)
 	if !ok {
 		return "", "", false
@@ -156,7 +156,7 @@ func sceneCompare(fieldExpr, litExpr ast.Expr, consts map[string]string) (field,
 
 // sceneValueOf 表达式的"可比较值"：字面量（字符串/整数/浮点/字符）或包内
 // 常量（按 const 声明解析），中间的内建转换/括号被剥离。
-func sceneValueOf(e ast.Expr, consts map[string]string) (string, bool) {
+func sceneValueOf(e ast.Expr, consts sceneConstLookup) (string, bool) {
 	e = unwrapSceneExpr(e)
 	switch x := e.(type) {
 	case *ast.BasicLit:
@@ -167,7 +167,13 @@ func sceneValueOf(e ast.Expr, consts map[string]string) (string, bool) {
 			return x.Value, true
 		}
 	case *ast.Ident:
-		if v, ok := consts[x.Name]; ok {
+		if v, ok := sceneConstValue(consts, x.Name); ok {
+			return v, true
+		}
+	case *ast.SelectorExpr:
+		// todo22 P1：跨包常量（otherpkg.Const）——按 import 路径按需解析
+		// 目标包的 const 声明；解析不到就是"不是常量"，保持未知。
+		if v, ok := sceneConstValue(consts, exprTextShallow(x)); ok {
 			return v, true
 		}
 	}

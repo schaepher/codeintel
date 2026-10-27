@@ -75,7 +75,7 @@ func (a *Actions) sceneImplChoice(req CodeSequenceRequest, fset *token.FileSet, 
 
 // evalImplGuards 用场景判定定义守卫：任何守卫 excluded → 定义不可达；
 // 全部 taken → 定义必然可达；否则 unknown。
-func evalImplGuards(d implDef, scene Scene, args, srcs, consts map[string]string) (string, string) {
+func evalImplGuards(d implDef, scene Scene, args, srcs map[string]string, consts sceneConstLookup) (string, string) {
 	if len(d.guards) == 0 {
 		return SceneTaken, ""
 	}

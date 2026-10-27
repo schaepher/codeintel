@@ -73,8 +73,11 @@ type CodeSequenceRequest struct {
 	sceneSrc     map[string]string // todo12-3：形参 → 值来源（分支判定证据）
 	sceneWhy     map[string]string // todo13-3：形参 → 未知原因（partial 诊断）
 	// todo22 §5：当前包（同目录）常量表 name → 值文本（整型/有类型常量参与
-	// 场景判定；不把枚举名称直接当值）
-	sceneConsts map[string]string
+	// 场景判定；不把枚举名称直接当值）。todo22 P1：跨包常量
+	// （otherpkg.Const）按 import 路径按需解析（请求内缓存）。
+	sceneConsts *seqConstTable
+	// constPkgs 跨包常量表（import path → name→值；nil = 未解析/不可解析）
+	constPkgs map[string]map[string]string
 	// todo22 §7.3：请求内接口实现候选缓存（ifaceID → 实现类型列表；nil =
 	// 明确未命中，同样缓存，避免同一请求重复查库/重复全库发现）
 	ifaceImpls map[string]seqIfaceCached

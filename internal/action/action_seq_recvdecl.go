@@ -130,7 +130,7 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 	req.curRecvType = recvType
 	req.curRecvDecl = recvDecl
 	req.curCtx = &seqFileCtx{fset: fset, file: f, src: src, rel: n.FilePath}
-	req.sceneConsts = seqConstValues(req, n.FilePath)
+	req.sceneConsts = seqConstValues(a, req, n.FilePath)
 	env := newSeqEnv(nil)
 	bindSeqParams(env, fn.Type.Params, req.paramValues)
 	req.env = env
