@@ -180,3 +180,34 @@ func TestBuildIgnoresIgnoredDirs(t *testing.T) {
 		t.Errorf("codeintel.yaml 应存在: %v", err)
 	}
 }
+
+// TestBuildResultExposesBuildID：BuildResult 暴露实际写入 build_metadata 的
+// BuildID（todo23 §10.1），CommitSHA 单独保存、不被当 BuildID。
+func TestBuildResultExposesBuildID(t *testing.T) {
+	if !scipGoAvailable() {
+		t.Skip("scip-go 不在 PATH")
+	}
+	dir := buildFixture(t)
+	out, err := Build(context.Background(), BuildRequest{RepoPath: dir, Mode: BuildFull})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if out.Result == nil || out.Result.BuildID == "" {
+		t.Fatalf("BuildResult.BuildID 应非空: %+v", out.Result)
+	}
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	meta, err := sqlite.NewRepo(db).GetLatest()
+	if err != nil || meta == nil {
+		t.Fatalf("GetLatest: %v", err)
+	}
+	if out.Result.BuildID != meta.BuildID {
+		t.Errorf("BuildResult.BuildID=%q 与 build_metadata=%q 不一致", out.Result.BuildID, meta.BuildID)
+	}
+	if out.Result.CommitSHA != "" && out.Result.CommitSHA == out.Result.BuildID {
+		t.Errorf("CommitSHA 不得充当 BuildID: %q", out.Result.CommitSHA)
+	}
+}

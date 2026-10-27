@@ -35,6 +35,10 @@ func cmdUpdate(ctx context.Context, args []string) int {
 	// base HEAD（diff base..当前），只分析变更包；base 数据物化到本地
 	baseDir := fs.String("base", "", "base 分支目录（其 .codeintel 为完整索引；变更检测基准 = base HEAD）")
 	fs.Parse(args)
+	if err := validateAdapterTimeout(fs, *adapterTimeout); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 2
+	}
 	*repoPath = ResolveRepoRef(*repoPath) // Q238：注册表短名/后缀/module
 
 	abs, err := filepath.Abs(*repoPath)
@@ -120,6 +124,6 @@ func cmdUpdate(ctx context.Context, args []string) int {
 		fmt.Fprintln(os.Stderr, "警告：增量更新降级完成（部分工具失败，已保留可用数据）。")
 	}
 	// Q238：update 成功刷新全局台账构建状态（registered_at 不变）
-	refreshRepoAfterUpdate(abs, result.CommitSHA)
+	refreshRepoAfterUpdate(abs, result.BuildID, result.CommitSHA)
 	return 0
 }

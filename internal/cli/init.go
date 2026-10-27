@@ -31,6 +31,10 @@ func cmdInit(ctx context.Context, args []string) int {
 	progressMode := fs.String("progress", progress.ModeAuto, "构建进度显示（Q253：只写 stderr，stdout 仍只承载结果）：auto=stderr 是终端时用进度条、否则逐行；plain=逐行（agent/日志抓取）；none=不显示")
 	adapterTimeout := fs.Duration("adapter-timeout", orchestrator.AdapterTimeout, "每个适配器独立超时（默认 10m；大仓可显式调大，必须为正时长）")
 	fs.Parse(args)
+	if err := validateAdapterTimeout(fs, *adapterTimeout); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 2
+	}
 	*repoPath = ResolveRepoRef(*repoPath) // Q238：注册表短名/后缀/module
 
 	abs, err := filepath.Abs(*repoPath)
@@ -114,7 +118,7 @@ func cmdInit(ctx context.Context, args []string) int {
 	fmt.Printf("  codeintel query relations <表名>  表间关联\n")
 	fmt.Printf("  codeintel serve --repo %s   启动 Web 探索\n", abs)
 	// Q238：构建成功注册全局台账（路径/module/HEAD/worktree 归属）
-	registerRepoAfterBuild(abs, repo.Module, len(repo.Modules), result.CommitSHA)
+	registerRepoAfterBuild(abs, repo.Module, len(repo.Modules), result.BuildID, result.CommitSHA)
 	// #234：询问安装 post-commit 自动更新 hook（仅交互终端；默认不装）
 	if isTerminal(os.Stdin) {
 		_ = maybeInstallHook(abs, func() bool {

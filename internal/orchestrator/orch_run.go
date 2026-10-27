@@ -123,8 +123,9 @@ func (o *Orchestrator) finishBuild(start time.Time, results []AdapterResult, ski
 		dispatchPkgs = mergeDispatchPkgs(dispatchPkgs, prev.DispatchPkgs)
 	}
 
+	buildID := newBuildID()
 	meta := &domain.BuildMeta{
-		BuildID:      newBuildID(),
+		BuildID:      buildID,
 		CommitSHA:    build.CommitSHA,
 		ToolName:     toolName,
 		Status:       status,
@@ -140,6 +141,8 @@ func (o *Orchestrator) finishBuild(start time.Time, results []AdapterResult, ski
 	if err := o.RepoImpl.Save(meta); err != nil {
 		return build, fmt.Errorf("save build metadata: %w", err)
 	}
+	// 暴露实际落库身份（与 build_metadata 同一值；HeadCommit 在 CommitSHA）
+	build.BuildID = buildID
 	return build, nil
 }
 func newBatch() *batchT {

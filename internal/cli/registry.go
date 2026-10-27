@@ -45,20 +45,35 @@ func openGlobalRegistry() *sqlite.Registry {
 	return r
 }
 
-// gitHead 取仓库当前 HEAD（非 git 仓库/失败返回空）。
+// gitHead 取仓库当前 HEAD（非 git 仓库/失败返回空）。只有**自身** .git
+// （目录或 worktree/submodule 的 .git 文件）才算——模块位于父 Git checkout
+// 下时 git 会向上找到父仓库，那不是该模块的 HEAD（todo23 §10.1）。
 func gitHead(repoPath string) string {
-	cmd := exec.Command("git", "rev-parse", "HEAD")
-	cmd.Dir = repoPath
-	out, err := cmd.Output()
+	if _, err := os.Stat(filepath.Join(repoPath, ".git")); err != nil {
+		return ""
+	}
+	top, err := exec.Command("git", "-C", repoPath, "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return ""
+	}
+	abs, aerr := filepath.Abs(repoPath)
+	if aerr != nil {
+		return ""
+	}
+	if filepath.Clean(strings.TrimSpace(string(top))) != filepath.Clean(abs) {
+		return ""
+	}
+	out, err := exec.Command("git", "-C", repoPath, "rev-parse", "HEAD").Output()
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
 }
 
-// registerRepoAfterBuild 构建成功注册（init/reindex 共用）。commitSHA
-// 为空时回退 git rev-parse。
-func registerRepoAfterBuild(abs, module string, goModCount int, commitSHA string) {
+// registerRepoAfterBuild 构建成功注册（init/reindex 共用）。buildID 必须是
+// 实际写入 build_metadata 的构建身份（todo23 §10.1：不能用 commit 充当）；
+// commitSHA 为空时回退 git rev-parse 作为 HeadCommit。
+func registerRepoAfterBuild(abs, module string, goModCount int, buildID, commitSHA string) {
 	r := openGlobalRegistry()
 	if r == nil {
 		return
@@ -75,7 +90,7 @@ func registerRepoAfterBuild(abs, module string, goModCount int, commitSHA string
 		Module:       module,
 		GoModCount:   goModCount,
 		HeadCommit:   head,
-		BuildID:      head,
+		BuildID:      buildID,
 		LastBuiltAt:  stamp,
 		IsWorktree:   isWT,
 		WorktreeOf:   wtOf,
@@ -92,7 +107,8 @@ func registerRepoAfterBuild(abs, module string, goModCount int, commitSHA string
 }
 
 // refreshRepoAfterUpdate update 成功刷新构建状态（registered_at 不变）。
-func refreshRepoAfterUpdate(abs, commitSHA string) {
+// buildID 与 build_metadata 同源；HeadCommit 单独保存。
+func refreshRepoAfterUpdate(abs, buildID, commitSHA string) {
 	r := openGlobalRegistry()
 	if r == nil {
 		return
@@ -102,7 +118,7 @@ func refreshRepoAfterUpdate(abs, commitSHA string) {
 	if head == "" {
 		head = gitHead(abs)
 	}
-	if err := r.RefreshRepo(abs, head, head); err != nil {
+	if err := r.RefreshRepo(abs, head, buildID); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: 全局注册刷新失败: %v\n", err)
 	}
 }

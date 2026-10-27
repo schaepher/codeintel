@@ -39,6 +39,9 @@ type AdapterResult struct {
 
 // BuildResult 全量构建报告。
 type BuildResult struct {
+	// BuildID 实际写入 build_metadata 的构建身份（todo23 §10.1：不能把
+	// commit SHA 当 BuildID；调用方注册台账必须用这个值）。
+	BuildID      string
 	Status       domain.BuildStatus
 	Nodes        int
 	Edges        int
@@ -156,7 +159,21 @@ func headCommitSHA(repoPath string) string {
 	logger := zap.L()
 	logger.Debug("enter headCommitSHA")
 	defer logger.Debug("exit headCommitSHA")
+	// todo23 §10.1：只有**自身** .git（目录或 worktree/submodule 的 .git 文件）
+	// 才算有 HEAD。模块位于父 Git checkout 下时 `git -C` 会向上找到父仓库——
+	// 那不是该模块的 HEAD，必须返回空（不能继承父 HEAD）。
 	if _, err := os.Stat(filepath.Join(repoPath, ".git")); err != nil {
+		return ""
+	}
+	top, err := exec.Command("git", "-C", repoPath, "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return ""
+	}
+	abs, aerr := filepath.Abs(repoPath)
+	if aerr != nil {
+		return ""
+	}
+	if filepath.Clean(strings.TrimSpace(string(top))) != filepath.Clean(abs) {
 		return ""
 	}
 	out, err := exec.Command("git", "-C", repoPath, "rev-parse", "HEAD").Output()

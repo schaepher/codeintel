@@ -44,9 +44,9 @@ func runBuildTool(ctx context.Context, abs string, full bool) (*mcp.CallToolResu
 	// worktree 归属），增量只刷新构建状态
 	if out.Repo != nil {
 		if full {
-			registerRepoAfterBuild(abs, out.Repo.Module, len(out.Repo.Modules), out.Result.CommitSHA)
+			registerRepoAfterBuild(abs, out.Repo.Module, len(out.Repo.Modules), out.Result.BuildID, out.Result.CommitSHA)
 		} else {
-			refreshRepoAfterUpdate(abs, out.Result.CommitSHA)
+			refreshRepoAfterUpdate(abs, out.Result.BuildID, out.Result.CommitSHA)
 		}
 	}
 	return toolJSON(res), res
