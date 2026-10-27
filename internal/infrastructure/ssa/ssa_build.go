@@ -88,3 +88,22 @@ func runBounded(workers, n int, fn func(i int)) {
 	}
 	wg.Wait()
 }
+
+// acquireWorker 获取一个 worker 令牌（todo23 §10.2）：
+//   - 取消前不获取新令牌（ctx.Done 分支直接返回 false）；
+//   - 获取与取消同时就绪时，拿到令牌后**再检查一次** ctx：已取消则立即
+//     归还令牌并返回 false（调用方知道没有持有令牌，不会重复释放）。
+//
+// 返回 true 时调用方必须 `<-sem` 释放。
+func acquireWorker(ctx context.Context, sem chan struct{}) bool {
+	select {
+	case sem <- struct{}{}:
+		if ctx.Err() != nil {
+			<-sem
+			return false
+		}
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}

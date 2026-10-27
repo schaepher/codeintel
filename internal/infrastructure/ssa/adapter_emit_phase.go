@@ -90,10 +90,9 @@ func (s *blockEmitState) run(ctx context.Context, a *Adapter, pkgOrder []string,
 		wg.Add(1)
 		go func(blk fnBlock) {
 			defer wg.Done()
-			// 等待 worker 令牌时支持取消（不继续排队新任务）。
-			select {
-			case s.sem <- struct{}{}:
-			case <-ctx.Done():
+			// 等待 worker 令牌时支持取消（不继续排队新任务；取得后发现
+			// 已取消则立即归还，见 acquireWorker）。
+			if !acquireWorker(ctx, s.sem) {
 				abort(blk.pkgPath, ctx.Err())
 				return
 			}
