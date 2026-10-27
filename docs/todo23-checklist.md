@@ -13,7 +13,7 @@
 | §7.1 | 接口缓存按仓库/方法身份隔离 | 缓存实现**类型**（`ifaceImplTypes[ifaceID]`）+ 方法级结果（`ifaceImpls[ifaceID\x00method]`）；Insert/SaveService 在同一请求返回各自 `(Store).Method`，Missing 不借用；`TestSeqIfaceCacheMethodIdentity`；field_trace §137。**部分**：跨仓同名反例/冷暖查询次数对照待补 |
 | §10.1 | BuildResult / build_metadata / 台账共用 BuildID | `BuildResult.BuildID`；`finishBuild` 用同一 buildID 落库并回填；CLI/MCP 注册与刷新传 `result.BuildID`，HeadCommit 单独；同 HEAD 两次 init BuildID 不同、HeadCommit 相同、RegisteredAt 保留；无自身 `.git` 模块（父仓库下）HeadCommit 为空、BuildID 有效；worktree/submodule 的 `.git` 文件按 self-root 校验。`TestBuildResultExposesBuildID`、`registry_buildid_test.go`；field_trace §137。**未做**：真实 worktree/submodule 用例（代码已按 `--show-toplevel == repo` 判定） |
 | §10.2 | adapter timeout / SSA worker 取消边界 | `acquireWorker`：取消前不取令牌；取到后再查 ctx，已取消立即归还；SSA 发射块改用它。init/update 显式 `--adapter-timeout 0|-1s` 在库操作前报错（exit 2）；已有 adapter 超时 degraded + late emit 截断用例继续通过。`worker_acquire_test.go`、`adapter_timeout_init_test.go`；field_trace §137 |
-| §10.3-A…G | 既有能力保真/生命周期自动回归 | **未新增**（本轮未动）——保留待办 |
+| §10.3-A…G | 既有能力保真/生命周期自动回归 | **审计：多数已有覆盖** — A `TestPkgCacheChunkSizeLimit`/`TestPkgCacheChunkSizeLimit`/round-trip；B `TestPkgCacheTruncatedMidStreamRejected`/`TestArtifactCacheRejectsTruncatedAndMissingEnd`；C `TestBuildWriteCache*`/`TestResolveNodeRefsRollbackDoesNotPublish`；D `TestCallFactsProjectionCacheHitAndInvalidation`/`TestProjectionConcurrentSingleLoad`；E `fe_nested_test.go`/`fe_element_test.go`；G `TestRouteProjectionPlanUsesIndex` + 幂等迁移。**F（CPU profile 二次启动）未覆盖**：仓库当前无 CPU profile 启动入口，保留待办（需要先有该能力再锁语义）。 |
 
 ## 本轮未开始（按原文保留）
 
