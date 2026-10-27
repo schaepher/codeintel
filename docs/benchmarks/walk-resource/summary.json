@@ -1,6 +1,6 @@
 {
   "meta": {
-    "started_at": "2026-10-27T19:37:11+08:00",
+    "started_at": "2026-10-28T01:43:14+08:00",
     "go_version": "go1.27.0",
     "goos": "linux",
     "goarch": "amd64",
@@ -12,7 +12,7 @@
     "cache_size_pages": -131072,
     "mem_total_bytes": 3561033728,
     "time_tool": "/usr/bin/time -v（Maximum resident set size）",
-    "temp_sampling": "/proc/\u003cpid\u003e/fd 采样，间隔 5ms；覆盖 SQLite 已 unlink 仍打开的临时文件",
+    "temp_sampling": "/proc/\u003cpid\u003e/fd 采样，间隔 1ms；覆盖 SQLite 已 unlink 仍打开的临时文件",
     "reps_per_group": 3,
     "sample_count": 66,
     "cold_warm_note": "cold_first_query = 该 (N) 库上本轮的第一次查询；其余 warm_repeat。未 drop OS page cache（无权限），且夹具刚由 SaveBatchStats 写入——故 cold 仅表示“该库首个查询进程”，不代表冷 OS 缓存；每样本都是新进程（SQLite 连接级缓存必冷）。",
@@ -22,21 +22,21 @@
         "n": 256,
         "nodes": 256,
         "edges": 768,
-        "build_ms": 27.187
+        "build_ms": 12.389
       },
       {
         "n": 4096,
         "nodes": 4096,
         "edges": 12288,
-        "build_ms": 171.75
+        "build_ms": 167.945
       }
     ],
     "cancel_contract": {
-      "fixture": "/home/schaepher/Codes/ana/.tmp/TestWalkEdgesResourceBench3873196273/003",
+      "fixture": "/tmp/TestWalkEdgesResourceBench4215218997/003",
       "target": "symbol:go:example.com/materialized:N0000",
       "depth": 1000000,
       "budget_ms": 25,
-      "elapsed_ms": 26.176,
+      "elapsed_ms": 26.669,
       "deadline_exceeded": true,
       "error": "walk callees of symbol:go:example.com/materialized:N0000: context deadline exceeded",
       "reuse_after_cancel_edges": 3
@@ -51,22 +51,22 @@
       "result_digest": "b45616b1d7f049a67e365280d828e8e6e9ab1d06f57df5f03abfb2ce401ad253",
       "valid_samples": 9,
       "median_query_ms": {
-        "direct_one_hop": 0.183,
-        "materialized": 0.999,
-        "recursive": 0.989
+        "direct_one_hop": 0.319,
+        "materialized": 1.133,
+        "recursive": 1.053
       },
       "max_rss_bytes": {
-        "direct_one_hop": 13484032,
-        "materialized": 14073856,
-        "recursive": 13946880
+        "direct_one_hop": 13352960,
+        "materialized": 13877248,
+        "recursive": 13746176
       },
       "temp_peak_bytes": {
-        "direct_one_hop": "unavailable",
-        "materialized": "unavailable",
-        "recursive": "unavailable"
+        "direct_one_hop": 0,
+        "materialized": 0,
+        "recursive": 0
       },
-      "materialized_vs_recursive_time_ratio": 1.0101112234580385,
-      "materialized_vs_recursive_rss_ratio": 1.0091042584434655
+      "materialized_vs_recursive_time_ratio": 1.0759734093067428,
+      "materialized_vs_recursive_rss_ratio": 1.0095351609058403
     },
     {
       "n": 256,
@@ -76,19 +76,19 @@
       "result_digest": "3cf4b243a8827bf02f35e2d1cf6e18cb07c232eb45ad0fe04836916be7fb98b0",
       "valid_samples": 6,
       "median_query_ms": {
-        "materialized": 2.666,
-        "recursive": 2.751
+        "materialized": 3.244,
+        "recursive": 2.891
       },
       "max_rss_bytes": {
-        "materialized": 13877248,
-        "recursive": 13815808
+        "materialized": 13807616,
+        "recursive": 14139392
       },
       "temp_peak_bytes": {
         "materialized": 0,
-        "recursive": "unavailable"
+        "recursive": 0
       },
-      "materialized_vs_recursive_time_ratio": 0.9691021446746638,
-      "materialized_vs_recursive_rss_ratio": 1.0044470797509635
+      "materialized_vs_recursive_time_ratio": 1.1221030785195434,
+      "materialized_vs_recursive_rss_ratio": 0.9765353418308227
     },
     {
       "n": 256,
@@ -98,19 +98,19 @@
       "result_digest": "68fbf8ba553ae66462e02382ec8e7a61deb085881715edd88c3c4dd6a6b3a93d",
       "valid_samples": 6,
       "median_query_ms": {
-        "materialized": 42.882,
-        "recursive": 44.787
+        "materialized": 47.695,
+        "recursive": 46.302
       },
       "max_rss_bytes": {
-        "materialized": 14340096,
-        "recursive": 14139392
+        "materialized": 14794752,
+        "recursive": 14532608
       },
       "temp_peak_bytes": {
         "materialized": 0,
         "recursive": 0
       },
-      "materialized_vs_recursive_time_ratio": 0.9574653359233706,
-      "materialized_vs_recursive_rss_ratio": 1.0141946697566628
+      "materialized_vs_recursive_time_ratio": 1.0300850935164787,
+      "materialized_vs_recursive_rss_ratio": 1.0180383314543404
     },
     {
       "n": 256,
@@ -120,19 +120,19 @@
       "result_digest": "9a47e758746e2c8e7051501899109c5828f85fa34187a232207a7be7f1ff867f",
       "valid_samples": 6,
       "median_query_ms": {
-        "materialized": 726.033,
-        "recursive": 723.454
+        "materialized": 791.489,
+        "recursive": 797.085
       },
       "max_rss_bytes": {
-        "materialized": 17547264,
-        "recursive": 16044032
+        "materialized": 22003712,
+        "recursive": 20099072
       },
       "temp_peak_bytes": {
         "materialized": 0,
         "recursive": 0
       },
-      "materialized_vs_recursive_time_ratio": 1.003564843099907,
-      "materialized_vs_recursive_rss_ratio": 1.0936941536890477
+      "materialized_vs_recursive_time_ratio": 0.9929794187570962,
+      "materialized_vs_recursive_rss_ratio": 1.0947625840635826
     },
     {
       "n": 256,
@@ -142,19 +142,19 @@
       "result_digest": "60d52792cd8a9a95d5354a1cb7b2709f89a666bd8be95202ddc6886bac805c62",
       "valid_samples": 6,
       "median_query_ms": {
-        "materialized": 12264.484,
-        "recursive": 12149.232
+        "materialized": 13096.272,
+        "recursive": 13337.426
       },
       "max_rss_bytes": {
-        "materialized": 38645760,
-        "recursive": 28950528
+        "materialized": 44122112,
+        "recursive": 34934784
       },
       "temp_peak_bytes": {
         "materialized": 20709376,
         "recursive": 12054528
       },
-      "materialized_vs_recursive_time_ratio": 1.009486360948577,
-      "materialized_vs_recursive_rss_ratio": 1.3348896434634974
+      "materialized_vs_recursive_time_ratio": 0.9819189999629615,
+      "materialized_vs_recursive_rss_ratio": 1.2629851096259819
     },
     {
       "n": 4096,
@@ -164,22 +164,22 @@
       "result_digest": "b45616b1d7f049a67e365280d828e8e6e9ab1d06f57df5f03abfb2ce401ad253",
       "valid_samples": 9,
       "median_query_ms": {
-        "direct_one_hop": 0.206,
-        "materialized": 11.629,
-        "recursive": 11.805
+        "direct_one_hop": 0.271,
+        "materialized": 13.03,
+        "recursive": 13.527
       },
       "max_rss_bytes": {
-        "direct_one_hop": 13484032,
-        "materialized": 18141184,
-        "recursive": 18141184
+        "direct_one_hop": 13352960,
+        "materialized": 18202624,
+        "recursive": 18071552
       },
       "temp_peak_bytes": {
-        "direct_one_hop": "unavailable",
+        "direct_one_hop": 0,
         "materialized": 0,
         "recursive": 0
       },
-      "materialized_vs_recursive_time_ratio": 0.9850910631088522,
-      "materialized_vs_recursive_rss_ratio": 1
+      "materialized_vs_recursive_time_ratio": 0.9632586678494862,
+      "materialized_vs_recursive_rss_ratio": 1.0072529465095195
     },
     {
       "n": 4096,
@@ -189,19 +189,19 @@
       "result_digest": "3cf4b243a8827bf02f35e2d1cf6e18cb07c232eb45ad0fe04836916be7fb98b0",
       "valid_samples": 6,
       "median_query_ms": {
-        "materialized": 39.734,
-        "recursive": 41.291
+        "materialized": 47.039,
+        "recursive": 43.715
       },
       "max_rss_bytes": {
-        "materialized": 18001920,
-        "recursive": 18141184
+        "materialized": 18333696,
+        "recursive": 18395136
       },
       "temp_peak_bytes": {
         "materialized": 0,
         "recursive": 0
       },
-      "materialized_vs_recursive_time_ratio": 0.9622920248964667,
-      "materialized_vs_recursive_rss_ratio": 0.992323323549334
+      "materialized_vs_recursive_time_ratio": 1.0760379732357315,
+      "materialized_vs_recursive_rss_ratio": 0.9966599866399466
     },
     {
       "n": 4096,
@@ -211,19 +211,19 @@
       "result_digest": "68fbf8ba553ae66462e02382ec8e7a61deb085881715edd88c3c4dd6a6b3a93d",
       "valid_samples": 6,
       "median_query_ms": {
-        "materialized": 688.446,
-        "recursive": 698.87
+        "materialized": 796.761,
+        "recursive": 792.861
       },
       "max_rss_bytes": {
-        "materialized": 18534400,
-        "recursive": 18661376
+        "materialized": 23179264,
+        "recursive": 22589440
       },
       "temp_peak_bytes": {
         "materialized": 0,
         "recursive": 0
       },
-      "materialized_vs_recursive_time_ratio": 0.9850844935395711,
-      "materialized_vs_recursive_rss_ratio": 0.9931957857769974
+      "materialized_vs_recursive_time_ratio": 1.0049188949891594,
+      "materialized_vs_recursive_rss_ratio": 1.02611060743427
     },
     {
       "n": 4096,
@@ -233,19 +233,19 @@
       "result_digest": "9a47e758746e2c8e7051501899109c5828f85fa34187a232207a7be7f1ff867f",
       "valid_samples": 6,
       "median_query_ms": {
-        "materialized": 11592.456,
-        "recursive": 11534.584
+        "materialized": 13675.106,
+        "recursive": 13314.263
       },
       "max_rss_bytes": {
-        "materialized": 21942272,
-        "recursive": 20172800
+        "materialized": 27566080,
+        "recursive": 26652672
       },
       "temp_peak_bytes": {
         "materialized": 0,
         "recursive": 0
       },
-      "materialized_vs_recursive_time_ratio": 1.0050172594000788,
-      "materialized_vs_recursive_rss_ratio": 1.0877157360406091
+      "materialized_vs_recursive_time_ratio": 1.0271019882963104,
+      "materialized_vs_recursive_rss_ratio": 1.0342707853081297
     },
     {
       "n": 4096,
@@ -255,19 +255,19 @@
       "result_digest": "2e5fee56136dc9bba9e7469e2227505757300136cfcdc3d84fa8446492edddca",
       "valid_samples": 6,
       "median_query_ms": {
-        "materialized": 188316.987,
-        "recursive": 186912.307
+        "materialized": 281335.976,
+        "recursive": 248230.298
       },
       "max_rss_bytes": {
-        "materialized": 39112704,
-        "recursive": 30982144
+        "materialized": 44052480,
+        "recursive": 36241408
       },
       "temp_peak_bytes": {
         "materialized": 20529152,
         "recursive": 11915264
       },
-      "materialized_vs_recursive_time_ratio": 1.0075151819724744,
-      "materialized_vs_recursive_rss_ratio": 1.2624272871496562
+      "materialized_vs_recursive_time_ratio": 1.1333667898992734,
+      "materialized_vs_recursive_rss_ratio": 1.2155289330922243
     }
   ]
 }

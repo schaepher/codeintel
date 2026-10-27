@@ -19,7 +19,7 @@
 
 | 编号 | 事项 | 现状 / 下一步 |
 | --- | --- | --- |
-| 14.4-B | 短查询临时文件峰值覆盖 | 未实现。需：采样起止同步 + 创建/扩容/unlink 事件记录；可控夹具断言精确峰值；不可靠仍 unavailable。现有基准只有 5ms 轮询与 depth=1 unavailable |
+| 14.4-B | 短查询临时文件峰值覆盖 | **已完成**：子进程内查询生命周期采样（QueryContext 前后快照 + 250µs 轮询 `/proc/self/fd`，含 ` (deleted)`）；`temp_events` 记录 create/grow/unlink/close；可控夹具 4KB→64KB→unlink 持有→关闭，断言峰值精确 65536；无临时文件短查询为有效 0；全量重跑 66/66 `child_query_poll`、unavailable=0、12 个深样本峰值>0、边数/摘要/exit=0/取消契约全保持（1771.71s）。见 benchmarks/walk-resource 与 field_trace §138 |
 | §1 | 夹具/证明边界/实施顺序 | 已有 `example.com/flow`/`tx` 夹具（todo22）；新增 §2.5 独立输入/其它反例待补 |
 | §2.1 | 统一捕获接口/对象覆盖表 | todo22 已完成函数值环境；本轮把对象化推广到实现候选（todo22 P1）；§2.1 本身无新增缺口 |
 | §2.2 | 嵌套实参工厂/平行赋值/多层转发反例 | 基础能力已有；缺本轮要求的新反例矩阵（同名阴影/平行赋值/多层转发真实 CLI） |

@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -36,6 +37,8 @@ const (
 	benchChildSmpEnv = "CODEINTEL_WALK_BENCH_SAMPLE"
 	benchChildResEnv = "CODEINTEL_WALK_BENCH_RESULT"
 	benchChildPIDEnv = "CODEINTEL_WALK_BENCH_PID"
+	// todo23 14.4-B：可控临时文件夹具（子进程内 create/grow/unlink/hold/close）
+	benchTempFixtureEnv = "CODEINTEL_WALK_BENCH_TEMP_FIXTURE"
 )
 
 const (
@@ -144,6 +147,22 @@ func TestWalkBenchChild(t *testing.T) {
 		db.Close()
 		t.Fatalf("%s", res.Error)
 	}
+	// todo23 14.4-B：查询生命周期内的子进程临时文件采样（含已 unlink fd）。
+	tmpDir := os.TempDir()
+	var fixture *benchTempFixture
+	if os.Getenv(benchTempFixtureEnv) == "1" {
+		fixture = newBenchFixtureTemp(tmpDir)
+	}
+	sampler := newSelfTempSampler(tmpDir)
+	stopSampler := make(chan struct{})
+	var samplerWG sync.WaitGroup
+	samplerWG.Add(1)
+	go func() { defer samplerWG.Done(); sampler.loop(stopSampler) }()
+	sampler.snapshot("query_start")
+	if fixture != nil {
+		fixture.Grow()
+		sampler.snapshot("grow")
+	}
 	// 查询边界：QueryContext → 全部 Rows.Next/Scan 完成 → Close（todo22 要求
 	// "比较的查询边界必须包含全部 Rows.Next/Scan"）。
 	queryStart := time.Now()
@@ -159,7 +178,22 @@ func TestWalkBenchChild(t *testing.T) {
 	facts, scanErr := scanFacts(rows)
 	rows.Close()
 	res.QueryEndNS = time.Now().UnixNano()
+	sampler.snapshot("query_end")
+	if fixture != nil {
+		fixture.Unlink()
+		sampler.snapshot("unlink")
+	}
+	close(stopSampler)
+	samplerWG.Wait()
+	if fixture != nil {
+		fixture.Close()
+	}
 	res.QueryMS = benchMS(queryStart)
+	res.TempPeak = sampler.peak
+	res.TempSamples = sampler.samples
+	res.TempMaxGapMS = float64(sampler.maxGap.Microseconds()) / 1000
+	res.TempEvents = sortedTempEvents(sampler.events)
+	res.TempPeakSource = "child_query_poll"
 	if scanErr != nil {
 		res.Error = "scan: " + scanErr.Error()
 		writeResult()

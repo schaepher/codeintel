@@ -7130,3 +7130,30 @@ Middle→Execute(f2)` 中第二次 Execute 被误判为循环（Middle 的子树
 - **§10.2 取消边界**：`ssa.acquireWorker(ctx, sem)`（取到令牌后再查 ctx，
   已取消立即归还）替换发射块的 select；init/update 显式零/负
   `--adapter-timeout` 在库操作前 exit 2（reindex 已有同款）。
+
+## §138 todo23 14.4-B：短查询临时文件峰值覆盖（2026-10-27）
+
+**问题**：父进程 5ms 轮询在 `query_ms < 间隔`（depth=1）时没有窗口内采样点，
+只能 unavailable；已 unlink 仍打开的临时文件也可能在采样间隙被漏掉。
+
+**改法**：
+- **子进程内采样**（`repo_walk_bench_self_temp_test.go`）：查询边界前后各一次
+  快照 + 查询期间 250µs 轮询 `/proc/self/fd`，统计 TMPDIR 下常规文件（含
+  `... (deleted)`）大小之和；结果随样本提供 `temp_peak_bytes`/
+  `temp_samples`/`temp_max_gap_ms`/`temp_peak_source=child_query_poll`。
+- **事件记录**：按 fd 目标（去 deleted 后缀）做快照差，记录 create/grow/
+  unlink（deleted 状态转变）/close，写 `temp_events`。
+- **父进程回退**：子进程无采样（平台无 /proc）时仍按原“窗口内采样点”规则，
+  不能证明覆盖就 unavailable；不拿 0 冒充。
+- **可控夹具**：`CODEINTEL_WALK_BENCH_TEMP_FIXTURE=1` 时子进程创建 4KB→
+  64KB 临时文件、查询期间持有、unlink 后继续持有 fd、最后关闭；
+  `TestWalkBenchShortQueryTempPeakFixture` 断言峰值精确 65536 且 create/grow/
+  unlink 事件齐全；`TestWalkBenchShortQueryNoTempFileIsZero` 断言无临时文件
+  短查询为有效 0。
+
+**全量重跑**（1771.71s，66 样本，`docs/benchmarks/walk-resource/`）：
+`temp_peak_source` 全部 child_query_poll、unavailable 0、12 个深样本 >0；
+边数 256→3/12/66/282/768、4096→3/12/66/282/1146 全部命中；两实现摘要相等、
+exit_code=0；取消契约 26.7ms + 复用边 3。**边界**：子进程 250µs 轮询对
+生存期短于该间隔的临时文件仍不能数学证明峰值（事件只能记录被观察到的
+创建/扩容）；完全无采样时回退 unavailable。

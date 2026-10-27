@@ -69,11 +69,13 @@ type benchSample struct {
 	// 内核计数，但统计范围略有差异：VmHWM 自进程启动起累计）。
 	MaxRSSVMHWMBytes int64 `json:"max_rss_vmhwm_bytes,omitempty"`
 
-	TempPeakBytes        benchMeasure `json:"temp_peak_bytes"`
-	TempPeakNote         string       `json:"temp_peak_note,omitempty"`
-	TempSampleIntervalMS float64      `json:"temp_sample_interval_ms"`
-	TempSamples          int          `json:"temp_samples"`
-	TempMaxGapMS         float64      `json:"temp_sample_max_gap_ms"`
+	TempPeakBytes        benchMeasure     `json:"temp_peak_bytes"`
+	TempPeakNote         string           `json:"temp_peak_note,omitempty"`
+	TempSampleIntervalMS float64          `json:"temp_sample_interval_ms"`
+	TempSamples          int              `json:"temp_samples"`
+	TempMaxGapMS         float64          `json:"temp_sample_max_gap_ms"`
+	TempPeakSource       string           `json:"temp_peak_source,omitempty"`
+	TempEvents           []benchTempEvent `json:"temp_events,omitempty"`
 
 	OpenMS   float64 `json:"open_ms"`
 	CloseMS  float64 `json:"close_ms"`
@@ -106,7 +108,13 @@ type benchChildResult struct {
 	SQLiteVer    string `json:"sqlite_version"`
 	TempStore    int    `json:"temp_store"`
 	CacheSize    int    `json:"cache_size_pages"`
-	Error        string `json:"error,omitempty"`
+	// todo23 14.4-B：子进程内查询生命周期的临时文件采样（短查询可靠覆盖）
+	TempPeak       int64            `json:"temp_peak_bytes"`
+	TempSamples    int              `json:"temp_samples"`
+	TempMaxGapMS   float64          `json:"temp_max_gap_ms"`
+	TempEvents     []benchTempEvent `json:"temp_events,omitempty"`
+	TempPeakSource string           `json:"temp_peak_source,omitempty"`
+	Error          string           `json:"error,omitempty"`
 }
 
 // procSampler 采样子进程 TMPDIR 下打开着的（含已 unlink 的）临时文件总量。
@@ -186,7 +194,7 @@ func (s *procSampler) sampleOnce(fdDir string) {
 
 // benchTempInterval 临时文件采样间隔（5ms：深递归在 4096 节点上的查询是
 // 百毫秒级，5ms 能覆盖整个过程；更小的间隔本身会抬高被测量进程的噪声）。
-const benchTempInterval = 5 * time.Millisecond
+const benchTempInterval = time.Millisecond // todo23：短查询覆盖（子进程内另有 250µs 采样）
 
 var gnuTimeRSS = regexp.MustCompile(`Maximum resident set size \(kbytes\):\s*(\d+)`)
 

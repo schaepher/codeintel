@@ -41,7 +41,7 @@ func runBenchSample(t *testing.T, bin, outDir string, fx *benchFixture, depth in
 	timePath := filepath.Join(work, "time.txt")
 	logPath := filepath.Join(work, "child.log")
 
-	childEnv := benchEnv(map[string]string{
+	extraEnv := map[string]string{
 		benchChildEnv:    "1",
 		benchChildDBEnv:  fx.Dir,
 		benchChildNEnv:   strconv.Itoa(fx.N),
@@ -51,7 +51,11 @@ func runBenchSample(t *testing.T, bin, outDir string, fx *benchFixture, depth in
 		benchChildResEnv: resPath,
 		benchChildPIDEnv: pidPath,
 		"TMPDIR":         tmpDir,
-	})
+	}
+	if v := os.Getenv(benchTempFixtureEnv); v != "" {
+		extraEnv[benchTempFixtureEnv] = v
+	}
+	childEnv := benchEnv(extraEnv)
 	childArgs := []string{"-test.run=^TestWalkBenchChild$", "-test.timeout=10m"}
 
 	tool, hasTime := gnuTimeTool()
@@ -139,8 +143,29 @@ func runBenchSample(t *testing.T, bin, outDir string, fx *benchFixture, depth in
 	if smp.Error == "" && smp.ExitCode != 0 {
 		smp.Error = fmt.Sprintf("exit_code=%d", smp.ExitCode)
 	}
-	// 临时文件峰值判定：采样点必须真的落在查询时间窗内——query_ms 小于
+	// todo23 14.4-B：优先采用子进程内查询生命周期采样（短查询也能可靠覆盖；
+	// 含 unlink 仍打开的文件）。父进程轮询只作为回退。
+	if res.TempSamples > 0 {
+		smp.TempPeakBytes = benchMeasure{Value: res.TempPeak, OK: true}
+		smp.TempSamples = res.TempSamples
+		smp.TempMaxGapMS = res.TempMaxGapMS
+		smp.TempPeakSource = res.TempPeakSource
+		smp.TempEvents = res.TempEvents
+		if res.TempPeak == 0 {
+			smp.TempPeakNote = fmt.Sprintf(
+				"查询生命周期内子进程采样 %d 次（最大间隔 %.2fms）未出现 TMPDIR 临时文件：SQLite 留在页缓存/未落盘（有效观测）",
+				res.TempSamples, res.TempMaxGapMS)
+		}
+		if smp.Error == "" {
+			os.RemoveAll(work)
+		} else {
+			smp.ErrorDir = work
+		}
+		return smp
+	}
+	// 回退：父进程轮询（采样点必须真的落在查询时间窗内——query_ms 小于
 	// 采样间隔的样本不能凭 0 宣称"查询期无临时文件"（记 unavailable）。
+	smp.TempPeakSource = "parent_poll"
 	inQuery := 0
 	if res.QueryEndNS > res.QueryStartNS {
 		for _, ts := range sampler.sampleTimes {

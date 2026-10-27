@@ -174,3 +174,25 @@ go test ./internal/infrastructure/sqlite \
 - 上游语义回归（不替代本基准）：
   `go test ./internal/infrastructure/sqlite -run 'TestWalkEdges|TestCallersCalleesDepthAndConfidence|TestCalleesContextInterruptsRecursiveSQL' -count=1 -timeout=30s`、
   `go test -race ./internal/infrastructure/sqlite -run 'TestWalkEdges|TestCalleesContextInterruptsRecursiveSQL' -count=10 -timeout=60s`。
+
+## todo23 14.4-B 增量：短查询临时文件峰值覆盖（2026-10-27）
+
+此前父进程按 5ms 轮询 `/proc/<pid>/fd`，`query_ms < 采样间隔` 的样本
+（depth=1）只能记 `unavailable`。现在改为：
+
+- **子进程内查询生命周期采样**（`repo_walk_bench_self_temp_test.go`）：
+  QueryContext 前/后各一次快照，查询期间 250µs 轮询 `/proc/self/fd`；
+  统计 TMPDIR 下打开的（含 ` (deleted)` 已 unlink）文件大小之和。
+- **事件记录**：create / grow / unlink / close（按 fd 目标 + 大小差 +
+  deleted 状态变化），随样本写 `temp_events`；`temp_peak_source` 标明机制。
+- **可控夹具**（`TestWalkBenchShortQueryTempPeakFixture`）：查询前创建 4KB、
+  扩展 64KB，查询期间持有，unlink 后继续持有 fd，最后关闭；断言峰值精确
+  = 65536 字节，create/grow/unlink 事件齐全。另一用例断言无临时文件的短
+  查询为**有效 0**（不是 unavailable）。
+- 父进程轮询保留为回退（子进程采样不可用时仍按原“窗口内采样点”规则，
+  无法证明覆盖则 unavailable）。
+
+本轮重跑（1771.71s，66 样本，`run.log`）：`temp_peak_source` 全部为
+`child_query_poll`，`unavailable` 0，12 个深递归/物化样本峰值 >0；
+期望边数、两实现摘要一致、exit_code=0、取消契约（26.7ms/复用边 3）全部
+保持。逐样本数据与汇总见 `samples.jsonl` / `summary.json` / `summary.md`。
