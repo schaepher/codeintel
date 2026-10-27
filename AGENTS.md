@@ -1086,3 +1086,37 @@ defer logger.Debug("exit <name>")
 - **SQLite 驱动切换实测否决**：mattn（cgo）vs modernc（纯 Go）批量写
   基准——modernc 慢 38%（cgocall 边界开销 < 纯 Go 翻译引擎执行劣势）。
   性能判断用基准数据，不假设"无 cgo 更快"
+
+## todo22 §4.1/§9 交付教训（2026-10-27）
+
+- **"同一语义的多条发射路径"第三次复发（服务注册属性）**：`registers_service`
+  原本打在**调用方**上（native gRPC 的口径），但同一个 `Setup()` 注册多个服务时
+  单值属性互相覆盖（后写者赢）——go-micro 实测只剩最后一个。改为打在**注册函数**
+  节点（每个服务一个生成函数），调用点用 `GetFirstCallTo`（calls 入边+行号）恢复。
+  与 Q252/Q252b 同型：**同一份信息的多个写者必须共用同一身份口径**。
+- **协议判定按调用点签名的类型来源，不按名字形状**：go-micro 客户端接口方法与
+  gRPC 同形（ctx + error），区分点是可选项 `...client.CallOption`（go-micro 包
+  类型）。用 `isMicroClientOptsSig` 打 `rpc_protocol=micro`；不要用"服务名后缀/
+  Go 类型名"推断协议。
+- **结构相同的多个客户端接口会互相"实现"**（Go structural typing）——接口派发
+  必歧义（实测 `AccountServiceClient` 与 `OtherServiceClient` 的方法完全相同，
+  SCIP 给双向 implements）。RPC 续接因此**不走接口候选**，用调用点出站边
+  （索引期已用签名证明协议）直接解析服务身份；`rpc_impl` 多实现仍然 fail-closed。
+- **"客户端声明身份"与"服务端注册身份"必须分开存**：同一个 `grpc_service`
+  节点同时被客户端桩（`NewRequest` 第一参）与服务端注册（`micro.Name`）写入，
+  用同一个属性会让"改服务名/配错"看起来正常。拆 `rpc_client_service` /
+  `rpc_service` 后，不一致 → `rpc_identity_conflict`（不回退短名兜底）。
+- **闭包上下文的两个隐性错位（§2.1 遗留）**：① 查询侧 `parser.ParseFile(...,0)`
+  不解析注释 → DI 注释注解（`// @inject store`）**从未生效**（单测靠字段名兜底
+  恰好通过）；② 闭包展开用 `req.curSym/curFile`（"内联到哪"）而不是字面量
+  所在函数/文件（`fv.enclosing` / `fv.ctx.rel`）→ 经包级函数回调后在别的包执行时，
+  包身份/DI 注册表扫描目录全错（`storeAOP` 被解析成 `example.com/tx:(storeAOP)`）。
+  **凡"字面量/闭包在 A 创建、在 B 执行"的分析，身份都必须取创建处。**
+- **AOP 包装器的内部字段用具体实现类型**（`storeAOP{inner *Store}`）：若内部字段
+  也是被注入的同一接口，包装器本身也满足该接口 → 委托调用无法静态消歧（实测
+  `a.inner.Insert` 两个候选）。这不是分析缺陷，是 fixture/框架契约要写清楚。
+- **覆盖"全量"之前先清临时产物**：根分区再次被 `tmp/wb-q6.txt`（56G 旧基准日志）
+  占满，表现为 `link: mapping output file failed`（不是代码回归）。`make it` 前
+  `df -h .`；项目内 `tmp/`（无点）与 `.tmp/` 都是临时目录，验证前可清理。
+- **测试辅助函数遍历树时别把根与子节点重复遍历**（`append([]*Node{root}, root.Nodes...)`
+  + 递归会重复计数）；同一节点被统计两次会表现为"RPC 节点 4≠3"这类假失败。
