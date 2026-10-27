@@ -6541,3 +6541,28 @@ depth 预算终止；回归 `TestSeqCaptureRecursiveFactory`。
 直接 `go test -tags integration ./integration` 跑真实 init 用例时，子进程
 可能找不到 scip-go（`make it` 会注入 `$(go env GOPATH)/bin`）——表现成
 "SCIP 符号索引不可用"，不是代码回归（runbook #26）。
+
+## §118 todo22 §3.3 第一增量：DI 注册证据 + AOP 包装目标（2026-10-27）
+
+字段注入只认**可核对的证据**，不按框架名猜：
+
+- key 来源：字段注释注解（`// @inject k` / `// inject:k` / `//di:k`）优先，
+  `inject:"k"` / `di:"k"` tag 兜底，最后按字段名。
+- 注册来源：同包 `.go` 里 `init()`/`Init()`/`Setup()`/`RegisterDeps`/
+  `Bootstrap` 的**顶层** `Register(<字符串 key>, <impl>)` / `Bind(...)`
+  （支持 `c.Register(...)` 与 init→同包 `RegisterXxx()` 一跳）。
+- 顺序：调用点先跑 `receiverFieldImpl`（显式字段写者的 SSA 数据流），无结论
+  才用 DI 证据。
+- AOP：注册值是包装调用（`Wrap(&T{})`）时目标取包装器的返回类型，reason
+  `di-aop-wrapper`，包装层内部再调用原实现（不跳过 AOP 直接接业务方法）。
+- 证据：`evidence.source=di` + `reason` + `symbol_id` + `decl_type` +
+  `di_register_file`/`di_register_line`。
+- 未知边界：动态 key、多重注册（含原因）、非引导注册、条件注册、impl 类型
+  无法解析——一律不产出确定实现；"唯一实现/接口相容/类型断言"不作为注册证明。
+
+测试：`internal/action/action_seq_di_test.go`（4 正例 + 4 类反例 + AOP）。
+
+### 顺带的结构治理
+
+`action_seq_walk_call.go` 抽走 1b/2 两条具体化分支（`action_seq_walk_impl.go`），
+DI 注解解析独立成 `action_seq_di_annotation.go`，保持文件 ≤300 行。

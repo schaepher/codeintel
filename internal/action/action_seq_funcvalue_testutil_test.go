@@ -123,3 +123,14 @@ func writeSeqFixture(t *testing.T, src string) string {
 	}
 	return dir
 }
+
+// parseSeqFile 解析夹具源码（返回 fset 与 AST）。
+func parseSeqFile(t *testing.T, src string) (*token.FileSet, *ast.File) {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "flow.go", src, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parse fixture: %v", err)
+	}
+	return fset, f
+}

@@ -81,6 +81,9 @@ type SeqEvidence struct {
 	// 未展开任何候选）；candidate_budget = 截断/未展开的原因（含候选数）
 	CandidateDepth  int    `json:"candidate_depth,omitempty"`
 	CandidateBudget string `json:"candidate_budget,omitempty"`
+	// todo22 §3.3：DI 注册证据站点（字段注入的 key 在哪个引导函数里注册）
+	RegisterSite int    `json:"di_register_line,omitempty"`
+	RegisterFile string `json:"di_register_file,omitempty"`
 	// todo10-8：证据身份——可直接重跑的查询命令 + 支持程度
 	Query   string `json:"query,omitempty"`   // 规范化 shell 命令（含 repo/ID/depth/focus/scene）
 	Verdict string `json:"verdict,omitempty"` // direct|corroborated|unverified

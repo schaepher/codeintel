@@ -202,20 +202,11 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 			}
 		}
 
-		// 2) 局部变量数据流具体化（P0-6）
+		// 1b) DI 字段注入（§3.3）+ 2) 局部变量数据流具体化（P0-6）
 		if sel, isSel := fun.(*ast.SelectorExpr); isSel {
-			if id, ok := sel.X.(*ast.Ident); ok {
-				if implMethod := a.localVarImpl(req, f, curPkg, id.Name, sel.Sel.Name); implMethod != "" {
-					node.ImplType = implTypeShort(implMethod)
-					node.Evidence = &SeqEvidence{Source: SeqEvidenceLocalVar, CallFile: curFile, CallLine: pos.Line,
-						SymbolID: implMethod, Confidence: tg.confidence, Reason: "localvar-init-dataflow"}
-					if child, stop := codeSeqForSymbol(a, req, implMethod, depth-1); child != nil {
-						node.Nodes, node.Stop = child.Nodes, child.Stop
-						return node
-					} else if stop != nil {
-						node.Stop = stop
-					}
-				}
+			if seqTryDIAndLocalVar(a, req, f, sel, recvType, recvDecl, tg.confidence,
+				node, depth, curFile, pos) {
+				return node
 			}
 		}
 

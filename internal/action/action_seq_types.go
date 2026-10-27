@@ -67,6 +67,8 @@ type CodeSequenceRequest struct {
 	// todo22 §5：当前包（同目录）常量表 name → 值文本（整型/有类型常量参与
 	// 场景判定；不把枚举名称直接当值）
 	sceneConsts map[string]string
+	// todo22 §3.3：当前包的 DI 注册表（key → 注册点；扫描一次缓存）
+	diRegs map[string][]seqDIReg
 	// todo22 §2.1：当前分支条件（if/else 进入分支时设置，赋值/字面量绑定
 	// 随值保存——"在什么条件下成立"是证据的一部分）
 	branchCond string

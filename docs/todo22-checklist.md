@@ -90,7 +90,7 @@ make it
 | 5 | 场景推导（整型/枚举/跨包常量/短路/取反） | **同包已完成（B.5 补强）**：整型/浮点/字符字面量、包内常量（含 `Source(7)` 转换）、内建整数转换、`&&`/`||` 短路、`!` 取反；**跨包常量未解析**（保持 unknown） |
 | 3.1 | 到达定义/精确目标/同名不同包/行号回退核对 | 部分：`action_seq_dataflow.go`（receiver 字段写入溯源）、`action_seq_targets.go:matchAggregated`（todo20-9）+ 本轮新增**实参位置调用的 AST 对象身份恢复**（`seqASTCallTarget`，不做名称模糊搜索） |
 | 3.2 | 接口候选全集 + `candidate_depth`/`candidate_budget` 截断诊断 | **已完成（2026-10-27，B.7）**：多候选不选第一个展开、候选上限 12 + 截断说明；见 B.7 |
-| 3.3 | DI/AOP（Bean/Inject 注解、container/key 注册、事务 wrapper 内原实现） | **未实现** |
+| 3.3 | DI/AOP（Bean/Inject 注解、container/key 注册、事务 wrapper 内原实现） | **第一增量已完成（2026-10-27，B.8）**：字段注解/注册证据 + AOP 包装目标；框架专有契约（gof/其他容器）仍未知 |
 | 4.1 | go-micro `NewRequest/Call` + 服务注册续接、跨仓 workspace 限定 | **未实现**（仅有 gRPC 方法入口 ID 约定 `GrpcMethodEntryID`） |
 | 4.2 | 外部依赖源码按需解析（`go list -e -json -find -mod=readonly`、离线、缓存） | **未实现** |
 | 5 | 场景推导（整型/枚举/跨包常量/短路/取反） | **已实现**（`action_scene*.go`，含 `Source=7/19` 与 `int32(...)` 场景测试） |
@@ -251,3 +251,19 @@ bash scripts/verify.sh --quick && make it
 **验证**：`go test ./internal/action -run 'TestSeqIface' -count=1`；全量 `verify.sh --quick` + `make it` 通过。
 
 **注意**：直接 `go test -tags integration ./integration` 时子进程可能找不到 scip-go（要像 `make it` 那样把 `$(go env GOPATH)/bin` 加进 PATH，见 runbook #26）——不是代码回归。
+
+### B.8 §3.3 第一增量：DI 字段注入注册证据 + AOP 包装目标（已完成，2026-10-27）
+
+| 要求 | 实现 / 证据 |
+| --- | --- |
+| 依据真实注入注解解析字段（支持注释形式，不假设只有 struct tag） | `diFieldKey`：字段 doc/行内注释 `// @inject store`、`// inject:store`、`//di:store` 优先；`inject:"key"` / `di:"key"` tag 兜底；都没有再按字段名匹配 |
+| 精确 container/key 注册 | `seqDIRegistrations`：扫描同包 `.go` 的 `init()`/`Init()`/`Setup()`/`RegisterDeps`/`Bootstrap` 顶层语句里的 `Register(<字符串字面量 key>, <impl>)` / `Bind(...)`（支持 `c.Register(...)` 方法形态与 init→同包 `RegisterXxx()` 一跳） |
+| 显式字段写者的普通数据流结论不可被 DI 猜测覆盖 | 调用点顺序固定：step 1 `receiverFieldImpl`（SSA 字段摘要 → 源码赋值）先；仅当它无结论才进 step 1b DI |
+| 按框架契约保留事务 AOP，不跳过 wrapper 直接接业务方法 | 注册值是包装调用（`Register("k", Wrap(&T{}))`）时：目标取**包装器**的返回类型（`rhsTypes`），证据 reason = `di-aop-wrapper`；包装器内部调用原实现由正常展开显示 |
+| 输出具体方法 ID、声明类型及 `di-field-registration` 等依据 | `evidence.source=di`、`reason` ∈ {`di-field-registration`,`di-field-annotation`,`di-aop-wrapper`}、`symbol_id`、`decl_type`、`di_register_file`/`di_register_line`（注册站点） |
+| 动态 key / 多重注册 / 条件注册 / 非 init 注册 / 未知构造器保持未知 | 动态 key（非字符串字面量）不收集；多重注册 → `func_value_unbound` + "多重注册"；非引导函数注册不收集；`if`/`for` 内的条件注册不收集（顶层语句之外不算执行）；impl 类型无法解析 → 不收集（无证据） |
+| 接口结构相容 / 唯一实现 / 类型断言不能代替注册证明 | DI 分支只认注册证据；没有注册就走既有接口派发（候选/unknown），不因"唯一实现"直接具体化 |
+
+**测试**（`internal/action/action_seq_di_test.go`）：注解注册、struct tag 注册、四类证据不足反例（动态 key/多重/非引导/条件）、AOP 包装（目标 `(txStore).Add` + `aop-wrapper` + 展开 `TxBegin`）。
+
+**未做**：框架专有契约（Bean/Inject 注解语法按框架而定、`gof`/其他容器的 `Set/Apply` 形态）、跨包注册（注册点在另一个包）、AOP bypass 条件的场景求解（`ctx.Value("bypass")` 之类运行时事实）。
