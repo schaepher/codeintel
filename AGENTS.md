@@ -545,6 +545,40 @@ pre-commit 场景的兜底）。
 - **改完代码先 rebuild 再验证**（老坑 2026-10-26 复发一次）：P1-02 首轮
   `query unused` 数字"没变化"，实际跑的是 P1-04 时构建的旧二进制。
 
+## todo21 增量构建竞态 / 时序查询热点与可取消 SQL（2026-11-03）
+
+- **"用全局 busy 标记判断本次是否在进行"是测试同步反模式**：`TestHandleIncremental`
+  曾先跑一个立即返回的 buildFn、再轮询 `srv.building` 猜第二个请求已开始——
+  轮询可能读到**上一轮**残留的 true，于是把本该 409 的第三个请求判成 202
+  （整包 `-count=3` 偶发，单跑 110 次却全绿）。修法：buildFn 发"已进入"信号后
+  阻塞，同步 POST 拿 202 → 等进入信号 → 再 POST 断言 409 → 释放（defer 释放，
+  失败也不泄漏 goroutine）。
+- **锁内写、锁外读 = 真实 race**：`SetBuildFunc` 在 `buildMu` 内写 `s.buildFn`，
+  `handleIncremental` 解锁后才读它。`-race` 回归
+  （`TestIncrementalConcurrentBuildFuncReplacement`）一次就抓到。修法：同一临界区
+  内检查 buildFn/building、置 building、**捕获局部变量**，解锁后异步调用捕获值。
+- **内部 canonical ID 不得走模糊解析**：`sigTypesOf` 原用 `ResolveSymbol`，
+  精确 miss 后退化为 `GetSymbolByName` 的 LIKE 全扫 + `AllSymbolNames(5000)`
+  候选池（逐调用点重复 = 时序查询头号热点），而且"猜一个相似方法的签名"本身
+  就写错消息线参数。内部 ID 用 `GetSymbol`；用户输入才做模糊搜索。
+- **现代驱动可能只在前几条结果内监听取消**：`modernc.org/sqlite` v1.57.0 的
+  `stmt.query` 用 `defer interruptOnDone(...)()`——首条结果返回后监听就撤销，
+  `rows.Next` 的后续 step 不再可中断（2 节点环 + depth 1e6 实测 6s 后返回
+  nil）。递归 CTE 加 `AS MATERIALIZED` 把重计算压到首条结果之前，取消才真正
+  生效；换驱动前必须让同一个取消回归通过。
+- **"计划变好"要用 EXPLAIN QUERY PLAN + 输出逐项对照**：包清单原计划
+  `SCAN nodes USING INDEX idx_nodes_name`（go2o 97ms），`INDEXED BY
+  idx_nodes_file_kind` 后 `SEARCH … (file_path>?)`（11.6ms，2.5→8×，136 行不变）。
+  但显式索引名是硬依赖：全量构建 `BeginBulkLoad` 会 DROP 它——查询侧要回退到
+  等价语句，否则"构建期间只读"从"慢"变成"报错"。
+- **depth<=1 的递归 CTE 只付规划/执行成本**：一跳 49 条边在 go2o 上
+  递归 362ms vs 直接邻接 225µs（~1600×）。共享 walkEdges 在 depth<=1 走直接
+  查询、depth>1 保持递归；兼容矩阵（0/1 跳、双方向、环、低置信度、metadata、
+  重复事实去重）用旧递归实现做 golden 逐项对照。
+- **查询预算的"可观察范围"要单独记一行**：`[seq.query] elapsed=… budget=…
+  canceled=…` 从创建 ctx 前到 CodeSequence 返回（含请求配置构造，不含开库/
+  渲染）；进程墙钟另测。取消必须 stdout 为空、非零退出。
+
 ## 常用命令
 
 ```shell

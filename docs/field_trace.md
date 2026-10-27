@@ -6100,3 +6100,153 @@ P1-03 原文只写"~100 文件按 R89 模式"，与 R98 的结论（"已基本�
 4. **迁移测试要连"口径前提"一起搬**：`TestBuildFullThenIncremental` 第一版在
    构建**之后**才写脏文件，却断言指纹非空——指纹记录的是构建时的脏文件，
    正确写法是构建前就制造脏文件（错误假设被测试自己暴露）。
+
+## §110 todo21：增量构建竞态 / 时序查询热点与可取消 SQL（2026-11-03）
+
+用户给的 todo21 分两块：13（`/incremental` 测试同步 + `buildFn` 真实 data race）
+与 14（时序查询三处热点：签名查询模糊回退、包清单全库回表、一跳递归 CTE；
+外加取消未真正终止 SQL 与预算范围不可观察）。**先复现反例，再修，再对照**。
+
+### 13.1 增量构建互斥测试的同步歧义
+
+- 旧测试结构：先装一个立即返回的 buildFn（`executed <- "ok"` 后返回），再装
+  阻塞 buildFn 并**异步** POST（错误与 body 都不处理），然后轮询全局
+  `srv.building` 猜"第二轮已开始"。
+- 反例（确定性复刻，`执行中应 409，got 202`）：第一轮仍阻塞时异步 POST 被
+  409 拒绝（被丢弃）→ 轮询读到的是**第一轮残留的 true** → 第一轮结束复位后
+  第三次 POST 实际处于空闲，返回 202。整包 `-count=3` 偶发正是这条；
+  单跑该测试 110 次全绿不能否定它（复现依赖整包调度）。
+- 修法：同一次 buildFn 进入后发信号并阻塞；同步 POST 断言 202 → 等"已进入"
+  信号 → 再 POST 断言 409 → 释放 block。`release` 走 `sync.Once` + defer
+  （断言失败也不泄漏 goroutine），并断言 buildFn 只执行 1 次、释放后返回。
+  未配置 buildFn 的 404 断言保留。
+
+### 13.2 buildFn 锁外读取的真实 data race
+
+- `SetBuildFunc` 在 `buildMu` 内写 `s.buildFn`；`handleIncremental` 先
+  `buildMu.Unlock()` 再 `buildFn := s.buildFn` —— 修复前
+  `go test -race ./internal/server -run TestIncrementalConcurrentBuildFuncReplacement`
+  稳定报 `WARNING: DATA RACE / Write: (*Server).SetBuildFunc … Previous read:
+  (*Server).handleIncremental`（exit=1）。
+- 修法：同一临界区内完成「buildFn 非空检查 → building 检查 → 置 building →
+  捕获 buildFn 局部变量」，解锁后异步调用**捕获值**（替换不影响已准入请求）。
+  404/202/409 契约、构建结束复位、错误日志均不变（不改成同步构建）。
+
+### 14.1 内部 canonical ID 的签名查询必须精确
+
+- 修复前反例（恢复 `ResolveSymbol` 后跑附录 A 回归）：
+  `internal canonical ID triggered 2 fuzzy searches`。
+- `sigTypesOf` 改用 `a.repo.GetSymbol(domain.CanonicalID(symID))`，缺失/无签名
+  返回 ok=false；用户输入 `ResolveSymbol` 的模糊语义不变（不改、不猜相似方法）。
+- `CodeSequence` 入口在接触仓储**之前**检查 ctx：预取消返回 `ErrSeqCanceled`
+  （`New(nil).CodeSequence` 不碰 nil repo）。
+- 回归：`action_seq_sig_lookup_test.go`（附录 A 两条）。
+
+### 14.2 包清单：窄索引计划 + 可取消 + 索引缺失回退
+
+- 真实计划（go2o 库，121,331 nodes / 137,111 edges / 136 packages）：
+  旧 `SCAN nodes USING INDEX idx_nodes_name`（97.387ms）→
+  `FROM nodes INDEXED BY idx_nodes_file_kind` 后
+  `SEARCH nodes USING INDEX idx_nodes_file_kind (file_path>?)` +
+  `USE TEMP B-TREE FOR ORDER BY`（11.640ms，5 次最好值；行数同为 136）。
+- 谓词/排序/去重逐项不变：`packagesQueryIndexed`/`packagesQueryPlain` 共用
+  `packagesWhere`，测试用**同一份常量**做「旧语句输出 vs GetPackagesContext」
+  逐项对照（含 `../` `tmp/` `integration/` `examples/` `e2e/` `skills/` 排除项
+  与非 package 节点）。
+- 显式索引名是硬依赖：全量构建 `BeginBulkLoad` 会 DROP `idx_nodes_file_kind`。
+  故查询失败（且非 ctx 取消）时回退到无提示等价语句——旧实现没有这个依赖，
+  不能把"构建期间只读"从慢变成报错（`TestPackagesContextFallsBackWithoutIndex`）。
+- 端口：`Reader.GetPackagesContext(ctx)`（sqlite 用 `QueryContext` + `defer
+  rows.Close()`；`GetPackages()` 保留为 background 兼容入口）；`indexedPkgSet(ctx)`
+  返回 error，`CodeSequence` 在入口与包清单返回后各查一次取消，取消返回
+  `ErrSeqCanceled`（不把空包集当完整成功）。
+- 回归（附录 B 前半）：`TestPackagesContextCancelsConnectionWait`——唯一连接被
+  `sql.Conn` 占用时 25ms 内 `context.DeadlineExceeded`，释放后下一次查询成功。
+- 计划回归：`repo_packages_plan_test.go`（EXPLAIN QUERY PLAN 锁定不走
+  `idx_nodes_name`）。
+
+### 14.3 一跳调用边：直接邻接查询（兼容矩阵）
+
+- 真实测量（go2o，锚点 `…/pkg/interface/service/proto:init`，49 条一跳边）：
+  直接 `SELECT DISTINCT … FROM edges_v WHERE source_id=? AND kind='calls' AND
+  confidence>=?` **224.6µs**；旧递归 CTE（depth=1）**361.9–367.8ms**（~1600×）。
+- `walkEdges` 在 `depth<=1` 走直接查询（callers 按 target_id，callees 按
+  source_id），`depth>1` 保持递归；`depth<=0` 仍返回一跳（历史兼容）。
+  `GetCallersContext/GetCalleesContext` 走 `QueryContext`；旧方法转 background。
+  `codeSeqForSymbol` 用 `GetCalleesContext(req.ctx(), …, 1, MinConfidence=0.8)`。
+- 兼容矩阵回归：`repo_walk_compat_test.go` 用**旧递归实现做 golden**，对照
+  0/1/2/3 跳、双方向、环、低置信度、implements 非 calls 边、metadata、重复
+  事实去重；与既有 `TestCallersCalleesDepthAndConfidence` 互补。
+- 输出等价（同源码/索引/参数，HEAD 二进制 vs 本轮二进制）：go2o
+  `proto:init --code --depth 2` 的 Mermaid 输出**逐字节相同**；JSON 去掉
+  `timing` 与 `analyzer_version` 的 `+dirty` 标记后完全相同（节点数 50 不变，
+  没有靠减节点/降深度/隐藏诊断取得加速）。
+
+### 14.4 取消必须终止实际递归 SQL
+
+- 修复前反例：递归 CTE 去掉 `AS MATERIALIZED` → 附录 B
+  `TestCalleesContextInterruptsRecursiveSQL` FAIL（5.08s，err=nil）。
+  根因：`modernc.org/sqlite` v1.57.0 `stmt.query` 的 `defer interruptOnDone()()`
+  在首条结果返回后撤销监听，`rows.Next` 后续 step 不再处于取消窗口。
+- 修法：递归体 `AS MATERIALIZED`，重计算压到首条结果之前（SQL 注释写清驱动
+  生命周期与撤销条件）。修复后：25ms 预算 → `context.DeadlineExceeded`，
+  总耗时 < 1s（实测 0.03s），随后同一单连接 `GetCallees(a,1,.8)` 立即复用。
+- 未宣称：其它 Reader 方法、文件系统阻塞的可取消性未覆盖；物化的深递归
+  临时存储开销已知但未在大图上量化（显式记为未验范围）。
+
+### 14.5 预算范围可观察（成功与取消都留记录）
+
+- CLI 计时从**创建查询 ctx 之前**开始（含请求配置构造），到 `CodeSequence`
+  同步返回；开关 `CODEINTEL_SEQ_TIMING=1` 时stderr 写
+  `[seq.query] elapsed=<ms> budget=<label> canceled=true|false`；此前的仓库打开/
+  新鲜度检查与之后的渲染都不计入（进程墙钟另测）。
+- 实测（fixture `example.com/seqbudget`）：成功 `elapsed=1.394ms budget=2s
+  canceled=false`；1ns `elapsed=0.169ms budget=1ns canceled=true`、
+  exit=1、stdout 0 字节。
+- 默认（开关关闭）stdout/JSON 契约不变；回归见
+  `TestQuerySequenceCodeBudgetRecord`。
+
+### 14.6 真实生产路径的小模块回归
+
+- `integration/todo21_sequence_budget_test.go`（teeth: `-tags integration`）：
+  写真实 `go.mod`+`flow.go` → 本轮构建的二进制 `init --repo <fixture>` →
+  `query sequence Run --code --depth 2 --timeout 2s --json` / `--mermaid` /
+  `--timeout 1ns --json`。
+- 断言：init 有真实索引产物（nodes/edges 非 0）；JSON 可解码、2 次 `Work`
+  调用且证据 `symbol_id` 指向 `example.com/seqbudget:Work`、含 `err != nil`
+  分支与 `return 0, err`；Mermaid 头为 `sequenceDiagram`、2 次 `P0->>P1: Work`、
+  `alt err != nil`；1ns → 非零退出、stdout 空、stderr 含预算错误与
+  `canceled=true`。
+- 顺带修 `--mermaid` 别名（此前被未知选项分支静默忽略 → 输出退化成缩进
+  文本）：等价于 `--format mermaid`。
+
+### 14.7 大图补充验证（实际规模 + 未验范围）
+
+- 仓库：本机既有 go2o 索引（`/home/schaepher/Codes/go2o`）——
+  **121,331 nodes / 137,111 edges / 136 packages**（不是 todo 里的 250 万节点
+  仓库；未复刻 61s 场景，明确记为未验范围）。
+- 时序（canonical 入口 `…/cmd/go2o:main`，`--code --depth 2 --timeout 2s`）：
+  JSON `[seq.query] elapsed=190.662/200.467ms`、节点 50、`stop=depth`、
+  `resolve≈186–197ms`（用户输入走模糊搜索，非 14.1 的内部 ID 路径）、
+  `read≈0.2–0.7ms`、`walk≈2.9–3.7ms`、进程墙钟 0.24–0.36s、Max RSS 145–152MB；
+  Mermaid 同参数 `elapsed≈195–200ms`、墙钟 0.23–0.24s。
+- `proto:init --depth 3 --focus return`：`[seq.query] elapsed=22.077ms`
+  （resolve 18.0ms / read 2.2ms / walk 1.4ms），节点 3；`--timeout 1ms` →
+  `elapsed=1.355ms canceled=true`、exit=1、stdout 0 字节、墙钟 0.02s。
+- 包清单与一跳 SQL 见 14.2/14.3（同一 go2o 库）。
+- 未验证：250 万节点级仓库的实际大图矩阵、PNG 出口（本轮未改渲染）、
+  深递归物化的临时存储峰值。
+
+### 交付矩阵（生产改动 / 回归 / 命令与断言）
+
+| 要求 | 生产改动 | 回归 | 关键断言 |
+| --- | --- | --- | --- |
+| 13.1 | `server_build_test.go` 重写 | `TestHandleIncremental` | 404/202/409 基于进入信号；buildFn 恰 1 次；失败也释放 |
+| 13.2 | `server_handlers.go` 锁内捕获 buildFn | `TestIncrementalConcurrentBuildFuncReplacement` | `-race -count=10` 无 race |
+| 14.1 | `action_seq_sig.go` + `action_seq_code.go` 入口取消 | `TestSequenceSignatureLookupIsExact`、`TestSequenceAlreadyCanceledDoesNotQuery` | fuzzy=0；签名正例；预取消不碰仓储 |
+| 14.2 | `repo_graph_packages.go`、`action_seq_classify.go`、Reader 端口 | `TestPackagesContextCancelsConnectionWait`、计划/等价/回退三连 | 计划走 `idx_nodes_file_kind`；输出逐项一致；连接等待可取消 |
+| 14.3 | `repo_walk.go` 一跳直接查询 + `GetCalleesContext` | `TestCallersCalleesDepthAndConfidence`、`RepoWalkCompat`（2 条） | 0/1/2/3 跳×双方向 golden 一致；HEAD/新二进制 JSON+Mermaid 等价 |
+| 14.4 | `AS MATERIALIZED` | `TestCalleesContextInterruptsRecursiveSQL` | DeadlineExceeded、<1s、同连接立即复用 |
+| 14.5 | `query_sequence_code.go` 预算记录 + `query_flags.go --mermaid` 别名 | `TestQuerySequenceCodeBudgetRecord` | 成功/取消各一条实测计时；取消 stdout 空 |
+| 14.6 | — | `TestTodo21SequenceBudgetRealCLI` | 真实 init→JSON/Mermaid/1ns 全链；退出码/身份/分支 |
+| 14.7 | — | 手工实测记录（本节） | go2o 实际规模与阶段数据；未验范围显式列出 |
