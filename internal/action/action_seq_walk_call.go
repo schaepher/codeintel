@@ -29,13 +29,13 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 
 		// todo22 §2：被调者本身是函数值（IIFE / 闭包变量 / 回调形参）——按
 		// 调用点的数据流展开；不是函数值时继续走索引调用边/接口派发路径。
-		if fv, isFV := seqCallFuncValue(req, call); isFV {
+		if fv, isFV := seqCallFuncValue(a, req, call); isFV {
 			seqFillFuncValueCall(a, req, call, fv, node, depth)
 			return node
 		}
 		// todo22 §2：本次调用的实参值（按位置）——被展开函数绑定形参后，
 		// 形参调用处才能证明执行的是哪个回调。
-		req.paramValues = seqBindCallArgs(req, req.curCtx, call)
+		req.paramValues = seqBindCallArgs(a, req, req.curCtx, call)
 
 		tg, resolved := tgts.lookup(pos)
 		if !resolved {
@@ -120,7 +120,7 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 			code, detail := classifyUnresolvedCall(f, fun, curPkg, req.pkgSet)
 			// todo22 §2：函数值参数在未解析/外部调用里逃逸——无法确定是否、
 			// 何时被调用，明确标注原因（不展开内部执行）。
-			if esc := seqFuncArgEscape(req, call); esc != "" {
+			if esc := seqFuncArgEscape(a, req, call); esc != "" {
 				detail += "；" + esc
 			}
 			node.Evidence = &SeqEvidence{Source: SeqEvidenceAST, CallFile: curFile, CallLine: pos.Line}

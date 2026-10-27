@@ -20,7 +20,7 @@ func applyImplStmt(fset *token.FileSet, stmt ast.Stmt, st *implState, guards []s
 			}
 			if t := implTypeFromExpr(x.Rhs[i]); t != "" {
 				st.defs = []implDef{{impl: t, line: fset.Position(x.Pos()).Line,
-					guards:	append([]sceneGuard{}, guards...)}}
+					guards: append([]sceneGuard{}, guards...)}}
 			} else if id.Name != "_" {
 
 				st.defs = nil
@@ -43,7 +43,7 @@ func applyImplStmt(fset *token.FileSet, stmt ast.Stmt, st *implState, guards []s
 				if i < len(vs.Values) {
 					if t := implTypeFromExpr(vs.Values[i]); t != "" {
 						st.defs = []implDef{{impl: t, line: fset.Position(name.Pos()).Line,
-							guards:	append([]sceneGuard{}, guards...)}}
+							guards: append([]sceneGuard{}, guards...)}}
 						continue
 					}
 				}
@@ -121,6 +121,7 @@ func dedupeImplDefs(defs []implDef) []implDef {
 	}
 	return out
 }
+
 // implTypeFromExpr 赋值右值 → 实现类型名（&T{} / T{} / NewT()）。
 func implTypeFromExpr(e ast.Expr) string {
 	switch x := e.(type) {

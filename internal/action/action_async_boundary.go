@@ -17,28 +17,28 @@ import (
 
 // AsyncBoundary 一条消息/存储边界的静态证据（写进 chain JSON）。
 type AsyncBoundary struct {
-	Kind        string `json:"kind,omitempty"` // queue|store
-	Topic       string `json:"topic,omitempty"`
-	Key         string `json:"key,omitempty"` // 实际发送键值
-	KeyField    string `json:"key_field,omitempty"`
-	ProducerAPI    string `json:"producer_api,omitempty"` // 实际调用目标（短形态）
-	ConsumerAPI    string `json:"consumer_api,omitempty"`
-	ProducerTarget string `json:"producer_target,omitempty"` // 实际目标 canonical ID
-	ConsumerTarget string `json:"consumer_target,omitempty"`
-	APIIdentity    string `json:"api_identity,omitempty"` // 实际包 + 类型（系统 API 身份）
+	Kind            string `json:"kind,omitempty"` // queue|store
+	Topic           string `json:"topic,omitempty"`
+	Key             string `json:"key,omitempty"` // 实际发送键值
+	KeyField        string `json:"key_field,omitempty"`
+	ProducerAPI     string `json:"producer_api,omitempty"` // 实际调用目标（短形态）
+	ConsumerAPI     string `json:"consumer_api,omitempty"`
+	ProducerTarget  string `json:"producer_target,omitempty"` // 实际目标 canonical ID
+	ConsumerTarget  string `json:"consumer_target,omitempty"`
+	APIIdentity     string `json:"api_identity,omitempty"` // 实际包 + 类型（系统 API 身份）
 	ProducerBinding string `json:"producer_binding,omitempty"`
 	ConsumerBinding string `json:"consumer_binding,omitempty"`
 	BindingSource   string `json:"binding_source,omitempty"`
-	ProduceFile string `json:"produce_file,omitempty"`
-	ProduceLine int    `json:"produce_line,omitempty"`
-	SendKeyLine int    `json:"send_key_line,omitempty"`
-	ConsumeFile string `json:"consume_file,omitempty"`
-	ConsumeLine int    `json:"consume_line,omitempty"`
-	FilterLine  int    `json:"filter_line,omitempty"`
-	ReadLine    int    `json:"read_line,omitempty"`
-	FilterOp    string `json:"filter_op,omitempty"`
-	Verdict     string `json:"verdict"` // corroborated|unverified|mismatch|ambiguous|excluded
-	Detail      string `json:"detail,omitempty"`
+	ProduceFile     string `json:"produce_file,omitempty"`
+	ProduceLine     int    `json:"produce_line,omitempty"`
+	SendKeyLine     int    `json:"send_key_line,omitempty"`
+	ConsumeFile     string `json:"consume_file,omitempty"`
+	ConsumeLine     int    `json:"consume_line,omitempty"`
+	FilterLine      int    `json:"filter_line,omitempty"`
+	ReadLine        int    `json:"read_line,omitempty"`
+	FilterOp        string `json:"filter_op,omitempty"`
+	Verdict         string `json:"verdict"` // corroborated|unverified|mismatch|ambiguous|excluded
+	Detail          string `json:"detail,omitempty"`
 }
 
 // proveAsyncBoundary 写入/读取函数 + 字段 → 边界证明（无证据返回 nil）。

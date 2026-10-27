@@ -245,4 +245,3 @@ func chainSymbols(a *Actions, root string) map[string]bool {
 	}
 	return seen
 }
-

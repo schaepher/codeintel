@@ -6437,3 +6437,48 @@ todo21 §110-14.4 把深递归物化列为"已知但未量化"。本轮交付可
 工厂返回函数 / 条件返回 / 变参+`[]func` 列表与 range 折叠（B.5）——做完
 §8 的 `BeforeSecond→BeforeFirst→Store.Insert→AfterFirst→AfterSecond` 才是
 确定链路。
+
+## §115 todo22 §2.3/§2.4 + §5：工厂返回、函数列表与折叠、场景常量（2026-10-27）
+
+### 工厂返回（§2.3）
+
+`seqCalleeReturnValues` → `seqValueReturnValues` → `seqReturnValuesOf`：调用结果
+按**被调函数的 return 表达式**求值（不按函数名猜返回类型）：
+
+- 被调者是函数值（局部变量/形参/字面量）→ 按其身份解析；具名函数走
+  `loadSeqFuncDecl`（canonical ID → 源码 → 名字+receiver 精确匹配）。
+- 字面量工厂：用其捕获环境 + 实参绑定构造环境，返回的闭包因此能看到被调函数
+  的形参（`First` 返回的闭包捕获 `f`）。
+- 多条 return（条件返回）→ 未消歧多候选，证据 `ambiguous` + candidates。
+
+### 函数列表与折叠（§2.4）
+
+- 值：`[]func(){...}`、`append(列表, …)`、变参形参（`…T` 收剩余实参，无实参
+  = 确定空列表）、`f(list...)` 摊平；`var l []func()` 是确定空列表。
+- range：`seqRangeOverFuncList` 按列表顺序逐项展开，每项绑定元素后再走循环体
+  ——`process = wrapper(ctx, process)` 的 RHS 读**迭代开始**的值，赋值对下一次
+  迭代生效，两层装饰器因此折叠成嵌套闭包（实测 Before2 → Before1 → 原回调）。
+- 预算：元素 >32 / 迭代 >16 / 条件覆盖下多候选列表 → 明确诊断，不截取前几项。
+
+### §5 场景补强（§8 用例前置）
+
+`matchCondSrc` 现在：剥离括号与单参数内建转换（`int32(x)`/`int(x)`/`Source(7)`）、
+接受字符串/整数/浮点/字符字面量与**包内常量**（同目录 `.go` 的 const 声明，
+值来自真实声明）、数值感知比较（`"7" == 7`）、`&&`/`||` 短路（左侧为假即可
+排除分支）与 `!` 取反。跨包常量仍未解析（保持 unknown）。
+
+### 实测（§8 夹具，真实 init → CLI）
+
+- Source=7 → `checks` 4 项：Check1–4 各 1 次、Check5–7 0 次；Source=19 → 7 项各 1 次。
+- 装饰器折叠后 `process(inner)` 是未消歧多候选，两条路径分别保留：
+  bypass（BeforeFirst→…→AfterFirst，无 Second 前后）与非 bypass
+  （BeforeSecond→BeforeFirst→…→AfterFirst→AfterSecond），Insert 证据
+  `symbol:go:example.com/flow:(Store).Insert`。
+- `MakeFirst` 的 `Setup` 在执行 `Execute` 前恰一次；工厂返回的闭包创建时不执行。
+
+### 顺带修的坑
+
+- `if` 没有 else 且条件**未知**时，"条件为假、什么都不做"必须作为候选值参与
+  合并；但场景明确 taken 时不能补（否则会把 7 项列表当成 4/7 多候选）。
+- `runCLIOut` 用 `os.Stdout` 管道，树大过管道缓冲（>64KB JSON）时
+  `json.Encoder` 写阻塞，表现为"分析卡死"——大输出用例必须用外部进程。

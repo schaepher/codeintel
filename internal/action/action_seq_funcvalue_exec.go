@@ -18,10 +18,10 @@ import (
 
 // seqCallFuncValue 判断被调者本身是否是函数值（字面量/变量/形参）。
 // ok=false 表示按索引调用边/接口派发等既有路径处理（包级函数的直接调用）。
-func seqCallFuncValue(req CodeSequenceRequest, call *ast.CallExpr) (seqValue, bool) {
+func seqCallFuncValue(a *Actions, req CodeSequenceRequest, call *ast.CallExpr) (seqValue, bool) {
 	switch f := call.Fun.(type) {
 	case *ast.FuncLit:
-		return literalSeqValue(req, req.curCtx, req.env, f, req.curTgts, seqOriginLiteral), true
+		return literalSeqValue(req, req.curCtx, req.env, f, seqOriginLiteral), true
 	case *ast.Ident:
 		if req.env != nil {
 			if v, ok := req.env.lookup(f.Obj); ok {
@@ -49,7 +49,7 @@ func seqFillFuncValueCall(a *Actions, req CodeSequenceRequest, call *ast.CallExp
 			CallLine: node.Line, Reason: seqReasonMulti, Ambiguous: true,
 			Candidates: seqValueCandidates(fv)}
 		for _, cand := range fv.cands {
-			child := &CodeSeqNode{Kind: "call", Label: cand.label(), Line: node.Line}
+			child := &CodeSeqNode{Kind: "call", Label: cand.label(), Actor: seqValueActor(cand), Line: node.Line}
 			seqExpandSingleValue(a, req, call, cand, child, depth)
 			node.Nodes = append(node.Nodes, child)
 		}
@@ -57,6 +57,23 @@ func seqFillFuncValueCall(a *Actions, req CodeSequenceRequest, call *ast.CallExp
 			node.Stop = &SeqStop{Code: SeqStopFuncValueUnbound, Detail: fv.why}
 		}
 		return
+	case seqValueList:
+		// 函数列表：按列表顺序逐项展开（顺序由列表与 range 决定，不是猜）
+		node.Evidence = &SeqEvidence{Source: SeqEvidenceClosure, CallFile: req.curFile,
+			CallLine: node.Line, Reason: seqReasonList, Candidates: seqValueCandidates(fv)}
+		if fv.why != "" {
+			node.Stop = &SeqStop{Code: SeqStopFuncValueUnbound, Detail: fv.why}
+			node.Evidence.Ambiguous = true
+			return
+		}
+		for _, elem := range fv.elems {
+			child := &CodeSeqNode{Kind: "call", Label: elem.label(), Actor: seqValueActor(elem), Line: node.Line}
+			seqExpandSingleValue(a, req, call, elem, child, depth)
+			node.Nodes = append(node.Nodes, child)
+		}
+		if len(node.Nodes) == 0 {
+			node.Stop = &SeqStop{Code: SeqStopNoCalls, Detail: "空函数列表（确定无元素执行）"}
+		}
 	default:
 		seqExpandSingleValue(a, req, call, fv, node, depth)
 	}
@@ -69,6 +86,7 @@ const (
 	seqReasonVar     = "func-value-var"     // 局部变量/包级函数的到达定义
 	seqReasonUnknown = "func-value-unknown" // 调用点无法确定回调值
 	seqReasonMulti   = "func-value-multi"   // 多值未消歧
+	seqReasonList    = "func-list"          // 函数列表逐项执行
 )
 
 func seqReasonForOrigin(origin string) string {
@@ -87,7 +105,7 @@ func seqExpandSingleValue(a *Actions, req CodeSequenceRequest, call *ast.CallExp
 	fv seqValue, node *CodeSeqNode, depth int) {
 	reason := seqReasonForOrigin(fv.origin)
 	// 本次调用的实参值（按位置）——被展开函数的形参绑定。
-	args := seqBindCallArgs(req, req.curCtx, call)
+	args := seqBindCallArgs(a, req, req.curCtx, call)
 	switch fv.kind {
 	case seqValueLit:
 		node.Evidence = &SeqEvidence{Source: SeqEvidenceClosure, CallFile: req.curFile,
@@ -115,13 +133,14 @@ func seqExpandSingleValue(a *Actions, req CodeSequenceRequest, call *ast.CallExp
 		sub.env = newSeqEnv(fv.env) // 闭包捕获：父环境 = 创建时的环境
 		bindSeqParams(sub.env, fv.lit.Type.Params, args)
 		sub.curSym = req.curSym // 字面量内的调用边归属 = 字面量所在函数
-		sub.curTgts = fv.tgts
+		sub.curTgts = seqTargetsCached(a, req, fv.enclosing)
 		sub.curCtx = fv.ctx
 		sub.curRecvType = fv.recvType
 		sub.curRecvDecl = fv.recvDecl
+		sub.sceneConsts = seqConstValues(req, fv.ctx.rel)
 		sub.paramValues = nil
 		node.Nodes = walkStmts(a, sub, fv.ctx.fset, fv.ctx.src, fv.lit.Body.List,
-			fv.tgts, depth, fv.recvType, fv.recvDecl, fv.ctx.file, fv.pkgPath, fv.ctx.rel)
+			sub.curTgts, depth, fv.recvType, fv.recvDecl, fv.ctx.file, fv.pkgPath, fv.ctx.rel)
 		if len(node.Nodes) == 0 {
 			node.Stop = &SeqStop{Code: SeqStopNoCalls}
 		}
@@ -150,12 +169,12 @@ func seqExpandSingleValue(a *Actions, req CodeSequenceRequest, call *ast.CallExp
 
 // seqFuncArgEscape 判断调用是否让函数值参数逃逸（传给未解析/外部目标）：
 // 逃逸后无法确定是否、何时被调用——在调用节点标注原因，不展开内部执行。
-func seqFuncArgEscape(req CodeSequenceRequest, call *ast.CallExpr) string {
+func seqFuncArgEscape(a *Actions, req CodeSequenceRequest, call *ast.CallExpr) string {
 	if req.env == nil || call == nil {
 		return ""
 	}
 	for _, arg := range call.Args {
-		v := seqValueOfExpr(req, req.curCtx, req.env, arg)
+		v := seqValueOfExpr(a, req, req.curCtx, req.env, arg)
 		switch v.kind {
 		case seqValueLit, seqValueNamed, seqValueMulti:
 			return "函数值参数在未解析调用中逃逸（无法确定是否/何时被调用）: " + v.label()
@@ -213,4 +232,18 @@ func seqArgCallNodes(callNode func(*ast.CallExpr) *CodeSeqNode, call *ast.CallEx
 		walkExpr(arg)
 	}
 	return out
+}
+
+// seqValueActor 合成节点的参与者名（多候选/列表逐项执行时要能区分是哪个
+// 函数值，不能渲染成空 actor "->"）。
+func seqValueActor(v seqValue) string {
+	switch v.kind {
+	case seqValueNamed:
+		return seqValueShortName(v.symID)
+	case seqValueLit:
+		return "callback"
+	case seqValueList:
+		return "list"
+	}
+	return "unknown"
 }

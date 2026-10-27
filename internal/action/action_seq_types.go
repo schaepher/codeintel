@@ -64,7 +64,10 @@ type CodeSequenceRequest struct {
 	sceneArgs    map[string]string
 	sceneSrc     map[string]string // todo12-3：形参 → 值来源（分支判定证据）
 	sceneWhy     map[string]string // todo13-3：形参 → 未知原因（partial 诊断）
-	pkgSet       map[string]bool   // todo13-13：已索引包集合（调用分类用，一次构建）
+	// todo22 §5：当前包（同目录）常量表 name → 值文本（整型/有类型常量参与
+	// 场景判定；不把枚举名称直接当值）
+	sceneConsts map[string]string
+	pkgSet      map[string]bool // todo13-13：已索引包集合（调用分类用，一次构建）
 	// todo13-14：证据/输出选项与身份（argv 为权威；版本来自实际构建）
 	Evidence   bool
 	Format     string
@@ -84,6 +87,7 @@ type CodeSequenceRequest struct {
 	env         *seqEnv
 	paramValues []seqValue
 	litVisited  map[string]bool
+	tgtsCache   map[string]*seqTargets
 	// 内部（todo10-5）：场景统计（meta 汇总；req 按值传递——用指针共享）
 	sceneCount *sceneSummary
 }

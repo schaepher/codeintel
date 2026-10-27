@@ -22,9 +22,9 @@ const maxSceneFlowDepth = 2
 
 // sceneArg 实参解析结果（值 + 来源证据——todo12-3 R3）。
 type sceneArg struct {
-	val	string	// 已知字面量；空 = 未知
-	source	string	// 定义位置/传播依据（如 def@L20、scene-arg@L22）
-	reason	string	// todo13-3：未知原因（如 call-may-write:rewrite@L18）
+	val    string // 已知字面量；空 = 未知
+	source string // 定义位置/传播依据（如 def@L20、scene-arg@L22）
+	reason string // todo13-3：未知原因（如 call-may-write:rewrite@L18）
 }
 
 // resolveSceneArgLiterals 解析一次调用的实参字面量（位置对齐；解析不到为空）。
@@ -55,7 +55,7 @@ func resolveLiteralExpr(fset *token.FileSet, src []byte, body *ast.BlockStmt,
 	case *ast.BasicLit:
 		if e.Kind.String() == "STRING" {
 			return sceneArg{val: strings.Trim(e.Value, "\"`"),
-				source:	"literal@" + fileLine("", fset.Position(e.Pos()).Line)}
+				source: "literal@" + fileLine("", fset.Position(e.Pos()).Line)}
 		}
 		return sceneArg{}
 	case *ast.ParenExpr:
@@ -216,7 +216,7 @@ func applyReachingStmt(fset *token.FileSet, src []byte, st ast.Stmt, s *litScope
 		walkReachingStmts(fset, src, x.Body.List, token.NoPos, thenE, depth+1)
 		thenE.pop()
 		if x.Else == nil {
-			assignMerged(s, thenE, s.clone())	// 无 else：分支不成立仍保留原值
+			assignMerged(s, thenE, s.clone()) // 无 else：分支不成立仍保留原值
 			return
 		}
 		elseE := s.clone()
@@ -235,7 +235,7 @@ func applyReachingStmt(fset *token.FileSet, src []byte, st ast.Stmt, s *litScope
 			walkReachingStmts(fset, src, body.List, token.NoPos, loopE, depth+1)
 			loopE.pop()
 		}
-		assignMerged(s, loopE, s.clone())	// 循环可能执行 0 次
+		assignMerged(s, loopE, s.clone()) // 循环可能执行 0 次
 	case *ast.SwitchStmt:
 		mergeReachingClauses(fset, src, x.Body, s, depth)
 	case *ast.TypeSwitchStmt:

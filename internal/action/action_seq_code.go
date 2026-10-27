@@ -121,6 +121,9 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	if req.litVisited == nil {
 		req.litVisited = map[string]bool{} // todo22 §2：函数字面量展开防环
 	}
+	if req.tgtsCache == nil {
+		req.tgtsCache = map[string]*seqTargets{} // todo22 §2：按函数缓存调用点映射
+	}
 	// 阶段 1：符号解析（只查库，不读源码——与阶段 2/3 不重叠）
 	symStart := time.Now()
 	n, err := a.ResolveSymbol(req.Target)

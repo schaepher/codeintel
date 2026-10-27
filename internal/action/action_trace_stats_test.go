@@ -35,7 +35,7 @@ func seedTraceStatsRepo(t *testing.T) (*Actions, string) {
 	}
 	for _, acc := range []string{"write", "read"} {
 		nodes = append(nodes, &domain.CodeEntity{
-			ID: domain.CanonicalID("symbol:go:example.com/m:(T).Fn#h.State." + acc + "@3"),
+			ID:   domain.CanonicalID("symbol:go:example.com/m:(T).Fn#h.State." + acc + "@3"),
 			Kind: domain.KindFieldAccess, Name: "h.State", FilePath: "main.go", LineStart: 3,
 			Properties: map[string]any{"access_kind": acc, "full_path": "example.com/m.T.State",
 				"func_id": "symbol:go:example.com/m:(T).Fn", "instance_path": "h.State"}})
@@ -143,12 +143,12 @@ func TestValueTraceCacheAB(t *testing.T) {
 		return New(sqlite.NewRepo(db))
 	}
 	type ab struct {
-		wall  time.Duration
-		sql   int
-		sym   int
-		rows  int
-		hit   int
-		miss  int
+		wall time.Duration
+		sql  int
+		sym  int
+		rows int
+		hit  int
+		miss int
 	}
 	run := func(enabled bool) ab {
 		a := openActs()

@@ -22,23 +22,23 @@ type Scene struct {
 
 // 场景对单个分支/条件的判定结果。
 const (
-	SceneTaken	= "taken"	// 场景命中"条件为真"的分支
-	SceneExcluded	= "excluded"	// 场景命中"条件为假"的分支（分支内容被剔除）
-	SceneUnknown	= "unknown"	// 无法静态判定（保留候选）
+	SceneTaken    = "taken"    // 场景命中"条件为真"的分支
+	SceneExcluded = "excluded" // 场景命中"条件为假"的分支（分支内容被剔除）
+	SceneUnknown  = "unknown"  // 无法静态判定（保留候选）
 )
 
 // SceneFit 一次场景判定的依据（挂在节点上，渲染层据此标注）。
 type SceneFit struct {
-	Status		string	`json:"status"`			// taken|excluded|unknown
-	Key		string	`json:"key,omitempty"`		// 命中的场景键（region）
-	Field		string	`json:"field,omitempty"`	// 条件里的字段/形参（req.Region）
-	Literal		string	`json:"literal,omitempty"`	// 条件里的字面量（"CN"）
-	Expected	string	`json:"expected,omitempty"`	// 场景给出的值（CN）
-	Reason		string	`json:"reason,omitempty"`	// scene:<k=v> / scene-arg:<param>=<lit> / unknown:*
-	Source		string	`json:"source,omitempty"`	// todo12-3：值来源（定义位置/传播依据）
+	Status   string `json:"status"`             // taken|excluded|unknown
+	Key      string `json:"key,omitempty"`      // 命中的场景键（region）
+	Field    string `json:"field,omitempty"`    // 条件里的字段/形参（req.Region）
+	Literal  string `json:"literal,omitempty"`  // 条件里的字面量（"CN"）
+	Expected string `json:"expected,omitempty"` // 场景给出的值（CN）
+	Reason   string `json:"reason,omitempty"`   // scene:<k=v> / scene-arg:<param>=<lit> / unknown:*
+	Source   string `json:"source,omitempty"`   // todo12-3：值来源（定义位置/传播依据）
 	// todo13-3：unknown 的具体成因（如 call-may-write:rewrite@L18）——
 	// 值在到达该分支前已被未知调用改写，不能沿用旧字面量。
-	Cause	string	`json:"cause,omitempty"`
+	Cause string `json:"cause,omitempty"`
 }
 
 // NewScene 解析 `--scene` 参数：每项为 `k=v`（也接受逗号分隔的多个）。
@@ -60,29 +60,32 @@ func NewScene(pairs []string) Scene {
 }
 
 // Empty 是否未指定场景。
-func (s Scene) Empty() bool	{ return len(s.Values) == 0 }
+func (s Scene) Empty() bool { return len(s.Values) == 0 }
 
 // sceneSummary meta 汇总（取用/剔除/未知各多少分支）。
 type sceneSummary struct {
-	Applied		bool	`json:"applied"`
-	Taken		int	`json:"taken"`
-	Excluded	int	`json:"excluded"`
-	Unknown		int	`json:"unknown"`
+	Applied  bool `json:"applied"`
+	Taken    int  `json:"taken"`
+	Excluded int  `json:"excluded"`
+	Unknown  int  `json:"unknown"`
 	// todo13-3：场景判定不完整（值被未知调用改写/分析深度上限）——
 	// unknown 不等于“已证明两分支都可达”，需要显式 partial + 原因。
-	Partial	bool		`json:"partial,omitempty"`
-	Causes	[]string	`json:"causes,omitempty"`
+	Partial bool     `json:"partial,omitempty"`
+	Causes  []string `json:"causes,omitempty"`
 }
 
 // matchCond 判定条件表达式与场景的关系。args 为"形参名 → 实参字面量"
 // （一层传播；nil 表示没传）。只识别 `field == "lit"` / `field != "lit"`
 // 与 `"lit" == field` 形态（必要时剥离一层括号/取反 `!`）。
 func (s Scene) matchCond(cond ast.Expr, args map[string]string) SceneFit {
-	return s.matchCondSrc(cond, args, nil)
+	return s.matchCondSrc(cond, args, nil, nil)
 }
 
-// matchCondSrc 同 matchCond，另带形参值来源（SceneFit.Source，证据用）。
-func (s Scene) matchCondSrc(cond ast.Expr, args, srcs map[string]string) SceneFit {
+// matchCondSrc 同 matchCond，另带形参值来源（SceneFit.Source，证据用）与
+// 包内常量表（todo22 §5：整型/有类型常量与内建转换参与判定）。
+// 布尔短路与取反按 Go 语义处理：`a && b` 任一为假即整条为假（可排除分支），
+// 全部为真才 taken；`||` 反之；`!` 翻转 taken/excluded。
+func (s Scene) matchCondSrc(cond ast.Expr, args, srcs, consts map[string]string) SceneFit {
 	negated := false
 	for {
 		switch e := cond.(type) {
@@ -98,138 +101,10 @@ func (s Scene) matchCondSrc(cond ast.Expr, args, srcs map[string]string) SceneFi
 		}
 		break
 	}
-	bin, ok := cond.(*ast.BinaryExpr)
-	if !ok {
-		return SceneFit{Status: SceneUnknown, Reason: "unknown:not-comparison"}
+	if bin, ok := cond.(*ast.BinaryExpr); ok && (bin.Op.String() == "&&" || bin.Op.String() == "||") {
+		fit := s.matchBoolOp(bin, args, srcs, consts)
+		return sceneNegateFit(fit, negated)
 	}
-	op := bin.Op.String()
-	if op != "==" && op != "!=" {
-		return SceneFit{Status: SceneUnknown, Reason: "unknown:op-" + op}
-	}
-	field, lit, ok := sceneCompare(bin.X, bin.Y)
-	if !ok {
-		// 字面量在左侧（"CN" == req.Region）
-		if f2, l2, ok2 := sceneCompare(bin.Y, bin.X); ok2 {
-			field, lit, ok = f2, l2, true
-		}
-	}
-	if !ok {
-		return SceneFit{Status: SceneUnknown, Reason: "unknown:no-literal-pair"}
-	}
-	// 值来源：形参传播优先，其次场景键
-	expected, key, reason := "", "", ""
-	if v, ok := args[field]; ok {
-		if v == sceneArgUnknown {
-			// 调用点有定义但无法证明唯一值 → unknown（不回退场景键）
-			return SceneFit{Status: SceneUnknown, Field: field, Literal: lit,
-				Reason:	"unknown:arg-value", Source: srcs[field]}
-		}
-		if v != "" {
-			expected, key, reason = v, field, "scene-arg:"+field+"="+v
-		}
-	}
-	if expected == "" {
-		if k, v, found := s.lookup(field); found {
-			expected, key, reason = v, k, "scene:"+k+"="+v
-		} else {
-			reason := "unknown:no-scene-key"
-			if s.Empty() {
-				reason = "unknown:no-scene"
-			}
-			return SceneFit{Status: SceneUnknown, Field: field, Literal: lit, Reason: reason}
-		}
-	}
-	equal := lit == expected
-	if negated {
-		equal = !equal
-	}
-	status := SceneExcluded
-	if (op == "==" && equal) || (op == "!=" && !equal) {
-		status = SceneTaken
-	}
-	source := "scene:" + key
-	if reason != "" && strings.HasPrefix(reason, "scene-arg:") {
-		source = srcs[field]
-	}
-	return SceneFit{Status: status, Key: key, Field: field, Literal: lit,
-		Expected:	expected, Reason: reason, Source: source}
+	fit := s.matchCompareCond(cond, args, srcs, consts)
+	return sceneNegateFit(fit, negated)
 }
-
-// lookup 场景键匹配字段名：大小写不敏感；字段末段相等或以 key 结尾
-// （req.Region / o.Region / region 都命中 region）。
-func (s Scene) lookup(field string) (key, value string, ok bool) {
-	f := strings.ToLower(field)
-	last := f
-	if i := strings.LastIndex(f, "."); i >= 0 {
-		last = f[i+1:]
-	}
-	for k, v := range s.Values {
-		if last == k || strings.HasSuffix(last, k) {
-			return k, v, true
-		}
-	}
-	return "", "", false
-}
-
-// sceneCompare 从比较两侧提取"字段表达式 + 字符串字面量"。
-func sceneCompare(fieldExpr, litExpr ast.Expr) (field, lit string, ok bool) {
-	l, isLit := litExpr.(*ast.BasicLit)
-	if !isLit || l.Kind.String() != "STRING" {
-		return "", "", false
-	}
-	switch e := fieldExpr.(type) {
-	case *ast.Ident:
-		field = e.Name
-	case *ast.SelectorExpr:
-		field = exprTextShallow(e)
-	default:
-		return "", "", false
-	}
-	return field, strings.Trim(l.Value, "\"`"), true
-}
-
-// exprTextShallow 选择器表达式文本（pkg.Field / recv.Field——只到两层，
-// 足够匹配场景键）。
-func exprTextShallow(e ast.Expr) string {
-	switch x := e.(type) {
-	case *ast.Ident:
-		return x.Name
-	case *ast.SelectorExpr:
-		return exprTextShallow(x.X) + "." + x.Sel.Name
-	}
-	return ""
-}
-
-// callArgLiterals 调用点实参里的字符串字面量（按位置；非字面量记空串）。
-// 用于一层条件传播（形参 → 实参字面量）。
-func callArgLiterals(call *ast.CallExpr) []string {
-	if call == nil {
-		return nil
-	}
-	out := make([]string, 0, len(call.Args))
-	for _, a := range call.Args {
-		if lit, ok := a.(*ast.BasicLit); ok && lit.Kind.String() == "STRING" {
-			out = append(out, strings.Trim(lit.Value, "\"`"))
-			continue
-		}
-		out = append(out, "")
-	}
-	return out
-}
-
-// sceneArgValues 实参解析结果 → (值, 来源, 未知原因) 三切片。
-
-// paramReasonArgs 形参名 → 未知原因（与 paramLiteralArgs 位置对齐）。
-
-// paramSourceArgs 形参名 → 值来源（与 paramLiteralArgs 位置对齐）。
-
-// paramLiteralArgs 形参名 → 实参字面量（按签名位置对齐；跳过 receiver）。
-
-// matchesField 场景是否"关心"这个字段（键名与字段名/列名匹配即算）。
-// 用于 effects 的写入裁剪：只保留场景涉及的字段（不推断值）。
-func (s Scene) matchesField(field string) bool {
-	_, _, ok := s.lookup(field)
-	return ok
-}
-
-// appendUniqueStr 追加去重（保持入参顺序——诊断文本稳定）。

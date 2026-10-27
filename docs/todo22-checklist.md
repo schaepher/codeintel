@@ -85,8 +85,9 @@ make it
 | 1 | 夹具/证明边界/实施顺序 | 部分：todo12–21 已有 `example.com/seqbudget` 等真实 init→CLI 集成夹具；todo22 第 8 节的 `example.com/flow` + `example.com/tx` 夹具**未建** |
 | 2.1 | 闭包捕获统一接口（`captureSeqClosureValue/Args/CallbackLists`）、函数值解析/到达定义 | **第一增量已完成（2026-10-27）**：值/环境模型 + 形参绑定 + 到达定义（`seqValue`/`seqEnv`，见 B.4）；spec 里的三个函数名未逐字采用（能力等价，命名按现有 `seq*` 约定） |
 | 2.2 | 函数字面量/IIFE/`defer`/`go`/回调形参绑定/赋值先 RHS 后 LHS | **1/2/3/5 已完成 + 4 已支持普通/具名回调**（见 B.4）；返回函数值（工厂）与具名返回值待 B.5 |
-| 2.3 | 工厂返回函数、条件返回、捕获值、证明失效 | **未实现**（调用结果一律 unknown，reason 写明"工厂返回/包装器—todo22 §2.3"） |
-| 2.4 | `[]func(...)` 命名函数列表、range 折叠装饰器、预算 16 路径×32 项 | **未实现**（复合字面量/变参列表绑定 unknown，reason 写明 §2.4） |
+| 2.3 | 工厂返回函数、条件返回、捕获值、证明失效 | **已完成（2026-10-27，B.5）**：按被调函数的 return 表达式解析（具名/字面量/传入回调），多 return → 未消歧多候选；见 B.5 |
+| 2.4 | `[]func(...)` 命名函数列表、range 折叠装饰器、预算 16 路径×32 项 | **已完成（2026-10-27，B.5）**：复合字面量/append/变参列表、range 按元素顺序折叠、空列表确定、预算诊断；见 B.5 |
+| 5 | 场景推导（整型/枚举/跨包常量/短路/取反） | **同包已完成（B.5 补强）**：整型/浮点/字符字面量、包内常量（含 `Source(7)` 转换）、内建整数转换、`&&`/`||` 短路、`!` 取反；**跨包常量未解析**（保持 unknown） |
 | 3.1 | 到达定义/精确目标/同名不同包/行号回退核对 | 部分：`action_seq_dataflow.go`（receiver 字段写入溯源）、`action_seq_targets.go:matchAggregated`（todo20-9）+ 本轮新增**实参位置调用的 AST 对象身份恢复**（`seqASTCallTarget`，不做名称模糊搜索） |
 | 3.2 | 接口候选全集 + `candidate_depth`/`candidate_budget` 截断诊断 | 部分：`sceneImplChoice` 有候选集合 + ambiguous；**候选展开预算/截断诊断字段未实现**（现有 `candidate_budget` 属 `query async`） |
 | 3.3 | DI/AOP（Bean/Inject 注解、container/key 注册、事务 wrapper 内原实现） | **未实现** |
@@ -187,3 +188,36 @@ go test -tags integration ./integration -run 'TestTodo22' -count=1 -v
 预算 16 路径×32 项。这三个能力落地后 §8 的
 `tx.Run→BeforeSecond→BeforeFirst→Store.Insert→AfterFirst→AfterSecond` 才能
 成为确定链路。
+
+### B.5 §2.3/§2.4 + §5 补强：工厂返回 / 函数列表与折叠 / 场景常量（已完成，2026-10-27）
+
+| 要求 | 实现 / 证据 |
+| --- | --- |
+| 2.3 工厂返回（具名/字面量/传入回调） | `seqCalleeReturnValues`/`seqValueReturnValues`/`seqReturnValuesOf`：调用结果按被调函数 **return 表达式** 求值（具名函数/字面量/形参传递）；函数值来自实参绑定，闭包捕获被调函数帧的环境 |
+| 2.3 条件返回 | 多条 return → `multiSeqValue` 未消歧多候选（证据 `ambiguous` + candidates），两候选分别展开，不任选 |
+| 2.3 证明失效 | 未知调用改写/未绑定 → `unknown`（`func_value_unbound`）；不做名称猜测 |
+| 2.4 `[]func(){...}` / `append` / 变参 | 复合字面量→列表；`append(列表, …)` 扩展；变参形参收集剩余实参为列表（无实参=确定空列表）；`f(list...)` 摊平 |
+| 2.4 range 折叠 | `seqRangeOverFuncList`：按列表顺序逐项展开（迭代上下文绑定元素），`process = wrapper(ctx, process)` 每次迭代用**迭代开始**的值（RHS 先求值）→ 两层装饰器折叠为嵌套闭包 |
+| 2.4 空列表 | `var l []func()` 与 0 元素字面量都是**确定空列表**：range 零次、不执行赋值、不污染被包装回调 |
+| 2.4 预算 | 元素 >32 → 明确诊断（不截取前几项）；迭代 >16 → 明确诊断；多候选列表（条件覆盖下的多个列表）→ range 不按顺序展开并给出诊断 |
+| 5 场景（§8 用例） | `int32(req.Source) == int32(SourceB)` 用常量表 + 内建转换 + 数值比较判定：Source=7→excluded（4 个 check）、Source=19→taken（7 个）；`req.Source == SourceA && IsRegionX()` 在 Source=19 时短路排除、Source=7 时保持 unknown（IsRegionX 无运行时事实） |
+
+**实测（§8 夹具，真实 init → CLI）**
+
+- `Source=7`：`checks` 列表 4 项 → Check1–4 各 1 次，Check5–7 0 次；
+  `Source=19`：7 项 → Check1–7 各 1 次（按 `evidence.symbol_id` 计数，不按标签）。
+- 装饰器折叠：`process(inner)` 为未消歧多候选，**两条路径分别保留**：
+  - bypass：BeforeFirst → f → store.Insert → ExecContext → AfterFirst（无 Second 前后）
+  - 非 bypass：BeforeSecond → BeforeFirst → f → store.Insert → ExecContext → AfterFirst → AfterSecond
+- `MakeFirst` 的副作用 `Setup` 在执行 `Execute` 前恰一次；工厂返回闭包在创建时**不被执行**。
+- 证据：`closure` + `callback-binding-*`/`func-list`/`func-value-multi`。
+
+**验证**
+
+```sh
+go test ./internal/action -run 'TestSeqFuncValue|TestScene' -count=1
+go test -tags integration ./integration -run 'TestTodo22|TestTodo15' -count=1
+bash scripts/verify.sh --quick && make it
+```
+
+**未做（下一增量）**：§2.1 的显式统一接口（`captureSeq*` 命名）、方法值（`x.Method`）、跨包常量、§3.3 DI/AOP、§4 RPC/外部源码。

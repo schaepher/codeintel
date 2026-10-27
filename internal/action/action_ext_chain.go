@@ -39,14 +39,14 @@ type ExtChainGrpc struct {
 
 // ExtChainNode 调用链节点（递归树）。
 type ExtChainNode struct {
-	Symbol string         `json:"symbol"`
-	Repo   string         `json:"repo,omitempty"` // 该节点所在仓库（todo10-4 跨仓可见）
+	Symbol string `json:"symbol"`
+	Repo   string `json:"repo,omitempty"` // 该节点所在仓库（todo10-4 跨仓可见）
 	// todo13-15：候选范围与依据（workspace 限定时不含范围外仓库）
-	Scope          string   `json:"scope,omitempty"`
-	ScopeReason    string   `json:"scope_reason,omitempty"`
-	CandidateRepos []string `json:"candidate_repos,omitempty"`
-	Grpc   []ExtChainGrpc `json:"grpc,omitempty"`
-	HTTP   []ChainCallOut `json:"http,omitempty"`
+	Scope          string         `json:"scope,omitempty"`
+	ScopeReason    string         `json:"scope_reason,omitempty"`
+	CandidateRepos []string       `json:"candidate_repos,omitempty"`
+	Grpc           []ExtChainGrpc `json:"grpc,omitempty"`
+	HTTP           []ChainCallOut `json:"http,omitempty"`
 	// todo12-2：本节点查询不完整（读取失败/预算/候选探测失败）
 	Partial     bool           `json:"partial,omitempty"`
 	Diagnostics []SeqDiagCount `json:"diagnostics,omitempty"`

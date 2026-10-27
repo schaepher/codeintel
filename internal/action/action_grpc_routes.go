@@ -28,11 +28,11 @@ type GrpcRouteMethod struct {
 type GrpcRouteService struct {
 	ID       string            `json:"id,omitempty"` // 服务节点 canonical ID（proto 包/服务完整身份）
 	Name     string            `json:"name"`         // 服务名（QueryService）
-	Impl     string            `json:"impl"`      // 实现类型（grpc_impl 边）
-	ImplID   string            `json:"impl_id"`   // 实现类型 canonical ID（R37 流程页构造方法入口）
-	ImplFile string            `json:"impl_file"` // 实现位置（file:line）
-	Register string            `json:"register"`  // 注册调用点（file:line）
-	Methods  []GrpcRouteMethod `json:"methods"`   // 服务方法全集（ServiceDesc）
+	Impl     string            `json:"impl"`         // 实现类型（grpc_impl 边）
+	ImplID   string            `json:"impl_id"`      // 实现类型 canonical ID（R37 流程页构造方法入口）
+	ImplFile string            `json:"impl_file"`    // 实现位置（file:line）
+	Register string            `json:"register"`     // 注册调用点（file:line）
+	Methods  []GrpcRouteMethod `json:"methods"`      // 服务方法全集（ServiceDesc）
 }
 
 // GrpcRoutesResult 查询结果（Q5 契约）。

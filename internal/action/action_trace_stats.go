@@ -25,20 +25,20 @@ const vtCacheDefaultLimit = 128
 
 // TraceStats value-trace 的阶段计数（诊断输出；不影响语义）。
 type TraceStats struct {
-	SQLMS   float64 `json:"sql_ms,omitempty"`   // 数据库查询耗时（不含符号/条件/派发）
-	SQLQueries int  `json:"sql_queries,omitempty"` // 实际 DB 往返（GetLatest + CTE）
-	SymbolMS      float64 `json:"symbol_ms,omitempty"`
-	SymbolLookups int     `json:"symbol_lookups,omitempty"` // 实际 GetSymbol 调用数
-	ConditionMS   float64 `json:"condition_ms,omitempty"`
-	ConditionRows int     `json:"condition_rows,omitempty"` // 实际做条件标注的行数
-	DispatchMS    float64 `json:"dispatch_ms,omitempty"`
-	DispatchCalls int     `json:"dispatch_calls,omitempty"` // GetDispatchTargets 实际调用数
-	CacheHits     int     `json:"cache_hits,omitempty"`
-	CacheMisses   int     `json:"cache_misses,omitempty"`
-	CacheEntries  int     `json:"cache_entries,omitempty"`
-	CacheEvictions int    `json:"cache_evictions,omitempty"`
-	CoveredOps    []string `json:"covered_ops,omitempty"`
-	UncoveredOps  []string `json:"uncovered_ops,omitempty"`
+	SQLMS          float64  `json:"sql_ms,omitempty"`      // 数据库查询耗时（不含符号/条件/派发）
+	SQLQueries     int      `json:"sql_queries,omitempty"` // 实际 DB 往返（GetLatest + CTE）
+	SymbolMS       float64  `json:"symbol_ms,omitempty"`
+	SymbolLookups  int      `json:"symbol_lookups,omitempty"` // 实际 GetSymbol 调用数
+	ConditionMS    float64  `json:"condition_ms,omitempty"`
+	ConditionRows  int      `json:"condition_rows,omitempty"` // 实际做条件标注的行数
+	DispatchMS     float64  `json:"dispatch_ms,omitempty"`
+	DispatchCalls  int      `json:"dispatch_calls,omitempty"` // GetDispatchTargets 实际调用数
+	CacheHits      int      `json:"cache_hits,omitempty"`
+	CacheMisses    int      `json:"cache_misses,omitempty"`
+	CacheEntries   int      `json:"cache_entries,omitempty"`
+	CacheEvictions int      `json:"cache_evictions,omitempty"`
+	CoveredOps     []string `json:"covered_ops,omitempty"`
+	UncoveredOps   []string `json:"uncovered_ops,omitempty"`
 }
 
 // traceCtxExpired ctx 是否已到期（除 Err 外直接比较 deadline——1µs 级

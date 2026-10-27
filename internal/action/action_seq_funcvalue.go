@@ -17,6 +17,7 @@ package action
 import (
 	"go/ast"
 	"go/token"
+	"strconv"
 	"strings"
 )
 
@@ -33,6 +34,7 @@ const (
 	seqValueLit     // 函数字面量
 	seqValueNamed   // 包级函数/方法（canonical ID 已知）
 	seqValueMulti   // 条件/循环下多个值都可能到达（未消歧）
+	seqValueList    // 函数列表（[]func / 变参列表，元素按顺序）
 )
 
 // seqFileCtx 字面量所在的解析文件（跨函数传递函数值时必需：字面量的位置与
@@ -46,19 +48,20 @@ type seqFileCtx struct {
 
 // seqValue 一个函数值（或显式的未知）。
 type seqValue struct {
-	kind     int
-	origin   string
-	lit      *ast.FuncLit
-	ctx      *seqFileCtx
-	env      *seqEnv // 创建字面量时的环境（闭包捕获）
-	tgts     *seqTargets
-	pkgPath  string // 字面量所在函数的包路径（未解析调用分类用）
-	recvType string // 字面量所在函数的 receiver（局部方法调用具体化用）
-	recvDecl map[string]string
-	symID    string // named：目标 canonical ID
-	name     string // 显示名（多值候选/诊断）
-	why      string // unknown 原因
-	cands    []seqValue
+	kind      int
+	origin    string
+	lit       *ast.FuncLit
+	ctx       *seqFileCtx
+	env       *seqEnv // 创建字面量时的环境（闭包捕获）
+	enclosing string  // 字面量所在函数的 canonical ID（调用边归属）
+	pkgPath   string  // 字面量所在函数的包路径（未解析调用分类用）
+	recvType  string  // 字面量所在函数的 receiver（局部方法调用具体化用）
+	recvDecl  map[string]string
+	symID     string // named：目标 canonical ID
+	name      string // 显示名（多值候选/诊断）
+	why       string // unknown 原因
+	cands     []seqValue
+	elems     []seqValue // list：元素（按源码/变参顺序）
 }
 
 func unknownSeqValue(why string) seqValue {
@@ -79,10 +82,10 @@ func seqValueShortName(symID string) string {
 }
 
 // literalSeqValue 由字面量构造函数值（捕获当前文件上下文与环境）。
-func literalSeqValue(req CodeSequenceRequest, ctx *seqFileCtx, env *seqEnv, lit *ast.FuncLit, tgts *seqTargets, origin string) seqValue {
+func literalSeqValue(req CodeSequenceRequest, ctx *seqFileCtx, env *seqEnv, lit *ast.FuncLit, origin string) seqValue {
 	return seqValue{kind: seqValueLit, origin: origin, lit: lit, ctx: ctx, env: env,
-		tgts: tgts, pkgPath: pkgPathOf(req.curSym), recvType: req.curRecvType,
-		recvDecl: req.curRecvDecl}
+		enclosing: req.curSym, pkgPath: pkgPathOf(req.curSym),
+		recvType: req.curRecvType, recvDecl: req.curRecvDecl}
 }
 
 // label 展示用名字（多值候选/unknown 说明）。
@@ -91,7 +94,7 @@ func (v seqValue) label() string {
 	case seqValueLit:
 		if v.ctx != nil && v.ctx.fset != nil && v.ctx.src != nil {
 			if sig := seqExprText(v.ctx.fset, v.ctx.src, v.lit.Type); sig != "" {
-				return "func" + sig
+				return sig // 形如 func(inner context.Context) error
 			}
 		}
 		return "func(){…}"
@@ -103,6 +106,8 @@ func (v seqValue) label() string {
 			parts = append(parts, c.label())
 		}
 		return strings.Join(parts, " | ")
+	case seqValueList:
+		return "list(" + strconv.Itoa(len(v.elems)) + ")"
 	default:
 		return "unknown"
 	}
@@ -126,6 +131,16 @@ func (v seqValue) equal(o seqValue) bool {
 		}
 		for i := range v.cands {
 			if !v.cands[i].equal(o.cands[i]) {
+				return false
+			}
+		}
+		return true
+	case seqValueList:
+		if len(v.elems) != len(o.elems) {
+			return false
+		}
+		for i := range v.elems {
+			if !v.elems[i].equal(o.elems[i]) {
 				return false
 			}
 		}
@@ -160,4 +175,9 @@ func multiSeqValue(cands []seqValue, why string) seqValue {
 		names = append(names, u.label())
 	}
 	return seqValue{kind: seqValueMulti, cands: uniq, name: strings.Join(names, " | "), why: why}
+}
+
+// listSeqValue 函数列表值（元素顺序即源码/变参顺序）。
+func listSeqValue(elems []seqValue) seqValue {
+	return seqValue{kind: seqValueList, elems: elems, name: "list(" + strconv.Itoa(len(elems)) + ")"}
 }

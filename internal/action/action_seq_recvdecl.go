@@ -89,7 +89,7 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 	// 记录候选集合与 ambiguous）。todo22 §2：抽成 seqTargetsFor——函数字面量
 	// 内联展开时也要用**字面量所在函数**的调用边（索引把闭包内的调用记在
 	// 外层函数上）。
-	tgts := seqTargetsFor(a, req, symID)
+	tgts := seqTargetsCached(a, req, symID)
 
 	recvType := ""
 
@@ -128,6 +128,7 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 	req.curRecvType = recvType
 	req.curRecvDecl = recvDecl
 	req.curCtx = &seqFileCtx{fset: fset, file: f, src: src, rel: n.FilePath}
+	req.sceneConsts = seqConstValues(req, n.FilePath)
 	env := newSeqEnv(nil)
 	bindSeqParams(env, fn.Type.Params, req.paramValues)
 	req.env = env

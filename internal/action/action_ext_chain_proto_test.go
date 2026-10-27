@@ -32,7 +32,7 @@ func seedProtoServer(t *testing.T, module, protoPkg, impl, host string) *extRepo
 	cancelID := domain.CanonicalID(GrpcMethodEntryID(string(implID), "Cancel"))
 	nodes := []*domain.CodeEntity{
 		{ID: svcID, Kind: domain.KindGrpcService, Name: "svc.RevalidationOrderService",
-			FilePath: protoPkg + "/gen.pb.go",
+			FilePath:   protoPkg + "/gen.pb.go",
 			Properties: map[string]any{"service_name": "RevalidationOrderService", "methods": "Submit,Cancel"}},
 		{ID: implID, Kind: domain.KindStruct, Name: impl,
 			FilePath: protoPkg + "/server.go", LineStart: 3},
@@ -86,11 +86,11 @@ func seedProtoClient(t *testing.T) *extRepo {
 	facts := []*domain.Fact{
 		{SourceID: "symbol:go:example.com/client:(ClientA).Run",
 			TargetID: "symbol:go:example.com/gen-a/ci:svc.RevalidationOrderService",
-			Kind: domain.FactGrpcCall, Confidence: 1.0,
+			Kind:     domain.FactGrpcCall, Confidence: 1.0,
 			Metadata: map[string]any{"method": "Submit", "line_num": 6}},
 		{SourceID: "symbol:go:example.com/client:(ClientB).Run",
 			TargetID: "symbol:go:example.com/gen-b/other:svc.RevalidationOrderService",
-			Kind: domain.FactGrpcCall, Confidence: 1.0,
+			Kind:     domain.FactGrpcCall, Confidence: 1.0,
 			Metadata: map[string]any{"method": "Submit", "line_num": 13}},
 	}
 	if _, err := r.SaveBatchStats(nodes, facts, nil); err != nil {
@@ -120,11 +120,11 @@ func TestExtChainProtoIdentityDisambiguates(t *testing.T) {
 	defer serverB.close()
 
 	for _, tc := range []struct {
-		name    string
-		client  string
-		cands   []string
-		wantSrv *extRepo
-		wantSvc string
+		name     string
+		client   string
+		cands    []string
+		wantSrv  *extRepo
+		wantSvc  string
 		wantNext string
 	}{
 		{"a-first", "symbol:go:example.com/client:(ClientA).Run", []string{serverA.dir, serverB.dir},
@@ -198,7 +198,7 @@ func TestExtChainProtoIdentityAmbiguous(t *testing.T) {
 	}, []*domain.Fact{
 		{SourceID: "symbol:go:example.com/client:(ClientC).Run",
 			TargetID: "symbol:go:example.com/client:svc.RevalidationOrderService",
-			Kind: domain.FactGrpcCall, Confidence: 1.0,
+			Kind:     domain.FactGrpcCall, Confidence: 1.0,
 			Metadata: map[string]any{"method": "Submit", "line_num": 21}},
 	}, nil); err != nil {
 		t.Fatal(err)

@@ -61,7 +61,7 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		}
 		// todo22 §2：赋值更新函数值环境——在调用节点生成之后（RHS 读旧值，
 		// LHS 从下一条语句起生效：`f = wrap(ctx, f)` 的右侧是旧 f）。
-		recordSeqAssign(req, req.curCtx, s)
+		recordSeqAssign(a, req, req.curCtx, s)
 		// todo10-2 part3：焦点模式下输出"纯赋值"步骤（状态字段赋值常常
 		// 不含调用，纯调用树看不到）；非焦点模式保持原输出不变
 		if req.focusActive() {
@@ -87,7 +87,7 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		node := &CodeSeqNode{Kind: "branch", Label: seqExprText(fset, src, s.Cond), Line: fset.Position(s.Cond.Pos()).Line}
 		// todo10-5：场景条件判定（taken/excluded/unknown）——排除的分支
 		// 保留节点但剔除内容（用户能看到"此处被场景排除"及其依据）
-		fit := req.Scene.matchCondSrc(s.Cond, req.sceneArgs, req.sceneSrc)
+		fit := req.Scene.matchCondSrc(s.Cond, req.sceneArgs, req.sceneSrc, req.sceneConsts)
 		// todo13-3：unknown 的具体原因（值被未知调用改写/分析深度上限）——
 		// 不能只给 unknown 而不说明哪一跳让它未知。
 		if fit.Status == SceneUnknown && fit.Field != "" {
@@ -107,46 +107,9 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		case SceneUnknown:
 			req.sceneCount.Unknown++
 		}
-		// todo22 §2：分支各走一份环境副本，事后合并（多候选 → 未消歧），
-		// 后续语句看到的是"可能到达的多个值"而不是最后一个分支。
-		var branches []*seqEnv
-		if fit.Status != SceneExcluded {
-			thenReq := req
-			if req.env != nil {
-				thenReq.env = req.env.clone()
-			}
-			node.Nodes = walkStmts(a, thenReq, fset, src, s.Body.List, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
-			if thenReq.env != nil {
-				branches = append(branches, thenReq.env)
-			}
-		}
-		// else 分支：条件取反（fit == excluded 时 else 反而成立）
-		if blk, ok := s.Else.(*ast.BlockStmt); ok {
-			if fit.Status != SceneTaken {
-				elseReq := req
-				if req.env != nil {
-					elseReq.env = req.env.clone()
-				}
-				node.Else = walkStmts(a, elseReq, fset, src, blk.List, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
-				if elseReq.env != nil {
-					branches = append(branches, elseReq.env)
-				}
-			}
-		} else if elseIf, ok := s.Else.(*ast.IfStmt); ok {
-			if fit.Status != SceneTaken {
-				elseReq := req
-				if req.env != nil {
-					elseReq.env = req.env.clone()
-				}
-				node.Else = walkStmt(a, elseReq, fset, src, elseIf, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
-				if elseReq.env != nil {
-					branches = append(branches, elseReq.env)
-				}
-			}
-		}
-		if req.env != nil && len(branches) > 0 {
-			req.env.mergeBranches(branches)
-		}
+		sawElse := fillSeqIfBranches(a, req, fset, src, s, &fit, node,
+			tgts, depth, recvType, recvDecl, f, curPkg, curFile)
+		_ = sawElse
 		steps = append(steps, node)
 		return steps
 	case *ast.ForStmt:
@@ -161,6 +124,19 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		}
 		return []*CodeSeqNode{{Kind: "loop", Label: label, Line: fset.Position(s.Pos()).Line, Nodes: nodes}}
 	case *ast.RangeStmt:
+		// todo22 §2.4：range 已知函数列表 → 按元素顺序展开（每项都可确定
+		// 执行一次；循环体按迭代顺序折叠，如 process = wrapper(ctx, process)）
+		if list, ok := seqRangeElems(req, s.X); ok {
+			return []*CodeSeqNode{seqRangeOverFuncList(a, req, fset, src, s, list,
+				tgts, depth, recvType, recvDecl, f, curPkg, curFile)}
+		}
+		// todo22 §2.4：range 对象是未消歧的多候选（条件覆盖下多个列表）——
+		// 不按顺序展开（那会把互斥候选当顺序执行），给出明确诊断。
+		if why := seqRangeAmbiguous(req, s.X); why != "" {
+			return []*CodeSeqNode{{Kind: "loop", Label: "range " + seqExprText(fset, src, s.X),
+				Line: fset.Position(s.Pos()).Line,
+				Stop: &SeqStop{Code: SeqStopFuncValueUnbound, Detail: why}}}
+		}
 		pre := req.env.clone()
 		nodes := walkStmts(a, req, fset, src, s.Body.List, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
 		if req.env != nil {
@@ -273,7 +249,7 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 	case *ast.DeclStmt:
 		// todo22 §2：`var f = func(){…}` / `var f func()`——只建值，不执行
 		if gd, ok := s.Decl.(*ast.GenDecl); ok {
-			recordSeqDecl(req, req.curCtx, gd)
+			recordSeqDecl(a, req, req.curCtx, gd)
 		}
 		return nil
 	case *ast.LabeledStmt:

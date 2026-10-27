@@ -70,6 +70,7 @@ func walkReachingClauses(fset *token.FileSet, src []byte, body *ast.BlockStmt, t
 	}
 	return true
 }
+
 // mergeReachingClauses switch/select 分支合流（同值保留；否则未知）。
 func mergeReachingClauses(fset *token.FileSet, src []byte, body *ast.BlockStmt, s *litScopes, depth int) {
 	base := s.clone()
@@ -116,4 +117,3 @@ func walkReachingStmts(fset *token.FileSet, src []byte, stmts []ast.Stmt, target
 	}
 	return false
 }
-

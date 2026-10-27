@@ -38,7 +38,7 @@ func (a *Actions) sceneImplChoice(req CodeSequenceRequest, fset *token.FileSet, 
 	sel := map[string]bool{}
 	var selected []implDef
 	for _, d := range defs {
-		state, why := evalImplGuards(d, req.Scene, req.sceneArgs, req.sceneSrc)
+		state, why := evalImplGuards(d, req.Scene, req.sceneArgs, req.sceneSrc, req.sceneConsts)
 		switch state {
 		case SceneExcluded:
 			continue
@@ -75,13 +75,13 @@ func (a *Actions) sceneImplChoice(req CodeSequenceRequest, fset *token.FileSet, 
 
 // evalImplGuards 用场景判定定义守卫：任何守卫 excluded → 定义不可达；
 // 全部 taken → 定义必然可达；否则 unknown。
-func evalImplGuards(d implDef, scene Scene, args, srcs map[string]string) (string, string) {
+func evalImplGuards(d implDef, scene Scene, args, srcs, consts map[string]string) (string, string) {
 	if len(d.guards) == 0 {
 		return SceneTaken, ""
 	}
 	state, why := SceneTaken, ""
 	for _, g := range d.guards {
-		fit := scene.matchCondSrc(g.cond, args, srcs)
+		fit := scene.matchCondSrc(g.cond, args, srcs, consts)
 		st := fit.Status
 		if !g.positive {
 			switch st {
