@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -102,6 +104,12 @@ func get(t *testing.T, ts *httptest.Server, path string) (*http.Response, map[st
 
 // TestHandleIncremental：POST /incremental（field_trace.md §20.1）——
 // 未配置 buildFn → 404；配置后 → 202 + 异步执行；执行中 → 409。
+//
+// todo21-13.1：互斥断言必须基于**本次构建明确进入**的信号。原实现先跑一个
+// 立即返回的 buildFn，再轮询全局 building 标记猜测第二个请求是否开始；
+// 第一轮 handler 的 deferred building=false 未必已执行，轮询可能读到它的
+// 残留状态（整包 -count=3 偶发 "执行中应 409，got 202"）。现在同一次
+// buildFn 在进入后阻塞，测试拿到进入信号再断言 409。
 func TestHandleIncremental(t *testing.T) {
 	dir := t.TempDir()
 	db, err := sqlite.Open(dir)
@@ -115,63 +123,61 @@ func TestHandleIncremental(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 
-	resp, err := http.Post(ts.URL+"/incremental", "application/json", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("未配置 buildFn 应 404，got %d", resp.StatusCode)
+	post := func() *http.Response {
+		t.Helper()
+		resp, err := http.Post(ts.URL+"/incremental", "application/json", nil)
+		if err != nil {
+			t.Fatalf("POST /incremental: %v", err)
+		}
+		resp.Body.Close()
+		return resp
 	}
 
-	executed := make(chan string, 1)
+	if resp := post(); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("未配置 buildFn 应 404，got %d", resp.StatusCode)
+	}
+
+	entered := make(chan struct{}, 1) // 本次构建已进入
+	block := make(chan struct{})
+	finished := make(chan struct{})
+	var calls int32
+	var releaseOnce, finishOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(block) }) }
+	defer release() // 断言失败（t.Fatal）时也要释放，不把构建 goroutine 卡到进程结束
 	srv.SetBuildFunc(func() (string, error) {
-		executed <- "ok"
+		atomic.AddInt32(&calls, 1)
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+		<-block
+		finishOnce.Do(func() { close(finished) })
 		return "build-1", nil
 	})
-	resp, err = http.Post(ts.URL+"/incremental", "application/json", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusAccepted {
-		t.Errorf("应 202，got %d", resp.StatusCode)
+
+	if resp := post(); resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("空闲请求应 202，got %d", resp.StatusCode)
 	}
 	select {
-	case <-executed:
+	case <-entered:
 	case <-time.After(2 * time.Second):
 		t.Fatal("buildFn 未异步执行")
 	}
 
-	block := make(chan struct{})
-	srv.SetBuildFunc(func() (string, error) { <-block; return "", nil })
-
-	go func() {
-		http.Post(ts.URL+"/incremental", "application/json", nil)
-	}()
-
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		srv.buildMu.Lock()
-		b := srv.building
-		srv.buildMu.Unlock()
-		if b {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("building 未置位")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	resp, err = http.Post(ts.URL+"/incremental", "application/json", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusConflict {
+	// 同一次构建执行期间再次请求 → 409（不再轮询全局标记）
+	if resp := post(); resp.StatusCode != http.StatusConflict {
 		t.Errorf("执行中应 409，got %d", resp.StatusCode)
 	}
-	close(block)
+	if n := atomic.LoadInt32(&calls); n != 1 {
+		t.Errorf("buildFn 执行 %d 次（应恰为 1 次）", n)
+	}
+
+	release()
+	select { // 构建 goroutine 已退出，测试结束时不再有后台写
+	case <-finished:
+	case <-time.After(2 * time.Second):
+		t.Fatal("释放后 buildFn 未返回")
+	}
 }
 
 // TestModuleCallsEndpoint：/api/module-calls（field_trace.md §21.3）——

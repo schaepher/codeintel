@@ -115,6 +115,10 @@ func (s *Server) handleIncremental(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusMethodNotAllowed, "POST required")
 		return
 	}
+	// todo21-13.2：buildFn 必须在**同一临界区**内读取——SetBuildFunc 在
+	// buildMu 内写它，锁外读是一次真实 data race（-race 可复现：
+	// TestIncrementalConcurrentBuildFuncReplacement）。捕获局部变量后异步
+	// 调用捕获值：即使随后被替换，本次请求执行的仍是准入时看到的那份函数。
 	s.buildMu.Lock()
 	if s.buildFn == nil {
 		s.buildMu.Unlock()
@@ -127,8 +131,8 @@ func (s *Server) handleIncremental(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.building = true
-	s.buildMu.Unlock()
 	buildFn := s.buildFn
+	s.buildMu.Unlock()
 	go func() {
 		defer func() {
 			s.buildMu.Lock()
