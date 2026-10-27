@@ -53,6 +53,10 @@ type CodeSequenceRequest struct {
 	// 回到同一 grpc 实现时自环；路径语义：进入标记、退出清除，不同
 	// 分支互不影响）
 	visited map[string]bool
+	// callbackCtx todo23 §2.5：当前展开路径的**入站回调上下文**（函数值
+	// 词法身份/绑定站点）——防环键包含它，避免"同一函数换个回调路径就
+	// 被误判为循环"，也不能只用 executor 符号 ID。
+	callbackCtx string
 	// 内部：阶段耗时累加（todo10-9）
 	acc *seqTimingAcc
 	// 内部（todo10-2）：当前函数的关注行（字段写入点）+ 具名结果槽 + 焦点配置

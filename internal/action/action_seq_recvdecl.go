@@ -25,11 +25,12 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 		req.acc.cancel = true
 		return nil, nil
 	}
-	if req.visited[symID] {
+	visitKey := seqVisitKey(req, symID)
+	if req.visited[visitKey] {
 		return nil, &SeqStop{Code: SeqStopCycle, Detail: "已在展开路径上（防环）"}
 	}
-	req.visited[symID] = true
-	defer delete(req.visited, symID)
+	req.visited[visitKey] = true
+	defer delete(req.visited, visitKey)
 	symStart := time.Now()
 	n, err := a.repo.GetSymbol(domain.CanonicalID(symID))
 	req.acc.symLookups++

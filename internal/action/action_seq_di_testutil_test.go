@@ -62,7 +62,14 @@ func seedDIRepo(t *testing.T, src string, calls map[string]string) (*Actions, st
 	}
 	// 调用边端点必须存在（否则 SaveBatchStats 静默跳过悬挂边）——
 	// 接口方法没有 FuncDecl，需显式建节点。
+	have := map[string]bool{}
+	for _, n := range nodes {
+		have[string(n.ID)] = true
+	}
 	for _, target := range calls {
+		if have[target] {
+			continue // 已有真实 FuncDecl 节点（保留真实行号——行号 1 会覆盖定位）
+		}
 		nodes = append(nodes, &domain.CodeEntity{ID: domain.CanonicalID(target),
 			Kind: domain.KindMethod, Name: seqDeclNameOf(target), FilePath: "flow.go", LineStart: 1})
 	}

@@ -147,6 +147,9 @@ func seqExpandSingleValue(a *Actions, req CodeSequenceRequest, call *ast.CallExp
 		// 在另一个文件/包里创建，经包级函数回调后在别处被调用）。DI 注册表
 		// 扫描、证据 call_file、同包常量都依赖这个口径。
 		sub.curFile = fv.ctx.rel
+		// todo23 §2.5：进入函数字面量 = 入站回调上下文变更（防环键用它，
+		// 同一 executor 经不同回调路径可继续展开）。
+		sub.callbackCtx = seqCallbackVisitCtx(fv)
 		sub.curRecvType = fv.recvType
 		sub.curRecvDecl = fv.recvDecl
 		sub.sceneConsts = seqConstValues(a, req, fv.ctx.rel)
@@ -173,6 +176,9 @@ func seqExpandSingleValue(a *Actions, req CodeSequenceRequest, call *ast.CallExp
 		}
 		sub := req
 		sub.paramValues = args
+		// 具名函数值：入站回调上下文 = 该函数值身份（含绑定站点，区分不同
+		// 实参/不同闭包实例）。
+		sub.callbackCtx = seqCallbackVisitCtx(fv)
 		if child, stop := codeSeqForSymbol(a, sub, fv.symID, depth-1); child != nil {
 			node.Nodes, node.Stop = child.Nodes, child.Stop
 		} else if stop != nil {
@@ -264,4 +270,31 @@ func seqValueActor(v seqValue) string {
 		return "list"
 	}
 	return "unknown"
+}
+
+// seqVisitKey 防环键：repo + 符号 + 入站回调上下文（todo23 §2.5）。
+// 不能只用符号 ID（同一函数经不同回调路径应可继续展开），也不能用剩余
+// 深度/每层新对象地址（会制造假身份、失去防环）。
+func seqVisitKey(req CodeSequenceRequest, symID string) string {
+	return req.RepoAbs + "|" + symID + "|" + req.callbackCtx
+}
+
+// seqCallbackVisitCtx 函数值的词法身份 + 绑定站点（回调上下文）。
+func seqCallbackVisitCtx(fv seqValue) string {
+	base := ""
+	switch fv.kind {
+	case seqValueLit:
+		base = "lit:" + seqLitKey(fv)
+	case seqValueNamed:
+		base = "fn:" + fv.symID
+	default:
+		return ""
+	}
+	if fv.bindFile != "" {
+		base += "@" + fv.bindFile + ":" + itoaSeq(fv.bindLine)
+	}
+	if fv.declObj != nil && fv.declObj.Name != "" {
+		base += "#" + fv.declObj.Name
+	}
+	return base
 }
