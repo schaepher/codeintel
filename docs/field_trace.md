@@ -6963,3 +6963,32 @@ status.SourceB`（`status` 是另一个包）里的 `status.SourceB` 被当成�
 无场景/只有无关场景键/动态 key/非 nil 比较）+ 真实源码时序
 （`Bypassed`/`BypassedConst`/`Dynamic`，索引边）：`--scene bypass=true` 只执行
 `Direct`、`bypass=false` 只执行 `Wrapper`、无场景两分支、动态 key 两分支。
+
+## §131 todo22 P1：框架式 DI 契约（Bean 注解 / 容器 Set）+ 跨包注册点（2026-10-27）
+
+**问题**：§3.3 只认当前包引导函数里的 `Register/Bind(key literal, impl)`；
+真实项目常见 ①注册点在另一个包（bootstrap 包）②框架式契约（Bean/Provider
+注解、容器 `Set/Provide/Apply/Put`）——字段注解正确也解析不到实现。
+
+**改法**：
+- **跨包注册点**：新增 `Reader.GetFunctionsByNames`（`kind='function'` +
+  `name IN (init/Init/Setup/RegisterDeps/Bootstrap)` + `idx_nodes_name` 前缀，
+  `ORDER BY id LIMIT 500`）。`seqDIRegistrationsRepo` 只在**当前包没有该
+  key** 时触发，逐函数解析所在文件（`seqFileCtxFor` 有 AST 缓存）；跨包
+  引导函数的 `req.curSym/curFile` 换成该函数身份（同包类型解析按它的包）。
+- **请求内缓存**：`diRegs`/`diRegsAll` 在 CodeSequence 入口初始化为共享 map，
+  用哨兵键区分"未扫描"与"扫描后为空"（此前按值传 req，空 map 无法当命中
+  标志，等同每次重扫）。跨仓 RPC 子树重置两张表。
+- **框架式契约**：
+  - Bean/Provider 注解 `// @bean key` / `// @Bean(key)` / `// di:bean key` /
+    `// provide: key`：provider 函数**第一个返回类型**登记为 key 的实现，
+    证据 reason = `di-bean-annotation`；
+  - 容器方法 `Set/Provide/Apply/Put(key literal, impl)`：与 Register/Bind 同一
+    收集路径，kind 标记为扩展契约；
+  - **扩展契约必须有显式字段注解**（`@inject`/`inject:` tag 等）才采纳，
+    不看字段名兜底——`cache.Set("k", &T{})` 这类普通调用不会误配。
+
+**测试**（`action_seq_di_repo_test.go`）：Bean 注解 → `(memStore).Add` +
+`di-bean-annotation`；`Set("mem", &memStore{})` + 注解 → 具体化；**无注解 +
+同名字段** → 不走扩展 DI；跨包 `di.Setup` 注册 → 具体化 + `di/di.go:11`
+注册站点；同一请求多处注入只查一次 `GetFunctionsByNames`（calls=1）。

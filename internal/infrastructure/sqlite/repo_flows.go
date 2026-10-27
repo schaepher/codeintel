@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"database/sql"
+	"strings"
 
 	"github.com/schaepher/codeintel/internal/domain"
 	"go.uber.org/zap"
@@ -201,6 +202,45 @@ func (r *Repo) GetAllCalls() ([]*domain.Fact, error) {
 	logger.Debug("enter (Repo).GetAllCalls")
 	defer logger.Debug("exit (Repo).GetAllCalls")
 	return r.callFacts()
+}
+
+// GetFunctionsByNames 按名字批量取函数节点（kind=function；排除测试/外部
+// 路径）。todo22 P1：跨包 DI 注册点定位——只解析引导函数所在文件，不遍历
+// 全仓源码。
+func (r *Repo) GetFunctionsByNames(names []string, limit int) ([]*domain.CodeEntity, error) {
+	logger := zap.L()
+	logger.Debug("enter (Repo).GetFunctionsByNames", zap.Strings("names", names))
+	defer logger.Debug("exit (Repo).GetFunctionsByNames")
+	if len(names) == 0 {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 500
+	}
+	ph := make([]string, 0, len(names))
+	args := make([]any, 0, len(names)+1)
+	for _, n := range names {
+		ph = append(ph, "?")
+		args = append(args, n)
+	}
+	args = append(args, limit)
+	rows, err := r.Query(`SELECT id, name, file_path, line_start FROM nodes
+		WHERE kind = 'function' AND name IN (`+strings.Join(ph, ",")+`)
+		AND file_path NOT LIKE '%_test.go' AND file_path NOT LIKE '../%'
+		ORDER BY id LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*domain.CodeEntity
+	for rows.Next() {
+		n := &domain.CodeEntity{Kind: domain.KindFunction}
+		if err := rows.Scan(&n.ID, &n.Name, &n.FilePath, &n.LineStart); err != nil {
+			return nil, err
+		}
+		out = append(out, n)
+	}
+	return out, rows.Err()
 }
 
 // GetFunctions 游离函数清单（R89：query helpers——kind=function 非

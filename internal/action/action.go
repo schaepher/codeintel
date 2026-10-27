@@ -113,6 +113,9 @@ type Reader interface {
 	// 全链 BFS 逐节点查询，避免为一次链查询加载全量 calls/implements 边
 	// （todo22 P1：chainSymbols 收口）。
 	GetOutgoingFactsByKinds(ctx context.Context, id domain.CanonicalID, kinds ...string) ([]*domain.Fact, error)
+	// GetFunctionsByNames 按名字批量取函数节点（索引 name 前缀；跨包 DI
+	// 注册点定位用——只扫引导函数，不遍历全仓源码）。
+	GetFunctionsByNames(names []string, limit int) ([]*domain.CodeEntity, error)
 	AllNodeIDs() ([]domain.CanonicalID, error) // 全部节点 ID（接口具体化判定）
 	EnsureExtChainCache() error                // 建 ext_chain_cache 表（幂等）
 	ExtChainCacheGet(symbol, build string) (string, bool)

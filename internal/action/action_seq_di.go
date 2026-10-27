@@ -19,8 +19,6 @@ package action
 
 import (
 	"go/ast"
-	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -29,7 +27,9 @@ const (
 	seqReasonDIRegistration = "di-field-registration"
 	seqReasonDIAnnotation   = "di-field-annotation"
 	seqReasonAOPWrapper     = "di-aop-wrapper"
-	SeqEvidenceDI           = "di"
+	// todo22 P1：框架式 Bean/Provider 注解（`// @bean key` / `// di:bean key`）
+	seqReasonDIBeanAnnotation = "di-bean-annotation"
+	SeqEvidenceDI             = "di"
 )
 
 // seqDIReg 一条注册证据。
@@ -40,6 +40,17 @@ type seqDIReg struct {
 	file     string // 注册点所在文件（仓库相对）
 	line     int    // 注册点行号
 	wrapper  bool   // impl 是包装调用（AOP）
+	kind     string // register|bind|set|provide|apply|put|bean（契约来源）
+}
+
+// extended 非 Register/Bind 的容器/注解契约：必须有**字段注解**才采纳
+// （`Set`/`Provide`/`Bean` 这类名字在普通代码里也很常见，避免误配）。
+func (r seqDIReg) extended() bool {
+	switch r.kind {
+	case "", "register", "bind":
+		return false
+	}
+	return true
 }
 
 // seqDIImpl 字段注入解析结果。
@@ -60,6 +71,16 @@ func (a *Actions) diFieldImpl(req CodeSequenceRequest, f *ast.File, recvType, fi
 	regs := seqDIRegistrations(a, req)
 	pick, ok := diPickRegistration(regs, key, field)
 	if !ok {
+		// todo22 P1：跨包注册点（引导函数在另一个包）——按索引里的
+		// init/Init/Setup/... 函数节点定点解析，不遍历全仓源码。
+		regs = seqDIRegistrationsRepo(a, req)
+		pick, ok = diPickRegistration(regs, key, field)
+	}
+	if !ok {
+		return seqDIImpl{}, false
+	}
+	if pick.reg.extended() && annReason == "" {
+		// 扩展契约（Set/Provide/Apply/Bean）必须有显式字段注解证据
 		return seqDIImpl{}, false
 	}
 	if pick.why != "" {
@@ -74,6 +95,9 @@ func (a *Actions) diFieldImpl(req CodeSequenceRequest, f *ast.File, recvType, fi
 	if annReason != "" {
 		reason = annReason
 	}
+	if reg.kind == "bean" {
+		reason = seqReasonDIBeanAnnotation
+	}
 	if reg.wrapper {
 		reason = seqReasonAOPWrapper
 	}
@@ -87,8 +111,11 @@ func (a *Actions) diFieldImpl(req CodeSequenceRequest, f *ast.File, recvType, fi
 // seqDIRegistrations 当前包（同目录 .go）里 init()/Init()/Setup() 中的
 // 显式注册调用（按 key 归组；扫描结果随 req 缓存）。
 func seqDIRegistrations(a *Actions, req CodeSequenceRequest) map[string][]seqDIReg {
+	// 哨兵键记录"已扫描"（req 按值传递，空 map 不能当命中标志）
 	if req.diRegs != nil {
-		return req.diRegs
+		if _, ok := req.diRegs[seqDIRegScannedKey]; ok {
+			return req.diRegs
+		}
 	}
 	out := map[string][]seqDIReg{}
 	files := seqPackageFiles(req)
@@ -99,13 +126,24 @@ func seqDIRegistrations(a *Actions, req CodeSequenceRequest) map[string][]seqDIR
 		}
 		for _, decl := range ctx.file.Decls {
 			fd, ok := decl.(*ast.FuncDecl)
-			if !ok || fd.Body == nil || !seqIsBootstrapFunc(fd) {
+			if !ok {
 				continue
 			}
-			seqScanRegistrations(a, req, ctx, fd.Body, out)
+			if fd.Body != nil && seqIsBootstrapFunc(fd) {
+				seqScanRegistrations(a, req, ctx, fd.Body, out)
+			}
 		}
+		// todo22 P1：Bean/Provider 注解契约（`// @bean store`）——按声明
+		// 注释登记（框架容器会在启动时调用该 provider）。
+		seqScanBeans(req, ctx, out)
 	}
-	req.diRegs = out
+	if req.diRegs != nil {
+		for k, v := range out {
+			req.diRegs[k] = v
+		}
+		req.diRegs[seqDIRegScannedKey] = nil
+		return req.diRegs
+	}
 	return out
 }
 
@@ -146,7 +184,15 @@ func seqCollectRegCalls(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx,
 	case *ast.Ident:
 		name = fn.Name
 	}
-	if name != "Register" && name != "Bind" {
+	kind := ""
+	switch name {
+	case "Register", "Bind":
+		kind = strings.ToLower(name)
+	case "Set", "Provide", "Apply", "Put":
+		// todo22 P1：其它容器的注册形态（gof/自研容器）——需显式字段注解
+		kind = strings.ToLower(name)
+	}
+	if kind == "" {
 		// 一跳：init 里调用同包的 RegisterXxx()
 		if depth == 0 {
 			if id, ok2 := call.Fun.(*ast.Ident); ok2 {
@@ -187,7 +233,7 @@ func seqCollectRegCalls(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx,
 		line = ctx.fset.Position(call.Lparen).Line
 	}
 	out[key] = append(out[key], seqDIReg{key: key, typeName: ref.typeName, pkgPath: ref.pkgPath,
-		file: ctx.rel, line: line, wrapper: wrapper})
+		file: ctx.rel, line: line, wrapper: wrapper, kind: kind})
 }
 
 // seqDIPick 字段注入的选取结果。
@@ -216,44 +262,4 @@ func diPickRegistration(regs map[string][]seqDIReg, key, field string) (seqDIPic
 		}
 	}
 	return seqDIPick{}, false
-}
-
-// seqPackageFiles 当前包（同目录）的 .go 文件列表（仓库相对路径）。
-func seqPackageFiles(req CodeSequenceRequest) []string {
-	dir := req.curFile
-	if i := lastSlash(dir); i >= 0 {
-		dir = dir[:i]
-	} else {
-		dir = ""
-	}
-	ctx := req.curCtx
-	if ctx == nil || ctx.file == nil {
-		return nil
-	}
-	var out []string
-	entries, err := os.ReadDir(filepath.Join(req.RepoAbs, dir))
-	if err != nil {
-		return nil
-	}
-	for _, ent := range entries {
-		name := ent.Name()
-		if ent.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		if dir == "" {
-			out = append(out, name)
-		} else {
-			out = append(out, dir+"/"+name)
-		}
-	}
-	return out
-}
-
-func lastSlash(s string) int {
-	for i := len(s) - 1; i >= 0; i-- {
-		if s[i] == '/' {
-			return i
-		}
-	}
-	return -1
 }

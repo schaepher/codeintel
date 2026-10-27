@@ -81,6 +81,9 @@ type CodeSequenceRequest struct {
 	sceneConsts *seqConstTable
 	// constPkgs 跨包常量表（import path → name→值；nil = 未解析/不可解析）
 	constPkgs map[string]map[string]string
+	// diRegsAll todo22 P1：当前包 + 跨包引导函数的 DI 注册证据（请求内缓存；
+	// 外层键为哨兵，值为 key→注册列表）
+	diRegsAll map[string]map[string][]seqDIReg
 	// todo22 §7.3：请求内接口实现候选缓存（ifaceID → 实现类型列表；nil =
 	// 明确未命中，同样缓存，避免同一请求重复查库/重复全库发现）
 	ifaceImpls map[string]seqIfaceCached
