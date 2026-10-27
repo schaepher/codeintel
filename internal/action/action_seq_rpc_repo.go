@@ -124,6 +124,7 @@ func seqRPCServiceAcrossRepos(a *Actions, req CodeSequenceRequest, fwd *domain.R
 		another.fileCache = nil
 		another.constPkgs = nil // 跨包常量表按仓库隔离
 		another.diRegsAll = nil // 跨包 DI 注册表按仓库隔离
+		another.ifaceImplTypes = nil
 		another.fieldWriters = nil
 		another.fieldTypes = nil
 		another.funcRets = nil

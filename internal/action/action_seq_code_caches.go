@@ -19,6 +19,9 @@ func seqInitRequestCaches(req *CodeSequenceRequest) {
 	if req.ifaceImpls == nil {
 		req.ifaceImpls = map[string]seqIfaceCached{} // todo22 §7.3：接口候选请求内缓存
 	}
+	if req.ifaceImplTypes == nil {
+		req.ifaceImplTypes = map[string][]string{} // todo23 §7.1：接口实现类型
+	}
 	if req.extPkgs == nil {
 		req.extPkgs = map[string]*seqExternalPkg{} // todo22 §4.2：外部包源码缓存
 	}

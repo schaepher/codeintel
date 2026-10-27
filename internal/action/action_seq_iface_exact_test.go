@@ -5,9 +5,13 @@ package action
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/schaepher/codeintel/internal/domain"
+	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
 
 // strictReader 包一层 Reader：记录并拒绝"模糊名称搜索/全图扫描"类调用。
@@ -164,5 +168,61 @@ func Run(d Doer) {
 		if n.Evidence == nil || len(n.Evidence.Candidates) != 2 || !n.Evidence.Ambiguous {
 			t.Errorf("缓存命中后仍应保留 2 个未消歧候选，got %+v", n.Evidence)
 		}
+	}
+}
+
+// TestSeqIfaceCacheMethodIdentity：同一接口的多个方法不能复用同一份
+// chosen/candidates（todo23 §7.1）——缓存实现类型、按当前方法重建 ID。
+func TestSeqIfaceCacheMethodIdentity(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/m\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	r := sqlite.NewRepo(db)
+	if _, err := r.SaveBatchStats([]*domain.CodeEntity{
+		{ID: "symbol:go:example.com/m:API", Kind: domain.KindInterface, Name: "API"},
+		{ID: "symbol:go:example.com/m:(API).Insert", Kind: domain.KindMethod, Name: "(API).Insert"},
+		{ID: "symbol:go:example.com/m:(API).SaveService", Kind: domain.KindMethod, Name: "(API).SaveService"},
+		{ID: "symbol:go:example.com/m:Store", Kind: domain.KindStruct, Name: "Store"},
+		{ID: "symbol:go:example.com/m:(Store).Insert", Kind: domain.KindMethod, Name: "(Store).Insert"},
+		{ID: "symbol:go:example.com/m:(Store).SaveService", Kind: domain.KindMethod, Name: "(Store).SaveService"},
+	}, []*domain.Fact{{
+		SourceID: "symbol:go:example.com/m:API", TargetID: "symbol:go:example.com/m:Store",
+		Kind: domain.FactImplements, Confidence: 1.0,
+	}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	acts := New(sqlite.NewRepo(db))
+	req := CodeSequenceRequest{ifaceImpls: map[string]seqIfaceCached{},
+		ifaceImplTypes: map[string][]string{}}
+
+	chosen1, cands1, ok1 := acts.seqIfaceMethodImpl(req, "symbol:go:example.com/m:(API).Insert")
+	if !ok1 || chosen1 != "symbol:go:example.com/m:(Store).Insert" {
+		t.Fatalf("Insert 应具体化到 (Store).Insert，got %q (%v)", chosen1, ok1)
+	}
+	chosen2, cands2, ok2 := acts.seqIfaceMethodImpl(req, "symbol:go:example.com/m:(API).SaveService")
+	if !ok2 || chosen2 != "symbol:go:example.com/m:(Store).SaveService" {
+		t.Fatalf("SaveService 应具体化到 (Store).SaveService，got %q (%v)", chosen2, ok2)
+	}
+	for _, c := range cands2 {
+		if strings.HasSuffix(c, ").Insert") {
+			t.Errorf("SaveService 的候选不得复用 Insert 的 ID：%v", cands2)
+		}
+	}
+	if len(cands1) != 1 || !strings.HasSuffix(cands1[0], ").Insert") {
+		t.Errorf("Insert 候选应为 (Store).Insert，got %v", cands1)
+	}
+	missing, candsM, okM := acts.seqIfaceMethodImpl(req, "symbol:go:example.com/m:(API).Missing")
+	if okM || missing != "" || len(candsM) != 0 {
+		t.Errorf("Missing 不应借用其它方法的结果，got %q %v (%v)", missing, candsM, okM)
+	}
+	// 实现类型查询只一次（Insert/SaveService 共用）；方法身份各自缓存
+	if len(req.ifaceImplTypes["symbol:go:example.com/m:API"]) != 1 {
+		t.Errorf("实现类型缓存应有 1 个实现，got %v", req.ifaceImplTypes)
 	}
 }

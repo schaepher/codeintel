@@ -93,6 +93,10 @@ type CodeSequenceRequest struct {
 	// todo22 §7.3：请求内接口实现候选缓存（ifaceID → 实现类型列表；nil =
 	// 明确未命中，同样缓存，避免同一请求重复查库/重复全库发现）
 	ifaceImpls map[string]seqIfaceCached
+	// ifaceImplTypes todo23 §7.1：接口 → 实现**类型**（与所选方法无关）——
+	// 方法级 ID 在读取时按当前方法重建，避免"先解析 Insert 再解析
+	// SaveService 复用 Insert 的 ID"。
+	ifaceImplTypes map[string][]string
 	// todo22 §4.2：外部包源码解析缓存（import path → 包目录/文件；失败也缓存）
 	extPkgs map[string]*seqExternalPkg
 	// todo22 §4.1：RPC 转发/服务端解析缓存（客户端桩符号 → 转发；
