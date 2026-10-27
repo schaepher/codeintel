@@ -34,9 +34,10 @@ const (
 	SeqStopUnknownImpl    = "unknown_implementation" // 接口方法无可证明实现
 	// todo22 §3.2：有多个未验证候选——保留候选集合，不选第一个展开
 	SeqStopIfaceAmbiguous = "iface_ambiguous"
-	SeqDegradedPackage    = "degraded_package" // 构建期失败的具体包（含错误位置）
-	SeqTargetCoverage     = "target_coverage"  // 目标与失败包的隔离判断
-	SeqSQLDegraded        = "sql_degraded"     // SQL 解析降级统计（与包失败分开）
+	// todo22 §4.1：RPC 续接的停止码见 action_seq_rpc_evidence.go（§4.1 专用）
+	SeqDegradedPackage = "degraded_package" // 构建期失败的具体包（含错误位置）
+	SeqTargetCoverage  = "target_coverage"  // 目标与失败包的隔离判断
+	SeqSQLDegraded     = "sql_degraded"     // SQL 解析降级统计（与包失败分开）
 	// todo12-13：筛选/投影诊断（与原分析诊断分开——筛选不得顶替原诊断）
 	SeqDiagFocusProjection = "focus_projection"
 	SeqDiagSceneProjection = "scene_projection"
@@ -53,6 +54,8 @@ const (
 	// todo22 §2：函数值调用（IIFE / 闭包变量 / 回调形参绑定）——按调用点
 	// 数据流证明执行，证据记录绑定/调用位置与依据。
 	SeqEvidenceClosure = "closure"
+	// todo22 §4.1：RPC 客户端桩 → 服务端实现（go-micro NewRequest/Call + 注册）
+	SeqEvidenceRPC = "rpc"
 )
 
 // SeqReasonAggregatedCallEdge 目标由同函数汇总边的调用名唯一匹配恢复
@@ -84,6 +87,13 @@ type SeqEvidence struct {
 	// todo22 §3.3：DI 注册证据站点（字段注入的 key 在哪个引导函数里注册）
 	RegisterSite int    `json:"di_register_line,omitempty"`
 	RegisterFile string `json:"di_register_file,omitempty"`
+	// todo22 §4.1：RPC 续接证据——服务节点/完整服务身份/协议/方法（远端仓库
+	// 续接时 RemoteRepo 记录目标仓库，防止"看起来连上但不是同一个服务"）。
+	ServiceID   string `json:"service_id,omitempty"`
+	RPCService  string `json:"rpc_service,omitempty"`
+	RPCProtocol string `json:"rpc_protocol,omitempty"`
+	RPCMethod   string `json:"rpc_method,omitempty"`
+	RemoteRepo  string `json:"remote_repo,omitempty"`
 	// todo10-8：证据身份——可直接重跑的查询命令 + 支持程度
 	Query   string `json:"query,omitempty"`   // 规范化 shell 命令（含 repo/ID/depth/focus/scene）
 	Verdict string `json:"verdict,omitempty"` // direct|corroborated|unverified
@@ -263,6 +273,8 @@ func seqEvidenceVerdict(ev *SeqEvidence) string {
 		// 语法级数据流（绑定证明）：有明确绑定 → corroborated；
 		// 未绑定/多值未消歧（Ambiguous）→ 已在前面判为 unverified。
 		return SeqVerdictCorroborated
+	case SeqEvidenceRPC:
+		return seqRPCEvidenceVerdict(ev) // todo22 §4.1（见 action_seq_rpc_evidence.go）
 	}
 	return SeqVerdictUnverified
 }

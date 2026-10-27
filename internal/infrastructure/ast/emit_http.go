@@ -59,4 +59,3 @@ func (ctx *fileCtx) emitHTTP(call *ast.CallExpr, callerID domain.CanonicalID, ur
 	}})
 	ctx.httpURLsSeen[url] = true
 }
-

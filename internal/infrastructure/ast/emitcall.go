@@ -57,6 +57,9 @@ func (ctx *fileCtx) emitCall(call *ast.CallExpr) {
 		}
 		return
 	}
+	// todo22 §4.1：go-micro 服务注册 / 客户端 RPC 桩（NewRequest+Call）——
+	// 必须在普通 calls 边与外部调用分支之前识别（桩内 Call 是外部包方法）。
+	ctx.emitMicroCall(call, callee, callerID, callerKind)
 	// 参数位置的调用（如 A(B(C())) 里的 B(C())）：由外层调用处理为
 	// "持有返回参数"链，不建 calls
 	if isArgCall(ctx.stack, call) {

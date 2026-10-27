@@ -91,7 +91,7 @@ make it
 | 3.1 | 到达定义/精确目标/同名不同包/行号回退核对 | 部分：`action_seq_dataflow.go`（receiver 字段写入溯源）、`action_seq_targets.go:matchAggregated`（todo20-9）+ 本轮新增**实参位置调用的 AST 对象身份恢复**（`seqASTCallTarget`，不做名称模糊搜索） |
 | 3.2 | 接口候选全集 + `candidate_depth`/`candidate_budget` 截断诊断 | **已完成（2026-10-27，B.7）**：多候选不选第一个展开、候选上限 12 + 截断说明；见 B.7 |
 | 3.3 | DI/AOP（Bean/Inject 注解、container/key 注册、事务 wrapper 内原实现） | **第一增量已完成（2026-10-27，B.8）**：字段注解/注册证据 + AOP 包装目标；框架专有契约（gof/其他容器）仍未知 |
-| 4.1 | go-micro `NewRequest/Call` + 服务注册续接、跨仓 workspace 限定 | **未实现**（仅有 gRPC 方法入口 ID 约定 `GrpcMethodEntryID`） |
+| 4.1 | go-micro `NewRequest/Call` + 服务注册续接、跨仓 workspace 限定 | **同仓已完成（2026-10-27，B.13）**：客户端桩/接口调用 + 注册身份/实现 + 证据；**跨仓 workspace 归一未做**（防环键已按 `仓库|方法入口` 预留） |
 | 4.2 | 外部依赖源码按需解析（`go list -e -json -find -mod=readonly`、离线、缓存） | **已完成（2026-10-27，B.9）**：离线只读 go list + 请求内缓存 + 形参重新绑定；见 B.9 |
 | 5 | 场景推导（整型/枚举/跨包常量/短路/取反） | **已实现**（`action_scene*.go`，含 `Source=7/19` 与 `int32(...)` 场景测试） |
 | 6 | `SymbolSource` + `query symbol --include-source` | **已完成（2026-10-27）**，见 B.3 |
@@ -331,3 +331,31 @@ bash scripts/verify.sh --quick && make it
 
 **未做**：receiver 字段类型与工厂来源的独立缓存（当前每次走 AST 数据流，成本
 落在文件解析缓存内；大仓实测收益待量化后再决定是否加）。
+
+### B.13 §4.1 go-micro 服务协议与注册续接（同仓已完成，2026-10-27）
+
+| 要求（§4.1） | 实现 / 证据 |
+| --- | --- |
+| 从生成客户端 `NewRequest/Call` 及准确 proto 服务身份恢复方法 | `ast_micro.go`：`client.NewRequest(service, endpoint, req)` 前两参精确字符串（字面量/常量；动态拼接保持未知）→ 完整身份 + handler 短名 + 方法名；同函数 `Call` 消费 → `grpc_call` 边（source=桩方法）+ 服务节点 `rpc_protocol=micro` |
+| 定位真实 Register 注册及服务实现 | 生成注册函数形态（首参 `server.Server` + 第二参 `<X>Handler` 接口）→ 服务节点（service_name/handler_name/methods）+ `grpc_impl` 边（注册实参类型）；完整注册身份取 `micro.NewService(micro.Name("..."))` 绑定（属性 `rpc_service`）；`registers_service` 打在注册函数节点（同 Setup 多服务不互相覆盖） |
+| 在原 RPC 调用点续接服务端子树 | `action_seq_rpc.go`：调用点出站边 → 服务身份（精确注册身份优先）→ 实现（多实现歧义/零实现诊断）→ `(Impl).Method` 精确构造 + 展开；桩源码不展开 |
+| 校验完整身份、方法、注册实参、导入包与实际 server 协议 | 协议按调用点可选项类型判定（`...client.CallOption`）；完整身份/注册身份分开保存，**不一致 fail-closed**（`rpc_identity_conflict`）；方法 canonical ID 精确查询，缺失时附注册方法清单；注册实参取 `grpc_impl` 边 |
+| 同名方法不同服务不能串接 / 非标准服务名不被优化过滤 | 按服务身份 + handler 名 + 方法解析，不按名字形状过滤；`TestTodo22MicroRPCSameRepo` 两个入口分别只到各自实现；动态服务名不用前缀冒充身份（单测覆盖） |
+| 定点查询 Register 节点；未找到是正常未命中并缓存，不反复全库发现 | `GetRegisterNode`/`registers_service` 属性 + `GetRPCServicesByFullIdentity`（`idx_nodes_rpc_service`）/`GetRPCServicesByProtocol`（`idx_nodes_grpc_service`）；`req.rpcSvcs`/`req.rpcByFunc` 命中与未命中都缓存；`TestSeqRPCContinuationAndRequestCache` 断言同源/同服务只查一次 |
+| 兼容 native gRPC 不退化 | native 路径（ServiceDesc/RegisterXxxServer/grpc_client 签名）不改；`grpcClientServiceOf` 只为 micro 客户端接口补协议标记（`rpc_protocol=micro`），既有 gRPC 集成用例全绿（`make it`） |
+| 保留 repo/服务 ID/构建身份/调用与定义位置 | 证据 `service_id`/`rpc_service`/`rpc_protocol`/`rpc_method`/注册 `file:line`；`--json` 原字段不变（新增可选键） |
+| 真实源码夹具 + 反例 + CLI 集成 | `integration/microfixture_test.go`（go-micro stub 模块 replace + 生成形态 pb + 两服务 Apply）；`integration/todo22_micro_test.go`：正例（两入口不串线、depth=1、桩源码不展开）+ 反例（移除注册/改协议/改服务名）全部只断言各自结论 |
+| 跨仓 workspace 限定 / 资源关闭覆盖子树 / 跨仓缓存键含仓库身份 | **未做**（同仓）；防环键已写成 `req.RepoAbs|方法入口`，跨仓续接接入时无需改语义 |
+| go-micro 直接 `micro.RegisterHandler` 形态 | 识别根包 `RegisterHandler`，但服务短名只在第二参是 `<X>Handler` 接口时可解析；`new(AccountServer)` 这类具体类型注册保留 `rpc_impl_missing`（不猜） |
+
+验证命令：
+
+```sh
+go test ./internal/infrastructure/ast -run 'TestIndexMicro' -count=1
+go test ./internal/infrastructure/sqlite -run 'TestRPCForward' -count=1
+go test ./internal/action -run 'TestSeqRPC' -count=1
+PATH=$(go env GOPATH)/bin:$PATH go test -tags integration ./integration -run 'TestTodo22MicroRPC' -count=1 -v
+bash scripts/verify.sh --quick && make it
+```
+
+结果：以上全部 PASS（集成用例 0.26s/0.82s；`make it` 44.6s）。

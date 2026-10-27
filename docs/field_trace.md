@@ -6669,3 +6669,71 @@ WHERE s.id = ? AND t.id NOT LIKE '%Unimplemented%'
 根分区被 `.tmp/go-build*`、旧测试目录与 `.tmp/ci|wiki-*|codeintel-base` 占满
 （`.tmp` 1.1GB）。清理 `.tmp/go-build*`/`.tmp/Test*`/旧对比目录后恢复正常。
 （runbook「/tmp 满」同类问题，属环境而非代码。）
+
+## §123 todo22 §4.1：go-micro 服务协议与注册续接（2026-10-27）
+
+输入端（AST 适配器，`ast_micro.go`）——不按服务名形状过滤，按协议事实识别：
+
+- **客户端**：`client.NewRequest(service, endpoint, req)` / `client.Call(...)`
+  且 callee 属于 go-micro client 包。`NewRequest` 前两参必须**精确可解析**
+  （字面量/字符串常量）——动态拼接的服务名保持未知，不用前缀冒充完整身份。
+  端点 `AccountService.Apply` 拆成 handler 短名 + RPC 方法名。
+  生成客户端桩（同函数内 `NewRequest` + `Call`）→ `grpc_call` 边
+  （source=桩方法，edge_key=方法名）+ 服务节点（`rpc_protocol=micro`，
+  `rpc_client_service`=客户端声明身份）。
+- **服务端**：第一参是 go-micro `server.Server` 的注册函数
+  （生成代码 `Register<X>Handler(s, hdlr XHandler, ...)` 或根包
+  `micro.RegisterHandler`）→ 服务节点（`service_name`/`handler_name`=X，
+  `methods`=接口方法全集）+ `grpc_impl` 边（注册实参类型 → 服务）。
+  完整注册身份取 `micro.NewService(micro.Name("..."))` 的局部变量绑定 →
+  `rpc_service`。`registers_service` 打在**注册函数**节点上（不是调用方——
+  同一 `Setup` 注册多个服务时调用方单属性会互相覆盖；native gRPC 同口径），
+  注册行号由 `GetFirstCallTo`（calls 入边）恢复。
+- **协议判定按调用点签名**：go-micro 客户端接口方法与 gRPC 同形（ctx+error），
+  但可选项是 `...client.CallOption`——`isMicroClientOptsSig` 决定
+  `grpc_call` 的 `rpc_protocol`，`grpcClientServiceOf` 不再把 micro 客户端
+  接口误标成 native gRPC。
+
+查询端（`action_seq_rpc.go`）——在原 RPC 调用点续接服务端子树：
+
+1. 调用点出站边（`GetRPCForwards(源函数)`，按 pos → 行号 → 方法名唯一回退；
+   同义边合并导致重复调用只剩首个 metadata 时标 `-aggregated`）
+   → 服务身份/方法。桩源码（`NewRequest`/`Call`）不再作为业务流程展开。
+2. 服务解析（请求内缓存，命中/未命中都缓存）：注册身份精确匹配
+   （`idx_nodes_rpc_service` 表达式索引 + `idx_nodes_grpc_service` 部分索引）
+   → 缺失时按 handler 短名唯一匹配，但**注册身份与客户端声明不一致即
+   fail-closed**（`rpc_identity_conflict`，服务改名/配错不兜底）。
+3. 实现（`grpc_impl` 边，多实现→`rpc_ambiguous`；零实现→`rpc_impl_missing`）
+   → `(Impl).Apply` canonical ID 精确查询（缺失→`rpc_method_missing`，附注册
+   方法清单）→ 展开服务端函数体。证据记录 service_id/完整身份/协议/方法/
+   注册 file:line，`reason=micro-register-identity`（精确）或
+   `micro-register-handler-name`（身份不完整 → verdict `unverified`）。
+4. depth=1 保留准确 RPC 目标 + depth 诊断（与 §4.2 外部依赖同口径）；
+   防环键 = `仓库|方法入口`（为跨仓续接预留）。
+
+验收（真实 init → CLI）：
+
+- `integration/todo22_micro_test.go`：客户端只请求 `example.flow.AccountService.Apply`
+  → 只续到 `(AccountServer).Apply`（含 `SaveAudit`），不出现 `(OtherServer)`；
+  另一入口（OtherService）只到 `(OtherServer).Apply`；`c.c.Call` 不成为流程节点；
+  depth=1 给 depth 诊断。
+- 反例矩阵：移除注册（`rpc_impl_missing`）、换成非 go-micro 注册协议
+  （`rpc_impl_missing`）、改服务名（`rpc_identity_conflict`）——都不串到
+  OtherServer。
+- 单测 `TestSeqRPCContinuationAndRequestCache`：两条同服务调用都续到实现；
+  同源函数出站边只查一次；同服务身份只查一次；未注册服务只枚举一次
+  （kind 过滤，不是全库扫描）；返回值/证据为 corroborated。
+- 仓储 `TestRPCForwardQueriesAndPlan`：客户端声明身份与注册身份分开保存、
+  多实现全部返回、完整身份查询命中 `idx_nodes_rpc_service`。
+
+**本轮踩坑**：① `registers_service` 是单值属性——同函数注册多个服务会互相
+覆盖，改为按注册函数记录（与 native gRPC 一致）；② 生成客户端桩的
+`NewRequest` 命中服务节点与服务端注册**同一 ID**，原先 `rpc_service` 双写会
+让"改服务名"看起来正常——拆成 `rpc_service`（注册）/`rpc_client_service`
+（客户端声明），冲突才能被检出；③ 结构相同的两个客户端接口会互相
+"实现"（Go structural typing）——按接口派发必歧义，故用调用点出站边
+（协议已在索引期证明）直接续接，不走接口候选。
+
+**未做**（下一步）：跨仓 workspace 限定的服务端续接（当前同仓；查询端已按
+`仓库|方法入口` 预留防环键），以及 go-micro 直接 `micro.RegisterHandler`
+形态的服务短名规则（当前只在能解析注册接口时识别）。

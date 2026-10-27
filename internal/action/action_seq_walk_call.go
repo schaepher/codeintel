@@ -27,6 +27,12 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		pos := fset.Position(call.Lparen)
 		node = &CodeSeqNode{Kind: "call", Label: callLabel(fset, src, fun), Actor: callActor(fset, src, fun), Line: pos.Line}
 
+		// todo22 §4.1：本调用点是否有 RPC 出站（go-micro 客户端接口调用）——
+		// 直接续接服务端子树，不进入接口派发（结构相同的多个客户端接口会
+		// 互相"实现"，接口候选无法消歧；调用点签名已证明是 go-micro 协议）。
+		if seqExpandRPCAt(a, req, node, req.curSym, pos, seqCallMethodName(fun), depth, curFile) {
+			return node
+		}
 		// todo22 §2：被调者本身是函数值（IIFE / 闭包变量 / 回调形参）——按
 		// 调用点的数据流展开；不是函数值时继续走索引调用边/接口派发路径。
 		if fv, isFV := seqCallFuncValue(a, req, call); isFV {
@@ -71,6 +77,12 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 			// todo12-9：依赖闭包里的调用（返回值/字段值的必要来源）命中
 			if req.focusLines != nil && req.focusLines[pos.Line] {
 				node.Focus = true
+			}
+			// todo22 §4.1：目标是 go-micro 客户端桩（NewRequest+Call）→ 在原
+			// RPC 调用点续接服务端子树（不展开桩源码噪声）。depth=1 时保留
+			// 准确目标 + 深度诊断。
+			if seqExpandRPC(a, req, node, tid, depth, curFile, pos.Line) {
+				return node
 			}
 			// todo10-9：有可解析的目标却因 depth 上限未展开 → 记"depth 截断"
 			// （终止原因不是"流程结束"）
@@ -176,6 +188,11 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 						ev.Ambiguous = false
 						ev.Candidates = []string{impl}
 						node.Evidence = ev
+						// todo22 §4.1：场景消歧后命中的实现若是 RPC 客户端桩，
+						// 续接服务端子树（桩源码不是业务流程）。
+						if seqExpandRPC(a, req, node, impl, depth, curFile, pos.Line) {
+							return node
+						}
 						if child, stop := codeSeqForSymbol(a, req, impl, depth-1); child != nil {
 							node.Nodes, node.Stop = child.Nodes, child.Stop
 							return node
@@ -242,6 +259,11 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 				node.ImplType = implTypeShort(impl)
 				node.Evidence = seqIfaceEvidence(curFile, pos.Line, impl, cands, tg.confidence)
 				node.Evidence.CandidateBudget = seqIfaceBudget(len(cands), truncated)
+				// todo22 §4.1：接口消歧命中的实现是 go-micro 客户端桩 → 续接
+				// 服务端子树（不展开桩源码）。
+				if seqExpandRPC(a, req, node, impl, depth, curFile, pos.Line) {
+					return node
+				}
 				if child, stop := codeSeqForSymbol(a, req, impl, depth-1); child != nil {
 					node.Nodes = child.Nodes
 					return node
@@ -257,21 +279,9 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 			}
 		}
 
-		// 4) grpc 服务的实现方法（服务节点 → (Impl).Method）
-		if !strings.Contains(tid, ":(") {
-			if sel, isSel := fun.(*ast.SelectorExpr); isSel {
-				entry := GrpcMethodEntryID(tid, sel.Sel.Name)
-				if child, stop := codeSeqForSymbol(a, req, entry, depth-1); child != nil {
-					if node.Evidence == nil || node.Evidence.Source == SeqEvidenceCallEdge {
-						node.Evidence = &SeqEvidence{Source: SeqEvidenceGrpcImpl, CallFile: curFile, CallLine: pos.Line,
-							SymbolID: entry, Confidence: tg.confidence, Reason: "grpc-service-impl"}
-					}
-					node.Nodes, node.Stop = child.Nodes, child.Stop
-					return node
-				} else if stop != nil && node.Stop == nil {
-					node.Stop = stop
-				}
-			}
+		// 4) grpc 服务的实现方法（服务节点 → (Impl).Method；见 walk_impl.go）
+		if seqExpandGrpcServiceImpl(a, req, node, fun, tid, tg.confidence, depth, curFile, pos.Line) {
+			return node
 		}
 
 		// 5) 直接展开（索引 calls 边的目标）

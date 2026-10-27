@@ -12,6 +12,7 @@ package action
 import (
 	"go/ast"
 	"go/token"
+	"strings"
 )
 
 // seqTryDIAndLocalVar 尝试 DI 字段注入与局部变量具体化；命中时已填好 node。
@@ -57,10 +58,39 @@ func seqTryDIAndLocalVar(a *Actions, req CodeSequenceRequest, f *ast.File, sel *
 }
 
 // seqExpandInto 展开目标函数体（统一入口：子节点/停止诊断写到 node）。
+// todo22 §4.1：目标是 go-micro 客户端桩时改为续接服务端子树。
 func seqExpandInto(a *Actions, req CodeSequenceRequest, node *CodeSeqNode, symID string, depth int) {
+	if seqExpandRPC(a, req, node, symID, depth, "", 0) {
+		return
+	}
 	if child, stop := codeSeqForSymbol(a, req, symID, depth-1); child != nil {
 		node.Nodes, node.Stop = child.Nodes, child.Stop
 	} else if stop != nil {
 		node.Stop = stop
 	}
+}
+
+// seqExpandGrpcServiceImpl grpc 服务节点目标 → (Impl).Method 实现方法展开。
+// 返回 true 表示已展开（调用方直接返回节点）；否则保持原终点诊断。
+func seqExpandGrpcServiceImpl(a *Actions, req CodeSequenceRequest, node *CodeSeqNode,
+	fun ast.Expr, tid string, confidence float64, depth int, curFile string, line int) bool {
+	if strings.Contains(tid, ":(") {
+		return false
+	}
+	sel, isSel := fun.(*ast.SelectorExpr)
+	if !isSel {
+		return false
+	}
+	entry := GrpcMethodEntryID(tid, sel.Sel.Name)
+	if child, stop := codeSeqForSymbol(a, req, entry, depth-1); child != nil {
+		if node.Evidence == nil || node.Evidence.Source == SeqEvidenceCallEdge {
+			node.Evidence = &SeqEvidence{Source: SeqEvidenceGrpcImpl, CallFile: curFile, CallLine: line,
+				SymbolID: entry, Confidence: confidence, Reason: "grpc-service-impl"}
+		}
+		node.Nodes, node.Stop = child.Nodes, child.Stop
+		return true
+	} else if stop != nil && node.Stop == nil {
+		node.Stop = stop
+	}
+	return false
 }

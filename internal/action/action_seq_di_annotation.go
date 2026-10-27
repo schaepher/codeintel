@@ -106,4 +106,3 @@ func tagValue(tag, name string) (string, bool) {
 	}
 	return rest[:j], true
 }
-

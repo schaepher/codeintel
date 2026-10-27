@@ -69,6 +69,9 @@ CREATE INDEX IF NOT EXISTS idx_nodes_grpc_service ON nodes(kind) WHERE kind = 'g
 -- registers_service 属性查询（Register 函数识别）用表达式索引；查询里没有
 -- kind 谓词，所以不能做成部分索引。
 CREATE INDEX IF NOT EXISTS idx_nodes_registers_service ON nodes(json_extract(properties, '$.registers_service'));
+-- todo22 §4.1：go-micro 完整服务身份查询（客户端 NewRequest 的服务名 → 注册
+-- 节点）。同样幂等加法：不改表结构、不递增 SchemaVersion。
+CREATE INDEX IF NOT EXISTS idx_nodes_rpc_service ON nodes(json_extract(properties, '$.rpc_service'));
 CREATE INDEX IF NOT EXISTS idx_edges_kind ON edges(kind);
 -- 唯一以 target_ref 打头的索引（入边查询靠它，必须保留）
 CREATE INDEX IF NOT EXISTS idx_edges_target_kind ON edges(target_ref, kind);

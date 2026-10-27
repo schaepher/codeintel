@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"go/ast"
+
+	"github.com/schaepher/codeintel/internal/domain"
 )
 
 // 调用执行语义（todo10-2）：sync 缺省；defer 函数返回时执行；async 并发
@@ -72,6 +74,14 @@ type CodeSequenceRequest struct {
 	ifaceImpls map[string]seqIfaceCached
 	// todo22 §4.2：外部包源码解析缓存（import path → 包目录/文件；失败也缓存）
 	extPkgs map[string]*seqExternalPkg
+	// todo22 §4.1：RPC 转发/服务端解析缓存（客户端桩符号 → 转发；
+	// 服务身份 → 注册/实现；未命中同样缓存——正常未命中不反复全库发现）
+	rpcFwd  map[string]*domain.RPCForward
+	rpcSvcs map[string]*seqRPCSvc
+	// rpcByFunc 源函数 → RPC 出站边（调用点 pos/行号匹配；请求内缓存）
+	rpcByFunc map[string][]*domain.RPCForward
+	// todo22 §4.1：RPC 续接防环键（仓库|方法入口），跨请求子树共享
+	rpcVisited map[string]bool
 	// todo22 §3.3：当前包的 DI 注册表（key → 注册点；扫描一次缓存）
 	diRegs map[string][]seqDIReg
 	// todo22 §2.1：当前分支条件（if/else 进入分支时设置，赋值/字面量绑定

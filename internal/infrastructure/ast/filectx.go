@@ -46,6 +46,10 @@ type fileCtx struct {
 	routeSeq int
 	// R31：gin Group 前缀（变量名 → 路径；scanGinGroups 文件级收集）
 	ginGroups map[string]string
+	// todo22 §4.1：go-micro 服务身份绑定（var → micro.Name 的字面量）
+	microSvcs map[string]string
+	// todo22 §4.1：go-micro 请求变量（"函数 ID\x00变量名" → RPC 身份）
+	microReqs map[string]microRPC
 }
 
 // visit ast.Inspect 回调：栈管理 + 按节点类型分派。
@@ -156,6 +160,10 @@ func (ctx *fileCtx) trackServiceDesc(cl *ast.CompositeLit) {
 // 函数值变量（P2-1）、gRPC 客户端（§18）、req URL（P1-3）、
 // method 常量（§18.6）。
 func (ctx *fileCtx) trackBindings(n ast.Node) {
+	if assign, isAssign := n.(*ast.AssignStmt); isAssign {
+		// todo22 §4.1：go-micro 服务身份/请求变量（多赋值也识别）
+		ctx.trackMicroBindings(assign)
+	}
 	if assign, isAssign := n.(*ast.AssignStmt); isAssign && assign.Tok == token.DEFINE &&
 		len(assign.Lhs) == 1 && len(assign.Rhs) == 1 {
 		if id, isID := assign.Lhs[0].(*ast.Ident); isID {

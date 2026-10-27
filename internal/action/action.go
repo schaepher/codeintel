@@ -79,6 +79,11 @@ type Reader interface {
 	GetRegisterNode(svcName string) (*domain.CodeEntity, error)       // registers_service 属性
 	GetFirstCallTo(targetID domain.CanonicalID) (*domain.Fact, error) // 首条 calls 入边（含行号）
 	GetGrpcImplNode(svcID domain.CanonicalID) (*domain.CodeEntity, error)
+	// todo22 §4.1：RPC 转发与注册（go-micro 客户端桩 → 服务端实现续接）
+	GetRPCForwards(source domain.CanonicalID) ([]*domain.RPCForward, error)
+	GetRPCServicesByProtocol(protocol string) ([]*domain.CodeEntity, error)
+	GetRPCServicesByFullIdentity(protocol, full string) ([]*domain.CodeEntity, error)
+	GetGrpcImplNodes(svcID domain.CanonicalID) ([]*domain.CodeEntity, error)
 	GetImplementsTarget(ifaceID domain.CanonicalID) (domain.CanonicalID, error) // implements 边（排除 Unimplemented 桩）
 	GetHTTPRouteNodes() ([]*domain.CodeEntity, error)                           // kind=http_route（含 properties）
 	GetCLICommandNodes() ([]*domain.CodeEntity, error)                          // R100：kind=cli_command（cli-routes 裸 SQL 收口）

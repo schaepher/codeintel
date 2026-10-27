@@ -151,6 +151,9 @@ func (a *Adapter) processFile(repo *domain.Repository, pkg *packages.Package, f 
 		varFuncs: map[string]*types.Func{},
 		// R31：gin Group 前缀（scanGinGroups 文件级收集）
 		ginGroups: scanGinGroups(pkg, f),
+		// todo22 §4.1：go-micro 服务身份/请求变量（文件级追踪）
+		microSvcs: map[string]string{},
+		microReqs: map[string]microRPC{},
 	}
 	ast.Inspect(f, ctx.visit)
 	return nil
