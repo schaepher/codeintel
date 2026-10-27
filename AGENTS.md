@@ -605,6 +605,9 @@ go build -o codeintel ./cmd/codeintel
 #   codeintel reindex --repo <path>       # 重建（事务重置派生图表，保留人工规则/问答）
 #   codeintel before|trace <符号|字段|表>   # 意图命令（Q244：影响预判 / 数据来龙去脉）
 #   codeintel batch <符号…>                # 批量符号概览（--json）
+#   codeintel query symbol <符号> --include-source   # 追加声明源码（canonical ID 精确 +
+#                                          # AST 实际位置；JSON 的 source{symbol_id,file,
+#                                          # line_start,line_end,text}，todo22 §6）
 #   codeintel query symbol|callers|callees|impact|fields|table|relations|table-path|
 #     value-trace|context|path|unused|summary|sequence|enums|entities|helpers|
 #     grpc-routes|http-routes|cli-routes|external-deps|external-interfaces|

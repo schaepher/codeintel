@@ -6351,3 +6351,37 @@ todo21 §110-14.4 把深递归物化列为"已知但未量化"。本轮交付可
   ——记录事实，不据此改生产实现（用户已定范围）。
 - 未复现"250 万节点 61s 延迟"；未 drop OS page cache（无权限），冷/暖只表示
   该库本轮首个查询进程。
+
+## §113 todo22 §6：`SymbolSource`（`query symbol --include-source`，2026-10-27）
+
+### 契约
+
+`query symbol <符号> --include-source [--json]` 在原输出上追加
+`source{symbol_id,file,line_start,line_end,text}`；不加参数时输出契约不变；
+任何失败 → CLI 非零退出、stdout 为空（不输出部分成功 JSON）。
+
+### 实现
+
+- action `SymbolSource`（`action_symbol_source.go`）：只接受 canonical ID
+  （精确 `GetSymbol`，不做模糊名称搜索）→ kind 必须 function/method →
+  文件路径安全解析（拒绝绝对路径/`..`/symlink 逃逸）→ 最近 `go.mod` 还原
+  包 import path 与 ID 比对（支持嵌套 module）→ `go/parser` 解析 → 按
+  **函数名 + receiver 基名**（剥 `*`/`(T)`/`T[P]`/`T[P,Q]`）匹配声明 →
+  用 `fset` 的字节 Offset 直接切原文（行号来自 AST，不用索引 `LineStart`）。
+- CLI：`--include-source` 解析 + JSON 追加 `source`、文本追加源码块；
+  取源码在**任何输出之前**，失败即返回 1。
+
+### 反例矩阵（每条都断言错误关键词 + 不返回部分结果）
+
+非 canonical 输入、ID 不存在、struct（不支持的声明种类）、虚拟节点（无文件）、
+缺文件、receiver 不匹配、多重声明、解析失败、`../` 穿越、symlink 逃逸、
+包身份与最近 go.mod 不符。正例：`(A).Run` / `(B).Run`（同名不同 receiver 不串线）、
+`(Box[T]).Get`（泛型 receiver）、索引行号写成 999 仍按 AST 实际位置输出。
+
+### 真实 CLI 验收
+
+`integration/flowfixture_test.go` 逐字照抄 todo22 §8 的 `example.com/flow` +
+`example.com/tx` 夹具（含 4 空格缩进的 `(Store).Insert`），
+`integration/todo22_symbol_source_test.go` 真实 `init` 后断言 §6 期望的
+`source` 五字段逐字节相同（`flow.go` 15–18 行、原样文本），并断言无参数时
+无 `source` 键、struct 节点失败时 exit≠0 且 stdout 空。

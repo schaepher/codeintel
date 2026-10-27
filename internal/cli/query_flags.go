@@ -20,6 +20,8 @@ func parseQueryFlags(args []string) queryFlags {
 			f.repoPath = ResolveRepoRef(strings.TrimPrefix(a, "--repo="))
 		case a == "--include-untyped":
 			f.includeUntyped = true
+		case a == "--include-source":
+			f.includeSource = true
 		case a == "--depth" && i+1 < len(args):
 			f.depth, _ = strconv.Atoi(args[i+1])
 			i++

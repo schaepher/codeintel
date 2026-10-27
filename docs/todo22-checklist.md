@@ -93,13 +93,13 @@ make it
 | 4.1 | go-micro `NewRequest/Call` + 服务注册续接、跨仓 workspace 限定 | **未实现**（仅有 gRPC 方法入口 ID 约定 `GrpcMethodEntryID`） |
 | 4.2 | 外部依赖源码按需解析（`go list -e -json -find -mod=readonly`、离线、缓存） | **未实现** |
 | 5 | 场景推导（整型/枚举/跨包常量/短路/取反） | **已实现**（`action_scene*.go`，含 `Source=7/19` 与 `int32(...)` 场景测试） |
-| 6 | `SymbolSource` + `query symbol --include-source` | **未实现** |
+| 6 | `SymbolSource` + `query symbol --include-source` | **已完成（2026-10-27）**，见 B.3 |
 | 7.1 | 接口候选精确邻接查询（不 Expand/不加载全量 implements） | 部分：`InterfaceMethodImpl` 单符号查询已存在；Reader 精确接口查询 + 拒绝全图扫描的包装器测试**未实现** |
 | 7.2 | 路由投影走已有索引 + EXPLAIN 计划测试 | 部分：`repo_packages_plan_test.go` 已锁包清单计划；路由投影计划未覆盖 |
 | 7.3 | 请求内缓存（工厂来源/字段类型/DI/接口候选/AST） | 部分：`action_seq_*` 有请求级缓存设施（需按本节逐项补齐 DH/工厂/AST） |
 | 7.4 | 取消贯穿 SQL/源码定位/递归 | **已实现**（todo21-14.4/14.5，含物化 CTE 与预算记录） |
 | 7.5 | JSON/文本/Mermaid/SVG 同源 + 证据/身份可核对 | 部分：todo19/20/21 已做重复调用点/证据/矢量图；统一分析树与 `*_projection` 诊断已实现，新增能力须继续遵守 |
-| 8 | 第 8 节完整脱敏夹具与逐项断言表 | **未建** |
+| 8 | 第 8 节完整脱敏夹具与逐项断言表 | 夹具**已建**（`integration/flowfixture_test.go`，逐字照抄 §8 源码，供 §6 与后续 §2/§9 共用）；逐项断言表待 §2–§9 完成 |
 | 9.1 | 八个同步流程（SourceA/B × 新建/新增子项/编辑子项/编辑实体） | **未建** |
 | 9.2 | 二十个后续流程形态 + 审核 finish 次数规则 | **未建** |
 | 9.3 | 最终输出（逐行验收、JSON+Mermaid+SVG、全量回归） | **未开始** |
@@ -115,3 +115,37 @@ make it
 
 每项完成时在本文件追加「实现 / 正反例 / 实测命令与输出」小节，并同步
 `docs/field_trace.md`。
+
+### B.3 §6 准确符号源码输出（已完成，2026-10-27）
+
+**契约**：`query symbol <符号> --include-source [--json]` 在原输出的基础上追加
+
+```json
+"source": {"symbol_id": "...", "file": "flow.go",
+           "line_start": 15, "line_end": 18, "text": "<原始声明全文>"}
+```
+
+不加参数时输出契约不变；失败时 CLI 非零退出、stdout 为空（不输出部分 JSON）。
+
+| 要求（§6） | 实现 |
+| --- | --- |
+| action 层 `SymbolSource` | `internal/action/action_symbol_source.go`（`SymbolSourceRequest{RepoAbs, SymbolID}` → `*SymbolSource`） |
+| CLI opt-in 参数 + 原契约不变 | `internal/cli/query.go`（`includeSource`）、`query_flags.go`（`--include-source`）、`query_symbol.go`（JSON 追加 `source`，文本追加"源码: file:start-end" + 全文）；`root.go` 帮助 |
+| text 为原始声明全文，行号为 AST 实际位置 | `go/parser` 解析后用 `fset.Position(fd.Pos()/End()).Offset` 直接切源文件字节；**不使用**索引里的 `LineStart`（测试把节点行号写成 999 仍返回正确行号） |
+| 按 canonical ID 精确取符号 | 只接受 `symbol:go:<import_path>:<name>`，走 `repo.GetSymbol` 精确查询——**不走** ResolveSymbol 的模糊名称搜索；非 canonical 输入直接失败 |
+| 匹配 AST 函数名与 receiver | `matchSymbolSourceDecl`：函数名 + receiver 基名（剥 `*`/`(T)`/`T[P]`/`T[P,Q]`）；匹配不到/多重声明都明确失败 |
+| 指针与泛型 receiver | `recvBaseName` 处理 `*T`、`T[P]`、`(T)`；单测覆盖 `(A).Run`/`(B).Run`/`(Box[T]).Get` |
+| 校验最近 go.mod 的包身份与嵌套 module | `nearestGoMod` 从文件目录向上找 `go.mod`（到仓库根为止），用 `module` 路径 + 相对目录还原 import path 与 ID 比对 |
+| 拒绝仓库外路径及 symlink 逃逸 | `secureSymbolSourceFile`：拒绝绝对路径/`..`，`EvalSymlinks` 后 `filepath.Rel` 必须仍在仓库内 |
+| 缺失文件/虚拟节点/不支持种类/解析失败/包或 receiver 不匹配/多重声明分别失败 | 11 条反例矩阵（`TestSymbolSourceFailures`），每条断言错误关键词与"不返回部分结果" |
+| 测试同名不同 receiver、陈旧行号、全部失败输入 | `internal/action/action_symbol_source_test.go`（4 正例 + 11 反例） |
+| 真实源码 init → CLI（§1 要求） | `integration/todo22_symbol_source_test.go`：真实 `init`（`example.com/flow` + `example.com/tx`）→ `--include-source --json`，断言 §6 期望的 `source` 五字段逐字节相同（15–18 行、原样 4 空格文本）；另断言无参数时无 `source` 键、struct 节点失败时 exit≠0 且 stdout 空 |
+
+**验证命令**
+
+```sh
+go test ./internal/action -run 'TestSymbolSource' -count=1
+go test -tags integration ./integration -run 'TestTodo22SymbolSourceRealCLI' -count=1 -v
+```
+
+两项均 PASS（集成用例 1.34s，含真实 `init`）。

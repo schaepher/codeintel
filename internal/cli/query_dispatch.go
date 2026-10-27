@@ -16,6 +16,9 @@ type outputOpts struct {
 	json     bool   // 结构化 JSON 输出（stdout 仅 JSON，日志已切文件）
 	compact  bool   // 树形/表格输出压缩为紧凑形式
 	repoPath string // 目标仓库根（Q235-10：value-trace 源码片段读取）
+	repoAbs  string // 仓库根绝对路径（todo22 §6：--include-source 的安全边界）
+	// includeSource todo22 §6：query symbol 追加声明源码（原输出契约不变）。
+	includeSource bool
 }
 
 // cmdQuery 实现 codeintel query。
@@ -139,7 +142,8 @@ func cmdQuery(args []string) int {
 		return cmdChainGrpcHTTP(acts, f.positional[0], sub, f.json)
 	}
 
-	opts := outputOpts{json: f.json, compact: f.compact, repoPath: f.repoPath}
+	opts := outputOpts{json: f.json, compact: f.compact, repoPath: f.repoPath,
+		repoAbs: abs, includeSource: f.includeSource}
 	if code, done := dispatchWikiSub(sub, acts, db, abs, f, opts); done {
 		return code
 	}

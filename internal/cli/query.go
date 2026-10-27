@@ -58,6 +58,7 @@ type queryFlags struct {
 	pathBudget     int           // todo12-7：effects 路径枚举预算（0=默认 24）
 	timeout        time.Duration // todo12-17：sequence 查询预算（0=不限）
 	verifyEvidence string        // todo13-14：--verify-evidence <file>——比对原证据身份
+	includeSource  bool          // todo22 §6：query symbol --include-source（输出声明源码）
 }
 
 // edgeCandidateJSON 边级候选标注（Q161：动态 argument/returns 边元数据）。

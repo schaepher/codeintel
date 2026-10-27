@@ -30,6 +30,14 @@ func querySymbol(acts *action.Actions, input string, opts outputOpts, since *dom
 		return 1
 	}
 	n := d.Node
+	// todo22 §6：--include-source 先取源码再输出（失败即返回 1，无部分 JSON）。
+	var src *action.SymbolSource
+	if opts.includeSource {
+		var ok bool
+		if src, ok = fetchSymbolSource(acts, opts, string(n.ID)); !ok {
+			return 1
+		}
+	}
 	// 动态派发候选（Q95）：接口类型 → 候选实现（置信度/注册点）。
 	// P1-03：组合已下沉 action.SymbolDetail，CLI/MCP 同源。
 	dispatch := d.Dispatch
@@ -44,6 +52,9 @@ func querySymbol(acts *action.Actions, input string, opts outputOpts, since *dom
 			"doc":       n.DocComment(),
 			"callers":   factIDs(acts, d.Callers, "source"),
 			"callees":   factIDs(acts, d.Callees, "target"),
+		}
+		if src != nil {
+			out["source"] = src
 		}
 		if len(dispatch) > 0 {
 			cands := make([]map[string]any, 0, len(dispatch))
@@ -99,6 +110,9 @@ func querySymbol(acts *action.Actions, input string, opts outputOpts, since *dom
 		printFacts(d.Callees, "target", 50, calleeMarks)
 	}
 
+	if src != nil {
+		printSymbolSource(src)
+	}
 	if len(dispatch) > 0 {
 		fmt.Printf("候选实现:   %d 个\n", len(dispatch))
 		for _, c := range dispatch {
@@ -111,19 +125,6 @@ func querySymbol(acts *action.Actions, input string, opts outputOpts, since *dom
 		}
 	}
 	return 0
-}
-
-// factEndpointIDs 提取边的端点 ID 列表（--since 标注用）。
-func factEndpointIDs(facts []*domain.Fact, endpoint string) []domain.CanonicalID {
-	out := make([]domain.CanonicalID, 0, len(facts))
-	for _, f := range facts {
-		if endpoint == "target" {
-			out = append(out, f.TargetID)
-		} else {
-			out = append(out, f.SourceID)
-		}
-	}
-	return out
 }
 
 // factRow 调用者/被调用者 JSON 行：端点节点信息（名称/类型/文件:行/签名）

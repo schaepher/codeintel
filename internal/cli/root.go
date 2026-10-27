@@ -106,7 +106,11 @@ const usageText = `codeintel - Go 代码库智能索引与查询（MVP）
   codeintel trace <字段|符号|表>    数据来龙去脉（Q244：值流全链 + 生命周期
                                   主链）
   codeintel batch <符号1> <符号2>… 批量符号概览（Q244：多输入一次返回）
-  codeintel query <symbol|name>    查询符号详情（含调用者/被调用者）
+  codeintel query <symbol|name> [--include-source] [--json]
+                                  查询符号详情（含调用者/被调用者）；
+                                  --include-source 追加声明源码（symbol_id/
+                                  file/line_start/line_end/text，按 canonical
+                                  ID 精确、AST 实际位置、拒绝仓库外路径）
   codeintel query callers <sym>    查询调用者（--depth N，默认 1，置信度阈值 0.8）
   codeintel query callees <sym>    查询被调用者（--depth N，默认 1）
   codeintel query impact <sym>     影响分析（--depth N，默认 3）

@@ -76,3 +76,16 @@ func queryGraph(acts *action.Actions, sub, input string, depth int, opts outputO
 	}
 	return 0
 }
+
+// factEndpointIDs 提取边的端点 ID 列表（--since 标注用）。
+func factEndpointIDs(facts []*domain.Fact, endpoint string) []domain.CanonicalID {
+	out := make([]domain.CanonicalID, 0, len(facts))
+	for _, f := range facts {
+		if endpoint == "target" {
+			out = append(out, f.TargetID)
+		} else {
+			out = append(out, f.SourceID)
+		}
+	}
+	return out
+}
