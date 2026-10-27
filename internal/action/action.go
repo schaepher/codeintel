@@ -28,6 +28,10 @@ type Reader interface {
 	SearchKind(name, kind string) ([]*domain.CodeEntity, error)             // #234 搜索按类型过滤（kind 空=不过滤）
 	GetCallers(id domain.CanonicalID, depth int, minConfidence float64) ([]*domain.Fact, error)
 	GetCallees(id domain.CanonicalID, depth int, minConfidence float64) ([]*domain.Fact, error)
+	// todo21：带请求上下文的调用边走查（取消要终止实际 SQL/连接等待；
+	// 上面两个无 ctx 版本保留为后台兼容入口）
+	GetCallersContext(ctx context.Context, id domain.CanonicalID, depth int, minConfidence float64) ([]*domain.Fact, error)
+	GetCalleesContext(ctx context.Context, id domain.CanonicalID, depth int, minConfidence float64) ([]*domain.Fact, error)
 	GetImpact(id domain.CanonicalID, depth int) ([]*domain.CodeEntity, error)
 	// InterfaceMethodImpl R75：接口方法 → 实现方法（implements 边 +
 	// 方法名匹配——调用链接口具体化）
@@ -43,8 +47,9 @@ type Reader interface {
 	GetValueTraceMulti(anchors []domain.CanonicalID, ctxField string, maxDepth int) ([]*domain.TraceRow, error)
 	GetFunctionFlows(funcID domain.CanonicalID, maxDepth int) ([]*domain.TraceRow, error)
 	GetRoots() ([]*domain.CodeEntity, error)
-	GetPackages() ([]*domain.CodeEntity, error)                   // R1：包职责地图（doc_comment）
-	GetPkgCodeFacts(pkgPath string) (*domain.PkgCodeFacts, error) // R9x：包内代码事实（无 doc fallback）
+	GetPackages() ([]*domain.CodeEntity, error)                           // R1：包职责地图（doc_comment）
+	GetPackagesContext(ctx context.Context) ([]*domain.CodeEntity, error) // todo21：可取消的包清单
+	GetPkgCodeFacts(pkgPath string) (*domain.PkgCodeFacts, error)         // R9x：包内代码事实（无 doc fallback）
 	Expand(id domain.CanonicalID) (facts []*domain.Fact, nodes []*domain.CodeEntity, err error)
 	AllSummaries() ([]*domain.FunctionFieldSummary, error)
 	GetIndirectWriteEdges(funcID domain.CanonicalID) ([]*domain.Fact, error)
@@ -79,7 +84,7 @@ type Reader interface {
 	GetCLICommandNodes() ([]*domain.CodeEntity, error)                          // R100：kind=cli_command（cli-routes 裸 SQL 收口）
 	GetPbServerInterfaces() ([]*domain.CodeEntity, error)                       // R100：带 pb_servers 的接口（grpc-composites 收口）
 	GetFieldWriters(fieldPath string) ([]string, error)                         // R97-2：字段 direct_write 写入函数（数据流具体化）
-	GetAllFieldPaths() ([]string, error)                                       // todo12-9：焦点字段存在性/歧义校验
+	GetAllFieldPaths() ([]string, error)                                        // todo12-9：焦点字段存在性/歧义校验
 	// R94：外部依赖（redis/kafka）与外部接口调用（query external-*）
 	GetRedisKeyNodes() ([]*domain.CodeEntity, error)                       // kind=redis_key（properties.write/cmd）
 	GetKafkaTopicNodes() ([]*domain.CodeEntity, error)                     // kind=kafka_topic
@@ -113,11 +118,11 @@ type Actions struct {
 	repo     Reader
 	modNames []string // 全部 module 路径缓存（P2-3 多 go.mod；modules() 填充）
 	// todo13-17：value-trace 结果缓存（按索引构建身份 + 查询参数；nil=未启用）
-	vtMu    sync.Mutex
-	vtBuild string
-	vtCache      map[string][]*domain.TraceRow
-	vtOrder      []string // FIFO 请求键（容量上限淘汰用）
-	vtCacheLimit    int  // 0 = vtCacheDefaultLimit
+	vtMu            sync.Mutex
+	vtBuild         string
+	vtCache         map[string][]*domain.TraceRow
+	vtOrder         []string // FIFO 请求键（容量上限淘汰用）
+	vtCacheLimit    int      // 0 = vtCacheDefaultLimit
 	vtEvictions     int
 	vtCacheDisabled bool // A/B 对照：关闭缓存重算
 }

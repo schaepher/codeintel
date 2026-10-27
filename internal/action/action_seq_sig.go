@@ -6,6 +6,8 @@ package action
 
 import (
 	"strings"
+
+	"github.com/schaepher/codeintel/internal/domain"
 )
 
 // seqStopPkgHit 符号 ID 所在包是否命中停止列表（完整路径或短名匹配）。
@@ -66,9 +68,15 @@ func pkgShort(pkg string) string {
 // sigTypesOf 被调符号的参数/返回类型短名（R83：消息线参数 + return 线）
 // ——从索引节点 signature 属性解析（func (R).M(args) (rets) 形态，
 // 完整路径类型 → 短名）。无签名返回 ok=false。
+//
+// todo21-14.1：symID 是**内部 canonical ID**（含为外部接口方法构造的
+// 合法不存在 ID），必须精确查询——原实现走 ResolveSymbol，精确 miss 后
+// 会退化成 GetSymbolByName 的 LIKE 全扫 + AllSymbolNames(5000) 候选池，
+// 逐调用点重复执行成为时序查询的头号热点；且"猜一个相似方法的签名"本身
+// 就会写错消息线参数。用户输入的模糊搜索语义只属于 ResolveSymbol。
 func sigTypesOf(a *Actions, symID string) ([]string, []string, bool) {
-	n, err := a.ResolveSymbol(symID)
-	if err != nil {
+	n, err := a.repo.GetSymbol(domain.CanonicalID(symID))
+	if err != nil || n == nil {
 		return nil, nil, false
 	}
 	sig, ok := n.Properties["signature"].(string)

@@ -8,57 +8,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// GetCallers 返回调用 id（或更上层）的边，深度 ≤ depth，置信度 ≥ minConfidence。
-// 递归 CTE 沿 source 方向向上遍历（TD.md ImpactAnalysisSpecification）。
-func (r *Repo) GetCallers(id domain.CanonicalID, depth int, minConfidence float64) ([]*domain.Fact, error) {
-	logger := zap.L()
-	logger.Debug("enter (Repo).GetCallers")
-	defer logger.Debug("exit (Repo).GetCallers")
-	return r.walkEdges(string(id), depth, minConfidence, "callers")
-}
-
-// GetCallees 返回 id 调用（或更下层）的边，深度 ≤ depth，置信度 ≥ minConfidence。
-func (r *Repo) GetCallees(id domain.CanonicalID, depth int, minConfidence float64) ([]*domain.Fact, error) {
-	logger := zap.L()
-	logger.Debug("enter (Repo).GetCallees")
-	defer logger.Debug("exit (Repo).GetCallees")
-	return r.walkEdges(string(id), depth, minConfidence, "callees")
-}
-
-// walkEdges 沿单向方向递归遍历 CALLS 边。
-//
-//	callers: edges 从 id 向上（e.target_id 为已到达节点）
-//	callees: edges 从 id 向下（e.source_id 为已到达节点）
-func (r *Repo) walkEdges(id string, depth int, minConfidence float64, dir string) ([]*domain.Fact, error) {
-	logger := zap.L()
-	logger.Debug("enter (Repo).walkEdges")
-	defer logger.Debug("exit (Repo).walkEdges")
-	var anchor, walkCol string
-	if dir == "callers" {
-		anchor, walkCol = "target_id", "src"
-	} else {
-		anchor, walkCol = "source_id", "tgt"
-	}
-	q := fmt.Sprintf(`
-WITH RECURSIVE walk(src, tgt, kind, tool_source, confidence, metadata, d) AS (
-    SELECT source_id, target_id, kind, tool_source, confidence, metadata, 1
-    FROM edges_v WHERE %s = ? AND kind = 'calls' AND confidence >= ?
-    UNION
-    SELECT e.source_id, e.target_id, e.kind, e.tool_source, e.confidence, e.metadata, w.d + 1
-    FROM edges_v e JOIN walk w ON e.%s = w.%s
-    WHERE w.d < ? AND e.kind = 'calls' AND e.confidence >= ?
-)
-SELECT DISTINCT src, tgt, kind, tool_source, confidence, metadata FROM walk`,
-		anchor, anchor, walkCol)
-
-	rows, err := r.Query(q, id, minConfidence, depth, minConfidence)
-	if err != nil {
-		return nil, fmt.Errorf("walk %s of %s: %w", dir, id, err)
-	}
-	defer rows.Close()
-	return scanFacts(rows)
-}
-
 // GetImpact 计算变更影响范围：从 id 出发沿任意方向遍历，深度 ≤ depth（TD.md 决策 10）。
 func (r *Repo) GetImpact(id domain.CanonicalID, depth int) ([]*domain.CodeEntity, error) {
 	logger := zap.L()
@@ -156,43 +105,6 @@ ORDER BY kind, name LIMIT 200`)
 		}
 	}
 	return roots, nil
-}
-
-// GetPackages 全部包节点（R1 自举分析：包职责地图——包注释即职责）。
-// 排除外部模块包（无 file_path/仓库外路径——与 GetRoots 同模式）。
-func (r *Repo) GetPackages() ([]*domain.CodeEntity, error) {
-	logger := zap.L()
-	logger.Debug("enter (Repo).GetPackages")
-	defer logger.Debug("exit (Repo).GetPackages")
-	rows, err := r.Query(`
-SELECT id, kind, name, file_path, line_start, line_end, properties FROM nodes
-WHERE kind = 'package'
-  AND file_path IS NOT NULL
-  AND file_path NOT LIKE '../%'
-  AND file_path NOT LIKE 'tmp/%'
-  AND file_path NOT LIKE 'integration/%'
-  AND file_path NOT LIKE 'examples/%'
-  AND file_path NOT LIKE 'e2e/%'
-  AND file_path NOT LIKE 'skills/%'
-ORDER BY name`)
-	if err != nil {
-		return nil, fmt.Errorf("get packages: %w", err)
-	}
-	pkgs, err := scanNodes(rows)
-	if err != nil {
-		return nil, err
-	}
-	// 去重（同包多文件？包节点每包一个）按 id
-	seen := map[domain.CanonicalID]bool{}
-	var out []*domain.CodeEntity
-	for _, p := range pkgs {
-		if seen[p.ID] {
-			continue
-		}
-		seen[p.ID] = true
-		out = append(out, p)
-	}
-	return out, nil
 }
 
 // InterfaceMethodImpl 接口方法/类型 → 实现（R75：调用链接口具体化——

@@ -172,6 +172,11 @@ func parseQueryFlags(args []string) queryFlags {
 			i++
 		case strings.HasPrefix(a, "--format="):
 			f.format = strings.TrimPrefix(a, "--format=")
+		case a == "--mermaid":
+			// todo21-14.6：`--mermaid` 是 `--format mermaid` 的等价别名。
+			// 此前该写法被未知选项分支静默忽略 → 输出退化成缩进文本
+			// （文档/脚本用 --mermaid 时拿不到图）。
+			f.format = "mermaid"
 		case strings.HasPrefix(a, "-"):
 
 		default:

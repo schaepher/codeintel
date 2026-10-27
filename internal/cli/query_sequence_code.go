@@ -33,6 +33,10 @@ func cmdQuerySequenceCode(acts *action.Actions, abs, target string, depth int, m
 	if depth <= 0 {
 		depth = 1
 	}
+	// todo21-14.5：预算口径起点——创建查询 ctx **之前**（含请求配置构造），
+	// 终点是 CodeSequence 同步返回。此前的仓库打开/新鲜度检查与之后的
+	// 渲染都不计入。
+	queryStart := time.Now()
 	ctx := context.Background()
 	if timeout > 0 {
 		// todo12-17 R3：查询预算——超时取消展开，失败退出（不返回看似完整的成功）
@@ -46,6 +50,13 @@ func cmdQuerySequenceCode(acts *action.Actions, abs, target string, depth int, m
 		Evidence: evidence || verifyEvidence != "", Format: diagram, Out: out}
 	req.SetCLIVersion(version())
 	root, err := acts.CodeSequence(req)
+	// todo21-14.5：无论成功/失败都留一条可断言的预算范围记录（仅诊断开关
+	// 打开时写 stderr——默认 stdout/JSON 契约不变）。
+	if seqTimingEnabled() {
+		canceled := errors.Is(err, action.ErrSeqCanceled) || ctx.Err() != nil
+		fmt.Fprintf(os.Stderr, "[seq.query] elapsed=%.3fms budget=%s canceled=%t\n",
+			float64(time.Since(queryStart).Microseconds())/1000, seqBudgetLabel(timeout), canceled)
+	}
 	if err != nil {
 		// todo10-9：主动终止（取消）不得报告为成功
 		if errors.Is(err, action.ErrSeqCanceled) {
@@ -245,6 +256,14 @@ func finishSeqTiming(timing *action.SeqTiming, jsonOut bool, renderStart time.Ti
 		timing.SymLookups, timing.SymMS, timing.SQLQueries, timing.SQLMS,
 		timing.Signature, timing.SignatureMS, timing.Dispatch, timing.DispatchMS,
 		timing.CacheHits, timing.CacheMisses)
+}
+
+// seqBudgetLabel 查询预算的可读标注（未设置预算时 "none"）。
+func seqBudgetLabel(timeout time.Duration) string {
+	if timeout <= 0 {
+		return "none"
+	}
+	return timeout.String()
 }
 
 // seqTimingEnabled CODEINTEL_SEQ_TIMING 是否开启。

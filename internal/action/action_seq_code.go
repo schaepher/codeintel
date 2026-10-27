@@ -75,6 +75,12 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 		req.focus = a.newSeqFocus(req.Focus)
 	}
 	ctx := req.ctx()
+	// todo21-14.1/14.2：入口取消检查必须在接触仓储**之前**——已取消的
+	// 查询不得打开库/扫表（预算 1ns 这类请求立即失败）。
+	if ctx.Err() != nil {
+		req.acc.cancel = true
+		return nil, ErrSeqCanceled
+	}
 	var buildMeta *domain.BuildMeta
 	sqlStart := time.Now()
 	if m, merr := a.repo.GetLatest(); merr == nil {
@@ -90,7 +96,24 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	}
 
 	if req.pkgSet == nil {
-		req.pkgSet = a.indexedPkgSet()
+		pkgSet, perr := a.indexedPkgSet(ctx)
+		if perr != nil {
+			// 取消即失败（不把空包集合当完整成功继续输出）；查询/库错误
+			// 仍按原行为退化为空集（未知包 → 调用点分类保守标 index_gap）
+			if ctx.Err() != nil {
+				req.acc.cancel = true
+				return nil, ErrSeqCanceled
+			}
+			logger.Warn("indexed package set unavailable", zap.Error(perr))
+			req.pkgSet = map[string]bool{}
+		} else {
+			// 包清单返回后再次检查取消（扫表期间预算可能已到）
+			if ctx.Err() != nil {
+				req.acc.cancel = true
+				return nil, ErrSeqCanceled
+			}
+			req.pkgSet = pkgSet
+		}
 	}
 	if req.fileCache == nil {
 		req.fileCache = map[string]*seqParsedFile{}

@@ -10,8 +10,8 @@ package action
 //   - 分析停止（depth/stop_pkg/cycle/budget/query_failed）
 
 import (
+	"context"
 	"go/ast"
-
 	"strconv"
 	"strings"
 
@@ -40,11 +40,15 @@ func (a *Actions) isIfaceMethodID(id string) bool {
 }
 
 // indexedPkgSet 已索引包路径集合（包节点 symbol:go:<pkg>:<name>）。
-func (a *Actions) indexedPkgSet() map[string]bool {
+//
+// todo21-14.2：接收请求 ctx——包清单查询必须能被查询预算取消（原实现
+// 无 ctx，连接等待/大库扫表期间不可中断）。取消由调用方判定为
+// ErrSeqCanceled，不把空包集合当完整结果继续输出。
+func (a *Actions) indexedPkgSet(ctx context.Context) (map[string]bool, error) {
 	out := map[string]bool{}
-	pkgs, err := a.repo.GetPackages()
+	pkgs, err := a.repo.GetPackagesContext(ctx)
 	if err != nil {
-		return out
+		return nil, err
 	}
 	for _, p := range pkgs {
 		id := string(p.ID)
@@ -56,7 +60,7 @@ func (a *Actions) indexedPkgSet() map[string]bool {
 			out[id] = true
 		}
 	}
-	return out
+	return out, nil
 }
 
 // seqCoverageDiagnostics 构建覆盖诊断：具体失败包 + 目标是否在范围内 +

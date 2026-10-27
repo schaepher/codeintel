@@ -103,3 +103,49 @@ func TestQuerySequenceCodeTimingDiagnostics(t *testing.T) {
 		t.Errorf("meta.seq_version 应始终存在（契约版本）:\n%s", out)
 	}
 }
+
+// TestQuerySequenceCodeBudgetRecord：todo21-14.5——诊断开关打开时，成功与
+// 取消都留一条 [seq.query] 记录（elapsed/budget/canceled），取消路径 stdout
+// 为空、非零退出。
+func TestQuerySequenceCodeBudgetRecord(t *testing.T) {
+	dir := seqTimingCLIFixture(t)
+	t.Setenv("CODEINTEL_SEQ_TIMING", "1")
+
+	var code int
+	var out string
+	stderr := captureStderr(func() {
+		out = captureStdout(func() {
+			code = cmdQuery([]string{"sequence", "example.com/m:main", "--code", "--json",
+				"--repo", dir, "--depth", "2", "--timeout", "2s"})
+		})
+	})
+	if code != 0 {
+		t.Fatalf("预算内查询应成功: exit=%d\n%s", code, stderr)
+	}
+	if !strings.Contains(stderr, "[seq.query] elapsed=") ||
+		!strings.Contains(stderr, "budget=2s") || !strings.Contains(stderr, "canceled=false") {
+		t.Errorf("成功路径应记录预算范围（实测值）:\n%s", stderr)
+	}
+	if !strings.Contains(out, `"seq_version"`) {
+		t.Errorf("stdout 应仍是完整 JSON:\n%s", out)
+	}
+
+	stderr = captureStderr(func() {
+		out = captureStdout(func() {
+			code = cmdQuery([]string{"sequence", "example.com/m:main", "--code", "--json",
+				"--repo", dir, "--depth", "2", "--timeout", "1ns"})
+		})
+	})
+	if code == 0 {
+		t.Fatalf("1ns 预算应失败退出")
+	}
+	if out != "" {
+		t.Errorf("取消时 stdout 必须为空（不得输出看似完整的部分图）:\n%s", out)
+	}
+	if !strings.Contains(stderr, "canceled=true") || !strings.Contains(stderr, "预算") {
+		t.Errorf("取消路径应记录 canceled=true + 预算错误:\n%s", stderr)
+	}
+	if strings.Contains(stderr, "canceled=false") {
+		t.Errorf("取消路径不应写 canceled=false:\n%s", stderr)
+	}
+}

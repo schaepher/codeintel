@@ -72,7 +72,7 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 			sigStart := time.Now()
 			args, rets, ok2 := sigTypesOf(a, sigID)
 			req.acc.sigLookups++
-			req.acc.symLookups++ // 签名解析内部 ResolveSymbol
+			req.acc.symLookups++ // 签名解析内部 GetSymbol（精确查询，14.1）
 			req.acc.sqlQueries++
 			req.acc.symDur += time.Since(sigStart)
 			req.acc.sigDur += time.Since(sigStart)

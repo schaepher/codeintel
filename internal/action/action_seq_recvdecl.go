@@ -90,7 +90,9 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 	// CalleesConcrete 会静默把接口调用替换成"第一个实现"。
 	tgts := &seqTargets{}
 	sqlStart := time.Now()
-	facts, calleeErr := a.Callees(domain.CanonicalID(symID), 1)
+	// todo21-14.3：请求上下文下的调用边走查（一跳 = 直接邻接查询；取消
+	// 要能终止实际 SQL，而不是只在外层返回）——阈值沿用 MinConfidence。
+	facts, calleeErr := a.repo.GetCalleesContext(req.ctx(), domain.CanonicalID(symID), 1, MinConfidence)
 	req.acc.sqlQueries++
 	req.acc.sqlDur += time.Since(sqlStart)
 	if calleeErr == nil {
