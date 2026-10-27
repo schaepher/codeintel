@@ -225,3 +225,23 @@ func seqASTCallTarget(fun ast.Expr, f *ast.File, curPkg string) (string, bool) {
 	}
 	return "", false
 }
+
+// todo22 §3.2：接口候选展开预算——最多记录/展开 12 个实现候选。
+const seqMaxIfaceCandidates = 12
+
+// capSeqCandidates 截断候选集合（保留前 12 个），返回是否发生截断。
+func capSeqCandidates(cands []string) ([]string, bool) {
+	if len(cands) <= seqMaxIfaceCandidates {
+		return cands, false
+	}
+	return cands[:seqMaxIfaceCandidates], true
+}
+
+// seqIfaceBudget 候选预算的说明文本（截断/未展开原因，消费者可核对）。
+func seqIfaceBudget(n int, truncated bool) string {
+	if truncated {
+		return "impls>" + itoaSeq(seqMaxIfaceCandidates) + "（已截断为 " +
+			itoaSeq(seqMaxIfaceCandidates) + "，候选深度 0=未展开）"
+	}
+	return "impls=" + itoaSeq(n) + "（候选深度 0=未展开）"
+}

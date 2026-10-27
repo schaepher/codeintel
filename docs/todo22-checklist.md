@@ -89,7 +89,7 @@ make it
 | 2.4 | `[]func(...)` 命名函数列表、range 折叠装饰器、预算 16 路径×32 项 | **已完成（2026-10-27，B.5）**：复合字面量/append/变参列表、range 按元素顺序折叠、空列表确定、预算诊断；见 B.5 |
 | 5 | 场景推导（整型/枚举/跨包常量/短路/取反） | **同包已完成（B.5 补强）**：整型/浮点/字符字面量、包内常量（含 `Source(7)` 转换）、内建整数转换、`&&`/`||` 短路、`!` 取反；**跨包常量未解析**（保持 unknown） |
 | 3.1 | 到达定义/精确目标/同名不同包/行号回退核对 | 部分：`action_seq_dataflow.go`（receiver 字段写入溯源）、`action_seq_targets.go:matchAggregated`（todo20-9）+ 本轮新增**实参位置调用的 AST 对象身份恢复**（`seqASTCallTarget`，不做名称模糊搜索） |
-| 3.2 | 接口候选全集 + `candidate_depth`/`candidate_budget` 截断诊断 | 部分：`sceneImplChoice` 有候选集合 + ambiguous；**候选展开预算/截断诊断字段未实现**（现有 `candidate_budget` 属 `query async`） |
+| 3.2 | 接口候选全集 + `candidate_depth`/`candidate_budget` 截断诊断 | **已完成（2026-10-27，B.7）**：多候选不选第一个展开、候选上限 12 + 截断说明；见 B.7 |
 | 3.3 | DI/AOP（Bean/Inject 注解、container/key 注册、事务 wrapper 内原实现） | **未实现** |
 | 4.1 | go-micro `NewRequest/Call` + 服务注册续接、跨仓 workspace 限定 | **未实现**（仅有 gRPC 方法入口 ID 约定 `GrpcMethodEntryID`） |
 | 4.2 | 外部依赖源码按需解析（`go list -e -json -find -mod=readonly`、离线、缓存） | **未实现** |
@@ -237,3 +237,17 @@ bash scripts/verify.sh --quick && make it
 会无限递归 → 栈溢出）——现按预算递减，并加回归 `TestSeqCaptureRecursiveFactory`。
 
 **验证**：`go test ./internal/action -run 'TestSeqCapture' -count=1`（方法值/未覆盖 vs 明确未知/阴影/条件候选带条件/自引用工厂）、`TestSeqFuncValue*`、`TestScene*`、集成 `TestTodo22*`、`verify.sh --quick`、`make it` 全绿。
+
+### B.7 §3.2 接口候选与前沿（已完成，2026-10-27）
+
+| 要求 | 实现 / 证据 |
+| --- | --- |
+| 单一已证明实现可展开；多实现保留完整候选集合，不选择第一项 | `newSeqCallNode` 接口分支：候选 >1 时**不展开、不设 ImplType/SymbolID**，`Evidence.Candidates` 保留全集 + `ambiguous=true` |
+| 未验证候选最多展开两层、最多 12 个实现；输出 `candidate_depth`/`candidate_budget` 截断原因 | `seqMaxIfaceCandidates=12`，`capSeqCandidates` 截断 + `seqIfaceBudget` 文本（`impls=12（候选深度 0=未展开）` / `impls>12（已截断…）`）；`SeqEvidence.CandidateDepth`/`CandidateBudget` 字段 |
+| depth=1 时仍输出选定实现 ID | 已证明单实现路径不受 depth 影响（先具体化再展开，depth 只影响是否继续展开） |
+| 无法消歧的接口保留未知及候选，不制造具体实现 | 新停止码 `iface_ambiguous`（`SeqStopIfaceAmbiguous`），节点无子节点；场景/到达定义未消歧分支同样标 `candidate_budget` |
+| 期望：无证据时两个同名实现在候选里、确定序列中都不出现；有准确构造证据只选对应实现 | 测试 `TestSeqIfaceCandidatesNotExpanded`（OnlyA/OnlyB 都不展开）、`TestSeqIfaceProvenImplExpanded`（`var d Doer = &A{}` → 只展开 A.Do，B.Do 不出现）、`TestSeqIfaceCandidateBudgetTruncation`（14 个候选 → 12 + 截断说明） |
+
+**验证**：`go test ./internal/action -run 'TestSeqIface' -count=1`；全量 `verify.sh --quick` + `make it` 通过。
+
+**注意**：直接 `go test -tags integration ./integration` 时子进程可能找不到 scip-go（要像 `make it` 那样把 `$(go env GOPATH)/bin` 加进 PATH，见 runbook #26）——不是代码回归。

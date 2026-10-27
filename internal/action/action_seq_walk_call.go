@@ -162,6 +162,7 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 							ev.Ambiguous = true
 							ev.Candidates = cands
 							ev.SymbolID = ""
+							ev.CandidateBudget = seqIfaceBudget(len(cands), false)
 							node.Evidence = ev
 							return node
 						}
@@ -231,8 +232,20 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 			req.acc.sqlQueries += 2 // InterfaceMethodImpl + GetImplementsEdges
 			req.acc.dispatchDur += time.Since(dispStart)
 			if ok {
+				// todo22 §3.2：多个未验证候选 → 保留完整候选集合，**不选第一个**
+				// 展开（不制造具体实现）；候选数上限 12，超出明确标注截断。
+				cands, truncated := capSeqCandidates(cands)
+				if len(cands) > 1 {
+					ev := seqIfaceEvidence(curFile, pos.Line, "", cands, tg.confidence)
+					ev.CandidateBudget = seqIfaceBudget(len(cands), truncated)
+					node.Evidence = ev
+					node.Stop = &SeqStop{Code: SeqStopIfaceAmbiguous,
+						Detail: "接口方法 " + tid + " 有 " + itoaSeq(len(cands)) + " 个未验证实现候选（无消歧证据，未展开）"}
+					return node
+				}
 				node.ImplType = implTypeShort(impl)
 				node.Evidence = seqIfaceEvidence(curFile, pos.Line, impl, cands, tg.confidence)
+				node.Evidence.CandidateBudget = seqIfaceBudget(len(cands), truncated)
 				if child, stop := codeSeqForSymbol(a, req, impl, depth-1); child != nil {
 					node.Nodes = child.Nodes
 					return node
@@ -273,19 +286,4 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		}
 		return node
 	}
-}
-
-// seqIfaceEvidence 接口派发的证据：多候选时保留集合 + 依据 + ambiguous
-// （要求：不能静默选择一个实现）。
-func seqIfaceEvidence(callFile string, callLine int, chosen string, candidates []string, confidence float64) *SeqEvidence {
-	ev := &SeqEvidence{Source: SeqEvidenceIface, CallFile: callFile, CallLine: callLine,
-		SymbolID: chosen, Confidence: confidence, Candidates: candidates}
-	switch len(candidates) {
-	case 0, 1:
-		ev.Reason = "unique"
-	default:
-		ev.Reason = "first-of-" + itoaSeq(len(candidates))
-		ev.Ambiguous = true
-	}
-	return ev
 }

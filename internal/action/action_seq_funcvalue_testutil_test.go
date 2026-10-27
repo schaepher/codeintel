@@ -110,3 +110,16 @@ func seqCallNodesNamed(root *CodeSeqNode, label string) []*CodeSeqNode {
 		return n.Kind == "call" && n.Label == label
 	})
 }
+
+// writeSeqFixture 只写源码 + go.mod（接口类夹具自建节点/边时用）。
+func writeSeqFixture(t *testing.T, src string) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/m\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "flow.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}

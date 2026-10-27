@@ -32,9 +32,11 @@ const (
 	// todo13-13：消费者可区分的调用分类（不再把所有未解析笼统称 index_gap）
 	SeqStopExternalTarget = "external_target"        // 外部库目标（调用表达式已知，库内实现未展开）
 	SeqStopUnknownImpl    = "unknown_implementation" // 接口方法无可证明实现
-	SeqDegradedPackage    = "degraded_package"       // 构建期失败的具体包（含错误位置）
-	SeqTargetCoverage     = "target_coverage"        // 目标与失败包的隔离判断
-	SeqSQLDegraded        = "sql_degraded"           // SQL 解析降级统计（与包失败分开）
+	// todo22 §3.2：有多个未验证候选——保留候选集合，不选第一个展开
+	SeqStopIfaceAmbiguous = "iface_ambiguous"
+	SeqDegradedPackage    = "degraded_package" // 构建期失败的具体包（含错误位置）
+	SeqTargetCoverage     = "target_coverage"  // 目标与失败包的隔离判断
+	SeqSQLDegraded        = "sql_degraded"     // SQL 解析降级统计（与包失败分开）
 	// todo12-13：筛选/投影诊断（与原分析诊断分开——筛选不得顶替原诊断）
 	SeqDiagFocusProjection = "focus_projection"
 	SeqDiagSceneProjection = "scene_projection"
@@ -75,6 +77,10 @@ type SeqEvidence struct {
 	Candidates []string `json:"candidates,omitempty"` // 多候选（接口派发/实现）
 	Reason     string   `json:"reason,omitempty"`     // unique|first-of-N|dataflow|...
 	Ambiguous  bool     `json:"ambiguous,omitempty"`  // 多候选未消歧（不是确定结论）
+	// todo22 §3.2：候选展开预算——candidate_depth = 已展开的候选层数（0 =
+	// 未展开任何候选）；candidate_budget = 截断/未展开的原因（含候选数）
+	CandidateDepth  int    `json:"candidate_depth,omitempty"`
+	CandidateBudget string `json:"candidate_budget,omitempty"`
 	// todo10-8：证据身份——可直接重跑的查询命令 + 支持程度
 	Query   string `json:"query,omitempty"`   // 规范化 shell 命令（含 repo/ID/depth/focus/scene）
 	Verdict string `json:"verdict,omitempty"` // direct|corroborated|unverified

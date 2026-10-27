@@ -6520,3 +6520,24 @@ receiver（`recvType/recvDecl`）、所在函数（`enclosing`）、**声明对�
 经 `rhsTypes → callReturnTypes → funcReturnTypes → rhsTypes` 无限递归（栈溢出，
 `fatal error: stack overflow`）。改为每层递减并由 `seqMaxFactoryDepth` 之外的
 depth 预算终止；回归 `TestSeqCaptureRecursiveFactory`。
+
+## §117 todo22 §3.2：接口候选与展开预算（2026-10-27）
+
+- 多实现且**没有消歧证据**时不再"选第一个展开"：节点保留完整候选集合
+  （`evidence.candidates`）、`ambiguous=true`、新增停止码
+  `iface_ambiguous`，且不写 `ImplType`/`symbol_id`——确定调用序列里不出现
+  任何具体实现（对应 §8 "两个同名实现均只作候选"）。
+- 新增 `SeqEvidence.CandidateDepth` / `CandidateBudget`：候选上限
+  `seqMaxIfaceCandidates=12`，超出截断并写明 `impls>12（已截断为 12，候选
+  深度 0=未展开）`；未消歧时为 `impls=N（候选深度 0=未展开）`。
+- 已证明单实现（到达定义/scene 守卫）仍照常具体化并展开（depth=1 也保留
+  选定实现 ID）。
+- 回归：`TestSeqIfaceCandidatesNotExpanded`、`TestSeqIfaceProvenImplExpanded`、
+  `TestSeqIfaceCandidateBudgetTruncation`（夹具用真实 AST 行号 + 接口方法
+  调用边 pos，与生产索引口径一致）。
+
+### 坑
+
+直接 `go test -tags integration ./integration` 跑真实 init 用例时，子进程
+可能找不到 scip-go（`make it` 会注入 `$(go env GOPATH)/bin`）——表现成
+"SCIP 符号索引不可用"，不是代码回归（runbook #26）。
