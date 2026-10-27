@@ -17,6 +17,8 @@ import (
 )
 
 // recursiveReference 旧实现（递归 CTE，非物化）——兼容性对照基准。
+// todo22-14.4-B：SQL 与生产共用 walkRecursiveQuery（materialized=false），
+// 只在这里保留“旧实现=r.Query（无 ctx）”的调用形态。
 func recursiveReference(t *testing.T, r *Repo, id string, depth int, minConfidence float64, dir string) []string {
 	t.Helper()
 	var anchor, walkCol string
@@ -25,18 +27,7 @@ func recursiveReference(t *testing.T, r *Repo, id string, depth int, minConfiden
 	} else {
 		anchor, walkCol = "source_id", "tgt"
 	}
-	q := fmt.Sprintf(`
-WITH RECURSIVE walk(src, tgt, kind, tool_source, confidence, metadata, d) AS (
-    SELECT source_id, target_id, kind, tool_source, confidence, metadata, 1
-    FROM edges_v WHERE %s = ? AND kind = 'calls' AND confidence >= ?
-    UNION
-    SELECT e.source_id, e.target_id, e.kind, e.tool_source, e.confidence, e.metadata, w.d + 1
-    FROM edges_v e JOIN walk w ON e.%s = w.%s
-    WHERE w.d < ? AND e.kind = 'calls' AND e.confidence >= ?
-)
-SELECT DISTINCT src, tgt, kind, tool_source, confidence, metadata FROM walk`,
-		anchor, anchor, walkCol)
-	rows, err := r.Query(q, id, minConfidence, depth, minConfidence)
+	rows, err := r.Query(walkRecursiveQuery(anchor, walkCol, false), id, minConfidence, depth, minConfidence)
 	if err != nil {
 		t.Fatalf("reference query: %v", err)
 	}

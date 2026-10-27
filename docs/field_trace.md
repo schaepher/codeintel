@@ -6299,3 +6299,55 @@ SVG？"——答案：会（PlantUML 默认 `PLANTUML_LIMIT_SIZE=4096`），能�
 - `wiki --diagram` 仍嵌 PNG（HTML 的 mermaid 模式由浏览器渲染 SVG）；
 - `export graph` 无 SVG（可外部 `dot -Tsvg`）；无内置 mermaid→SVG/PNG
   （可用 `npx @mermaid-js/mermaid-cli`）。
+
+## §112 todo22-14.4-B：递归查询资源基准与峰值采集（2026-10-27）
+
+todo21 §110-14.4 把深递归物化列为"已知但未量化"。本轮交付可重复执行的资源基准
+（不是新的性能优化，也不改生产 SQL/索引/schema/超时）：交付记录与原始数据在
+`docs/benchmarks/walk-resource/`，逐项验收清单在 `docs/todo22-checklist.md` §A。
+
+### 实现要点
+
+- **SQL 单源**：把 `walkEdges` 里的两句 SQL 抽成 `walkDirectQuery` /
+  `walkRecursiveQuery(anchor, walkCol, materialized)`；基准的 `recursive` /
+  `materialized` / `direct_one_hop` 三组直接用生产构造器（`repo_walk_compat_test.go`
+  的旧递归对照也改用它），语句文本逐字不变。
+- **独立子进程**：每次样本用 `<test binary> -test.run=^TestWalkBenchChild$` 拉起，
+  环境变量传 DB/N/depth/variant/结果路径；父进程串行跑，每组默认 3 次。
+  夹具 N=256/4096 由父进程 `SaveBatchStats` 写入并断言 nodes=N/edges=3N。
+- **峰值口径**：`rss_before_bytes`（Query 前 VmRSS）、`max_rss_bytes`
+  （`/usr/bin/time -v` 的 Maximum RSS，回退 VmHWM 并标 source）、
+  `temp_peak_bytes`（父进程 5ms 采 `/proc/<pid>/fd`，前缀匹配子进程 TMPDIR，
+  已 unlink 的 fd 仍能 stat 到大小）。**0 只有在采样点落在查询时间窗
+  （子进程上报 query_start/end）时才是有效观测**，否则输出 `unavailable` +
+  原因（depth=1/2 的短查询就会命中这一分支）。
+- **自动校验**：每组期望边数（3/12/66/282/768 与 3/12/66/282/1146）+ 六列
+  归一化摘要（SHA-256）跨变体逐项一致；取消契约（depth=1e6 + 25ms →
+  DeadlineExceeded、<1s、同连接复用）在夹具上再验一次。
+
+### 实测（linux/amd64，go1.27.0，modernc sqlite v1.57.0，GOMAXPROCS=8，66 样本）
+
+| N | depth | 期望边 | 原递归中位ms | 物化中位ms | direct 中位ms | 物化/原递归 | 最大RSS rec/mat | RSS比 | 临时峰值 rec/mat |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |
+| 256 | 1 | 3 | 0.99 | 1.00 | 0.18 | 1.01x | 13.3/13.4 MiB | 1.01x | unavailable/unavailable |
+| 256 | 2 | 12 | 2.75 | 2.67 | – | 0.97x | 13.2/13.2 MiB | 1.00x | unavailable/0 |
+| 256 | 8 | 66 | 44.79 | 42.88 | – | 0.96x | 13.5/13.7 MiB | 1.01x | 0/0 |
+| 256 | 32 | 282 | 723.45 | 726.03 | – | 1.00x | 15.3/16.7 MiB | 1.09x | 0/0 |
+| 256 | 128 | 768 | 12149 | 12264 | – | 1.01x | 27.6/36.9 MiB | 1.33x | 12,054,528/20,709,376 B |
+| 4096 | 1 | 3 | 11.80 | 11.63 | 0.21 | 0.99x | 17.3/17.3 MiB | 1.00x | 0/0 |
+| 4096 | 2 | 12 | 41.29 | 39.73 | – | 0.96x | 17.3/17.2 MiB | 0.99x | 0/0 |
+| 4096 | 8 | 66 | 698.87 | 688.45 | – | 0.99x | 17.8/17.7 MiB | 0.99x | 0/0 |
+| 4096 | 32 | 282 | 11534 | 11592 | – | 1.01x | 19.2/20.9 MiB | 1.09x | 0/0 |
+| 4096 | 128 | 1146 | 186912 | 188317 | – | 1.01x | 29.5/37.3 MiB | 1.26x | 11,915,264/20,529,152 B |
+
+取消契约：`elapsed=26.2ms`、`DeadlineExceeded=true`、复用后一跳 3 条边。
+
+### 结论与边界
+
+- 物化在本夹具上**不增加耗时**（0.96–1.01x），代价是 RSS 略高
+  （depth=128 时 1.26–1.33x）与落盘临时存储（depth=128：12MB/20MB，三次样本
+  逐字节一致；depth≤32 全在页缓存，无临时文件）。
+- depth=128 在 N=4096 上约 187–188s（结果仅 1146 条边），两种递归实现同样慢
+  ——记录事实，不据此改生产实现（用户已定范围）。
+- 未复现"250 万节点 61s 延迟"；未 drop OS page cache（无权限），冷/暖只表示
+  该库本轮首个查询进程。

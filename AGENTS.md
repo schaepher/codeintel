@@ -23,6 +23,8 @@
   + 重复解析/重复计算治理与大仓 A/B（2026-10-14）
 - [`docs/repeat-work-checklist.md`](docs/repeat-work-checklist.md)：
   codeintel-changelog3 验收 Checklist 逐项证据（全部通过/评估归档）
+- [`docs/todo22-checklist.md`](docs/todo22-checklist.md)：todo22 交付 Checklist
+  （A=递归查询资源基准已完成；B=后端流程续接/时序图逐节现状与计划）
 
 ## 项目一句话
 
@@ -640,6 +642,11 @@ go build -o codeintel ./cmd/codeintel
 # scripts/chaincheck.sh --repo <已索引仓库> --label go2o
 #                                          # 跨函数链完整性（0 容忍 + 基线，§95）
 # scripts/dbdiag.sh [--size|--plans|--self-test]  # sqlite 库健康诊断（Q254）
+# CODEINTEL_WALK_BENCH=1 CODEINTEL_WALK_BENCH_OUT=.tmp/walkbench \
+#   go test ./internal/infrastructure/sqlite -run '^TestWalkEdgesResourceBench$' \
+#   -count=1 -v -timeout 60m            # 递归查询资源基准（todo22 A；默认 skip，
+#                                       #  产出 samples.jsonl/summary.json|md，
+#                                       #  实测记录见 docs/benchmarks/walk-resource/）
 # 完整命令清单见 codeintel-cli skill（~/.claude/skills/codeintel-cli/SKILL.md）
 ```
 
@@ -1003,6 +1010,10 @@ defer logger.Debug("exit <name>")
   make e2e（playwright 前端回归，端口 8096，E2E_REPO 指定）——改完代码三件套都要过。
 - **工作流约定**（用户明确）：每个功能先写测试再实现（测试先行）；开发中的
   疑问必须先向用户确认（设计树访谈模式）；改完验证后必须 git push。
+- **批量任务逐个提交**（用户明确）：一次会话里有一批任务时，**每完成一个
+  任务就提交一次代码**（通过 `scripts/verify.sh --quick` 后 commit，不要
+  攒到最后一次性提交）——便于回滚/二分定位，也让每个任务有独立可达的
+  验证点。
 - **验证形态矩阵**（2026-08-17 XORM 教训）：框架适配/查询类功能，测试必须覆盖
   **真实调用形态**；涉及位置/路径产出的改动必须覆盖**多 module 仓库**
   （嵌套 go.mod 的 file:line 与 file_path，Q251 教训——单 module 仓库

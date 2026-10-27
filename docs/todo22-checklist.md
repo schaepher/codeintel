@@ -1,0 +1,117 @@
+# todo22 交付 Checklist
+
+对应输入：`todo22.txt`（两块任务）
+- **A. 14.4-B**：递归查询资源基准、峰值采集与结果校验
+- **B. 后端流程自动续接与时序图生成**（第 1–9 节）
+
+规则：每项独立列出验收点与证据；未完成项保留原因，不用"主要功能完成"代表整项。
+
+---
+
+## A. 14.4-B 递归查询资源基准（已完成，2026-10-27）
+
+### A.1 交付物
+
+| 交付物 | 位置 |
+| --- | --- |
+| 基准编排 + 夹具 + 样本校验 | `internal/infrastructure/sqlite/repo_walk_bench_test.go` |
+| 子进程（每次一查询、独立进程） | `internal/infrastructure/sqlite/repo_walk_bench_child_test.go` |
+| 峰值采集（gnu time / `/proc` fd 采样） | `internal/infrastructure/sqlite/repo_walk_bench_proc_test.go` |
+| 汇总聚合（summary.json） | `internal/infrastructure/sqlite/repo_walk_bench_summary_test.go` |
+| 人读汇总（summary.md） | `internal/infrastructure/sqlite/repo_walk_bench_report_test.go` |
+| 生产 SQL 复用（基准不复制 SQL） | `repo_walk.go` 的 `walkDirectQuery` / `walkRecursiveQuery`（`repo_walk_compat_test.go` 的旧递归对照也改用同一构造器） |
+| 实测交付记录 + 原始数据 | `docs/benchmarks/walk-resource/README.md` + `samples.jsonl` / `summary.json` / `summary.md` / `run.log` |
+
+### A.2 逐项验收
+
+| # | 要求（todo22 A 节） | 实现 | 证据 |
+| --- | --- | --- | --- |
+| 1 | 独立子进程运行的递归查询基准，复用现有递归参考 SQL 与生产 SQL | 父测试 `TestWalkEdgesResourceBench`（env 开关）逐样本拉起 `<test binary> -test.run=^TestWalkBenchChild$`；三条 SQL 来自生产构造器（`recursive`=`walkRecursiveQuery(...,false)`、`materialized`=`...true`、`direct_one_hop`=`walkDirectQuery`） | `samples.jsonl` 66 条样本，`variant` 三值；`repo_walk_bench_test.go:benchVariantsFor` |
+| 2 | 查询前 RSS、进程峰值 RSS、查询期临时文件峰值采集 + 失败报告 | `rss_before_bytes`=子进程 Query 前 `VmRSS`；`max_rss_bytes`=`/usr/bin/time -v`（父侧），回退 `VmHWM` 并标 `max_rss_source`；`temp_peak_bytes`=父进程 5ms 采 `/proc/<pid>/fd`（含已 unlink 仍打开的临时文件） | 失败分支写 `"unavailable"` + `max_rss_note`/`temp_peak_note`；depth=1 短查询实测即 `unavailable`（原因：查询窗内无采样点） |
+| 3 | 结果摘要、条数与取消契约自动校验；逐样本数据 + 对照汇总 | `verifyWalkBenchSamples`（样本齐全/期望边数/每个 (N,depth) 组摘要唯一）；`verifyWalkBenchCancelContract`（depth=1e6 + 25ms → `DeadlineExceeded`、<1s、同连接复用 3 条边）；汇总见 `summary.json`/`summary.md` | 66 样本 exit_code=0；摘要 10 组全部唯一；取消实测 `elapsed=26.2ms`、`reuse_edges=3` |
+| 4 | 一条完整运行命令 + 实测交付记录 | 命令与参数在 `docs/benchmarks/walk-resource/README.md` 首节；原始 JSONL 落库 | 本次运行 `1282s`、66 样本、`PASS` |
+
+### A.3 实现要求逐条核对
+
+| # | 要求 | 落地 |
+| --- | --- | --- |
+| 1 | 每组 ≥3 次、串行；记录 Go/驱动/SQLite 版本、GOMAXPROCS、temp_store、cache_size、机器内存、样本顺序、冷暖 | `REPS` 默认 3；父进程串行 `runBenchSample`；`meta`（`summary.json`）含全部版本/pragma/`MemTotal`；样本有 `order` 与 `sample_class`（`cold_first_query`/`warm_repeat`） |
+| 2 | 先建图再让子进程查询；建图/打开/查询/取完结果/关闭分别计时；查询边界含全部 `Rows.Next/Scan` | 夹具由父进程 `SaveBatchStats` 建好并断言 nodes=N/edges=3N；样本字段 `build_ms`（父）/`open_ms`/`query_ms`/`close_ms`（子）；`query_ms` 边界 = `QueryContext`→`scanFacts`完成→`rows.Close()` |
+| 3 | 三变体同一构建配置；不用 `-N -l` 调试二进制；不把进程总 RSS 冒充查询增量 | 同一测试二进制、同一 DSN、同一进程启动方式；`rss_before_bytes` 与 `max_rss_bytes` 分开记录，比值口径写在 README「测量边界」 |
+| 4 | 记录峰值 RSS、查询前 RSS、临时文件峰值字节与采样间隔；覆盖已 unlink 文件 | `max_rss_bytes`/`rss_before_bytes`/`temp_peak_bytes`/`temp_sample_interval_ms` 每样本都有；fd 目标前缀匹配 TMPDIR（`... (deleted)` 仍 stat 到大小） |
+| 5 | 平台无法可靠取得 → `unavailable` + 原因，不写 0；0 必须在确认覆盖查询生命周期后才是有效观测 | `benchMeasure` 的 JSON 值是数字或字符串 `unavailable`；0 只在采样点落在**查询时间窗**（子进程上报 `query_start/end_unix_nano`）时成立，否则记 unavailable 并说明 query_ms < 采样间隔 |
+| 6 | 每组按六列排序算摘要；原递归与物化逐项一致 | `benchFactsDigest`（source|target|kind|tool_source|conf|归一化 metadata 排序后 SHA-256）；`verifyWalkBenchSamples` 断言每组只有一个摘要 |
+| 7 | 不修改生产 SQL/索引/schema/超时/业务图；样本失败保留现场并标失败 | 生产改动仅**抽出 SQL 构造器**（语句文本不变，`repo_walk_compat_test.go` 与既有 `TestWalkEdges*` 全部通过）；失败样本保留 `run-*`（result/pid/time/child.log）、`error`+`error_dir`，测试 `t.Errorf` 且组内样本数不足会失败——不"跳过即通过" |
+
+### A.4 期望输出对照（全部命中）
+
+| N | depth=1 | depth=2 | depth=8 | depth=32 | depth=128 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 256 | 3 | 12 | 66 | 282 | 768 |
+| 4096 | 3 | 12 | 66 | 282 | 1146 |
+
+### A.5 交付命令验证（实际执行结果见本节末）
+
+```sh
+go test ./internal/infrastructure/sqlite -run 'TestWalkEdges|TestCallersCalleesDepthAndConfidence|TestCalleesContextInterruptsRecursiveSQL' -count=1 -timeout=30s
+go test -race ./internal/infrastructure/sqlite -run 'TestWalkEdges|TestCalleesContextInterruptsRecursiveSQL' -count=10 -timeout=60s
+bash scripts/verify.sh --quick
+make it
+```
+
+| 命令 | 结果 |
+| --- | --- |
+| 基准本体（`CODEINTEL_WALK_BENCH=1 ... -run '^TestWalkEdgesResourceBench$'`） | PASS，1282s，66 样本 |
+| 三条语义回归（`TestWalkEdges*` / `TestCallersCalleesDepthAndConfidence` / `TestCalleesContextInterruptsRecursiveSQL`） | PASS |
+| `-race -count=10`（`TestWalkEdges` / `TestCalleesContextInterruptsRecursiveSQL`） | PASS |
+| `bash scripts/verify.sh --quick` | PASS |
+| `make it` | PASS |
+
+### A.6 明确未验
+
+- 原始 TODO 提到的"约 250 万节点业务仓库 61s CLI 延迟"未复现；本夹具是 SQL
+  资源机制夹具（3N 条边），绝对值不可外推。
+- 只测 callees 方向、单锚点、calls 边、conf≥0.8；callers/其他方向未纳入本轮矩阵。
+- 未 drop OS page cache（无权限），"冷/暖"只表示该库本轮首个查询进程。
+
+---
+
+## B. 后端流程自动续接与时序图生成（进行中）
+
+### B.1 现状核对（2026-10-27，基于代码检索）
+
+| 节 | 事项 | 现状 |
+| --- | --- | --- |
+| 1 | 夹具/证明边界/实施顺序 | 部分：todo12–21 已有 `example.com/seqbudget` 等真实 init→CLI 集成夹具；todo22 第 8 节的 `example.com/flow` + `example.com/tx` 夹具**未建** |
+| 2.1 | 闭包捕获统一接口（`captureSeqClosureValue/Args/CallbackLists`）、函数值解析/到达定义 | **未实现**（action 内无 `FuncLit` 处理、无上述函数） |
+| 2.2 | 函数字面量/IIFE/`defer`/`go`/回调形参绑定/赋值先 RHS 后 LHS | 部分：`defer/go` 已有位置保留（`action_seq_walk.go`）；FuncLit/IIFE/回调绑定**未实现** |
+| 2.3 | 工厂返回函数、条件返回、捕获值、证明失效 | **未实现** |
+| 2.4 | `[]func(...)` 命名函数列表、range 折叠装饰器、预算 16 路径×32 项 | **未实现** |
+| 3.1 | 到达定义/精确目标/同名不同包/行号回退核对 | 部分：`action_seq_dataflow.go`（receiver 字段写入溯源）、`action_seq_targets.go:matchAggregated`（todo20-9）已实现 |
+| 3.2 | 接口候选全集 + `candidate_depth`/`candidate_budget` 截断诊断 | 部分：`sceneImplChoice` 有候选集合 + ambiguous；**候选展开预算/截断诊断字段未实现**（现有 `candidate_budget` 属 `query async`） |
+| 3.3 | DI/AOP（Bean/Inject 注解、container/key 注册、事务 wrapper 内原实现） | **未实现** |
+| 4.1 | go-micro `NewRequest/Call` + 服务注册续接、跨仓 workspace 限定 | **未实现**（仅有 gRPC 方法入口 ID 约定 `GrpcMethodEntryID`） |
+| 4.2 | 外部依赖源码按需解析（`go list -e -json -find -mod=readonly`、离线、缓存） | **未实现** |
+| 5 | 场景推导（整型/枚举/跨包常量/短路/取反） | **已实现**（`action_scene*.go`，含 `Source=7/19` 与 `int32(...)` 场景测试） |
+| 6 | `SymbolSource` + `query symbol --include-source` | **未实现** |
+| 7.1 | 接口候选精确邻接查询（不 Expand/不加载全量 implements） | 部分：`InterfaceMethodImpl` 单符号查询已存在；Reader 精确接口查询 + 拒绝全图扫描的包装器测试**未实现** |
+| 7.2 | 路由投影走已有索引 + EXPLAIN 计划测试 | 部分：`repo_packages_plan_test.go` 已锁包清单计划；路由投影计划未覆盖 |
+| 7.3 | 请求内缓存（工厂来源/字段类型/DI/接口候选/AST） | 部分：`action_seq_*` 有请求级缓存设施（需按本节逐项补齐 DH/工厂/AST） |
+| 7.4 | 取消贯穿 SQL/源码定位/递归 | **已实现**（todo21-14.4/14.5，含物化 CTE 与预算记录） |
+| 7.5 | JSON/文本/Mermaid/SVG 同源 + 证据/身份可核对 | 部分：todo19/20/21 已做重复调用点/证据/矢量图；统一分析树与 `*_projection` 诊断已实现，新增能力须继续遵守 |
+| 8 | 第 8 节完整脱敏夹具与逐项断言表 | **未建** |
+| 9.1 | 八个同步流程（SourceA/B × 新建/新增子项/编辑子项/编辑实体） | **未建** |
+| 9.2 | 二十个后续流程形态 + 审核 finish 次数规则 | **未建** |
+| 9.3 | 最终输出（逐行验收、JSON+Mermaid+SVG、全量回归） | **未开始** |
+
+### B.2 计划（按 todo22 第 1 节顺序，逐项交付、每项独立提交）
+
+1. **第 8 节夹具**（`example.com/flow` + `example.com/tx`，真实 init → CLI 查询）——
+   后续所有断言的共同基座。
+2. **第 6 节 `SymbolSource`**（自包含、契约明确）：action + CLI opt-in + 失败矩阵测试。
+3. **第 2 节闭包/函数值**（2.1 统一上下文 → 2.2 执行位置 → 2.3 工厂返回 → 2.4 列表折叠）。
+4. **第 3.2/3.3**（候选预算 + DI/AOP）→ **第 4 节**（go-micro / 外部源码）→ **第 7 节**补齐。
+5. **第 9 节**：八个同步流程 → 二十个流程形态 → 最终输出。
+
+每项完成时在本文件追加「实现 / 正反例 / 实测命令与输出」小节，并同步
+`docs/field_trace.md`。

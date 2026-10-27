@@ -73,18 +73,43 @@ func (r *Repo) walkEdges(ctx context.Context, id string, depth int, minConfidenc
 		anchor, walkCol = "source_id", "tgt"
 	}
 	if depth <= 1 {
-		q := fmt.Sprintf(`
-SELECT DISTINCT source_id, target_id, kind, tool_source, confidence, metadata
-FROM edges_v WHERE %s = ? AND kind = 'calls' AND confidence >= ?`, anchor)
-		rows, err := r.QueryContext(ctx, q, id, minConfidence)
+		rows, err := r.QueryContext(ctx, walkDirectQuery(anchor), id, minConfidence)
 		if err != nil {
 			return nil, fmt.Errorf("walk %s of %s: %w", dir, id, err)
 		}
 		defer rows.Close()
 		return scanFacts(rows)
 	}
-	q := fmt.Sprintf(`
-WITH RECURSIVE walk(src, tgt, kind, tool_source, confidence, metadata, d) AS MATERIALIZED (
+	rows, err := r.QueryContext(ctx, walkRecursiveQuery(anchor, walkCol, true),
+		id, minConfidence, depth, minConfidence)
+	if err != nil {
+		return nil, fmt.Errorf("walk %s of %s: %w", dir, id, err)
+	}
+	defer rows.Close()
+	return scanFacts(rows)
+}
+
+// walkDirectQuery 一跳（含 depth<=0 的历史语义）的直接邻接查询 SQL。
+// todo22-14.4-B：资源基准与生产共用同一句——基准不复制 SQL，避免
+// "测的语句和生产跑的不是同一句"。
+func walkDirectQuery(anchor string) string {
+	return fmt.Sprintf(`
+SELECT DISTINCT source_id, target_id, kind, tool_source, confidence, metadata
+FROM edges_v WHERE %s = ? AND kind = 'calls' AND confidence >= ?`, anchor)
+}
+
+// walkRecursiveQuery 多跳递归 CTE（UNION + 外层 DISTINCT + 深度/置信度过滤）。
+//
+// materialized=true 是生产语句（取消语义依赖物化，见 walkEdges 注释）；
+// false 是物化前的旧实现，仅用于兼容对照与资源基准的 recursive 组
+// （todo22-14.4-B）——生产路径不得传 false。
+func walkRecursiveQuery(anchor, walkCol string, materialized bool) string {
+	cte := "AS ("
+	if materialized {
+		cte = "AS MATERIALIZED ("
+	}
+	return fmt.Sprintf(`
+WITH RECURSIVE walk(src, tgt, kind, tool_source, confidence, metadata, d) %s
     SELECT source_id, target_id, kind, tool_source, confidence, metadata, 1
     FROM edges_v WHERE %s = ? AND kind = 'calls' AND confidence >= ?
     UNION
@@ -93,12 +118,5 @@ WITH RECURSIVE walk(src, tgt, kind, tool_source, confidence, metadata, d) AS MAT
     WHERE w.d < ? AND e.kind = 'calls' AND e.confidence >= ?
 )
 SELECT DISTINCT src, tgt, kind, tool_source, confidence, metadata FROM walk`,
-		anchor, anchor, walkCol)
-
-	rows, err := r.QueryContext(ctx, q, id, minConfidence, depth, minConfidence)
-	if err != nil {
-		return nil, fmt.Errorf("walk %s of %s: %w", dir, id, err)
-	}
-	defer rows.Close()
-	return scanFacts(rows)
+		cte, anchor, anchor, walkCol)
 }
