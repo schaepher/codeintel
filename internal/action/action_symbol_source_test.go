@@ -33,6 +33,8 @@ func (b *B) Run() string { return "b" }
 
 type Box[T any] struct{ v T }
 
+type Store struct{ DB int }
+
 func (b *Box[T]) Get() T { return b.v }
 
 func Setup() {
@@ -114,6 +116,7 @@ func TestSymbolSourceExactTexts(t *testing.T) {
 		{"symbol:go:example.com/src:(B).Run", "func (b *B) Run() string { return \"b\" }"},
 		{"symbol:go:example.com/src:(Box).Get", "func (b *Box[T]) Get() T { return b.v }"},
 		{"symbol:go:example.com/src:Setup", "func Setup() {"},
+		{"symbol:go:example.com/src:Store", "type Store struct{"},
 	}
 	for _, c := range cases {
 		got, err := a.SymbolSource(SymbolSourceRequest{RepoAbs: dir, SymbolID: c.id})
@@ -178,7 +181,6 @@ func TestSymbolSourceFailures(t *testing.T) {
 	}{
 		{"非 canonical 输入", SymbolSourceRequest{RepoAbs: dir, SymbolID: "Run"}, "canonical"},
 		{"ID 不存在", SymbolSourceRequest{RepoAbs: dir, SymbolID: "symbol:go:example.com/src:Nope"}, "不存在"},
-		{"不支持的声明种类(struct)", SymbolSourceRequest{RepoAbs: dir, SymbolID: "symbol:go:example.com/src:Store"}, "声明种类"},
 		{"虚拟节点(无文件)", SymbolSourceRequest{RepoAbs: dir, SymbolID: "symbol:go:example.com/src:Virtual"}, "文件"},
 		{"缺文件", SymbolSourceRequest{RepoAbs: dir, SymbolID: "symbol:go:example.com/src:Missing"}, "文件"},
 		{"receiver 不匹配", SymbolSourceRequest{RepoAbs: dir, SymbolID: "symbol:go:example.com/src:(C).Run"}, "匹配"},

@@ -7157,3 +7157,20 @@ Middle→Execute(f2)` 中第二次 Execute 被误判为循环（Middle 的子树
 exit_code=0；取消契约 26.7ms + 复用边 3。**边界**：子进程 250µs 轮询对
 生存期短于该间隔的临时文件仍不能数学证明峰值（事件只能记录被观察到的
 创建/扩容）；完全无采样时回退 unavailable。
+
+## §139 todo23 §6：SymbolSource 扩展（struct/interface/alias/const/var + 依赖）（2026-10-27）
+
+- `matchAnySymbolSourceDecl`：先按函数/方法精确匹配（多重声明直接报错，
+  不回落到类型/常量）；再匹配 TypeSpec（struct/interface/type/alias）与
+  ValueSpec（const/var）。const/var **输出整个 GenDecl**（保留 iota/多值
+  语境），`selection_line_start/end` 指所选项；type 单 spec 输出含 `type`
+  关键字的 GenDecl。
+- 无图节点/无 file_path：按 import path 用离线 `go list -e -json -find
+  -mod=readonly` 定位包目录；仓库内 → location=repository + 相对 file；
+  仓库外（replace/模块缓存）→ location=dependency + 绝对 file；声明存在但
+  无节点 → `index_status=not_indexed`（不写伪节点，不重新建索引）。
+- CLI 文本/help 同步（kind/location/selection/index_status）；原
+  `--include-source` 五字段契约对函数/方法不变（新字段 omitempty）。
+- 测试：`action_symbol_source_ext_test.go`（alias/interface/struct/const 块/
+  var 块 selection、not_indexed、依赖定位 + go.mod 只读）；旧失败矩阵更新
+  struct 由“不支持”改为正例；集成 `TestTodo22SymbolSourceRealCLI` 通过。

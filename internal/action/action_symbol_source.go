@@ -14,7 +14,6 @@ package action
 //   - 任何失败都返回 error 且不返回部分结果（CLI 非零退出、stdout 无 JSON）。
 
 import (
-	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -40,9 +39,17 @@ type SymbolSource struct {
 	LineStart int    `json:"line_start"`
 	LineEnd   int    `json:"line_end"`
 	Text      string `json:"text"`
+	// todo23 §6：声明种类与选中项范围（const/var 块保留 iota 语境时，
+	// line_start/end 是整块，selection_* 是所选项）。
+	Kind               string `json:"kind,omitempty"`
+	SelectionLineStart int    `json:"selection_line_start,omitempty"`
+	SelectionLineEnd   int    `json:"selection_line_end,omitempty"`
+	Location           string `json:"location,omitempty"`     // repository|dependency
+	IndexStatus        string `json:"index_status,omitempty"` // not_indexed（AST 有声明但图无节点）
 }
 
-// SymbolSource 按 canonical ID 输出声明源码（todo22 §6）。
+// SymbolSource 按 canonical ID 输出声明源码（todo22 §6；todo23 扩展到
+// struct/interface/type/const/var 与依赖源码）。
 func (a *Actions) SymbolSource(req SymbolSourceRequest) (*SymbolSource, error) {
 	logger := zap.L()
 	logger.Info("enter (Actions).SymbolSource", zap.String("symbol_id", req.SymbolID))
@@ -51,54 +58,68 @@ func (a *Actions) SymbolSource(req SymbolSourceRequest) (*SymbolSource, error) {
 	if err != nil {
 		return nil, err
 	}
-	n, err := a.repo.GetSymbol(domain.CanonicalID(req.SymbolID))
-	if err != nil {
-		if errors.Is(err, domain.ErrNotFound) {
-			return nil, fmt.Errorf("符号不存在（索引中无该 canonical ID）: %s", req.SymbolID)
-		}
-		return nil, err
-	}
-	if n.Kind != domain.KindFunction && n.Kind != domain.KindMethod {
-		return nil, fmt.Errorf("不支持的声明种类: %s（仅 function/method 有源码声明区间）", n.Kind)
+	n, nerr := a.repo.GetSymbol(domain.CanonicalID(req.SymbolID))
+	indexStatus := ""
+	if nerr != nil || n == nil || n.FilePath == "" {
+		indexStatus = "not_indexed"
 	}
 	repoReal, err := filepath.EvalSymlinks(req.RepoAbs)
 	if err != nil {
 		return nil, fmt.Errorf("仓库根不可用: %s: %w", req.RepoAbs, err)
 	}
-	relFile := filepath.ToSlash(filepath.Clean(n.FilePath))
-	absFile, err := secureSymbolSourceFile(repoReal, n.FilePath)
-	if err != nil {
-		return nil, err
+	if nerr == nil && n.FilePath != "" {
+		relFile := filepath.ToSlash(filepath.Clean(n.FilePath))
+		absFile, err := secureSymbolSourceFile(repoReal, n.FilePath)
+		if err != nil {
+			return nil, err
+		}
+		if err := verifySymbolSourcePackage(importPath, repoReal, absFile); err != nil {
+			return nil, err
+		}
+		src, err := os.ReadFile(absFile)
+		if err != nil {
+			return nil, fmt.Errorf("读取源文件失败: %s: %w", relFile, err)
+		}
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, absFile, src, parser.ParseComments)
+		if err != nil {
+			return nil, fmt.Errorf("解析源文件失败（无法确认声明位置）: %s: %w", relFile, err)
+		}
+		d, err := matchAnySymbolSourceDecl(fset, f, name, relFile)
+		if err != nil {
+			return nil, err
+		}
+		return buildSymbolSource(req.SymbolID, d, relFile, "repository", indexStatus, src)
 	}
-	if err := verifySymbolSourcePackage(importPath, repoReal, absFile); err != nil {
-		return nil, err
-	}
-	src, err := os.ReadFile(absFile)
-	if err != nil {
-		return nil, fmt.Errorf("读取源文件失败: %s: %w", relFile, err)
-	}
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, absFile, src, parser.ParseComments)
-	if err != nil {
-		return nil, fmt.Errorf("解析源文件失败（无法确认声明位置）: %s: %w", relFile, err)
-	}
-	fd, err := matchSymbolSourceDecl(fset, f, name, relFile)
-	if err != nil {
-		return nil, err
-	}
-	start := fset.Position(fd.Pos()).Offset
-	end := fset.Position(fd.End()).Offset
+	// 图无节点/无文件位置：按 import path 离线定位包目录（不联网）。
+	return a.symbolSourceFromPackage(req, importPath, name, indexStatus, repoReal,
+		nerr == nil && n != nil, nerr == nil && n != nil && n.FilePath == "")
+}
+
+// buildSymbolSource 用匹配到的声明生成契约（声明全文 + 选中项范围）。
+func buildSymbolSource(id string, d *symbolSourceDecl, fileLabel, location, indexStatus string, src []byte) (*SymbolSource, error) {
+	start := d.fset.Position(d.textNode.Pos()).Offset
+	end := d.fset.Position(d.textNode.End()).Offset
 	if start < 0 || end > len(src) || start >= end {
-		return nil, fmt.Errorf("声明字节区间越界（文件可能已被改写）: %s [%d,%d)",
-			relFile, start, end)
+		return nil, fmt.Errorf("声明字节区间越界（文件可能已被改写）: %s [%d,%d)", fileLabel, start, end)
 	}
-	return &SymbolSource{
-		SymbolID:  req.SymbolID,
-		File:      relFile,
-		LineStart: fset.Position(fd.Pos()).Line,
-		LineEnd:   fset.Position(fd.End()).Line,
+	out := &SymbolSource{
+		SymbolID:  id,
+		File:      fileLabel,
+		LineStart: d.fset.Position(d.textNode.Pos()).Line,
+		LineEnd:   d.fset.Position(d.textNode.End()).Line,
 		Text:      string(src[start:end]),
-	}, nil
+		Kind:      d.kind,
+		Location:  location,
+	}
+	if indexStatus != "" {
+		out.IndexStatus = indexStatus
+	}
+	if d.kind != "function" && d.kind != "method" {
+		out.SelectionLineStart = d.fset.Position(d.selNode.Pos()).Line
+		out.SelectionLineEnd = d.fset.Position(d.selNode.End()).Line
+	}
+	return out, nil
 }
 
 // parseSymbolSourceID 拆 canonical ID → (import path, 声明名)。

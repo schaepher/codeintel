@@ -119,16 +119,23 @@ func TestTodo22SymbolSourceRealCLI(t *testing.T) {
 		t.Errorf("未加 --include-source 时不应出现 source 键:\n%s", out)
 	}
 
-	// 明确失败：struct 节点没有声明区间（不支持的声明种类）
+	// todo23 §6：struct 现已支持——返回声明原文与 kind（原“不支持种类”
+	// 契约只保留给真正无法定位的声明）。
 	code, out, errOut = run("query", "symbol", "symbol:go:example.com/flow:Store",
 		"--include-source", "--json", "--repo", fixture)
-	if code == 0 {
-		t.Errorf("struct 节点 --include-source 应非零退出，got 0:\n%s", out)
+	if code != 0 {
+		t.Fatalf("struct --include-source exit = %d\n%s", code, errOut)
 	}
-	if strings.TrimSpace(out) != "" {
-		t.Errorf("失败时不得输出部分成功 JSON，stdout:\n%s", out)
+	var structOut struct {
+		Source struct {
+			Kind string `json:"kind"`
+			Text string `json:"text"`
+		} `json:"source"`
 	}
-	if !strings.Contains(errOut, "声明种类") {
-		t.Errorf("stderr 应说明不支持的声明种类:\n%s", errOut)
+	if err := json.Unmarshal([]byte(out), &structOut); err != nil {
+		t.Fatalf("struct JSON 不可解码: %v\n%s", err, out)
+	}
+	if structOut.Source.Kind != "struct" || !strings.Contains(structOut.Source.Text, "type Store struct") {
+		t.Errorf("struct source 应含 kind=struct 与声明原文: %+v", structOut.Source)
 	}
 }
