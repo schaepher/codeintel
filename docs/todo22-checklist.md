@@ -517,3 +517,7 @@ go test ./... && bash scripts/verify.sh --quick && make it
 容器的具体 key 注册语法差异（Bean 注解按通用 token 识别，不绑定单一框架）；
 `--scene` 之外的运行时事实（仅 ctx.Value 存在性）；
 `chainSymbols` 的调用边仍按链上节点逐个查询 outedges（不是全量加载）。
+
+## todo23 接手（2026-10-27）
+
+后续批次见 `docs/todo23-checklist.md`（本轮完成 §2.5、§4.1-1、§7.1、§10.1、§10.2 及回归；其余编号按原清单保留）。

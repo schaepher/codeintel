@@ -7097,3 +7097,36 @@ cwd，主模块 go.mod 没有该间接依赖 require 时会定位失败。
 `app:svc.AccountServer`、`service_name=AccountServer`、methods 含 Apply、
 实现边 + `registers_service`；`micro.RegisterHandler(s, h)`（动态）→ 不产生
 服务节点。
+
+## §136 todo23 §2.5：防环身份含入站回调上下文（2026-10-27）
+
+**问题**：`codeSeqForSymbol` 的 `visited` 只按符号 ID；`Entry→Execute(f1)→
+Middle→Execute(f2)` 中第二次 Execute 被误判为循环（Middle 的子树完全丢失）。
+反例 `Again(f)` 又必须及时截断，不能靠放宽 visited 解决。
+
+**改法**：防环键 = `repo|符号|callbackCtx`；`callbackCtx` 在进入**函数字面量/
+具名函数值**时记录词法身份（`seqLitKey`/symID）+ 绑定站点（`bindFile:line`）+
+声明对象名，并随当前展开路径继承。不用剩余深度或每层新对象地址（会造假
+身份）；同一上下文递归仍一次截断。
+
+**测试**：`action_seq_cycle_context_test.go`（正例两个 Execute 展开、Sink 一次、
+0 cycle；反例 depth 16/24/48 均 1 cycle、Sink 0）。**边界**：固定预算/超限
+上下文合并诊断、真实 init→CLI 版独立输入未做（清单 §2.5 保留）。
+
+## §137 todo23 §4.1/§7.1/§10.1/§10.2 小批量收口（2026-10-27）
+
+- **§4.1 depth=1 前沿**：`seqExpandRPCForward` 原先在 depth<=1 直接返回
+  `fwd.ServiceID`（服务节点 ID）。改为先解析注册/实现/方法（`svc.stop` 仍
+  fail-closed），再判断 depth；`Evidence.SymbolID` 与深查询同为
+  `(Impl).Method`，`RegisterFile/Site`、`RemoteRepo` 一并保留。集成
+  `todo22_micro_test.go` depth=1 断言同步收紧。
+- **§7.1 接口缓存**：缓存键从 `ifaceID` 改为 `ifaceID\x00method`，并新增
+  `ifaceImplTypes[ifaceID]` 缓存实现**类型**、读取时按当前方法重建 ID。
+  反例回归：Insert→SaveService 不串 ID，Missing 不借用。
+- **§10.1 BuildID**：`orchestrator.BuildResult.BuildID` 回填实际落库值；
+  CLI/MCP 注册/刷新台账传 `result.BuildID`（此前 `BuildID: head`）。
+  `headCommitSHA`/`gitHead` 增加 `--show-toplevel == repo` 校验：模块在父
+  Git checkout 下不再继承父 HEAD；`.git` 为文件（worktree/submodule）仍有效。
+- **§10.2 取消边界**：`ssa.acquireWorker(ctx, sem)`（取到令牌后再查 ctx，
+  已取消立即归还）替换发射块的 select；init/update 显式零/负
+  `--adapter-timeout` 在库操作前 exit 2（reindex 已有同款）。
