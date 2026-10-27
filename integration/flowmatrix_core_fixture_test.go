@@ -141,15 +141,32 @@ type ReviewNode struct {
 	Kind string
 }
 
+// 审核完成的**持久化身份**：资料/服务节点的 node_id 不同（101 / 202），
+// 各自落不同持久化行（review_data / review_service）。
+var DataNode = ReviewNode{ID: 101, Kind: "data"}
+var ServiceNode = ReviewNode{ID: 202, Kind: "service"}
+
 func FinishReview(n ReviewNode) {}
 
 func FinishDataReview() {
-	FinishReview(ReviewNode{ID: 1, Kind: "data"})
+	FinishReview(DataNode)
+	PersistDataReview()
 }
 
 func FinishServiceReview() {
-	FinishReview(ReviewNode{ID: 2, Kind: "service"})
+	FinishReview(ServiceNode)
+	PersistServiceReview()
 }
+
+func PersistDataReview() {
+	saveReviewRow("review_data")
+}
+
+func PersistServiceReview() {
+	saveReviewRow("review_service")
+}
+
+func saveReviewRow(kind string) {}
 
 // 自动审核通过（不调用人工 FinishReview）与外部注册状态同步（自动步骤）
 func AutoApprove(n ReviewNode) {}
@@ -259,6 +276,18 @@ func (a *App) txUpdateChild(ctx context.Context) error {
 
 func (a *App) txUpdateEntity(ctx context.Context) error {
 	return Execute(ctx, func(inner context.Context) error { return a.Store.UpdateEntity(inner) }, MakeFirst(ctx), Second)
+}
+
+func (a *App) txSaveAccount(ctx context.Context) error {
+	return Execute(ctx, func(inner context.Context) error { return a.Store.SaveAccount(inner) }, MakeFirst(ctx), Second)
+}
+
+func (a *App) txUpdateEntityState(ctx context.Context) error {
+	return Execute(ctx, func(inner context.Context) error { return a.Store.UpdateEntityState(inner) }, MakeFirst(ctx), Second)
+}
+
+func (a *App) txSaveService(ctx context.Context) error {
+	return Execute(ctx, func(inner context.Context) error { return a.Store.SaveService(inner) }, MakeFirst(ctx), Second)
 }
 
 // 事务回调 + 非空装饰器；write 是本次操作的实际存储写入

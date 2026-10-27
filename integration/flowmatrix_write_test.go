@@ -30,6 +30,8 @@ func writeFlowMatrix(t *testing.T, overrides map[string]string) flowMatrix {
 		"pb/proto.go":                flowMatrixPb,
 		"flow.go":                    flowMatrixCore,
 		"flow_sync.go":               flowMatrixSync,
+		"flow_review.go":             flowMatrixReviewForms,
+		"flow_host.go":               flowMatrixHostForms,
 	}
 	for k, v := range overrides {
 		files[k] = v

@@ -102,7 +102,7 @@ make it
 | 7.5 | JSON/文本/Mermaid/SVG 同源 + 证据/身份可核对 | 部分：todo19/20/21 已做重复调用点/证据/矢量图；统一分析树与 `*_projection` 诊断已实现，新增能力须继续遵守 |
 | 8 | 第 8 节完整脱敏夹具与逐项断言表 | 夹具**已建**（`integration/flowfixture_test.go`，逐字照抄 §8 源码，供 §6 与后续 §2/§9 共用）；逐项断言表待 §2–§9 完成 |
 | 9.1 | 八个同步流程（SourceA/B × 新建/新增子项/编辑子项/编辑实体） | **已完成（2026-10-27，B.14）**：flowmatrix 夹具 8 个独立入口 × 2 来源逐项验收（检查 4/7、RPC 续接、装饰器/事务、DI/AOP、存储终点、FinishReview=0） |
-| 9.2 | 二十个后续流程形态 + 审核 finish 次数规则 | **未建** |
+| 9.2 | 二十个后续流程形态 + 审核 finish 次数规则 | **已完成（2026-10-27，B.15）**：flow_review/flow_host 两组入口 01–20 逐项验收；审核规则（资料/服务各一次、自动审核不调人工、注册同步不算第三次、无配置=0）由源码事实与断言固定 |
 | 9.3 | 最终输出（逐行验收、JSON+Mermaid+SVG、全量回归） | **部分完成（2026-10-27，B.11）**：JSON↔Mermaid 调用顺序/条件结构一致性 + 流程 SVG 产物内容检查；逐编号验收行与含 RPC/DI 的 SVG 待 §4.1/§9.1-9.2 |
 
 ### B.2 计划（按 todo22 第 1 节顺序，逐项交付、每项独立提交）
@@ -415,3 +415,51 @@ PATH=$(go env GOPATH)/bin:$PATH go test -tags integration ./integration -run 'Te
 ```
 
 结果：16/16 子测试 PASS（1.6s，含 init）。
+
+### B.15 §9.2 二十个流程形态 + 审核 finish 规则（已完成，2026-10-27）
+
+夹具新增 `flow_review.go`（01–13）与 `flow_host.go`（14–20），沿用共享后端链；
+审核规则见 `flowmatrix_core_fixture_test.go`：
+
+| 规则 | 源码/持久化身份 |
+| --- | --- |
+| 资料节点人工 finish 一次 | `FinishDataReview` → `FinishReview(DataNode{ID:101})` → `PersistDataReview` → `saveReviewRow("review_data")` |
+| 服务节点人工 finish 一次 | `FinishServiceReview` → `FinishReview(ServiceNode{ID:202})` → `PersistServiceReview` → `saveReviewRow("review_service")` |
+| 共两次且 node_id 不同 | 两个包装各一次调用（不同行），node_id 101/202，持久化行不同 |
+| 自动审核不调人工 | `autoApproveData` → `AutoApprove(DataNode)`，体内无 `FinishReview` |
+| 外部注册同步不算第三次 | `SyncRegistry()` 是自动步骤（RPC 服务端实现内也调用），不触发 `FinishReview` |
+| 无审核配置 = 0 | `FlowAPINewChildDirect`：`apiSubmit` + `txInsertChild`，无任何审核调用 |
+| 注册/审核/持久化身份可核对 | 审核完成走 `FinishReview`（唯一人工入口）+ 各自 persist 函数；注册身份见 §4.1 `rpc_service`；持久化身份 = `saveReviewRow` 的 kind 字面量 |
+
+逐编号验收（`TestTodo22FlowForms`，25 子测试 = 20 形态 + 5 个人工分支补充）：
+
+| 编号 | 形态 | 已证明连接 / 关键目标 ID | 候选/截断/未知 | finish 次数依据 |
+| --- | --- | --- | --- | --- |
+| 01 | Web 新实体 | `(App).webSubmit` → `checksAndTrace` → `ApplyRemote` → `(AccountServer).Apply` → `txInsert` → DI `(storeAOP).Insert` → `(Store).Insert` → `ExecContext` → `ApproveTrace` | `process` 循环重赋值多候选（保留） | `FinishReview`×2 |
+| 02 | Web 新服务 | 同上 + `(Store).SaveService` | 同上 | ×2 |
+| 03 | Web 新子项 | 同上 + `(Store).InsertChild` | 同上 | ×2 |
+| 04 | App 新实体 | `(App).appSubmit`（不出现 `webSubmit`）+ 共享链 | 同上 | ×2 |
+| 05 | App 新服务 | `appSubmit` + `SaveService` | 同上 | ×2 |
+| 06 | App 新子项 | `appSubmit` + `InsertChild` | 同上 | ×2 |
+| 07 | Partner App 新实体 | `partnerSubmit` + A：`AutoApprove` / B：`finishManualReviews` | 来源分派由 scene 裁剪 | A=0 / B=2 |
+| 08 | Partner App 新服务 | 同上 + `SaveService` | 同上 | A=0 / B=2 |
+| 09 | Partner App 新子项 | 同上 + `InsertChild` | 同上 | A=0 / B=2 |
+| 10 | 编辑子项 | `FinishDataReview`→`PersistDataReview` 与 `(Store).UpdateChild` 分别出现 | — | ×1 |
+| 11 | App 新银行账户 | A 自动 / B 人工；`SaveAccount` 与 `UpdateEntityState` 都证明 | — | A=0 / B=2 |
+| 12 | App 编辑主体 | `appSubmit` + `FinishServiceReview` + `UpdateEntity` | 不出现 `webSubmit` | ×1 |
+| 13 | Web 编辑主体 | `webSubmit` + 共享 `FinishServiceReview` + `UpdateEntity` | 不出现 `appSubmit` | ×1 |
+| 14 | 宿主 A 新银行账户 | `(App).hostAHandler` + 共享 `(App).hostApply` + `SaveAccount`；不出现 B/C handler | — | A=0（自动） |
+| 15 | 宿主 B 新银行账户 | `hostBHandler` + `hostApply` + 两次人工 | 不出现 A/C handler | ×2 |
+| 16 | 宿主 C 新银行账户 | `hostCHandler` + `hostApply` + 资料审核 | 不出现 A/B handler | ×1 |
+| 17 | 支付 App 新实体 | A：`AutoApprove`；`FinishDataReview`；`SyncRegistry` | 注册同步不增加 finish | ×1（A/B 都是 1） |
+| 18 | 宿主转入新服务 | `hostTransferSubmit` → `FinishDataReview` → `SyncRegistry` → `SaveService` → `ApproveTrace` | — | ×1 |
+| 19 | API 新实体（有审核） | `apiSubmit` + 两次人工 finish | — | ×2 |
+| 20 | API 新子项（直接主数据） | `apiSubmit` → `InsertChild`；**不出现**任何审核符号 | 无审核配置 | 0 |
+
+验证：
+
+```sh
+PATH=$(go env GOPATH)/bin:$PATH go test -tags integration ./integration -run 'TestTodo22FlowForms|TestTodo22SyncFlows' -count=1
+```
+
+结果：`TestTodo22FlowForms` 25/25、`TestTodo22SyncFlows` 16/16 PASS。

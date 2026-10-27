@@ -6790,3 +6790,44 @@ RPC 目标身份（`(AccountServer).Apply`）、装饰器/事务节点齐全、D
 `func_value_unbound`（0 候选那条诊断）+ 多候选两条分支；`MakeFirst(ctx)` 作为
 变参装饰器元素只有标签、无 symbol 证据（`iface first-of-2`）。§9.3 的
 "候选/截断/未知"列会如实记录这些项。
+
+## §125 todo22 §9.2：二十个流程形态 + 审核 finish 规则（2026-10-27）
+
+在 §9.1 夹具上补 `flow_review.go`（01–13）与 `flow_host.go`（14–20）两组入口，
+复用共享后端链（`checksAndTrace` → RPC → `tx{Op}` 事务/装饰器 → 存储），并按
+形态分派入口包装（`webSubmit` / `appSubmit` / `apiSubmit` / `partnerSubmit`）。
+
+**审核规则（源码即事实）**：
+
+| 规则 | 源码事实 |
+| --- | --- |
+| 资料节点人工 FinishReview 一次（node_id=101） | `FinishDataReview` → `FinishReview(DataNode)` + `PersistDataReview()`（`saveReviewRow("review_data")`） |
+| 服务节点人工 FinishReview 一次（node_id=202） | `FinishServiceReview` → `FinishReview(ServiceNode)` + `PersistServiceReview()`（`saveReviewRow("review_service")`） |
+| 共两次且 node_id 不同 | 两个包装各调用一次 `FinishReview`（不同调用行）；`DataNode.ID=101` / `ServiceNode.ID=202`；持久化到不同行 |
+| 自动审核通过不调用人工 finish | `autoApproveData` → `AutoApprove(DataNode)`（体内无 `FinishReview`） |
+| 外部注册状态同步是自动步骤 | `SyncRegistry()` 出现在 RPC 服务端实现/流程内，不触发 `FinishReview` |
+| 无审核配置 = 0 | `FlowAPINewChildDirect` 只做 `apiSubmit` + `txInsertChild` |
+
+**二十个形态与验收点**（`TestTodo22FlowForms`，25 个子测试）：
+
+| 编号 | 入口 | 断言要点 |
+| --- | --- | --- |
+| 01–03 | `FlowWebNewEntity/NewService/NewChild` | `webSubmit` 存在、`appSubmit` 不出现；两次人工 finish；存储 `Insert`/`SaveService`/`InsertChild`；`ApproveTrace` |
+| 04–06 | `FlowAppNewEntity/NewService/NewChild` | `appSubmit` 存在、`webSubmit` 不出现；共享后端链（`checksAndTrace`/`txInsert`）不串源 |
+| 07–09 | `FlowPartnerNewEntity/NewService/NewChild` | A：`AutoApprove` 且 finish=0；B：`FinishDataReview/FinishServiceReview` 各一次、finish=2 |
+| 10 | `FlowEditChild` | 审核完成（`FinishDataReview`+持久化）与基本资料更新（`UpdateChild`）分别证明 |
+| 11 | `FlowAppNewBankAccount` | A：自动批准 finish=0；B：人工 finish=2；两条路径都有 `SaveAccount` + `UpdateEntityState` |
+| 12–13 | `FlowAppEditEntity` / `FlowWebEditEntity` | 不同入口（appSubmit/webSubmit）各自 + 共享审核 `FinishServiceReview` + `UpdateEntity` |
+| 14–16 | `FlowHost{A,B,C}NewBankAccount` | 宿主专用处理器 `hostA/B/CHandler` 身份唯一（其他两个不出现）+ 共享 `hostApply` + `SaveAccount`；A 自动（0）、B 人工（2）、C 资料审核（1） |
+| 17 | `FlowPaymentNewEntity` | A 条件自动审核（`AutoApprove`）+ 人工资料审核 1 次 + `SyncRegistry`（不增加 finish） |
+| 18 | `FlowHostTransferNewService` | 提交 → `FinishDataReview` → `SyncRegistry`（外部注册/回调）→ `SaveService` → `ApproveTrace` |
+| 19–20 | `FlowAPINewEntityReview` / `FlowAPINewChildDirect` | 19：两次人工 finish；20：finish=0 且不出现任何审核符号（不虚构审核节点） |
+
+**跨入口共享不串源**：01–03 与 04–06 走同一后端链（`checksAndTrace` +
+`txInsert`），但入口包装不同；测试对每个入口分别断言"自己的包装出现、对方的
+不出现"。14–16 的宿主处理器同理（每个只出现自己的 handler）。
+
+**已知候选/未知**（如实保留）：`Execute` 的 `process` 循环重赋值仍产生
+`func_value_unbound`（0 候选）+ 多候选两条分支；`MakeFirst(ctx)` 作为变参
+装饰器元素只有标签（`iface first-of-2`）。这些不改变"入口 → 存储 → 审核 →
+完成"的确定性连接，逐项列在 §9.3 的验收表里。
