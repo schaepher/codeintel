@@ -103,7 +103,7 @@ make it
 | 8 | 第 8 节完整脱敏夹具与逐项断言表 | 夹具**已建**（`integration/flowfixture_test.go`，逐字照抄 §8 源码，供 §6 与后续 §2/§9 共用）；逐项断言表待 §2–§9 完成 |
 | 9.1 | 八个同步流程（SourceA/B × 新建/新增子项/编辑子项/编辑实体） | **已完成（2026-10-27，B.14）**：flowmatrix 夹具 8 个独立入口 × 2 来源逐项验收（检查 4/7、RPC 续接、装饰器/事务、DI/AOP、存储终点、FinishReview=0） |
 | 9.2 | 二十个后续流程形态 + 审核 finish 次数规则 | **已完成（2026-10-27，B.15）**：flow_review/flow_host 两组入口 01–20 逐项验收；审核规则（资料/服务各一次、自动审核不调人工、注册同步不算第三次、无配置=0）由源码事实与断言固定 |
-| 9.3 | 最终输出（逐行验收、JSON+Mermaid+SVG、全量回归） | **部分完成（2026-10-27，B.11）**：JSON↔Mermaid 调用顺序/条件结构一致性 + 流程 SVG 产物内容检查；逐编号验收行与含 RPC/DI 的 SVG 待 §4.1/§9.1-9.2 |
+| 9.3 | 最终输出（逐行验收、JSON+Mermaid+SVG、全量回归） | **已完成（2026-10-27，B.16）**：`docs/todo22/flow-matrix.md`（28 个编号验收行 + 复现命令 + 回归记录）+ `flow.svg`（含 RPC/DI/两层装饰器/事务回调）+ JSON↔Mermaid/SVG/分段的自动化断言 |
 
 ### B.2 计划（按 todo22 第 1 节顺序，逐项交付、每项独立提交）
 
@@ -463,3 +463,20 @@ PATH=$(go env GOPATH)/bin:$PATH go test -tags integration ./integration -run 'Te
 ```
 
 结果：`TestTodo22FlowForms` 25/25、`TestTodo22SyncFlows` 16/16 PASS。
+
+### B.16 §9.3 最终输出（已完成，2026-10-27）
+
+| 要求（§9.3） | 交付 / 证据 |
+| --- | --- |
+| 生产实现、公开夹具、反例矩阵、真实 CLI 集成测试；分析逻辑在 action、cli 只做参数与渲染 | action：`action_seq*`（RPC/DI/闭包/场景）、`repo_rpc`（仓储查询）；cli：`query_sequence*` 渲染；夹具 `integration/flowmatrix_*`；反例分散在 §9.1/§9.2 用例（不出现对方入口/处理器、无审核配置=0、identity 冲突等）与 micro 负例（§4.1） |
+| 每个编号一行验收：入口、场景、完整/分段命令、关键目标 ID、已证明连接、候选/截断/未知、finish 次数依据、JSON/图一致性 | `docs/todo22/flow-matrix.md` §1（21–28 八行）+ §2（01–20 二十行）+ §3 分段验收；命令可直接复制执行 |
+| 同一入口 JSON + Mermaid；至少一个含 RPC、DI、两层装饰器、外部事务回调的流程生成 SVG，检查解析/条件结构/箭头顺序 | `TestTodo22FlowMatrixJSONMermaid`（调用顺序逐项相等；条件结构覆盖）+ `TestTodo22FlowMatrixSVG`（205216 字节，关键节点与 alt/group）；图片渲染与链路完整分开断言 |
+| 执行 `go test ./...`、`verify.sh --quick`、`make it` 及相关回调/取消 race 回归；报告实际执行/失败/跳过 | `docs/todo22/flow-matrix.md` §4：全部 PASS（`go test ./...` 14 包、`make it` 53.5s、action `-race` 回调/场景、sqlite `-race` 递归取消）；跳过项：doc 导出（需 env）、plantuml 缺失时 SVG（本机可用） |
+| 保留时序图与承载图的 Markdown；清理临时 JSON/日志/探针/中间图片 | 保留 `docs/todo22/flow.svg` + `docs/todo22/flow-matrix.md`；已删 `flow.json`/`flow.mmd`/`flow.svg.puml`/`flow.txt`；导出入口 `TestTodo22DocOutputs` 保留 |
+
+验证：
+
+```sh
+PATH=$(go env GOPATH)/bin:$PATH go test -tags integration ./integration   -run 'TestTodo22SyncFlows|TestTodo22FlowForms|TestTodo22FlowMatrix|TestTodo22SegmentedFlow' -count=1
+go test ./... && bash scripts/verify.sh --quick && make it
+```

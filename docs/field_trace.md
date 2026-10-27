@@ -6831,3 +6831,29 @@ RPC 目标身份（`(AccountServer).Apply`）、装饰器/事务节点齐全、D
 `func_value_unbound`（0 候选）+ 多候选两条分支；`MakeFirst(ctx)` 作为变参
 装饰器元素只有标签（`iface first-of-2`）。这些不改变"入口 → 存储 → 审核 →
 完成"的确定性连接，逐项列在 §9.3 的验收表里。
+
+## §126 todo22 §9.3：流程矩阵最终输出与交付验收（2026-10-27）
+
+交付物：`docs/todo22/flow-matrix.md`（28 个编号的验收行：入口/场景/命令/
+关键目标 ID/已证明连接/候选与未知/finish 次数依据/JSON-图一致性）+
+`docs/todo22/flow.svg`（205216 字节，含 RPC/DI/两层装饰器/外部事务回调）。
+临时 JSON/Mermaid 中间产物按 §9.3-5 清理（导出入口保留为
+`TestTodo22DocOutputs`，`CODEINTEL_TODO22_DOCS_OUT` 指定目录时可复现）。
+
+自动化验收（`integration/todo22_flow_matrix_render_test.go`）：
+
+- **JSON↔Mermaid**：同一入口（`(App).FlowAppNewBankAccount`，Source=19）的
+  先序调用标签与 Mermaid 箭头逐项相等（JSON 100 / Mermaid 99——入口自身不画
+  自调用）；条件结构 17 条 `alt` 覆盖 JSON 的全部带子步骤 branch/loop（含人工/
+  自动审核分支）。
+- **SVG**：`--format svg --out` 真导出（plantuml+java 可用），断言 `<svg`、关键
+  节点（BeforeFirst/BeforeSecond/AfterSecond、`a.Store.Insert`、
+  `FinishDataReview`、`SaveAccount`、`UpdateEntityState`、`SyncRegistry`）与
+  条件结构（alt/group）。
+- **分段验收**：段 1（入口→`(App).txSaveAccount`/`txUpdateEntityState`）路径上
+  无 ambiguous/unverified；段 2/3 以段 1 终点为根，根 ID 完全一致、场景一致，
+  并各自证明主数据写入（`(storeAOP).SaveAccount`→`(Store).SaveAccount`→
+  `ExecContext`）与状态更新（`(Store).UpdateEntityState`）。
+
+回归实测：`go test ./...`（14 包 ok）、`scripts/verify.sh --quick` PASS、
+`make it` PASS（53.5s）、`-race` 回调/场景（action）与递归取消（sqlite）PASS。
