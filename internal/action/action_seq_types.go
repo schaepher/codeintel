@@ -39,6 +39,12 @@ type CodeSequenceRequest struct {
 	Scene Scene
 	// Ctx 取消信号（todo10-9）：递归展开每语句检查一次；nil = 不取消
 	Ctx context.Context
+	// todo22 §4.1：RPC 跨仓续接（与 ext-chain 同款候选范围——cli 按 workspace
+	// 限定；nil Open = 只看起始仓库）。
+	CandidateRepos []string
+	Open           SeqRepoOpener
+	Scope          string // workspace:<dir> | all-registered | registered（证据用）
+	ScopeReason    string
 	// indexSHA 当前索引 commit（todo12-14：证据可复现性——内部填充）
 	indexSHA string
 	// entryID 入口 canonical ID（证据命令重放整棵分析树，而不是只查被调节点）
@@ -80,6 +86,9 @@ type CodeSequenceRequest struct {
 	rpcSvcs map[string]*seqRPCSvc
 	// rpcByFunc 源函数 → RPC 出站边（调用点 pos/行号匹配；请求内缓存）
 	rpcByFunc map[string][]*domain.RPCForward
+	// rpcRes 跨仓续接打开的目标仓库视图（请求结束统一关闭——覆盖全部子树
+	// 使用期，避免"边界处关闭、递归时 DB 已关"的旧坑）
+	rpcRes *seqRPCResources
 	// todo22 §4.1：RPC 续接防环键（仓库|方法入口），跨请求子树共享
 	rpcVisited map[string]bool
 	// todo22 §3.3：当前包的 DI 注册表（key → 注册点；扫描一次缓存）

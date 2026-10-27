@@ -130,18 +130,8 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	if req.extPkgs == nil {
 		req.extPkgs = map[string]*seqExternalPkg{} // todo22 §4.2：外部包源码缓存
 	}
-	if req.rpcFwd == nil {
-		req.rpcFwd = map[string]*domain.RPCForward{} // todo22 §4.1：RPC 转发缓存
-	}
-	if req.rpcSvcs == nil {
-		req.rpcSvcs = map[string]*seqRPCSvc{} // todo22 §4.1：RPC 服务端解析缓存
-	}
-	if req.rpcByFunc == nil {
-		req.rpcByFunc = map[string][]*domain.RPCForward{} // todo22 §4.1：调用点 RPC 出站边
-	}
-	if req.rpcVisited == nil {
-		req.rpcVisited = map[string]bool{} // todo22 §4.1：RPC 续接防环
-	}
+	seqInitRPCState(&req) // todo22 §4.1：RPC 转发/服务端解析/跨仓视图状态
+	defer req.rpcRes.closeAll()
 	// 阶段 1：符号解析（只查库，不读源码——与阶段 2/3 不重叠）
 	symStart := time.Now()
 	n, err := a.ResolveSymbol(req.Target)

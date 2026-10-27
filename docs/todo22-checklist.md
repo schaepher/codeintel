@@ -91,7 +91,7 @@ make it
 | 3.1 | 到达定义/精确目标/同名不同包/行号回退核对 | 部分：`action_seq_dataflow.go`（receiver 字段写入溯源）、`action_seq_targets.go:matchAggregated`（todo20-9）+ 本轮新增**实参位置调用的 AST 对象身份恢复**（`seqASTCallTarget`，不做名称模糊搜索） |
 | 3.2 | 接口候选全集 + `candidate_depth`/`candidate_budget` 截断诊断 | **已完成（2026-10-27，B.7）**：多候选不选第一个展开、候选上限 12 + 截断说明；见 B.7 |
 | 3.3 | DI/AOP（Bean/Inject 注解、container/key 注册、事务 wrapper 内原实现） | **第一增量已完成（2026-10-27，B.8）**：字段注解/注册证据 + AOP 包装目标；框架专有契约（gof/其他容器）仍未知 |
-| 4.1 | go-micro `NewRequest/Call` + 服务注册续接、跨仓 workspace 限定 | **同仓已完成（2026-10-27，B.13）**：客户端桩/接口调用 + 注册身份/实现 + 证据；**跨仓 workspace 归一未做**（防环键已按 `仓库|方法入口` 预留） |
+| 4.1 | go-micro `NewRequest/Call` + 服务注册续接、跨仓 workspace 限定 | **已完成（2026-10-27，B.13）**：客户端桩/接口调用 + 注册身份/实现 + 证据；跨仓按 workspace 候选（默认限定、`--all-repos` 显式扩展） |
 | 4.2 | 外部依赖源码按需解析（`go list -e -json -find -mod=readonly`、离线、缓存） | **已完成（2026-10-27，B.9）**：离线只读 go list + 请求内缓存 + 形参重新绑定；见 B.9 |
 | 5 | 场景推导（整型/枚举/跨包常量/短路/取反） | **已实现**（`action_scene*.go`，含 `Source=7/19` 与 `int32(...)` 场景测试） |
 | 6 | `SymbolSource` + `query symbol --include-source` | **已完成（2026-10-27）**，见 B.3 |
@@ -345,7 +345,7 @@ bash scripts/verify.sh --quick && make it
 | 兼容 native gRPC 不退化 | native 路径（ServiceDesc/RegisterXxxServer/grpc_client 签名）不改；`grpcClientServiceOf` 只为 micro 客户端接口补协议标记（`rpc_protocol=micro`），既有 gRPC 集成用例全绿（`make it`） |
 | 保留 repo/服务 ID/构建身份/调用与定义位置 | 证据 `service_id`/`rpc_service`/`rpc_protocol`/`rpc_method`/注册 `file:line`；`--json` 原字段不变（新增可选键） |
 | 真实源码夹具 + 反例 + CLI 集成 | `integration/microfixture_test.go`（go-micro stub 模块 replace + 生成形态 pb + 两服务 Apply）；`integration/todo22_micro_test.go`：正例（两入口不串线、depth=1、桩源码不展开）+ 反例（移除注册/改协议/改服务名）全部只断言各自结论 |
-| 跨仓 workspace 限定 / 资源关闭覆盖子树 / 跨仓缓存键含仓库身份 | **未做**（同仓）；防环键已写成 `req.RepoAbs|方法入口`，跨仓续接接入时无需改语义 |
+| 跨仓 workspace 限定 / 资源关闭覆盖子树 / 跨仓缓存键含仓库身份 | **已完成（2026-10-27，跨仓增量）**：`CodeSequenceRequest.CandidateRepos/Open` + cli `seqCandidateRepos`（默认同一 workspace；无归属=repo-only，`--all-repos` 显式扩展）；起始仓库未找到注册时按候选逐个定点解析；目标仓库子方法用独立 `CodeSequence` 展开（源码/包集合/文件缓存隔离），视图由请求级 `seqRPCResources` 在分析结束时统一关闭（覆盖子树使用期）；防环键 `仓库|方法入口` |
 | go-micro 直接 `micro.RegisterHandler` 形态 | 识别根包 `RegisterHandler`，但服务短名只在第二参是 `<X>Handler` 接口时可解析；`new(AccountServer)` 这类具体类型注册保留 `rpc_impl_missing`（不猜） |
 
 验证命令：
@@ -359,3 +359,14 @@ bash scripts/verify.sh --quick && make it
 ```
 
 结果：以上全部 PASS（集成用例 0.26s/0.82s；`make it` 44.6s）。
+
+**跨仓增量（同轮提交）**
+
+| 要求 | 实现 / 证据 |
+| --- | --- |
+| 候选仓库限定显式 workspace 范围 | `seqCandidateRepos`（cli）：起始仓库有 workspace 归属 → 同 workspace 其它已构建仓库；无归属 → **repo-only**（不因全局注册表同名服务改变默认结果）；`--all-repos` 显式全部已注册。范围标签 `Scope` 记录在请求中 |
+| 存在注册但实现未知 ≠ 没有注册（跨仓才能继续找） | 只有客户端声明身份（`rpc_service` 为空）→ `rpc_registration_missing`（可继续候选仓库）；有注册身份但无 `grpc_impl` → `rpc_impl_missing`（终止，不跨仓猜） |
+| 跨仓子树展开 / 文件缓存 / 包集合以目标仓库为准 | `seqExpandRemoteRPC`：目标仓库独立 `CodeSequence`（`RepoAbs`/`fileCache`/`pkgSet`/`tgtsCache` 全部隔离），只拼回子节点；`RemoteRepo` + 目标 `ServiceID` 写进证据 |
+| 资源关闭覆盖全部子树使用期 | `seqRPCResources`（请求级）：候选视图打开一次、请求结束 `defer closeAll()`；嵌套 `CodeSequence` 复用同一资源指针（不重复 defer 关闭）。`TestSeqRPCCrossRepo` 断言 opens=1/closes=1 |
+| 防环键含仓库身份 | `rpcVisited` 键 = `req.RepoAbs|方法入口`（跨仓 A→B→A 在第二次回到 A 时命中） |
+| 测试 | `internal/action/action_seq_rpc_repo_test.go`：客户端仓 → 候选服务端仓续接（证据/子节点/资源关闭）、无候选范围时 repo-only 明确未命中且不打开任何仓库 |

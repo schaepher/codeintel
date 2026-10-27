@@ -24,6 +24,7 @@ type seqRPCSvc struct {
 	registerLine int
 	reason       string   // register-identity | register-handler-name
 	methods      []string // 注册声明的方法（诊断用）
+	remoteRepo   string   // 非空 = 服务端在候选仓库（跨仓续接目标）
 	stop         *SeqStop // nil = 可续接；非 nil = 正常未命中原因
 }
 
@@ -124,6 +125,14 @@ func seqMicroService(a *Actions, req CodeSequenceRequest, fwd *domain.RPCForward
 			seqCacheRPCSvc(req, key, out)
 			return out
 		case 1:
+			if matches[0].Property("rpc_service") == "" {
+				// 只有客户端声明身份（生成客户端桩），没有服务端注册——按
+				// "注册缺失"处理（跨仓续接可以继续到候选仓库找注册）
+				out.stop = &SeqStop{Code: SeqStopRPCRegistrationMissing,
+					Detail: "服务 " + seqServiceLabel(fwd, handler) + " 只有客户端声明身份，未找到服务端 Register 注册（正常未命中）"}
+				seqCacheRPCSvc(req, key, out)
+				return out
+			}
 			out.serviceID, out.reason = string(matches[0].ID), "register-handler-name"
 		default:
 			ids := make([]string, 0, len(matches))

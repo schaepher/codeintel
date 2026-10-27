@@ -192,9 +192,10 @@ func registerOutsideProto(s any, h any) {}
 		wantSym  string
 		wantWhy  string
 	}{
-		{name: "registration-removed", app: removedApp, wantCode: action.SeqStopRPCImplMissing,
-			wantWhy: "注册实参"},
-		{name: "protocol-changed", app: protocolApp, wantCode: action.SeqStopRPCImplMissing},
+		{name: "registration-removed", app: removedApp, wantCode: action.SeqStopRPCRegistrationMissing,
+			wantWhy: "Register 注册"},
+		{name: "protocol-changed", app: protocolApp, wantCode: action.SeqStopRPCRegistrationMissing,
+			wantWhy: "Register 注册"},
 		{name: "service-identity-changed", app: renamedApp, wantCode: action.SeqStopRPCIdentityConflict,
 			wantWhy: "注册身份"},
 	}

@@ -33,7 +33,7 @@ import (
 // out：非空时主输出写文件（plantuml 成功 → PNG 字节；svg → SVG 文本；
 // 否则文本），stdout 打印路径。扩展名与内容必须一致：非 svg 模式写
 // *.svg、svg 模式写 *.png 都直接报错。
-func cmdQuerySequenceCode(acts *action.Actions, abs, target string, depth int, mermaid bool, jsonOut bool, diagram, out string, focus []string, evidence bool, scene []string, timeout time.Duration, verifyEvidence string) int {
+func cmdQuerySequenceCode(acts *action.Actions, abs, target string, depth int, mermaid bool, jsonOut bool, diagram, out string, focus []string, evidence bool, scene []string, timeout time.Duration, verifyEvidence string, allRepos bool) int {
 	if depth <= 0 {
 		depth = 1
 	}
@@ -64,10 +64,14 @@ func cmdQuerySequenceCode(acts *action.Actions, abs, target string, depth int, m
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
+	// todo22 §4.1：RPC 跨仓续接候选（默认按同一 workspace 限定，--all-repos
+	// 显式扩展；候选范围与 ext-chain 同一口径）。
+	cands, scope, scopeReason := seqCandidateRepos(abs, allRepos)
 	req := action.CodeSequenceRequest{
 		Target: target, RepoAbs: abs, Depth: depth, StopPackages: loadSeqStopPkgs(),
 		Filter: loadSeqFilter(), Focus: focus, Scene: action.NewScene(scene), Ctx: ctx,
-		Evidence: evidence || verifyEvidence != "", Format: diagram, Out: out}
+		Evidence: evidence || verifyEvidence != "", Format: diagram, Out: out,
+		CandidateRepos: cands, Open: openRepoActions, Scope: scope, ScopeReason: scopeReason}
 	req.SetCLIVersion(version())
 	root, err := acts.CodeSequence(req)
 	// todo21-14.5：无论成功/失败都留一条可断言的预算范围记录（仅诊断开关

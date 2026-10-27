@@ -6734,6 +6734,17 @@ WHERE s.id = ? AND t.id NOT LIKE '%Unimplemented%'
 "实现"（Go structural typing）——按接口派发必歧义，故用调用点出站边
 （协议已在索引期证明）直接续接，不走接口候选。
 
-**未做**（下一步）：跨仓 workspace 限定的服务端续接（当前同仓；查询端已按
-`仓库|方法入口` 预留防环键），以及 go-micro 直接 `micro.RegisterHandler`
-形态的服务短名规则（当前只在能解析注册接口时识别）。
+**跨仓增量（同轮）**：`CodeSequenceRequest.CandidateRepos/Open/Scope`（与
+ext-chain 同款 opener）+ cli `seqCandidateRepos`——起始仓库有 workspace 归属
+才用同 workspace 候选，无归属时 **repo-only**（不因全局注册表里同名服务改变
+时序分析默认结果），`--all-repos` 显式扩展。起始仓库未找到注册（只有客户端
+声明身份 → `rpc_registration_missing`）时按候选逐个定点解析；目标仓库的
+服务方法用**独立 CodeSequence** 展开（源码/包集合/文件缓存隔离），只拼回
+子节点，证据带 `remote_repo` + 目标 `service_id`；候选视图由请求级
+`seqRPCResources` 在分析结束时统一关闭（覆盖子树使用期——避免 todo12-2
+"边界处关闭、递归时 DB 已关"的旧坑），嵌套请求复用同一资源指针不重复关闭。
+防环键 `仓库|方法入口`。
+
+**未做**（下一步）：go-micro 直接 `micro.RegisterHandler` 形态的服务短名规则
+（当前只在第二参是 `<X>Handler` 接口时可解析；具体类型注册保留
+`rpc_impl_missing`，不猜）。

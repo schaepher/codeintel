@@ -140,10 +140,12 @@ func seqExpandRPCForward(a *Actions, req CodeSequenceRequest, node *CodeSeqNode,
 			Detail: "depth 上限（--depth " + itoaSeq(req.Depth) + "），未展开 RPC 服务端子树"}
 		return true
 	}
-	svc := seqMicroService(a, req, fwd)
-	if svc.stop != nil {
+	svc, remoteRepo, targetActs := seqRPCServiceAcrossRepos(a, req, fwd)
+	if svc == nil || svc.stop != nil {
 		node.Evidence = base
-		node.Stop = svc.stop
+		if svc != nil {
+			node.Stop = svc.stop
+		}
 		return true
 	}
 	// 实现方法：canonical ID 精确构造（不做模糊名称搜索）
@@ -154,7 +156,11 @@ func seqExpandRPCForward(a *Actions, req CodeSequenceRequest, node *CodeSeqNode,
 			Detail: "无法从实现类型构造方法入口：" + svc.impls[0] + " + " + fwd.Method}
 		return true
 	}
-	if _, err := a.repo.GetSymbol(domain.CanonicalID(entry)); err != nil {
+	lookup := a.repo
+	if remoteRepo != "" && targetActs != nil {
+		lookup = targetActs.repo
+	}
+	if _, err := lookup.GetSymbol(domain.CanonicalID(entry)); err != nil {
 		req.acc.sqlQueries++
 		node.Evidence = base
 		detail := "服务 " + seqServiceLabel(fwd, handler) + " 的实现类型 " + svc.impls[0] + " 没有方法 " + fwd.Method
@@ -167,6 +173,10 @@ func seqExpandRPCForward(a *Actions, req CodeSequenceRequest, node *CodeSeqNode,
 	req.acc.symLookups++
 	base.SymbolID = entry
 	base.RegisterFile, base.RegisterSite = svc.registerFile, svc.registerLine
+	base.RemoteRepo = remoteRepo
+	if remoteRepo != "" {
+		base.ServiceID = svc.serviceID
+	}
 	base.Confidence = 1.0
 	base.Reason = "micro-" + svc.reason
 	node.Evidence = base
@@ -183,6 +193,11 @@ func seqExpandRPCForward(a *Actions, req CodeSequenceRequest, node *CodeSeqNode,
 	}
 	// 服务端方法展开：不再做 target 级 RPC 转发检查（这里已知目标是服务实现；
 	// 多一次出站边查询是纯开销），但循环/depth 语义与统一入口保持一致。
+	// 跨仓目标用独立 CodeSequence（目标仓库的源码/包集合/文件缓存）。
+	if remoteRepo != "" {
+		seqExpandRemoteRPC(targetActs, req, node, entry, remoteRepo, depth)
+		return true
+	}
 	if child, stop := codeSeqForSymbol(a, req, entry, depth-1); child != nil {
 		node.Nodes, node.Stop = child.Nodes, child.Stop
 	} else if stop != nil {

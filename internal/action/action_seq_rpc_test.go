@@ -172,7 +172,7 @@ func TestSeqRPCContinuationAndRequestCache(t *testing.T) {
 		if n.Evidence != nil && n.Evidence.Source == SeqEvidenceRPC {
 			rpcNodes = append(rpcNodes, n)
 		}
-		if n.Stop != nil && n.Stop.Code == SeqStopRPCImplMissing {
+		if n.Stop != nil && n.Stop.Code == SeqStopRPCRegistrationMissing {
 			missing = append(missing, n)
 		}
 	})
@@ -181,7 +181,7 @@ func TestSeqRPCContinuationAndRequestCache(t *testing.T) {
 	}
 	sym := map[string]int{}
 	for _, n := range rpcNodes {
-		if n.Stop != nil && n.Stop.Code == SeqStopRPCImplMissing {
+		if n.Stop != nil {
 			continue
 		}
 		sym[n.Evidence.SymbolID]++
@@ -213,8 +213,8 @@ func TestSeqRPCContinuationAndRequestCache(t *testing.T) {
 	if counter.byProtocol != 1 {
 		t.Errorf("服务枚举次数 = %d; want 1（仅缺少注册身份的服务）", counter.byProtocol)
 	}
-	if counter.impls != 2 { // AccountService + Missing（未命中实现）
-		t.Errorf("实现查询次数 = %d; want 2（命中/未命中都缓存）", counter.impls)
+	if counter.impls != 1 { // 只有 AccountService 走到实现查询（Missing 无注册）
+		t.Errorf("实现查询次数 = %d; want 1（命中/未命中都缓存）", counter.impls)
 	}
 	if counter.duplicate != 0 {
 		t.Errorf("同一源函数的出站边被重复查询 %d 次（请求内缓存失效）: %v", counter.duplicate, counter.forwards)
