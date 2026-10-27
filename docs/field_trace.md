@@ -6630,3 +6630,21 @@ WHERE s.id = ? AND t.id NOT LIKE '%Unimplemented%'
 
 `chainSymbols`（ext-chain 全链 BFS）仍一次性加载 calls/implements 边——属"整链"
 用例，改造需按链局部取边；已记入 checklist。
+
+## §121 todo22 §9.3（部分）：JSON↔Mermaid 一致性与流程 SVG（2026-10-27）
+
+`integration/todo22_render_consistency_test.go`（真实 init → CLI，§8 夹具）：
+
+- **调用顺序一致性**：JSON 先序调用序列 vs Mermaid `P->>P: label` 序列逐项相等
+  （实测 28 条）。两处渲染约定显式归一化：入口节点是参与者本身、不画自调用
+  箭头；未消歧调用在图上加 `? ` 前缀（分析树里由 `evidence.ambiguous` 表达）。
+- **条件结构一致性**：JSON 的 branch/loop（带子步骤）标签必须出现在 Mermaid 的
+  `alt`/`loop` 行；再断言 `alt ` 与 `loop range wrappers` 存在，避免"两边都空"
+  的假一致。纯诊断的空循环（未消歧 range 候选）只体现在 JSON stop 里，不要求
+  画出（已在测试注释说明）。
+- **流程 SVG**：`--format svg --out flow.svg`（plantuml.jar + java 可用时；缺失
+  时 skip），断言产物含 `<svg`、关键节点 `BeforeFirst`/`BeforeSecond`/
+  `AfterSecond`/`store.Insert` 与条件结构；实测 73187 字节。
+
+范围：夹具是两层装饰器 + 外部事务回调 + 场景检查，**不含 RPC/DI**——§9.3 的
+"含 RPC、DI 的流程 SVG"与逐编号验收行仍待 §4.1/§9.1-9.2 落实。

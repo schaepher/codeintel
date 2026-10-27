@@ -103,7 +103,7 @@ make it
 | 8 | 第 8 节完整脱敏夹具与逐项断言表 | 夹具**已建**（`integration/flowfixture_test.go`，逐字照抄 §8 源码，供 §6 与后续 §2/§9 共用）；逐项断言表待 §2–§9 完成 |
 | 9.1 | 八个同步流程（SourceA/B × 新建/新增子项/编辑子项/编辑实体） | **未建** |
 | 9.2 | 二十个后续流程形态 + 审核 finish 次数规则 | **未建** |
-| 9.3 | 最终输出（逐行验收、JSON+Mermaid+SVG、全量回归） | **未开始** |
+| 9.3 | 最终输出（逐行验收、JSON+Mermaid+SVG、全量回归） | **部分完成（2026-10-27，B.11）**：JSON↔Mermaid 调用顺序/条件结构一致性 + 流程 SVG 产物内容检查；逐编号验收行与含 RPC/DI 的 SVG 待 §4.1/§9.1-9.2 |
 
 ### B.2 计划（按 todo22 第 1 节顺序，逐项交付、每项独立提交）
 
@@ -298,3 +298,18 @@ bash scripts/verify.sh --quick && make it
 | 测试真实 EXPLAIN 查询计划，不靠过滤合法服务名缩小结果 | `repo_routes_plan_test.go`：SQL 与生产共用常量（`grpcServicesSQL`/`registerNodeSQL`），`EXPLAIN QUERY PLAN` 断言命中索引且非 SCAN；同时断言结果等价（`GetGrpcServices`=1 条、`GetRegisterNode` 命中注册函数） |
 
 **未做**：`chainSymbols`（ext-chain 全链 BFS）仍会一次性加载 calls/implements 边——那是"整链"用例而非单次派发，改造成本高、收益待测（记入 §B.1 备注）。
+
+### B.11 §9.3 渲染一致性验收（部分完成，2026-10-27）
+
+`integration/todo22_render_consistency_test.go`（真实 init → CLI，§8 夹具）：
+
+| 要求（§9.3-3） | 实现 / 证据 |
+| --- | --- |
+| 同一入口实际生成 JSON 和 Mermaid | 同一 canonical 入口 + 同一 `--depth` 分别跑 `--json` 与 `--format mermaid` |
+| 检查解析与**箭头顺序** | JSON 先序调用序列与 Mermaid `P->>P: label` 序列**逐项相等**（28 条一致；两条渲染约定显式归一化：入口自身不画自调用箭头、未消歧调用加 `? ` 前缀） |
+| 检查条件结构 | JSON 的 branch/loop 标签（带子步骤的）必须出现在 Mermaid 的 `alt`/`loop` 行；并断言关键结构（`alt `、`loop range wrappers`）存在，防"两边都空"的假一致 |
+| 流程导出 SVG 并检查解析产物 | `--format svg --out flow.svg` → 产物含 `<svg`、含 `BeforeFirst`/`BeforeSecond`/`AfterSecond`/`store.Insert`、含条件结构（73187 字节实测）；plantuml.jar/java 缺失时 skip |
+| 逐编号验收行（入口/场景/命令/目标 ID/证明连接/候选/截断/finish 次数/一致性） | **未做**——依赖 §9.1 八流程与 §9.2 二十形态的夹具（含 RPC/DI） |
+
+**已知范围缩减**：本夹具是"两层装饰器 + 外部事务回调 + 场景检查"，不含 RPC/DI
+节点，§9.3 要求的"含 RPC、DI 的流程 SVG"仍待 §4.1/§3.3 夹具补齐后再验收。
