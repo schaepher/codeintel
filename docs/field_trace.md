@@ -6942,3 +6942,24 @@ status.SourceB`（`status` 是另一个包）里的 `status.SourceB` 被当成�
 `unknown`（未回退）。**未做**：跨包结构体字段传播（被调函数在另一个包时，
 日志仍按 `param.Field` 键传播，但包身份/类型不做校验——与现有"按名传递"
 口径一致，可能出现同名结构体误配；如需严格化要引入类型校验）。
+
+## §130 todo22 P1：AOP bypass 的运行时事实（ctx.Value 场景求解，2026-10-27）
+
+**问题**：AOP/事务包装器常用 `if ctx.Value("bypass") != nil { 直连 } else { 包装 }`
+控制跳过包装；此前该条件是 `!= nil`（非字面量对），场景判定恒 `unknown`，
+两分支都保留——无法回答"指定绕过时到底走哪条路"。
+
+**改法**（`action_scene_ctx.go`）：
+- 识别 `x.Value(<key>) == nil` / `!= nil`（两侧可交换）；key 取 `Value` 参数的
+  字符串值（string 字面量 / 包内常量 / 跨包常量）。
+- **场景键 = context key**，值 `true/1/on/present` → 存在；`false/0/off/absent/none`
+  → 不存在；`x != nil` 表示"存在"、`== nil` 表示"不存在"，据此
+  taken/excluded。**没有 `--scene` 键时保持 unknown（不猜）**；动态 key →
+  `unknown:ctx-key`（两分支保留）。
+- 该规则在普通比较逻辑之前，非 `nil` 比较不受影响（继续走既有
+  `sceneCompare`）。
+
+**测试**：`action_scene_ctx_test.go` 单测矩阵（taken/excluded/反向写法/常量 key/
+无场景/只有无关场景键/动态 key/非 nil 比较）+ 真实源码时序
+（`Bypassed`/`BypassedConst`/`Dynamic`，索引边）：`--scene bypass=true` 只执行
+`Direct`、`bypass=false` 只执行 `Wrapper`、无场景两分支、动态 key 两分支。

@@ -61,15 +61,6 @@ func (s Scene) matchBoolOp(bin *ast.BinaryExpr, args, srcs map[string]string, co
 		Literal: firstNonEmpty(l.Literal, r.Literal), Reason: "unknown:or-partial"}
 }
 
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
-}
-
 // matchCompareCond 单个比较（== / !=）的判定。
 func (s Scene) matchCompareCond(cond ast.Expr, args, srcs map[string]string, consts sceneConstLookup) SceneFit {
 	bin, ok := cond.(*ast.BinaryExpr)
@@ -79,6 +70,11 @@ func (s Scene) matchCompareCond(cond ast.Expr, args, srcs map[string]string, con
 	op := bin.Op.String()
 	if op != "==" && op != "!=" {
 		return SceneFit{Status: SceneUnknown, Reason: "unknown:op-" + op}
+	}
+	// todo22 P1：AOP bypass 的运行时事实（`ctx.Value("bypass") != nil`）——
+	// 只有显式 --scene 给出该键时才判定；未给出保持 unknown（保留两分支）。
+	if fit, ok := s.matchContextValueCond(bin, op, consts); ok {
+		return fit
 	}
 	field, lit, ok := sceneCompare(bin.X, bin.Y, consts)
 	if !ok {
@@ -283,3 +279,15 @@ func (s Scene) matchesField(field string) bool {
 }
 
 // appendUniqueStr 追加去重（保持入参顺序——诊断文本稳定）。
+
+// matchContextValueCond 识别 `ctx.Value("key") == nil` / `!= nil` 形态：
+// 场景键 = Value 参数的字符串值（字面量/包内常量/跨包常量），场景值
+// true/1/on/present → 存在；false/0/off/absent → 不存在。
+//
+// 这是"运行时事实"的显式输入：没有 --scene 键时不得猜，保持 unknown。
+
+// sceneNilCompareOperands 比较两侧恰好一侧是 nil，返回另一侧的调用表达式。
+
+// sceneContextValueKey `x.Value(<key>)` → key 的字符串值（字面量/常量）。
+
+// contextKeyPresent 场景里该 context key 的"存在性"。
