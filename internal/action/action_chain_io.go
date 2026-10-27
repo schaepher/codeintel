@@ -7,6 +7,7 @@ package action
 // ext_chain_cache（索引 commit 变化自动失效）。cli 只做参数转发与输出。
 
 import (
+	"context"
 	"encoding/json"
 	"sort"
 	"strings"
@@ -106,36 +107,43 @@ func chainGrpcHTTPDiag(a *Actions, symbol string) (ChainIOOut, []SeqDiagCount) {
 	}
 	svcs := grpcSvcNames(a)
 	seen := chainSymbols(a, string(n.ID))
-	// 一次加载链内符号的全部出站边（grpc_call/http_call——metadata 全量）
-	if facts, err := a.repo.GetFactsByKinds(string(domain.FactGrpcCall), string(domain.FactHTTPCall)); err == nil {
+	// todo22 P1：逐节点查链内符号的出边（不再全量扫 grpc_call/http_call）。
+	// 遍历顺序按符号 ID 排序，保证同输入同输出（map 迭代顺序不参与结果）。
+	chainIDs := make([]string, 0, len(seen))
+	for id := range seen {
+		chainIDs = append(chainIDs, id)
+	}
+	sort.Strings(chainIDs)
+	ctx := context.Background()
+	for _, src := range chainIDs {
+		facts, err := a.repo.GetOutgoingFactsByKinds(ctx, domain.CanonicalID(src),
+			string(domain.FactGrpcCall), string(domain.FactHTTPCall))
+		if err != nil {
+			diags = append(diags, SeqDiagCount{Code: ExtStopQueryFailed, Count: 1,
+				Detail: "读取 grpc/http 出站边失败：" + err.Error()})
+			continue
+		}
+		by := shortNameOf(src)
 		for _, f := range facts {
-			src := string(f.SourceID)
-			if !seen[src] {
-				continue
-			}
-			by := shortNameOf(src)
 			if f.Kind == domain.FactHTTPCall {
 				out.HTTP = append(out.HTTP, ChainCallOut{Service: metaStr(f.Metadata, "host"),
 					Path: metaStr(f.Metadata, "path"), CalledBy: by, Line: metaLine(f.Metadata)})
-			} else {
-				svc := strings.TrimPrefix(string(f.TargetID), "symbol:go:")
-				if i := strings.LastIndex(svc, ":"); i >= 0 {
-					svc = strings.TrimPrefix(svc[i+1:], "svc.")
-				}
-				// todo10-4/11-1：RPC 方法名来自**关系身份** edge_key（旧的
-				// metadata.method 作回退）；同一服务不同方法现在是不同的边，
-				// ext-chain 才能逐方法精确续接
-				method := f.Key
-				if method == "" {
-					method = metaStr(f.Metadata, "method")
-				}
-				out.Grpc = append(out.Grpc, ChainCallOut{Service: svc, ServiceID: string(f.TargetID),
-					CalledBy: by, Method: method, Line: metaLine(f.Metadata)})
+				continue
 			}
+			svc := strings.TrimPrefix(string(f.TargetID), "symbol:go:")
+			if i := strings.LastIndex(svc, ":"); i >= 0 {
+				svc = strings.TrimPrefix(svc[i+1:], "svc.")
+			}
+			// todo10-4/11-1：RPC 方法名来自**关系身份** edge_key（旧的
+			// metadata.method 作回退）；同一服务不同方法现在是不同的边，
+			// ext-chain 才能逐方法精确续接。
+			method := f.Key
+			if method == "" {
+				method = metaStr(f.Metadata, "method")
+			}
+			out.Grpc = append(out.Grpc, ChainCallOut{Service: svc, ServiceID: string(f.TargetID),
+				CalledBy: by, Method: method, Line: metaLine(f.Metadata)})
 		}
-	} else {
-		diags = append(diags, SeqDiagCount{Code: ExtStopQueryFailed, Count: 1,
-			Detail: "读取 grpc/http 出站边失败：" + err.Error()})
 	}
 	// calls 边里的 grpc 客户端类型调用（构造/方法）——弱信号：同调用方已有
 	// grpc_call 边（带 RPC 方法名）时跳过（todo10-4：避免同一次调用重复计入，
@@ -144,12 +152,14 @@ func chainGrpcHTTPDiag(a *Actions, symbol string) (ChainIOOut, []SeqDiagCount) {
 	for _, g := range out.Grpc {
 		haveGrpcCall[g.Service+"\x00"+g.CalledBy] = true
 	}
-	if facts, err := a.repo.GetFactsByKinds(string(domain.FactCalls)); err == nil {
+	for _, src := range chainIDs {
+		facts, err := a.repo.GetOutgoingFactsByKinds(ctx, domain.CanonicalID(src), string(domain.FactCalls))
+		if err != nil {
+			diags = append(diags, SeqDiagCount{Code: ExtStopQueryFailed, Count: 1,
+				Detail: "读取 calls 边失败：" + err.Error()})
+			continue
+		}
 		for _, f := range facts {
-			src := string(f.SourceID)
-			if !seen[src] {
-				continue
-			}
 			if svc := grpcClientName(string(f.TargetID), svcs); svc != "" {
 				if haveGrpcCall[svc+"\x00"+shortNameOf(src)] {
 					continue
@@ -158,16 +168,22 @@ func chainGrpcHTTPDiag(a *Actions, symbol string) (ChainIOOut, []SeqDiagCount) {
 					CalledBy: shortNameOf(src), Line: metaLine(f.Metadata)})
 			}
 		}
-	} else {
-		diags = append(diags, SeqDiagCount{Code: ExtStopQueryFailed, Count: 1,
-			Detail: "读取 calls 边失败：" + err.Error()})
 	}
 	sortOut := func(xs []ChainCallOut) {
 		sort.Slice(xs, func(i, j int) bool {
 			if xs[i].Service != xs[j].Service {
 				return xs[i].Service < xs[j].Service
 			}
-			return xs[i].CalledBy < xs[j].CalledBy
+			if xs[i].CalledBy != xs[j].CalledBy {
+				return xs[i].CalledBy < xs[j].CalledBy
+			}
+			if xs[i].Method != xs[j].Method {
+				return xs[i].Method < xs[j].Method
+			}
+			if xs[i].Path != xs[j].Path {
+				return xs[i].Path < xs[j].Path
+			}
+			return xs[i].Line < xs[j].Line
 		})
 	}
 	sortOut(out.Grpc)
@@ -175,59 +191,92 @@ func chainGrpcHTTPDiag(a *Actions, symbol string) (ChainIOOut, []SeqDiagCount) {
 	return out, diags
 }
 
-// chainSymbols 递归收集调用链符号（BFS——一次加载全部 calls/grpc_call
-// 边做内存遍历，去重，上限 300 防爆炸）。R84：接口不停止解析——链上
-// 遇到接口方法/类型（grpc 服务入口接口是动态入口，无直接 caller）经
-// implements 边具体化到实现（接口类型 → 首个实现；接口方法 → 首个有
-// 该方法者——与 InterfaceMethodImpl 语义一致，控制膨胀）。
+// chainSymbols 递归收集调用链符号（BFS——**逐节点**查询出边，不加载全量
+// calls/grpc_call/implements 边；去重，上限 300 防爆炸）。R84：接口不停止
+// 解析——链上遇到接口方法/类型（grpc 服务入口接口是动态入口，无直接
+// caller）经 implements 精确邻接具体化到实现（接口类型 → 首个实现；接口
+// 方法 → 首个有该方法者——与 InterfaceMethodImpl 语义一致，控制膨胀）。
+//
+// todo22 P1：旧实现一次性 `GetFactsByKinds` + `GetImplementsEdges` +
+// `AllNodeIDs` 把全库边/节点读进内存（大仓几十万边）；现在每个节点只查
+// 自己的整数邻接（calls/grpc_call 出边 + 该接口的 implements 目标），
+// 节点存在性用精确 `GetSymbol`，语义与旧实现逐项等价（排序/首个实现
+// 规则保持）。
 func chainSymbols(a *Actions, root string) map[string]bool {
-	adj := map[string][]string{}
-	if facts, err := a.repo.GetFactsByKinds(string(domain.FactCalls), string(domain.FactGrpcCall)); err == nil {
-		for _, f := range facts {
-			adj[string(f.SourceID)] = append(adj[string(f.SourceID)], string(f.TargetID))
+	ctx := context.Background()
+	seen := map[string]bool{}
+	queue := []string{root}
+	outCache := map[string][]string{}  // 已查节点的出边目标（calls/grpc_call）
+	implCache := map[string][]string{} // 接口 → implements 目标
+	existsCache := map[string]bool{}   // 方法 ID 存在性（精确查询缓存）
+
+	outTargets := func(id string) []string {
+		if out, ok := outCache[id]; ok {
+			return out
 		}
+		facts, err := a.repo.GetOutgoingFactsByKinds(ctx, domain.CanonicalID(id),
+			string(domain.FactCalls), string(domain.FactGrpcCall))
+		if err != nil {
+			facts = nil
+		}
+		out := make([]string, 0, len(facts))
+		for _, f := range facts {
+			out = append(out, string(f.TargetID))
+		}
+		outCache[id] = out
+		return out
 	}
 
-	ifaces := map[string][]string{}
-	if facts, err := a.repo.GetImplementsEdges(); err == nil {
-		for _, f := range facts {
-			ifaces[string(f.SourceID)] = append(ifaces[string(f.SourceID)], string(f.TargetID))
+	ifaceImpls := func(iface string) []string {
+		if impls, ok := implCache[iface]; ok {
+			return impls
 		}
+		impls, err := a.repo.InterfaceImplsExact(iface)
+		if err != nil {
+			impls = nil
+		}
+		implCache[iface] = impls
+		return impls
 	}
-	nodeSet := map[string]bool{}
-	if ids, err := a.repo.AllNodeIDs(); err == nil {
-		for _, id := range ids {
-			nodeSet[string(id)] = true
+
+	nodeExists := func(id string) bool {
+		if ok, hit := existsCache[id]; hit {
+			return ok
 		}
+		_, err := a.repo.GetSymbol(domain.CanonicalID(id))
+		ok := err == nil
+		existsCache[id] = ok
+		return ok
 	}
 
 	ifaceConcrete := func(t string) []string {
-		var out []string
 		if i := strings.Index(t, ":("); i >= 0 {
 			pkg := t[:i]
 			rest := t[i+2:]
-			if j := strings.Index(rest, ")."); j >= 0 {
-				iface := pkg + ":" + rest[:j]
-				method := rest[j+2:]
-				for _, impl := range ifaces[iface] {
-					mi := strings.LastIndex(impl, ":")
-					if mi < 0 {
-						continue
-					}
-					m := impl[:mi+1] + "(" + impl[mi+1:] + ")." + method
-					if nodeSet[m] {
-						out = append(out, m)
-						break
-					}
+			j := strings.Index(rest, ").")
+			if j < 0 {
+				return nil
+			}
+			iface := pkg + ":" + rest[:j]
+			method := rest[j+2:]
+			for _, impl := range ifaceImpls(iface) {
+				mi := strings.LastIndex(impl, ":")
+				if mi < 0 {
+					continue
+				}
+				m := impl[:mi+1] + "(" + impl[mi+1:] + ")." + method
+				if nodeExists(m) {
+					return []string{m}
 				}
 			}
-		} else if impls, ok := ifaces[t]; ok && len(impls) > 0 {
-			out = append(out, impls[0])
+			return nil
 		}
-		return out
+		if impls := ifaceImpls(t); len(impls) > 0 {
+			return impls[:1]
+		}
+		return nil
 	}
-	seen := map[string]bool{}
-	queue := []string{root}
+
 	for len(queue) > 0 && len(seen) < 300 {
 		id := queue[0]
 		queue = queue[1:]
@@ -235,7 +284,7 @@ func chainSymbols(a *Actions, root string) map[string]bool {
 			continue
 		}
 		seen[id] = true
-		next := append([]string{}, adj[id]...)
+		next := append([]string{}, outTargets(id)...)
 		next = append(next, ifaceConcrete(id)...)
 		for _, t := range next {
 			if !seen[t] {

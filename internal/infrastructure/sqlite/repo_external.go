@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"strings"
 
 	"github.com/schaepher/codeintel/internal/domain"
@@ -55,6 +56,32 @@ func (r *Repo) GetFactsByKinds(kinds ...string) ([]*domain.Fact, error) {
 	// todo11-1：带 edge_key（grpc_call 的关系身份 = RPC 方法名）
 	rows, err := r.Query(`SELECT source_id, target_id, kind, edge_key, tool_source, confidence, metadata, count
 		FROM edges_v WHERE kind IN (`+placeholders+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanFactsKeyed(rows)
+}
+
+// GetOutgoingFactsByKinds 单节点的出边（指定 kind；metadata 全量）。
+// 用 nodes.id → id_int + edges(source_ref, ...) 的整数邻接，逐节点查询
+// 即可完成链 BFS——不需要为一次 ext-chain 加载全量 calls/implements 边。
+func (r *Repo) GetOutgoingFactsByKinds(ctx context.Context, id domain.CanonicalID, kinds ...string) ([]*domain.Fact, error) {
+	if len(kinds) == 0 {
+		return nil, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(kinds)), ",")
+	args := make([]any, 0, len(kinds)+1)
+	args = append(args, string(id))
+	for _, k := range kinds {
+		args = append(args, k)
+	}
+	rows, err := r.QueryContext(ctx, `SELECT s.id, t.id, e.kind, e.edge_key, e.tool_source,
+		e.confidence, e.metadata, e.count
+		FROM nodes s
+		JOIN edges e ON e.source_ref = s.id_int
+		JOIN nodes t ON t.id_int = e.target_ref
+		WHERE s.id = ? AND e.kind IN (`+placeholders+`)`, args...)
 	if err != nil {
 		return nil, err
 	}

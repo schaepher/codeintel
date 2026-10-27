@@ -6857,3 +6857,37 @@ RPC 目标身份（`(AccountServer).Apply`）、装饰器/事务节点齐全、D
 
 回归实测：`go test ./...`（14 包 ok）、`scripts/verify.sh --quick` PASS、
 `make it` PASS（53.5s）、`-race` 回调/场景（action）与递归取消（sqlite）PASS。
+
+## §127 todo22 P1：ext-chain 全链 BFS 改为逐节点精确邻接（2026-10-27）
+
+**问题**：`chainSymbols`（ext-chain / grpc-callers / http-callers 的链 BFS）
+一次性 `GetFactsByKinds(calls, grpc_call)` + `GetImplementsEdges()` +
+`AllNodeIDs()`，把全库边/节点读进内存；`chainGrpcHTTPDiag` 再全量扫
+grpc_call/http_call/calls 边后按 seen 过滤。大仓几十万边时，一次链查询的
+I/O/内存与链规模无关。
+
+**改法**：
+- 新增 `Reader.GetOutgoingFactsByKinds(ctx, id, kinds...)`（sqlite 实现走
+  `nodes.id → id_int` + `edges(source_ref, kind)` 整数邻接，metadata 全量）。
+- `chainSymbols` 逐节点查询 calls/grpc_call 出边；接口具体化改用
+  `InterfaceImplsExact`（精确）+ `GetSymbol` 判方法存在性；同请求内缓存
+  （出边/接口实现/方法存在性各一份）。语义保持：接口类型取首个实现、
+  接口方法取首个有该方法者、`Unimplemented` 桩排除、上限 300。
+- `chainGrpcHTTPDiag` 按 `seen` 排序后逐节点查询 grpc_call/http_call 与
+  calls（不再全量扫描）；排序补 method/path/line 作为并列键，保证同输入
+  同输出（map 迭代顺序不参与结果）。
+
+**实测**（本仓库索引：81521 节点 / 88396 边；删 `ext_chain_cache` 后单跑）：
+
+| 入口 | 旧 | 新 | 产物 |
+| --- | --- | --- | --- |
+| `(Actions).CodeSequence` | 0.14s / 72.7MB | 0.07s / 31.1MB | 逐字节相同 |
+| `(Repo).SaveBatchStats` | 0.15s | 0.06s | 逐字节相同 |
+| `(Actions).Build` | 0.23s | 0.22s | 逐字节相同 |
+| `main`（短链） | 0.04s | 0.04s | 逐字节相同 |
+
+**门槛测试**：`action_chain_symbols_exact_test.go` 用拒绝
+`GetFactsByKinds/GetImplementsEdges/AllNodeIDs` 的 Reader 包装器跑
+`chainSymbols` 与 `chainGrpcHTTPDiag`，断言只用逐节点/精确查询且结果不变
+（接口具体化、Unimplemented 排除）。**剩余**：`GetImplementsEdges` /
+`AllNodeIDs` 仍保留给其它用例（wiki/relations）；本改动只收口链 BFS。

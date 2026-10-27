@@ -480,3 +480,9 @@ PATH=$(go env GOPATH)/bin:$PATH go test -tags integration ./integration -run 'Te
 PATH=$(go env GOPATH)/bin:$PATH go test -tags integration ./integration   -run 'TestTodo22SyncFlows|TestTodo22FlowForms|TestTodo22FlowMatrix|TestTodo22SegmentedFlow' -count=1
 go test ./... && bash scripts/verify.sh --quick && make it
 ```
+
+### B.17 P1/P2 收口（2026-10-27 接手）
+
+| # | 事项 | 状态 |
+| --- | --- | --- |
+| P1-a | ext-chain 全链 BFS 不再一次性加载 calls/implements 边 | **已完成**：`chainSymbols` 逐节点 `GetOutgoingFactsByKinds` + `InterfaceImplsExact` + 精确 `GetSymbol`；`chainGrpcHTTPDiag` 同步收口；本仓库实测 0.14s/72.7MB → 0.07s/31.1MB、产物逐字节相同；门槛测试拒绝全量扫描（`action_chain_symbols_exact_test.go`）；见 field_trace §127 |

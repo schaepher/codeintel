@@ -109,6 +109,10 @@ type Reader interface {
 	// InterfaceImplsExact todo22 §7.1：单接口的 implements 目标（整数邻接，
 	// 不加载全量 implements 边）
 	InterfaceImplsExact(ifaceID string) ([]string, error)
+	// GetOutgoingFactsByKinds 单节点的出边（整数邻接索引；指定 kind）——
+	// 全链 BFS 逐节点查询，避免为一次链查询加载全量 calls/implements 边
+	// （todo22 P1：chainSymbols 收口）。
+	GetOutgoingFactsByKinds(ctx context.Context, id domain.CanonicalID, kinds ...string) ([]*domain.Fact, error)
 	AllNodeIDs() ([]domain.CanonicalID, error) // 全部节点 ID（接口具体化判定）
 	EnsureExtChainCache() error                // 建 ext_chain_cache 表（幂等）
 	ExtChainCacheGet(symbol, build string) (string, bool)
