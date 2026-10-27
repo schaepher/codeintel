@@ -92,7 +92,7 @@ make it
 | 3.2 | 接口候选全集 + `candidate_depth`/`candidate_budget` 截断诊断 | **已完成（2026-10-27，B.7）**：多候选不选第一个展开、候选上限 12 + 截断说明；见 B.7 |
 | 3.3 | DI/AOP（Bean/Inject 注解、container/key 注册、事务 wrapper 内原实现） | **第一增量已完成（2026-10-27，B.8）**：字段注解/注册证据 + AOP 包装目标；框架专有契约（gof/其他容器）仍未知 |
 | 4.1 | go-micro `NewRequest/Call` + 服务注册续接、跨仓 workspace 限定 | **未实现**（仅有 gRPC 方法入口 ID 约定 `GrpcMethodEntryID`） |
-| 4.2 | 外部依赖源码按需解析（`go list -e -json -find -mod=readonly`、离线、缓存） | **未实现** |
+| 4.2 | 外部依赖源码按需解析（`go list -e -json -find -mod=readonly`、离线、缓存） | **已完成（2026-10-27，B.9）**：离线只读 go list + 请求内缓存 + 形参重新绑定；见 B.9 |
 | 5 | 场景推导（整型/枚举/跨包常量/短路/取反） | **已实现**（`action_scene*.go`，含 `Source=7/19` 与 `int32(...)` 场景测试） |
 | 6 | `SymbolSource` + `query symbol --include-source` | **已完成（2026-10-27）**，见 B.3 |
 | 7.1 | 接口候选精确邻接查询（不 Expand/不加载全量 implements） | 部分：`InterfaceMethodImpl` 单符号查询已存在；Reader 精确接口查询 + 拒绝全图扫描的包装器测试**未实现** |
@@ -267,3 +267,21 @@ bash scripts/verify.sh --quick && make it
 **测试**（`internal/action/action_seq_di_test.go`）：注解注册、struct tag 注册、四类证据不足反例（动态 key/多重/非引导/条件）、AOP 包装（目标 `(txStore).Add` + `aop-wrapper` + 展开 `TxBegin`）。
 
 **未做**：框架专有契约（Bean/Inject 注解语法按框架而定、`gof`/其他容器的 `Set/Apply` 形态）、跨包注册（注册点在另一个包）、AOP bypass 条件的场景求解（`ctx.Value("bypass")` 之类运行时事实）。
+
+### B.9 §4.2 外部依赖按需源码解析（已完成，2026-10-27）
+
+| 要求 | 实现 / 证据 |
+| --- | --- |
+| 按准确包与符号按需解析本地依赖源码（含 go.mod replace / 仓库内嵌套模块） | `seqExternalPackage`：`go list -e -json -find -mod=readonly <importPath>`（Dir=仓库根）→ 解析目录内非测试 `.go`；`seqFindExternalDecl` 按 canonical ID 的**函数名 + receiver** 精确匹配 |
+| 只读、离线：不下载、不构建依赖索引、不改 go.mod/go.sum | 环境固定 `GOFLAGS=-mod=readonly`、`GOPROXY=off`、`GOSUMDB=off`、`GONOSUMDB=*`；测试断言查询前后 `go.mod` 字节相同且未生成 `go.sum` |
+| 成功与失败都请求内缓存 | `req.extPkgs[importPath]`（含 `err`/`std`），同一请求不重复起子进程 |
+| 不模糊名称扫描 | 目标 ID 由 import path + 声明名直接构造（`symbol:go:<pkg>:<name>`），不经 `GetSymbolByName`/`ResolveSymbol` |
+| 外部函数进入按其真实形参重新绑定（回调/列表/ellipsis），不沿用调用者同名映射 | `sub.env = newSeqEnv(nil)` + `bindSeqParams(sub.env, fd.Type.Params, captureSeqClosureArgs(...))` |
+| 只有外部实现实际调用形参，回调才算已证明执行；未调用/重写/逃逸不执行 | 测试：`ext.Run` → 体 `f(ctx)` → 回调展开；`ext.Store` 只保存形参 → 回调内部调用 0 次 |
+| depth=1 保留准确外部目标 + depth 诊断，不为不需要的展开启动 go list | `depth<=1` 时写 `evidence.symbol_id=<外部 ID>` + `stop=depth`，直接返回 |
+| 过滤/停止包/深度/递归/取消共用 | 展开走同一 `walkStmts`（过滤/停止包/scene 生效）；调用前后检查 `req.ctx()` 取消 |
+| 标准库不作为外部依赖展开 | `go list` 的 `Standard=true` → 不展开，保持 `external_target` 分类（避免 stdlib 内部噪声污染时序图） |
+
+**测试**（`internal/action/action_seq_external_test.go`，夹具用 `replace ../ext` 的本地模块，离线可复现）：回调已执行/未执行两种情形、depth=1 目标保留、缺失包 external_target + go.mod 只读。
+
+**未做**：外部包的**方法调用**（`extT.Method()` 需要 receiver 类型解析）、外部包内部跨包调用的目标解析（外部包没有本仓索引，只有回调/形参路径被证明）、go.work 工作区形态的外部模块。

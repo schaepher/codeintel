@@ -6566,3 +6566,25 @@ depth 预算终止；回归 `TestSeqCaptureRecursiveFactory`。
 
 `action_seq_walk_call.go` 抽走 1b/2 两条具体化分支（`action_seq_walk_impl.go`），
 DI 注解解析独立成 `action_seq_di_annotation.go`，保持文件 ≤300 行。
+
+## §119 todo22 §4.2：外部依赖按需源码解析（2026-10-27）
+
+**目标**：外部（本地可定位的）依赖函数被实际调用时，按需读它的源码继续展开，
+让"事务包装 → 回调 → 业务实现"这类跨模块链不断；同时严格离线/只读。
+
+- 定位：`go list -e -json -find -mod=readonly <importPath>`，Dir=仓库根；
+  环境剥掉并重设 `GOFLAGS/GOPROXY/GOSUMDB/GONOSUMDB`，测试断言 go.mod
+  字节不变、不生成 go.sum。
+- 解析：按 canonical ID 的声明名（`Func` / `(T).Method`）在包目录的非测试
+  `.go` 里精确匹配（不用模糊名称搜索）。
+- 展开：外部函数用**它自己的形参**重新绑定实参（`bindSeqParams` +
+  `captureSeqClosureArgs`），只有函数体真的调用了形参，回调才算已执行；
+  外部包没有本仓索引边，所以内部调用只有回调/形参路径被证明（其余按未解析
+  分类，不伪造）。
+- 边界：`depth<=1` 只写准确外部目标 + `stop=depth`（不启动 go list）；标准库
+  （`Standard=true`）不展开（避免 stdlib 噪声，保持 `external_target`）；
+  失败按请求缓存并给可读原因（含 import path）。
+- 证据：`source=external_source`、`symbol_id=<外部 ID>`、`file=<external>/<pkg>/<file>`。
+
+**测试**：`replace ../ext` 的本地模块夹具，覆盖"外部函数调用形参→回调执行"、
+"只保存不调用→回调不执行"、`depth=1` 目标保留、缺失包 + go.mod 只读。

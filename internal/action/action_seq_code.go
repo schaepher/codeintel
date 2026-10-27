@@ -124,6 +124,9 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	if req.tgtsCache == nil {
 		req.tgtsCache = map[string]*seqTargets{} // todo22 §2：按函数缓存调用点映射
 	}
+	if req.extPkgs == nil {
+		req.extPkgs = map[string]*seqExternalPkg{} // todo22 §4.2：外部包源码缓存
+	}
 	// 阶段 1：符号解析（只查库，不读源码——与阶段 2/3 不重叠）
 	symStart := time.Now()
 	n, err := a.ResolveSymbol(req.Target)

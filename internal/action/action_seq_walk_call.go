@@ -116,6 +116,11 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 			return node
 		} else {
 			// 未解析到项目内符号：按消费者可区分的类别给出原因（todo13-13）
+			// todo22 §4.2：外部依赖的按需源码解析（depth>1 才 go list；离线只读、
+			// 请求内缓存）。展开成功时按外部函数自己的形参重新绑定回调。
+			if seqExpandExternalCall(a, req, node, f, fun, call, depth, curFile, pos.Line) {
+				return node
+			}
 			req.acc.unresolved++
 			code, detail := classifyUnresolvedCall(f, fun, curPkg, req.pkgSet)
 			// todo22 §2：函数值参数在未解析/外部调用里逃逸——无法确定是否、

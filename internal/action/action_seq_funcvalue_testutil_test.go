@@ -134,3 +134,54 @@ func parseSeqFile(t *testing.T, src string) (*token.FileSet, *ast.File) {
 	}
 	return fset, f
 }
+
+// seedSeqFuncValueRepoInDir 用 seedFuncValueRepo 的索引逻辑，但夹具是已建好的
+// 目录（外部依赖测试需要 go.mod replace）。
+func seedSeqFuncValueRepoInDir(t *testing.T, appSrc string) (*Actions, string) {
+	t.Helper()
+	root := t.TempDir()
+	app := filepath.Join(root, "app")
+	ext := filepath.Join(root, "ext")
+	for _, d := range []string{app, ext} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gomod := "module example.com/app\n\ngo 1.21\n\nrequire example.com/ext v0.0.0\n\nreplace example.com/ext => ../ext\n"
+	if err := os.WriteFile(filepath.Join(app, "go.mod"), []byte(gomod), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(app, "flow.go"), []byte(appSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ext, "go.mod"), []byte("module example.com/ext\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ext, "ext.go"), []byte(extRunSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// 索引：仅为 app 包内的函数建节点（外部包不进索引，模拟真实情况）
+	db, err := sqlite.Open(app)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	r := sqlite.NewRepo(db)
+	fset, f := parseSeqFile(t, appSrc)
+	var nodes []*domain.CodeEntity
+	for _, decl := range f.Decls {
+		fd, ok := decl.(*ast.FuncDecl)
+		if !ok {
+			continue
+		}
+		nodes = append(nodes, &domain.CodeEntity{
+			ID:   domain.CanonicalID("symbol:go:example.com/app:" + fd.Name.Name),
+			Kind: domain.KindFunction, Name: fd.Name.Name, FilePath: "flow.go",
+			LineStart: fset.Position(fd.Pos()).Line,
+		})
+	}
+	if _, err := r.SaveBatchStats(nodes, nil, nil); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	return New(r), app
+}
