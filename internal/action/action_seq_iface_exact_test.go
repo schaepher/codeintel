@@ -120,3 +120,49 @@ func Run(d Doer) { d.Do() }
 	t.Logf("[seq.iface] cold: queries=%d total=%.3fms", coldQueries, coldMS)
 	t.Logf("[seq.iface] warm: queries=%d total=%.3fms", warmQueries, warmMS)
 }
+
+// TestSeqIfaceImplCachePerRequest：同一请求里同一接口的多处派发只查一次
+// （todo22 §7.3：请求内缓存，命中与未命中都缓存）。
+func TestSeqIfaceImplCachePerRequest(t *testing.T) {
+	src := `package m
+
+type Doer interface{ Do() }
+
+type A struct{}
+type B struct{}
+
+func (a *A) Do() { OnlyA() }
+func (b *B) Do() { OnlyB() }
+
+func OnlyA() {}
+func OnlyB() {}
+
+func Run(d Doer) {
+	d.Do()
+	d.Do()
+}
+`
+	acts, dir := seedIfaceRepo(t, src, []string{"A", "B"})
+	strict := &strictReader{Reader: acts.repo, t: t}
+	acts.repo = strict
+	root, err := acts.CodeSequence(CodeSequenceRequest{
+		Target: "symbol:go:example.com/m:Run", RepoAbs: dir, Depth: 3})
+	if err != nil {
+		t.Fatalf("CodeSequence: %v", err)
+	}
+	if got := len(seqCallNodesNamed(root, "d.Do")); got != 2 {
+		t.Fatalf("应有 2 个 d.Do 调用点，got %d", got)
+	}
+	if strict.exactImpls != 1 {
+		t.Errorf("同一请求里同一接口应只查一次实现候选，got %d", strict.exactImpls)
+	}
+	if strict.implementsAll != 0 {
+		t.Errorf("不得加载全量 implements 边，got %d", strict.implementsAll)
+	}
+	// 缓存不影响结论：两个调用点都必须保留未消歧候选
+	for _, n := range seqCallNodesNamed(root, "d.Do") {
+		if n.Evidence == nil || len(n.Evidence.Candidates) != 2 || !n.Evidence.Ambiguous {
+			t.Errorf("缓存命中后仍应保留 2 个未消歧候选，got %+v", n.Evidence)
+		}
+	}
+}

@@ -165,17 +165,26 @@ func aggregateSeqStops(root *CodeSeqNode) []SeqDiagCount {
 // 候选来自 implements 边（接口 → 实现者），方法形态只保留有同名方法的实现；
 // 选中项沿用 InterfaceMethodImpl 的顺序（grpc 实现排后）。多候选时调用方
 // 必须标记 ambiguous——不得把"第一个"当确定结论。
-func (a *Actions) seqIfaceMethodImpl(methodID string) (chosen string, candidates []string, ok bool) {
+func (a *Actions) seqIfaceMethodImpl(req CodeSequenceRequest, methodID string) (chosen string, candidates []string, ok bool) {
 	ifaceID, methodName := seqIfaceAndMethod(methodID)
 	if ifaceID == "" {
 		return "", nil, false
 	}
+	// todo22 §7.3：请求内缓存（同一请求里同一接口的多处派发不重复查询；
+	// 命中/未命中都缓存——返回的切片只读共享，调用方不得修改）。
+	if req.ifaceImpls != nil {
+		if c, hit := req.ifaceImpls[ifaceID]; hit {
+			return c.chosen, c.cands, c.ok
+		}
+	}
 	chosen, ok = a.InterfaceMethodImpl(methodID)
 	if !ok {
+		if req.ifaceImpls != nil {
+			req.ifaceImpls[ifaceID] = seqIfaceCached{ok: false}
+		}
 		return "", nil, false
 	}
-	// todo22 §7.1：按接口精确查询（整数邻接索引）——原实现加载**全量**
-	// implements 边再逐条过滤，大仓上一次派发就要扫全表。
+	// todo22 §7.1：按接口精确查询（整数邻接索引）——不加载全量 implements 边。
 	impls, err := a.repo.InterfaceImplsExact(ifaceID)
 	if err != nil {
 		return chosen, nil, true
@@ -191,6 +200,9 @@ func (a *Actions) seqIfaceMethodImpl(methodID string) (chosen string, candidates
 			continue
 		}
 		candidates = append(candidates, impl[:mi+1]+"("+impl[mi+1:]+")."+methodName)
+	}
+	if req.ifaceImpls != nil {
+		req.ifaceImpls[ifaceID] = seqIfaceCached{chosen: chosen, cands: candidates, ok: true}
 	}
 	return chosen, candidates, true
 }

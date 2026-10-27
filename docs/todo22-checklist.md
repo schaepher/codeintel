@@ -97,7 +97,7 @@ make it
 | 6 | `SymbolSource` + `query symbol --include-source` | **已完成（2026-10-27）**，见 B.3 |
 | 7.1 | 接口候选精确邻接查询（不 Expand/不加载全量 implements） | **已完成（2026-10-27，B.10）**：`InterfaceImplsExact`（整数邻接）+ 拒绝模糊/全扫的 Reader 包装器测试 + 冷暖次数对照 |
 | 7.2 | 路由投影走已有索引 + EXPLAIN 计划测试 | **已完成（2026-10-27，B.10）**：kind 常量/属性表达式幂等索引 + EXPLAIN 计划锁 + 结果等价 |
-| 7.3 | 请求内缓存（工厂来源/字段类型/DI/接口候选/AST） | 部分：`action_seq_*` 有请求级缓存设施（需按本节逐项补齐 DH/工厂/AST） |
+| 7.3 | 请求内缓存（工厂来源/字段类型/DI/接口候选/AST） | **部分完成（B.12）**：接口候选（命中与未命中都缓存）、DI 注册表、外部包源码、调用点映射、文件 AST 均已请求内缓存；字段类型/工厂来源未单独加缓存（每次解析走 AST，成本已在解析缓存内） |
 | 7.4 | 取消贯穿 SQL/源码定位/递归 | **已实现**（todo21-14.4/14.5，含物化 CTE 与预算记录） |
 | 7.5 | JSON/文本/Mermaid/SVG 同源 + 证据/身份可核对 | 部分：todo19/20/21 已做重复调用点/证据/矢量图；统一分析树与 `*_projection` 诊断已实现，新增能力须继续遵守 |
 | 8 | 第 8 节完整脱敏夹具与逐项断言表 | 夹具**已建**（`integration/flowfixture_test.go`，逐字照抄 §8 源码，供 §6 与后续 §2/§9 共用）；逐项断言表待 §2–§9 完成 |
@@ -313,3 +313,21 @@ bash scripts/verify.sh --quick && make it
 
 **已知范围缩减**：本夹具是"两层装饰器 + 外部事务回调 + 场景检查"，不含 RPC/DI
 节点，§9.3 要求的"含 RPC、DI 的流程 SVG"仍待 §4.1/§3.3 夹具补齐后再验收。
+
+### B.12 §7.3 请求内缓存补强：接口实现候选（2026-10-27）
+
+- `req.ifaceImpls[ifaceID]` 缓存**接口实现解析结果**（`chosen` + `candidates` +
+  是否命中），首次查询走 `InterfaceMethodImpl` + `InterfaceImplsExact`，后续
+  同一请求里的同接口派发直接复用（**未命中/无可证明实现也缓存**——`ErrNotFound`
+  是正常未命中，不重复全库发现）。
+- 缓存保存的是**原始候选**而不是某次推断结果，chosen 与 candidates 同源
+  （避免"首次查一个口径、缓存命中另一个口径"）。
+- 已有请求级缓存：DI 注册表（`diRegs`）、外部包源码（`extPkgs`）、函数调用点
+  映射（`tgtsCache`）、文件 AST（`fileCache`）、字面量防环（`litVisited`）。
+- 测试 `TestSeqIfaceImplCachePerRequest`：同一函数两处 `d.Do()` →
+  `InterfaceImplsExact` 只调用 **1 次**，两处调用点仍各自保留 2 个未消歧候选
+  （缓存不改变结论）；既有 `ImplType` 数据流具体化测试保持通过（chosen 口径
+  未变）。
+
+**未做**：receiver 字段类型与工厂来源的独立缓存（当前每次走 AST 数据流，成本
+落在文件解析缓存内；大仓实测收益待量化后再决定是否加）。

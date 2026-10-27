@@ -6648,3 +6648,24 @@ WHERE s.id = ? AND t.id NOT LIKE '%Unimplemented%'
 
 范围：夹具是两层装饰器 + 外部事务回调 + 场景检查，**不含 RPC/DI**——§9.3 的
 "含 RPC、DI 的流程 SVG"与逐编号验收行仍待 §4.1/§9.1-9.2 落实。
+
+## §122 todo22 §7.3（部分）：接口实现候选请求内缓存（2026-10-27）
+
+同一请求里同一接口的多处派发原来每次都要 `InterfaceMethodImpl` +
+`InterfaceImplsExact` 两跳；现在缓存 `{chosen, candidates, ok}`：
+
+- 命中与**未命中**都缓存（`ErrNotFound`/无可证明实现是正常未命中，不重复
+  全库发现，也不把未命中报成查询故障）。
+- 缓存原始候选，chosen 与 candidates 同源（首次查询用
+  `InterfaceMethodImpl` 的选定项，缓存命中复用同一结果）——避免两套口径
+  在同一次输出里打架（`TestSeqNodeImplType`/`TestSeqParamDI` 保持通过即
+  是该口径的回归）。
+- 回归 `TestSeqIfaceImplCachePerRequest`：两处 `d.Do()` → 精确查询只 1 次，
+  两处仍各保留 2 个未消歧候选（缓存不改变结论）。
+
+### 本轮环境坑
+
+`make it` 报 `link: mapping output file failed: no space left on device`：
+根分区被 `.tmp/go-build*`、旧测试目录与 `.tmp/ci|wiki-*|codeintel-base` 占满
+（`.tmp` 1.1GB）。清理 `.tmp/go-build*`/`.tmp/Test*`/旧对比目录后恢复正常。
+（runbook「/tmp 满」同类问题，属环境而非代码。）

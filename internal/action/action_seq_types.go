@@ -67,6 +67,9 @@ type CodeSequenceRequest struct {
 	// todo22 §5：当前包（同目录）常量表 name → 值文本（整型/有类型常量参与
 	// 场景判定；不把枚举名称直接当值）
 	sceneConsts map[string]string
+	// todo22 §7.3：请求内接口实现候选缓存（ifaceID → 实现类型列表；nil =
+	// 明确未命中，同样缓存，避免同一请求重复查库/重复全库发现）
+	ifaceImpls map[string]seqIfaceCached
 	// todo22 §4.2：外部包源码解析缓存（import path → 包目录/文件；失败也缓存）
 	extPkgs map[string]*seqExternalPkg
 	// todo22 §3.3：当前包的 DI 注册表（key → 注册点；扫描一次缓存）
@@ -97,6 +100,14 @@ type CodeSequenceRequest struct {
 	tgtsCache   map[string]*seqTargets
 	// 内部（todo10-5）：场景统计（meta 汇总；req 按值传递——用指针共享）
 	sceneCount *sceneSummary
+}
+
+// seqIfaceCached 一次请求内缓存下来的接口实现解析结果（chosen/candidates
+// 同源：首次查询用 InterfaceMethodImpl 的选定项，缓存命中复用同一结果）。
+type seqIfaceCached struct {
+	chosen string
+	cands  []string
+	ok     bool
 }
 
 // seqFocus 一次查询的焦点配置（--focus 解析结果，跨递归共享）。

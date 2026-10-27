@@ -223,7 +223,7 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		req.callArgLits, req.callArgSrcs, req.callArgWhy = sceneArgValues(args)
 		if a.isIfaceMethodID(tid) {
 			dispStart := time.Now()
-			impl, cands, ok := a.seqIfaceMethodImpl(tid)
+			impl, cands, ok := a.seqIfaceMethodImpl(req, tid)
 			req.acc.dispatch++
 			req.acc.sqlQueries += 2 // InterfaceMethodImpl + InterfaceImplsExact（精确查询）
 			req.acc.dispatchDur += time.Since(dispStart)
