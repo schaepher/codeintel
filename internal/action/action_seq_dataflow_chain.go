@@ -3,7 +3,10 @@ package action
 // todo22 P2：变量链回溯（写入来源的 Ident 递归）——从 action_seq_dataflow.go
 // 拆出（行数治理）+ 请求内缓存（键含文件/变量/深度，深浅预算不互相污染）。
 
-import "go/ast"
+import (
+	"fmt"
+	"go/ast"
+)
 
 // varChainTypes 变量链回溯：找 "v := RHS" / "v = RHS" 赋值 → 递归解析
 // RHS（多赋值处都收集——条件分支形态）。
@@ -31,12 +34,13 @@ func varChainTypes(a *Actions, req CodeSequenceRequest, f *ast.File, imports map
 	return out
 }
 
-// varChainFileKey 文件缓存键（AST 指针 + 文件名；同一请求内稳定的文件身份）。
+// varChainFileKey 文件缓存键：AST 指针（同一请求内每个文件只解析一次，
+// 指针稳定且唯一；不能用 token.Pos——每个文件是独立 FileSet，位置会重复）。
 func varChainFileKey(req CodeSequenceRequest, f *ast.File) string {
-	if f == nil || f.Name == nil {
+	if f == nil {
 		return ""
 	}
-	return f.Name.Name + "@" + itoaSeq(int(f.Package))
+	return fmt.Sprintf("%p", f)
 }
 
 // appendUnique 去重追加（同 typeName+pkgPath 只保留一个）。

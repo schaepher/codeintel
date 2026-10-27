@@ -7068,6 +7068,9 @@ cwd，主模块 go.mod 没有该间接依赖 require 时会定位失败。
 `GetFieldWriters` **3 → 1** 次；写入函数源码解析 3 → 1 次（`cache_misses=1`，
 `cache_hits=12`）；三处结论不变（都是 `m.orderManagerImpl`）。另有
 `TestIndexedConstructorReturnCache` 锁定工厂返回类型缓存命中同一结果。
+**键坑**：`varChains` 的文件身份不能用 `token.Pos`（每个文件独立 FileSet，
+位置会重复）——用 AST 指针 `%p`；`TestVarChainCacheKeyedByFile` 锁定同包两个
+文件同名变量不串缓存。
 **判定**：缓存收益成立（查询/解析次数随调用点线性下降的隐患已消除），
 故落地；未做更激进的"跨请求缓存"（源码可能随工作区变化，请求级最安全）。
 

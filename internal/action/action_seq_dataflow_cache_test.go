@@ -199,3 +199,33 @@ func NewA() *A { return &A{} }
 		t.Errorf("第二次应命中缓存（同一底层数组），got %+v vs %+v", first, second)
 	}
 }
+
+// TestVarChainCacheKeyedByFile：同包两个不同文件里的同名变量不能命中同一
+// 缓存条目（每个文件独立 FileSet，token 位置会重复——键必须用文件身份）。
+func TestVarChainCacheKeyedByFile(t *testing.T) {
+	acts := New(nil)
+	req := CodeSequenceRequest{varChains: map[string][]writeSource{}}
+	fset1, f1 := parseSeqFile(t, `package m
+
+func F() {
+	v := &A{}
+	_ = v
+}
+`)
+	_, f2 := parseSeqFile(t, `package m
+
+func G() {
+	v := &B{}
+	_ = v
+}
+`)
+	_ = fset1
+	out1 := varChainTypes(acts, req, f1, importAliases(f1), "v", 3, "example.com/m")
+	out2 := varChainTypes(acts, req, f2, importAliases(f2), "v", 3, "example.com/m")
+	if len(out1) != 1 || out1[0].typeName != "A" {
+		t.Errorf("文件 1 的 v 应为 A，got %+v", out1)
+	}
+	if len(out2) != 1 || out2[0].typeName != "B" {
+		t.Errorf("文件 2 的 v 应为 B，got %+v", out2)
+	}
+}

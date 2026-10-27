@@ -494,3 +494,26 @@ go test ./... && bash scripts/verify.sh --quick && make it
 | P1-d | AOP bypass 的运行时场景求解 | **已完成**：识别 `ctx.Value(<key>) ==/!= nil`，场景键 = context key（存在性布尔）；无 `--scene` 键/动态 key 保持 unknown；单测矩阵 + 真实时序裁剪（`action_scene_ctx_test.go`）；见 field_trace §130 |
 | P1-c | 场景值沿实参/结构体字段跨函数传播 | **已完成**：`litScopes` 增加 `req.Source` 字段键（字面量/字段赋值/整体覆盖/取址失效），`resolveSceneArgFields` + `paramFieldArgs` 把字段值传播到被调函数的 `param.Field`；实参已知值优先于 `--scene`，未知字段不回退；三跳测试覆盖正例 + 未知反例（`action_scene_field_prop_test.go`）；见 field_trace §129 |
 | P1-b | 场景判定的跨包常量 | **已完成**：`seqConstTable` 按 import 别名按需解析目标包 const（离线 `go list` + 请求内缓存，失败/标准库也缓存）；默认/别名 import、内建转换、未声明常量反例全覆盖（`action_scene_const_test.go`）；常量算术/dot-import 仍 unknown；见 field_trace §128 |
+
+**P1/P2 收口验证（2026-10-27，本轮实际执行）**
+
+| 命令 | 结果 |
+| --- | --- |
+| `go test ./...`（14 包） | PASS |
+| `make test`（`-race -cover ./...`） | PASS（action 74.3% / ast 86.5% / sqlite 75.2%） |
+| `bash scripts/verify.sh --quick` | PASS（每个 commit 前都跑） |
+| `make it`（真实 init/CLI/serve 全 API + todo22 §9 全套） | PASS（62.5s） |
+| ext-chain A/B（本仓库索引 81521 节点/88396 边） | 0.14s/72.7MB → 0.07s/31.1MB，产物逐字节相同 |
+| 字段类型缓存量化（3 处同字段） | `GetFieldWriters` 3→1、写入函数源码解析 3→1 |
+
+**文件行数门禁**：本轮所有新增/改动 Go 文件 ≤300 行（按 dev-line-limit 拆分出
+`action_scene_fields.go`、`action_scene_ctx.go`、`action_seq_di_repo.go`、
+`action_seq_external_method.go`、`action_seq_dataflow_chain.go`、
+`action_seq_code_caches.go`、`action_seq_walk_unresolved.go`、
+`ast_micro_register.go`、`ast_micro_concrete_test.go`）。
+
+**仍保留的明确边界（不冒充已完成）**：常量算术表达式/dot-import；跨文件/
+跨包结构体字段声明解析（外部方法接收者字段只查当前文件结构体声明）；框架
+容器的具体 key 注册语法差异（Bean 注解按通用 token 识别，不绑定单一框架）；
+`--scene` 之外的运行时事实（仅 ctx.Value 存在性）；
+`chainSymbols` 的调用边仍按链上节点逐个查询 outedges（不是全量加载）。
