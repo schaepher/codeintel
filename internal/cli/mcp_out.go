@@ -27,17 +27,28 @@ type NodeBrief struct {
 	Line int    `json:"line,omitempty"`
 }
 
+// DispatchCandidateOut 接口派发候选（symbol 工具；键与 query symbol
+// --json 的 candidates[] 一致）。
+type DispatchCandidateOut struct {
+	ID           string  `json:"id"`
+	Method       string  `json:"method,omitempty"`
+	Origin       string  `json:"origin,omitempty"`
+	Confidence   float64 `json:"confidence,omitempty"`
+	RegisterSite int     `json:"register_site,omitempty"`
+}
+
 // SymbolOut symbol 工具输出。
 type SymbolOut struct {
-	ID        string      `json:"id"`
-	Name      string      `json:"name"`
-	Kind      string      `json:"kind"`
-	File      string      `json:"file,omitempty"`
-	Line      int         `json:"line,omitempty"`
-	Signature string      `json:"signature,omitempty"`
-	Doc       string      `json:"doc,omitempty"`
-	Callers   []FactBrief `json:"callers,omitempty"`
-	Callees   []FactBrief `json:"callees,omitempty"`
+	ID         string                 `json:"id"`
+	Name       string                 `json:"name"`
+	Kind       string                 `json:"kind"`
+	File       string                 `json:"file,omitempty"`
+	Line       int                    `json:"line,omitempty"`
+	Signature  string                 `json:"signature,omitempty"`
+	Doc        string                 `json:"doc,omitempty"`
+	Callers    []FactBrief            `json:"callers,omitempty"`
+	Callees    []FactBrief            `json:"callees,omitempty"`
+	Candidates []DispatchCandidateOut `json:"candidates,omitempty"`
 }
 
 // FieldsOut fields 工具输出。
@@ -122,6 +133,22 @@ func factBriefs(facts []*domain.Fact, endpoint string) []FactBrief {
 			id = f.TargetID
 		}
 		out = append(out, FactBrief{ID: string(id), Tool: string(f.ToolSource), Confidence: f.Confidence})
+	}
+	return out
+}
+
+// candidateBriefs 派发候选转契约输出（symbol 工具；字段与 CLI
+// query symbol --json 的 candidates[] 同源——P1-03 统一组合口径）。
+func candidateBriefs(cands []action.DispatchCandidate) []DispatchCandidateOut {
+	out := make([]DispatchCandidateOut, 0, len(cands))
+	for _, c := range cands {
+		out = append(out, DispatchCandidateOut{
+			ID:           string(c.Impl),
+			Method:       c.Method,
+			Origin:       c.Origin,
+			Confidence:   c.Confidence,
+			RegisterSite: c.RegisterSite,
+		})
 	}
 	return out
 }

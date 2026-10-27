@@ -30,11 +30,9 @@ func querySymbol(acts *action.Actions, input string, opts outputOpts, since *dom
 		return 1
 	}
 	n := d.Node
-	// 动态派发候选（Q95）：接口类型 → 候选实现（置信度/注册点）
-	var dispatch []*domain.Fact
-	if n.Kind == domain.KindInterface {
-		dispatch, _ = acts.DispatchCandidates(n.ID)
-	}
+	// 动态派发候选（Q95）：接口类型 → 候选实现（置信度/注册点）。
+	// P1-03：组合已下沉 action.SymbolDetail，CLI/MCP 同源。
+	dispatch := d.Dispatch
 	if opts.json {
 		out := map[string]any{
 			"id":        string(n.ID),
@@ -49,13 +47,13 @@ func querySymbol(acts *action.Actions, input string, opts outputOpts, since *dom
 		}
 		if len(dispatch) > 0 {
 			cands := make([]map[string]any, 0, len(dispatch))
-			for _, f := range dispatch {
+			for _, c := range dispatch {
 				cands = append(cands, map[string]any{
-					"id":            string(f.TargetID),
-					"method":        f.Metadata["interface_method"],
-					"origin":        f.Metadata["origin"],
-					"confidence":    f.Metadata["confidence"],
-					"register_site": f.Metadata["register_site"],
+					"id":            string(c.Impl),
+					"method":        c.Method,
+					"origin":        c.Origin,
+					"confidence":    c.Confidence,
+					"register_site": c.RegisterSite,
 				})
 			}
 			out["candidates"] = cands
@@ -103,17 +101,13 @@ func querySymbol(acts *action.Actions, input string, opts outputOpts, since *dom
 
 	if len(dispatch) > 0 {
 		fmt.Printf("候选实现:   %d 个\n", len(dispatch))
-		for _, f := range dispatch {
-			conf, _ := f.Metadata["confidence"].(float64)
-			origin, _ := f.Metadata["origin"].(string)
-			method, _ := f.Metadata["interface_method"].(string)
-			site, _ := f.Metadata["register_site"].(float64)
+		for _, c := range dispatch {
 			line := ""
-			if int(site) > 0 {
-				line = fmt.Sprintf(" 注册点:%d", int(site))
+			if c.RegisterSite > 0 {
+				line = fmt.Sprintf(" 注册点:%d", c.RegisterSite)
 			}
 			fmt.Printf("    %-40s %s.%s [%s %.1f]%s\n",
-				shortID(f.TargetID), shortFuncName(string(f.SourceID)), method, origin, conf, line)
+				shortID(c.Impl), shortFuncName(string(n.ID)), c.Method, c.Origin, c.Confidence, line)
 		}
 	}
 	return 0

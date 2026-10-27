@@ -2,7 +2,6 @@ package cli
 
 import (
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -13,9 +12,8 @@ import (
 	"strings"
 
 	"github.com/schaepher/codeintel/internal/domain"
+	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 	"go.uber.org/zap"
-
-	_ "modernc.org/sqlite"
 )
 
 // filterIgnoredFiles 过滤掉落在忽略目录（codeintel.yaml 的 ignore_dirs）内的变更文件
@@ -188,17 +186,7 @@ func fingerprintDiff(stored string, current map[string]string) (changed, added, 
 
 // indexCommitSHA 返回索引最新构建的 commit_sha（build_metadata 最新记录）。
 // 索引不存在 / 无构建记录 / 读取失败 → 空串（回退工作区检测）。
+// P1-03：裸 SQL 已收口到 sqlite.LatestCommitSHAFromPath（cli 不再自带 SQL）。
 func indexCommitSHA(repoPath string) string {
-	path := filepath.Join(repoPath, ".codeintel", "codeintel.db")
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)")
-	if err != nil {
-		return ""
-	}
-	defer db.Close()
-	var sha string
-	if err := db.QueryRow(`SELECT COALESCE(commit_sha,'') FROM build_metadata
-		ORDER BY timestamp DESC, rowid DESC LIMIT 1`).Scan(&sha); err != nil {
-		return ""
-	}
-	return sha
+	return sqlite.LatestCommitSHAFromPath(repoPath)
 }

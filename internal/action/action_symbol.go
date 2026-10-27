@@ -119,11 +119,60 @@ func (a *Actions) Entries() ([]*domain.CodeEntity, error) {
 	return out, nil
 }
 
+// DispatchCandidate 接口派发候选实现（Q95：候选 + 置信度 + 注册点）。
+//
+// P1-03：这份组合口径属业务逻辑，统一由 SymbolDetail 提供——CLI/MCP/
+// ask 都是消费者，不该各自拼装（原 cli 独有，MCP 承诺 candidates 却缺）。
+type DispatchCandidate struct {
+	Impl         domain.CanonicalID // 候选实现（方法节点 ID）
+	Method       string             // 接口方法名（metadata interface_method）
+	Origin       string             // register | enum | guess（Q93 置信档）
+	Confidence   float64            // 0.9 / 0.7 / 0.5
+	RegisterSite int                // 注册行号（0=无注册点）
+	RegisterFile string             // 注册所在文件（空=未知）
+}
+
 // SymbolDetail 符号详情：基本信息 + 调用者/被调用者摘要（query symbol）。
 type SymbolDetail struct {
-	Node    *domain.CodeEntity
-	Callers []*domain.Fact
-	Callees []*domain.Fact
+	Node     *domain.CodeEntity
+	Callers  []*domain.Fact
+	Callees  []*domain.Fact
+	Dispatch []DispatchCandidate // 接口类型 → 候选实现（非接口为空）
+}
+
+// dispatchCandidates 接口的派发候选（Q95）——由 SymbolDetail 统一组合。
+func (a *Actions) dispatchCandidates(ifaceID domain.CanonicalID) []DispatchCandidate {
+	facts, err := a.DispatchCandidates(ifaceID)
+	if err != nil {
+		return nil
+	}
+	out := make([]DispatchCandidate, 0, len(facts))
+	for _, f := range facts {
+		conf := metaFloat(f.Metadata, "confidence")
+		if conf == 0 {
+			conf = f.Confidence
+		}
+		out = append(out, DispatchCandidate{
+			Impl:         f.TargetID,
+			Method:       metaStr(f.Metadata, "interface_method"),
+			Origin:       metaStr(f.Metadata, "origin"),
+			Confidence:   conf,
+			RegisterSite: metaInt(f.Metadata, "register_site"),
+			RegisterFile: metaStr(f.Metadata, "register_file"),
+		})
+	}
+	return out
+}
+
+// metaFloat metadata 数值（JSON 反序列化 float64；int 兜底）。
+func metaFloat(m map[string]any, key string) float64 {
+	switch v := m[key].(type) {
+	case float64:
+		return v
+	case int:
+		return float64(v)
+	}
+	return 0
 }
 
 // SymbolDetail 解析符号并返回其详情（调用者/被调用者深度 1）。
@@ -143,5 +192,10 @@ func (a *Actions) SymbolDetail(input string) (*SymbolDetail, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &SymbolDetail{Node: n, Callers: callers, Callees: callees}, nil
+	d := &SymbolDetail{Node: n, Callers: callers, Callees: callees}
+	// 接口类型才查候选实现（Q95）；其余符号不产生额外查询。
+	if n.Kind == domain.KindInterface {
+		d.Dispatch = a.dispatchCandidates(n.ID)
+	}
+	return d, nil
 }

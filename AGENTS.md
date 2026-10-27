@@ -59,6 +59,13 @@ internal/cli        internal/action            internal/infrastructure
   生成）留在 cli**——展示层，action 不产 HTML
 - **迁移节奏**：分批迁移（先纯查询类命令），每轮迁移后跑全量测试；
   已完成迁移清单在 `docs/self-analysis.md` 轮次记录
+- **判据（P1-03 审计沉淀）**：① **某能力被 ≥2 个入口消费**（CLI/MCP/serve）
+  时，"组合"（组合多个查询结果、读 metadata 拼候选、加派生字段）必须放
+  action——否则契约描述的只是 CLI 那一半（实例：`symbol` 的
+  `candidates[]` 曾只在 cli 拼，MCP 工具描述承诺了却不返回）② cli 不写
+  SQL/不直连库（取数一律经 action → Reader；"新鲜度/最新 commit"这类
+  只读查询也走仓储方法）③ 收口类改动要把**旧实现删除**作为验收项
+  （R100 迁完 wiki 数据源后 cli 侧遗留的裸 SQL 死代码在 P1-03 才清掉）
 - 数据模型/查询实现（infrastructure/sqlite 等）不动——只搬"命令逻辑"
 
 ## 强制流程（Q235-2，借鉴 GitNexus impact-before-edit）

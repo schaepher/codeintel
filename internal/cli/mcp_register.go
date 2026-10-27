@@ -21,15 +21,16 @@ func registerQueryTools(server *mcp.Server, env *mcpEnv, r *sqlite.Repo, repoAbs
 				return toolErr(err.Error()), SymbolOut{}, nil
 			}
 			out := SymbolOut{
-				ID:        string(d.Node.ID),
-				Name:      d.Node.Name,
-				Kind:      string(d.Node.Kind),
-				File:      d.Node.FilePath,
-				Line:      d.Node.LineStart,
-				Signature: d.Node.Signature(),
-				Doc:       d.Node.DocComment(),
-				Callers:   factBriefs(d.Callers, "source"),
-				Callees:   factBriefs(d.Callees, "target"),
+				ID:         string(d.Node.ID),
+				Name:       d.Node.Name,
+				Kind:       string(d.Node.Kind),
+				File:       d.Node.FilePath,
+				Line:       d.Node.LineStart,
+				Signature:  d.Node.Signature(),
+				Doc:        d.Node.DocComment(),
+				Callers:    factBriefs(d.Callers, "source"),
+				Callees:    factBriefs(d.Callees, "target"),
+				Candidates: candidateBriefs(d.Dispatch),
 			}
 			return toolJSON(out), out, nil
 		})))

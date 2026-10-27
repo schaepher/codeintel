@@ -5933,3 +5933,86 @@ map[string]any` 这一数据模型本身——要再降就得改领域模型（�
 3. **"完成"不等于"改代码"**：P1-07/P1-10/P1-13 用数据证明改动无收益
    （或收益 <1% 而风险跨层）后**明确写下触发条件**，比塞一个无收益的
    优化更难也更符合本项目纪律。
+
+## §108 待办 P1-03：cli → action 迁移收尾（审计 + 查询侧组合下沉，2026-11-03）
+
+P1-03 原文只写"~100 文件按 R89 模式"，与 R98 的结论（"已基本完成；
+运维/配置/服务/AI 问答命令保留 cli"）口径冲突。本轮**先做审计**再动手：
+逐个 cli 非测试文件按"是否仍承担查询/分析/聚合/流程编排"分类，发现查询侧
+早已薄壳，真实残留是三类——①组合逻辑仍在 cli（导致 MCP/HTTP 拿不到同一
+能力）②历史重复实现（死代码）③cli 自带裸 SQL。已修这三类，其余按审计
+结论保留或列为待确认。
+
+### 1. 符号派发候选组合下沉 action（MCP 契约兑现）
+
+- 现象：`query symbol` 的 `candidates[]` 是 **cli 自拼**的（cli 里 `if
+  n.Kind == interface { acts.DispatchCandidates(...) }` + 自己读 metadata），
+  而 MCP `symbol` 工具描述写着"含动态派发候选"却一个都没返回；
+  `docs/json-contract.md` 也只对 CLI 成立。
+- 修法：`action.SymbolDetail` 增加 `Dispatch []DispatchCandidate`
+  （`Impl/Method/Origin/Confidence/RegisterSite/RegisterFile`），只有接口
+  类型才查 `dispatch_to`（非接口零额外查询）；CLI 与 MCP 都从 `d.Dispatch`
+  取数（MCP `SymbolOut.Candidates`，键名与 `query symbol --json` 一致）。
+- 验收：`TestSymbolDetailDispatchCandidates`（action，含"非接口为空"）、
+  `TestMCPToolSymbolCandidates`（MCP 端真调用）。真实仓库实测
+  （本仓库 `action:Reader`）：CLI `--json` 与 MCP `structuredContent` 均
+  返回同一批 72 个候选，首项字段逐项相同。
+
+### 2. rule 命令逻辑下沉 action
+
+- 原状：`internal/cli/rule.go` 234 行里含表达式解析（`splitRuleExpr`）、
+  规则拆分（表/列）、分类文案；仓储只提供增删查。
+- 迁移：`internal/action/action_rule.go`——`ParseRule(from,to)`、
+  `ParseRuleExpr(单参旧形态 from..to / 箭头)`、`ParseRuleID`、
+  `RuleKindLabel`、哨兵错误 `ErrInvalidRule`；增删查复用 Q226 已有的
+  `AddRelationRule/ListRelationRules/RemoveRelationRule` 薄封装（不新造
+  第二条路径）。cli 只留参数解析 + 渲染，`parseRepoFlag` 抽到
+  `repo_flag.go`（precompute 也用）。
+- 行为差异（有意，已核对）：两位置参数形态此前**不做校验**
+  （`rule add a.b.c x` 会写出 `a` / `b.c` 的怪规则），现在按
+  `ErrInvalidRule` 拒绝并退出 2；`rule list --json` 仍保持紧凑
+  `json.Marshal + Println`（`encodeJSON` 会缩进，属输出契约变化，未采用）。
+- 验收：`TestAddRuleParsing`（模式/显式/省略目标列 + 4 类非法）、
+  `TestAddRuleLegacyExpression`、`TestRuleAddListRemoveRoundTrip`、
+  `TestRuleKindLabel`；cli 侧 `TestRuleCLIAddListRemove/Explicit/Invalid`
+  原样通过（转发断言）。真实仓库实测：add 模式/显式 → list（文本+JSON）
+  → remove 两条；`garbage` 与 `remove abc` 均退出 2。
+
+### 3. cli 裸 SQL 清零 + 删除历史重复实现
+
+- `internal/cli/wiki_arch_enhance.go` 里的 `archSvcPkgs`（`SELECT id FROM
+  nodes WHERE kind IN ('grpc_service','http_route')`）自 R100 起就该由
+  `action.ArchSvcPkgs` 提供，**cli 侧那份没有任何调用者**（死代码）；
+  删除后该文件只剩渲染期层名判定（`archLayerOf`/`archLayerName`）。
+  （踩坑：首次整文件删除触发编译错误——同文件还有两个在用函数。）
+- `internal/cli/stale.go` 的 `build_metadata` 裸 SQL 查询 →
+  `Repo.LatestBuildFreshness()`（返回 commit_sha/timestamp/指纹三元组，
+  口径与 `GetLatest` 一致：`timestamp DESC, rowid DESC`）。
+- `internal/cli/update_detect.go` 的 `indexCommitSHA`（`database/sql` 直连）
+  → `sqlite.LatestCommitSHAFromPath(repoPath)`：**只读打开、不建目录、不做
+  schema 迁移/校验**（增量检测要在"尚未建索引/旧库"时也能问，失败即空串
+  回退工作区检测）。
+- 结果：`grep -E "SELECT|INSERT|UPDATE|DELETE" internal/cli/*.go` 无命中，
+  cli 不再自带 SQL。验收：`TestLatestBuildFreshness`、
+  `TestLatestCommitSHAFromPath`（含"未建索引返回空且不建 .codeintel"）；
+  `scripts/verify.sh --quick` 全绿。
+
+### 4. 审计结论：剩余 cli 文件的处置
+
+| 类别 | 文件 | 结论 |
+|---|---|---|
+| 查询渲染（`query_*/relations_*/table*/vt_render*/export*`） | 已薄壳：参数解析 + action 调用 + 输出/排序/标记 | 保留（R89 定义） |
+| wiki 渲染（`wiki_*`、`plantuml_*`） | 组合 action 结果到 md/html/mermaid | 保留（R89 定义） |
+| 运维/构建流程（`init/update/reindex/clean/list/registry/workspace*/worktree`） | 仍在本包编排 orchestrator/sqlite.Registry/文件删除 | **待用户确认**：R98 明确决定保留，与 P1-03 文字冲突；若要迁 action 需新增 Registry/Build 端口 |
+| 配置（`config_*`、`ignore_config`） | 读写全局/仓库级 yaml | 待确认（同 R98 保留决定） |
+| 服务/AI/子进程（`serve`、`mcp*`、`ask*`、`agent*`） | 进程/传输/AI 子进程 wiring | 保留（基础设施装配） |
+
+### 教训
+
+1. **消费者多于一个时，"组合"就是业务逻辑**：同一份查询 CLI 有、MCP 没有，
+   等于契约文件只描述了一半消费者。判断标准：某能力是否被 ≥2 个入口消费。
+2. **死代码也可能是"第二条实现路径"**：R100 把 wiki 数据源迁 action 后，
+   cli 侧旧实现没人删——它不会报错，只会在下次有人"顺手用"时把裸 SQL
+   重新引回来。收口类改动应当把旧路径删除作为验收项。
+3. **删除文件前先确认文件里还有别的符号**（本轮 `wiki_arch_enhance.go`
+   里同时有 `archLayerOf/archLayerName`，整文件删除直接编译失败）。

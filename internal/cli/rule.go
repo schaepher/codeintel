@@ -1,18 +1,8 @@
 package cli
 
-import (
-	"encoding/json"
-	"fmt"
-	"os"
-	"strconv"
-	"strings"
-
-	"github.com/schaepher/codeintel/internal/domain"
-	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
-	"go.uber.org/zap"
-)
-
-// cmdRule 用户连线规则管理（Q220c/Q220d）：
+// Q220c/Q220d `codeintel rule add|list|remove`——表间关联人工规则。
+// P1-03：规则表达式解析与增删查编排在 action（action_rule.go）；
+// cli 只做参数解析 + 结果渲染。
 //
 //	codeintel rule add <from> <to> --repo <path>  添加规则（两个位置参数）：
 //	      member_id mm_member.id        模式规则：所有含 member_id 列的表 → mm_member.id
@@ -20,9 +10,20 @@ import (
 //	      目标列省略时默认 id；输出用箭头（→）；单参形态兼容旧解析
 //	codeintel rule list [--json] --repo <path>  列出规则
 //	codeintel rule remove <id> --repo <path>    删除规则
-//
-// 规则存 relation_rules 表（数据库），clean/reindex 保留；生效时校验
-// 目标表/列真实存在（不存在静默跳过）。生成关系 type=fk（ER 默认显示）。
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+
+	"github.com/schaepher/codeintel/internal/action"
+	"github.com/schaepher/codeintel/internal/domain"
+	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
+	"go.uber.org/zap"
+)
+
+// cmdRule 用户连线规则管理（Q220c/Q220d）。
 func cmdRule(args []string) int {
 	logger := zap.L()
 	logger.Debug("enter cmdRule")
@@ -43,15 +44,15 @@ func cmdRule(args []string) int {
 		return 1
 	}
 	defer db.Close()
-	r := sqlite.NewRepo(db)
+	acts := action.New(sqlite.NewRepo(db))
 
 	switch args[0] {
 	case "add":
-		return ruleAdd(r, rest)
+		return ruleAdd(acts, rest)
 	case "list":
-		return ruleList(r, rest)
+		return ruleList(acts, rest)
 	case "remove":
-		return ruleRemove(r, rest)
+		return ruleRemove(acts, rest)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown rule subcommand: %s\n", args[0])
 		return 2
@@ -65,7 +66,7 @@ func cmdRule(args []string) int {
 //
 // 目标列省略时默认 id（to 传 mm_member 亦可）。单参数形态兼容旧解析
 // （"from x to y" / "x → y"）。输出用箭头（→）。
-func ruleAdd(r *sqlite.Repo, args []string) int {
+func ruleAdd(acts *action.Actions, args []string) int {
 	logger := zap.L()
 	logger.Debug("enter ruleAdd")
 	defer logger.Debug("exit ruleAdd")
@@ -76,15 +77,15 @@ func ruleAdd(r *sqlite.Repo, args []string) int {
 		}
 		positional = append(positional, a)
 	}
-	var from, to string
+	var rule domain.RelationRule
+	var err error
 	switch {
 	case len(positional) >= 2:
-		from, to = positional[0], positional[1]
+		rule, err = action.ParseRule(positional[0], positional[1])
 	case len(positional) == 1:
 		// 兼容旧单参形态（"from x to y" / "x → y"）
-		var ok bool
-		from, to, ok = splitRuleExpr(positional[0])
-		if !ok {
+		rule, err = action.ParseRuleExpr(positional[0])
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "规则表达式无效: %q（用法：rule add <from> <to>，如 rule add member_id mm_member.id）\n", positional[0])
 			return 2
 		}
@@ -92,33 +93,22 @@ func ruleAdd(r *sqlite.Repo, args []string) int {
 		fmt.Fprintln(os.Stderr, "用法: codeintel rule add <from> <to> --repo <path>（如 rule add member_id mm_member.id）")
 		return 2
 	}
-	var rule domain.RelationRule
-	if i := strings.Index(from, "."); i >= 0 {
-		rule.FromTable, rule.FromCol = from[:i], from[i+1:]
-	} else {
-		rule.FromCol = from
-	}
-	if i := strings.Index(to, "."); i >= 0 {
-		rule.ToTable, rule.ToCol = to[:i], to[i+1:]
-	} else {
-		rule.ToTable, rule.ToCol = to, "id"
-	}
-	id, err := r.AddRelationRule(rule)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintf(os.Stderr, "规则表达式无效: %v\n", err)
+		return ruleErrCode(err)
+	}
+	id, aerr := acts.AddRelationRule(rule)
+	if aerr != nil {
+		fmt.Fprintln(os.Stderr, aerr)
 		return 1
 	}
-	kind := "模式"
-	if rule.FromTable != "" {
-		kind = "显式"
-	}
 	fmt.Printf("已添加%s规则 #%d: %s.%s → %s.%s（生效时校验表/列存在）\n",
-		kind, id, rule.FromTable, rule.FromCol, rule.ToTable, rule.ToCol)
+		action.RuleKindLabel(rule), id, rule.FromTable, rule.FromCol, rule.ToTable, rule.ToCol)
 	return 0
 }
 
 // ruleList 列出规则（--json 输出 RelationRule 数组）。
-func ruleList(r *sqlite.Repo, args []string) int {
+func ruleList(acts *action.Actions, args []string) int {
 	logger := zap.L()
 	logger.Debug("enter ruleList")
 	defer logger.Debug("exit ruleList")
@@ -128,7 +118,7 @@ func ruleList(r *sqlite.Repo, args []string) int {
 			asJSON = true
 		}
 	}
-	rules, err := r.ListRelationRules()
+	rules, err := acts.ListRelationRules()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -157,7 +147,7 @@ func ruleList(r *sqlite.Repo, args []string) int {
 }
 
 // ruleRemove 删除规则。
-func ruleRemove(r *sqlite.Repo, args []string) int {
+func ruleRemove(acts *action.Actions, args []string) int {
 	logger := zap.L()
 	logger.Debug("enter ruleRemove")
 	defer logger.Debug("exit ruleRemove")
@@ -165,12 +155,12 @@ func ruleRemove(r *sqlite.Repo, args []string) int {
 		fmt.Fprintln(os.Stderr, "用法: codeintel rule remove <id> --repo <path>")
 		return 2
 	}
-	id, err := strconv.ParseInt(args[0], 10, 64)
+	id, err := action.ParseRuleID(args[0])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "规则 id 无效: %q\n", args[0])
-		return 2
+		return ruleErrCode(err)
 	}
-	if err := r.RemoveRelationRule(id); err != nil {
+	if err := acts.RemoveRelationRule(id); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
@@ -178,57 +168,10 @@ func ruleRemove(r *sqlite.Repo, args []string) int {
 	return 0
 }
 
-// splitRuleExpr 拆分规则表达式（Q220d：主语法 from/to）：
-//
-//	"from A.x to B.y"   显式列对
-//	"from x to B.y"     模式规则
-//	"from x to B"       目标列省略默认 id
-//
-// 大小写不敏感（FROM/TO 亦可）；兼容旧箭头形态 "A.x → B.y"（-> 亦可）。
-func splitRuleExpr(expr string) (from, to string, ok bool) {
-	up := strings.ToUpper(strings.TrimSpace(expr))
-	from, to, ok = "", "", false
-	if i := strings.Index(up, " TO "); i >= 0 && strings.HasPrefix(up, "FROM ") {
-		from = strings.TrimSpace(expr[len("FROM "):i])
-		to = strings.TrimSpace(expr[i+len(" TO "):])
-		ok = from != "" && to != ""
-	} else {
-		// 兼容旧箭头形态
-		arrow := "->"
-		if j := strings.Index(expr, "→"); j >= 0 {
-			arrow = "→"
-		}
-		if j := strings.Index(expr, arrow); j >= 0 {
-			from = strings.TrimSpace(expr[:j])
-			to = strings.TrimSpace(expr[j+len(arrow):])
-			ok = from != "" && to != ""
-		}
+// ruleErrCode 规则解析错误 → 退出码（表达式不合法属参数错误=2）。
+func ruleErrCode(err error) int {
+	if errors.Is(err, action.ErrInvalidRule) {
+		return 2
 	}
-	if !ok || strings.Count(from, ".") > 1 || strings.Count(to, ".") > 1 {
-		return "", "", false
-	}
-	return from, to, true
-}
-
-// parseRepoFlag 提取 --repo <path>（或 --repo=path）并返回剩余参数。
-// Q237：未指定 --repo 默认当前工作目录（"."）；Q238：指定值经注册表
-// 短名/后缀/module 解析。
-func parseRepoFlag(args []string) (string, []string, error) {
-	repo := "."
-	var rest []string
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
-		case a == "--repo" && i+1 < len(args):
-			repo = ResolveRepoRef(args[i+1])
-			i++
-		case strings.HasPrefix(a, "--repo="):
-			repo = ResolveRepoRef(strings.TrimPrefix(a, "--repo="))
-		case a == "--json":
-			rest = append(rest, a)
-		default:
-			rest = append(rest, a)
-		}
-	}
-	return repo, rest, nil
+	return 1
 }

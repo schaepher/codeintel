@@ -37,12 +37,11 @@ func staleInfo(repoAbs string, r *sqlite.Repo) string {
 	}
 	var buildSHA, buildFP string
 	var buildTs int64
-	if err := r.QueryRow(`SELECT COALESCE(commit_sha,''), timestamp,
-		COALESCE(worktree_fingerprint,'')
-		FROM build_metadata ORDER BY timestamp DESC, rowid DESC LIMIT 1`).
-		Scan(&buildSHA, &buildTs, &buildFP); err != nil {
-		return "" // 无构建记录
+	sha, ts, fp, err := r.LatestBuildFreshness()
+	if err != nil {
+		return "" // 无构建记录（或读取失败）
 	}
+	buildSHA, buildTs, buildFP = sha, ts, fp
 	headSHA := strings.TrimSpace(string(execOut(repoAbs, "rev-parse", "HEAD")))
 	if buildSHA != "" && headSHA != "" && buildSHA != headSHA {
 		return fmt.Sprintf("索引可能过期（基于 commit %s，HEAD 为 %s，%d 个 Go 文件变更）；运行 codeintel update",

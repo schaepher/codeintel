@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/schaepher/codeintel/internal/domain"
+	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
 )
 
 // TestMCPToolSymbol：tools/call symbol——content text 是契约 JSON。
@@ -191,5 +193,56 @@ func TestMCPToolFileSymbols(t *testing.T) {
 	}
 	if m.Symbols[0].Name != "main" {
 		t.Errorf("首个命中应为 main，got %v", m.Symbols)
+	}
+}
+
+// TestMCPToolSymbolCandidates P1-03：MCP symbol 工具描述承诺"动态派发
+// 候选"，输出必须与 query symbol 同源（组合在 action.SymbolDetail）——
+// 原先只有 cli 自己拼 candidates，MCP 拿不到。
+func TestMCPToolSymbolCandidates(t *testing.T) {
+	dir := seedRepo(t)
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	r := sqlite.NewRepo(db)
+	iface := domain.CanonicalID("symbol:go:example.com/m/svc:Handler")
+	impl := domain.CanonicalID("symbol:go:example.com/m/svc:(Svc).Run")
+	if _, err := r.SaveBatchStats([]*domain.CodeEntity{
+		{ID: iface, Kind: domain.KindInterface, Name: "Handler", FilePath: "svc/svc.go", LineStart: 3},
+	}, []*domain.Fact{{
+		SourceID: iface, TargetID: impl, Kind: domain.FactDispatchTo,
+		ToolSource: domain.ToolSSA, Confidence: 0.9,
+		Metadata: map[string]any{"origin": "register", "interface_method": "Handle",
+			"register_site": float64(5), "confidence": 0.9},
+	}}, nil); err != nil {
+		t.Fatalf("save dispatch: %v", err)
+	}
+	db.Close()
+
+	cs := mcpDial(t, dir)
+	text, isErr := mcpCallTool(t, cs, "symbol", map[string]any{"id": string(iface)})
+	if isErr {
+		t.Fatalf("symbol 调用报错: %s", text)
+	}
+	var m struct {
+		Candidates []struct {
+			ID           string  `json:"id"`
+			Method       string  `json:"method"`
+			Origin       string  `json:"origin"`
+			Confidence   float64 `json:"confidence"`
+			RegisterSite int     `json:"register_site"`
+		} `json:"candidates"`
+	}
+	if err := json.Unmarshal([]byte(text), &m); err != nil {
+		t.Fatalf("content 应为 JSON: %v\n%s", err, text)
+	}
+	if len(m.Candidates) != 1 {
+		t.Fatalf("candidates = %d, want 1:\n%s", len(m.Candidates), text)
+	}
+	c := m.Candidates[0]
+	if c.ID != string(impl) || c.Method != "Handle" || c.Origin != "register" ||
+		c.Confidence != 0.9 || c.RegisterSite != 5 {
+		t.Errorf("candidate = %+v", c)
 	}
 }
