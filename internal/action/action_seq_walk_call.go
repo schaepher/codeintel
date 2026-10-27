@@ -26,6 +26,8 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		fun := call.Fun
 		pos := fset.Position(call.Lparen)
 		node = &CodeSeqNode{Kind: "call", Label: callLabel(fset, src, fun), Actor: callActor(fset, src, fun), Line: pos.Line}
+		// todo22 P1：本次调用的结构体字段已知值（函数值/回调路径也要用）
+		req.callArgFields = a.resolveSceneArgFields(req, fset, src, call, req.curBody, req.curParams)
 
 		// todo22 §4.1：本调用点是否有 RPC 出站（go-micro 客户端接口调用）——
 		// 直接续接服务端子树，不进入接口派发（结构相同的多个客户端接口会
@@ -236,8 +238,9 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		// todo11-2：实参字面量走有界值流解析（变量链 + 形参向上，深度 ≤2）——
 		// 一层字面量只是它的特例；解析不到保持空串（不猜）
 		args := a.resolveSceneArgLiterals(fset, src, call, req.curBody, req.curParams,
-			req.incomingArgs, req.incomingSrc, maxSceneFlowDepth)
+			req.incomingArgs, req.incomingSrc, req.sceneConsts, maxSceneFlowDepth)
 		req.callArgLits, req.callArgSrcs, req.callArgWhy = sceneArgValues(args)
+		req.callArgFields = a.resolveSceneArgFields(req, fset, src, call, req.curBody, req.curParams)
 		if a.isIfaceMethodID(tid) {
 			dispStart := time.Now()
 			impl, cands, ok := a.seqIfaceMethodImpl(req, tid)

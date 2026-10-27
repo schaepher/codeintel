@@ -150,6 +150,12 @@ func seqExpandSingleValue(a *Actions, req CodeSequenceRequest, call *ast.CallExp
 		sub.curRecvType = fv.recvType
 		sub.curRecvDecl = fv.recvDecl
 		sub.sceneConsts = seqConstValues(a, req, fv.ctx.rel)
+		// todo22 P1：字面量形参的结构体字段值（捕获变量条件仍在 sub.sceneArgs，
+		// 这里只**追加**本次调用的字段绑定，不覆盖捕获环境）。
+		sub.sceneArgs = copyStrMap(req.sceneArgs)
+		sub.sceneSrc = copyStrMap(req.sceneSrc)
+		sub.sceneWhy = copyStrMap(req.sceneWhy)
+		applySceneFieldArgs(sub.sceneArgs, sub.sceneSrc, sub.sceneWhy, fv.lit.Type.Params, req.callArgFields)
 		sub.paramValues = nil
 		node.Nodes = walkStmts(a, sub, fv.ctx.fset, fv.ctx.src, fv.lit.Body.List,
 			sub.curTgts, depth, fv.recvType, fv.recvDecl, fv.ctx.file, fv.pkgPath, fv.ctx.rel)

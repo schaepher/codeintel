@@ -6915,3 +6915,30 @@ status.SourceB`（`status` 是另一个包）里的 `status.SourceB` 被当成�
 `int32(status.Source) == int32(status.SourceB)`、未声明常量（unknown）、
 无场景（unknown）——6 个子测试全部命中。**未做**：常量算术表达式
 （`Base + 12`）、dot-import；这些仍保持 unknown（不猜）。
+
+## §129 todo22 P1：场景值沿实参/结构体字段跨函数传播（2026-10-27）
+
+**问题**：场景条件传播此前只有"一层实参字面量 → 形参"（`paramLiteralArgs`），
+且只认识标量标识符；§9.2 的入口把分支放进入口函数正是因为
+`Submit(req)` 后被调函数里的 `req.Source` 无法判定（handoff P1 遗留）。
+
+**改法**：
+- `litScopes` 增加 selector 键（`req.Source`）：复合字面量声明
+  （`r := &Req{Source: X}`）、字段赋值（`r.Source = X`）、整体重新赋值清旧字段、
+  取址传入调用后字段失效（`invalidate` 连同 `name.*` 一起置未知）。
+- `evalLitExpr` 认识字段读取与**包内/跨包常量**（枚举常量作字段值/实参也能解析）。
+- `resolveSceneArgFields` 按调用点收集实参结构体字段的已知值（复合字面量 /
+  局部变量可达定义 / 当前形参已传播的字段）；`paramFieldArgs` 映射成被调函数
+  的 `param.Field` 键，`codeSeqForSymbol` 与函数字面量展开时合并进
+  `sceneArgs/sceneSrc/sceneWhy`。
+- 严格语义：字段值未知（`pick()`/被取址调用改写）→ `sceneArgUnknown`，内层
+  **不回退** `--scene` 键；调用点实参的已知值优先于场景键；不按字段名相似
+  跨变量推断。
+
+**测试**（`action_scene_field_prop_test.go`，真实源码 + 索引边，三跳
+`Run* → Submit → helper → check`）：复合字面量字段、`r.Source = SourceB`
+（常量）、直接 `Submit(&Req{Source: SourceB})` 均判 `taken`；实参值优先于
+`--scene Source=7`；`r.Source = pick()` 无场景/带 `--scene Source=19` 都是
+`unknown`（未回退）。**未做**：跨包结构体字段传播（被调函数在另一个包时，
+日志仍按 `param.Field` 键传播，但包身份/类型不做校验——与现有"按名传递"
+口径一致，可能出现同名结构体误配；如需严格化要引入类型校验）。

@@ -486,4 +486,5 @@ go test ./... && bash scripts/verify.sh --quick && make it
 | # | 事项 | 状态 |
 | --- | --- | --- |
 | P1-a | ext-chain 全链 BFS 不再一次性加载 calls/implements 边 | **已完成**：`chainSymbols` 逐节点 `GetOutgoingFactsByKinds` + `InterfaceImplsExact` + 精确 `GetSymbol`；`chainGrpcHTTPDiag` 同步收口；本仓库实测 0.14s/72.7MB → 0.07s/31.1MB、产物逐字节相同；门槛测试拒绝全量扫描（`action_chain_symbols_exact_test.go`）；见 field_trace §127 |
+| P1-c | 场景值沿实参/结构体字段跨函数传播 | **已完成**：`litScopes` 增加 `req.Source` 字段键（字面量/字段赋值/整体覆盖/取址失效），`resolveSceneArgFields` + `paramFieldArgs` 把字段值传播到被调函数的 `param.Field`；实参已知值优先于 `--scene`，未知字段不回退；三跳测试覆盖正例 + 未知反例（`action_scene_field_prop_test.go`）；见 field_trace §129 |
 | P1-b | 场景判定的跨包常量 | **已完成**：`seqConstTable` 按 import 别名按需解析目标包 const（离线 `go list` + 请求内缓存，失败/标准库也缓存）；默认/别名 import、内建转换、未声明常量反例全覆盖（`action_scene_const_test.go`）；常量算术/dot-import 仍 unknown；见 field_trace §128 |

@@ -108,3 +108,15 @@ func appendUniqueStr(out []string, v string) []string {
 	}
 	return append(out, v)
 }
+
+// copyStrMap 浅拷贝字符串 map（nil 安全——缺失键语义保持"没有该键"）。
+func copyStrMap(m map[string]string) map[string]string {
+	if len(m) == 0 {
+		return map[string]string{}
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}

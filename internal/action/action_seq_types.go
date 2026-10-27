@@ -63,6 +63,9 @@ type CodeSequenceRequest struct {
 	callArgLits []string
 	callArgSrcs []string // todo12-3：实参值来源（定义位置/传播依据）
 	callArgWhy  []string // todo13-3：实参未知原因（call-may-write / depth-limit）
+	// callArgFields todo22 P1：实参的结构体字段已知值（按位置；键为字段名）
+	// ——被调函数形参的 `param.Field` 条件可据此裁剪。
+	callArgFields []map[string]sceneArg
 	// 内部（todo11-2）：当前函数 canonical ID / 文件（值流解析向上找调用点用）
 	incomingArgs []string
 	incomingSrc  []string // todo12-3：入站实参来源

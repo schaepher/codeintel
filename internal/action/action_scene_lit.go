@@ -15,9 +15,12 @@ type litVal struct {
 }
 
 // litScopes 词法作用域栈（形参/局部变量 → 抽象值）。
+// todo22 P1：selector 键（`req.Source`）也在同一张作用域表里，用于把
+// 结构体字段的已知字面量沿实参传播到被调函数的条件判定。
 type litScopes struct {
 	scopes  []map[string]litVal
-	limited bool // todo13-3：分析深度/扫描上限触发（不得静默保留确定值）
+	limited bool             // todo13-3：分析深度/扫描上限触发（不得静默保留确定值）
+	consts  sceneConstLookup // todo22 P1：包内/跨包常量（字段值可能是枚举常量）
 }
 
 func newLitScopes(params *ast.FieldList, incoming, incomingSrc []string) *litScopes {
@@ -78,7 +81,7 @@ func (s *litScopes) declare(name string, v litVal) {
 	s.scopes[len(s.scopes)-1][name] = v
 }
 func (s *litScopes) clone() *litScopes {
-	out := &litScopes{scopes: make([]map[string]litVal, len(s.scopes))}
+	out := &litScopes{scopes: make([]map[string]litVal, len(s.scopes)), consts: s.consts, limited: s.limited}
 	for i, sc := range s.scopes {
 		m := make(map[string]litVal, len(sc))
 		for k, v := range sc {
@@ -88,6 +91,11 @@ func (s *litScopes) clone() *litScopes {
 	}
 	return out
 }
+
+// declareStructFields 复合字面量（`T{...}` / `&T{...}`）的字段值写进
+// 作用域（键 `var.Field`）——后续把变量作为实参时可沿函数边界传播。
+
+// clearStructFields 清掉变量的全部字段键（整体重新赋值后旧字段不再成立）。
 
 // assignMerged 多分支合流：所有分支同值才保留，否则未知（保守，不猜）。
 func assignMerged(dst *litScopes, branches ...*litScopes) {
@@ -130,6 +138,20 @@ func evalLitExpr(fset *token.FileSet, e ast.Expr, s *litScopes) litVal {
 		if v, ok := s.lookup(x.Name); ok {
 			return v
 		}
+		// todo22 P1：包内/跨包常量（`SourceB` / `status.SourceB`）作为字段值
+		// 或实参时也必须是已知值，不能因为不是字面量就丢弃。
+		if v, ok := sceneConstValue(s.consts, x.Name); ok {
+			return litVal{val: v, known: true, line: fset.Position(x.Pos()).Line,
+				src: "const@L" + itoaSeq(fset.Position(x.Pos()).Line)}
+		}
+	case *ast.SelectorExpr:
+		if v, ok := s.lookup(exprTextShallow(x)); ok {
+			return v
+		}
+		if v, ok := sceneConstValue(s.consts, exprTextShallow(x)); ok {
+			return litVal{val: v, known: true, line: fset.Position(x.Pos()).Line,
+				src: "const@L" + itoaSeq(fset.Position(x.Pos()).Line)}
+		}
 	case *ast.ParenExpr:
 		return evalLitExpr(fset, x.X, s)
 	case *ast.UnaryExpr:
@@ -171,6 +193,8 @@ func applyCallInvalidation(fset *token.FileSet, src []byte, expr ast.Expr, s *li
 }
 
 // invalidate 将变量置为未知（保留原因与位置——证据用）。
+// todo22 P1：结构体变量被取址传入调用后，它的**字段**值也不再可证明
+// （`&req` 可能被调函数改写 req.Source）。
 func (s *litScopes) invalidate(name, reason string) {
 	v, ok := s.lookup(name)
 	if !ok {
@@ -186,7 +210,25 @@ func (s *litScopes) invalidate(name, reason string) {
 		v.src = "call"
 	}
 	s.assign(name, v)
+	prefix := name + "."
+	for i := len(s.scopes) - 1; i >= 0; i-- {
+		for k := range s.scopes[i] {
+			if !strings.HasPrefix(k, prefix) {
+				continue
+			}
+			f := s.scopes[i][k]
+			f.known, f.val, f.alias, f.reason = false, "", "", reason
+			if i := strings.LastIndex(reason, "@L"); i >= 0 {
+				f.src = "call@L" + reason[i+2:]
+			} else {
+				f.src = "call"
+			}
+			s.scopes[i][k] = f
+		}
+	}
 }
+
+// prefixValues 收集指定前缀（如 `req.`）的全部可达键值（内层作用域覆盖外层）。
 
 // paramIndex 形参名在签名中的位置（跳过 receiver）。
 func paramIndex(params *ast.FieldList, name string) int {

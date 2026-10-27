@@ -34,20 +34,22 @@ type sceneArg struct {
 // 别的分支的字面量串进来（本轮实测：DispatchDyn 的 region 被 Dispatch 的
 // "CN" 误判为 taken）。
 func (a *Actions) resolveSceneArgLiterals(fset *token.FileSet, src []byte, call *ast.CallExpr,
-	body *ast.BlockStmt, params *ast.FieldList, incoming, incomingSrc []string, depth int) []sceneArg {
+	body *ast.BlockStmt, params *ast.FieldList, incoming, incomingSrc []string,
+	consts sceneConstLookup, depth int) []sceneArg {
 	if call == nil {
 		return nil
 	}
 	out := make([]sceneArg, 0, len(call.Args))
 	for _, arg := range call.Args {
-		out = append(out, resolveLiteralExpr(fset, src, body, params, incoming, incomingSrc, arg, depth))
+		out = append(out, resolveLiteralExpr(fset, src, body, params, incoming, incomingSrc, consts, arg, depth))
 	}
 	return out
 }
 
 // resolveLiteralExpr 表达式 → (字面量值, 来源)；无法判定时值为空。
 func resolveLiteralExpr(fset *token.FileSet, src []byte, body *ast.BlockStmt,
-	params *ast.FieldList, incoming, incomingSrc []string, expr ast.Expr, depth int) sceneArg {
+	params *ast.FieldList, incoming, incomingSrc []string,
+	consts sceneConstLookup, expr ast.Expr, depth int) sceneArg {
 	if depth < 0 {
 		return sceneArg{}
 	}
@@ -59,13 +61,13 @@ func resolveLiteralExpr(fset *token.FileSet, src []byte, body *ast.BlockStmt,
 		}
 		return sceneArg{}
 	case *ast.ParenExpr:
-		return resolveLiteralExpr(fset, src, body, params, incoming, incomingSrc, e.X, depth)
+		return resolveLiteralExpr(fset, src, body, params, incoming, incomingSrc, consts, e.X, depth)
 	case *ast.Ident:
 		// todo12-3：解析调用点**之前实际可到达**的定义（无条件覆盖、
 		// 条件合流、作用域遮蔽、定义顺序）；不扫别的函数补值。
 		// todo13-3：取址/别名传入调用后旧定义失效；分析深度上限不得
 		// 保留确定值。
-		v, known, found := reachingLiteralAt(fset, src, body, expr.Pos(), e.Name, params, incoming, incomingSrc)
+		v, known, found := reachingLiteralAt(fset, src, body, expr.Pos(), e.Name, params, incoming, incomingSrc, consts)
 		if known {
 			src := v.src
 			if src == "" {
@@ -120,12 +122,11 @@ const sceneArgUnknown = "\x00unknown"
 
 // reachingLiteralAt 调用点之前 name 的可达字面量（同函数体，作用域感知）。
 func reachingLiteralAt(fset *token.FileSet, src []byte, body *ast.BlockStmt, target token.Pos,
-	name string, params *ast.FieldList, incoming, incomingSrc []string) (litVal, bool, bool) {
-	if body == nil {
+	name string, params *ast.FieldList, incoming, incomingSrc []string, consts sceneConstLookup) (litVal, bool, bool) {
+	s := reachingScopeAt(fset, src, body, target, params, incoming, incomingSrc, consts)
+	if s == nil {
 		return litVal{}, false, false
 	}
-	s := newLitScopes(params, incoming, incomingSrc)
-	walkReachingStmts(fset, src, body.List, target, s, 0)
 	v, ok := s.lookup(name)
 	if !ok {
 		return litVal{}, false, false
@@ -147,103 +148,19 @@ func reachingLiteralAt(fset *token.FileSet, src []byte, body *ast.BlockStmt, tar
 	return v, true, true
 }
 
-// applyReachingStmt target 之前的语句 → 更新抽象环境。
-func applyReachingStmt(fset *token.FileSet, src []byte, st ast.Stmt, s *litScopes, depth int) {
-	if depth > 12 {
-		s.limited = true
-		return
+// reachingScopeAt 在 target 处的可达作用域（含结构体字段键）。
+func reachingScopeAt(fset *token.FileSet, src []byte, body *ast.BlockStmt, target token.Pos,
+	params *ast.FieldList, incoming, incomingSrc []string, consts sceneConstLookup) *litScopes {
+	if body == nil {
+		return nil
 	}
-	switch x := st.(type) {
-	case *ast.DeclStmt:
-		gd, ok := x.Decl.(*ast.GenDecl)
-		if !ok {
-			return
-		}
-		for _, sp := range gd.Specs {
-			vs, ok := sp.(*ast.ValueSpec)
-			if !ok {
-				continue
-			}
-			for i, name := range vs.Names {
-				v := litVal{}
-				if len(vs.Values) == len(vs.Names) {
-					v = evalLitExpr(fset, vs.Values[i], s)
-				}
-				s.declare(name.Name, v)
-			}
-		}
-	case *ast.AssignStmt:
-		// todo13-3：RHS 内的调用同样可能通过指针改写变量
-		for _, rhs := range x.Rhs {
-			if _, isLit := rhs.(*ast.BasicLit); !isLit {
-				applyCallInvalidation(fset, src, rhs, s)
-			}
-		}
-		if len(x.Lhs) != len(x.Rhs) {
-			for _, lhs := range x.Lhs {
-				if id, ok := lhs.(*ast.Ident); ok && id.Name != "_" {
-					s.assign(id.Name, litVal{})
-				}
-			}
-			return
-		}
-		for i, lhs := range x.Lhs {
-			id, ok := lhs.(*ast.Ident)
-			if !ok || id.Name == "_" {
-				continue
-			}
-			v := evalLitExpr(fset, x.Rhs[i], s)
-			if x.Tok == token.DEFINE {
-				s.declare(id.Name, v)
-			} else {
-				s.assign(id.Name, v)
-			}
-		}
-	case *ast.BlockStmt:
-		s.push()
-		walkReachingStmts(fset, src, x.List, token.NoPos, s, depth+1)
-		s.pop()
-	case *ast.ExprStmt:
-		// todo13-3：语句内的调用可能通过指针改写变量（rewrite(&region)）
-		applyCallInvalidation(fset, src, x.X, s)
-	case *ast.GoStmt:
-		applyCallInvalidation(fset, src, x.Call, s)
-	case *ast.DeferStmt:
-		applyCallInvalidation(fset, src, x.Call, s)
-	case *ast.IfStmt:
-		thenE := s.clone()
-		thenE.push()
-		walkReachingStmts(fset, src, x.Body.List, token.NoPos, thenE, depth+1)
-		thenE.pop()
-		if x.Else == nil {
-			assignMerged(s, thenE, s.clone()) // 无 else：分支不成立仍保留原值
-			return
-		}
-		elseE := s.clone()
-		applyReachingStmt(fset, src, x.Else, elseE, depth+1)
-		assignMerged(s, thenE, elseE)
-	case *ast.ForStmt, *ast.RangeStmt:
-		loopE := s.clone()
-		body := (*ast.BlockStmt)(nil)
-		if f, ok := x.(*ast.ForStmt); ok {
-			body = f.Body
-		} else if r, ok := x.(*ast.RangeStmt); ok {
-			body = r.Body
-		}
-		if body != nil {
-			loopE.push()
-			walkReachingStmts(fset, src, body.List, token.NoPos, loopE, depth+1)
-			loopE.pop()
-		}
-		assignMerged(s, loopE, s.clone()) // 循环可能执行 0 次
-	case *ast.SwitchStmt:
-		mergeReachingClauses(fset, src, x.Body, s, depth)
-	case *ast.TypeSwitchStmt:
-		mergeReachingClauses(fset, src, x.Body, s, depth)
-	case *ast.SelectStmt:
-		mergeReachingClauses(fset, src, x.Body, s, depth)
-	}
+	s := newLitScopes(params, incoming, incomingSrc)
+	s.consts = consts
+	walkReachingStmts(fset, src, body.List, target, s, 0)
+	return s
 }
+
+// applyReachingStmt target 之前的语句 → 更新抽象环境。
 
 // mergeReachingClauses switch/select 分支合流（同值保留；否则未知）。
 
@@ -278,3 +195,19 @@ func applyReachingStmt(fset *token.FileSet, src []byte, st ast.Stmt, s *litScope
 // implState 到达定义集合（赋值替换；分支合并）。
 
 // implTypeFromExpr 赋值右值 → 实现类型名（&T{} / T{} / NewT()）。
+
+// resolveSceneArgFields 调用实参的**结构体字段已知值**（todo22 P1：
+// 跨函数传递 req 的来源分派）。支持三种形态：
+//   - 直接复合字面量：`Submit(&Req{Source: SourceB})`
+//   - 局部变量：`r := &Req{Source: SourceB}` / `r.Source = SourceB`（沿
+//     调用点之前的可达定义，含分支合流/取址改写失效）
+//   - 当前函数形参：字段值已由上游调用传播到 req.sceneArgs（键 `param.Field`）
+//
+// 只传播**能证明**的字段值；字段被未知值赋值/被取址调用改写时记
+// `sceneArgUnknown`（内层不得回退 --scene 键，与实参值的既有语义一致）。
+
+// sceneArgFromLitVal 抽象值 → 实参字段值（未知保留原因，不回退场景键）。
+
+// paramFieldArgs 结构体字段值 → 被调函数形参映射（键 `param.Field`）。
+
+// applySceneFieldArgs 把（字段值 → 形参映射）合并进当前场景实参表。

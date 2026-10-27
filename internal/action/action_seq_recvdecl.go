@@ -139,6 +139,20 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 	req.sceneArgs = paramLiteralArgs(fn.Type.Params, req.callArgLits)
 	req.sceneSrc = paramSourceArgs(fn.Type.Params, req.callArgLits, req.callArgSrcs)
 	req.sceneWhy = paramReasonArgs(fn.Type.Params, req.callArgLits, req.callArgWhy)
+	// todo22 P1：结构体字段值沿实参传播（`Submit(req)` → 被调函数的
+	// `req.Source` 条件可按调用点的已知字段值判定）
+	if len(req.callArgFields) > 0 {
+		if req.sceneArgs == nil {
+			req.sceneArgs = map[string]string{}
+		}
+		if req.sceneSrc == nil {
+			req.sceneSrc = map[string]string{}
+		}
+		if req.sceneWhy == nil {
+			req.sceneWhy = map[string]string{}
+		}
+	}
+	applySceneFieldArgs(req.sceneArgs, req.sceneSrc, req.sceneWhy, fn.Type.Params, req.callArgFields)
 	if req.focusActive() {
 		// todo12-9：焦点行 = SSA 字段写入 + 目标值/字段的到达定义闭包
 		var unknown int
