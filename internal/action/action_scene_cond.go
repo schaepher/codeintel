@@ -5,8 +5,6 @@ package action
 
 import (
 	"go/ast"
-	"math/big"
-	"strconv"
 	"strings"
 )
 
@@ -50,6 +48,12 @@ func (s Scene) matchBoolOp(bin *ast.BinaryExpr, args, srcs map[string]string, co
 		return l
 	}
 	if r.Status == SceneTaken {
+		// todo23 §5：左侧未知（未知调用可能改写右侧读取的变量）时不能因
+		// 右侧为真直接判 taken——保留 unknown（不忽略前面的未知调用）。
+		if l.Status == SceneUnknown {
+			return SceneFit{Status: SceneUnknown, Field: firstNonEmpty(l.Field, r.Field),
+				Literal: firstNonEmpty(l.Literal, r.Literal), Reason: "unknown:or-left-may-mutate"}
+		}
 		return r
 	}
 	if l.Status == SceneExcluded && r.Status == SceneExcluded {
@@ -153,6 +157,23 @@ func sceneCompare(fieldExpr, litExpr ast.Expr, consts sceneConstLookup) (field, 
 // sceneValueOf 表达式的"可比较值"：字面量（字符串/整数/浮点/字符）或包内
 // 常量（按 const 声明解析），中间的内建转换/括号被剥离。
 func sceneValueOf(e ast.Expr, consts sceneConstLookup) (string, bool) {
+	// todo23 §5：内建整数转换（未遮蔽）按范围校验求值；`int32(SourceB)` 与
+	// `SourceB` 得到同一个值，越界转换保持 unknown。
+	for {
+		call, ok := e.(*ast.CallExpr)
+		if !ok {
+			break
+		}
+		typ, isConv := sceneBuiltinConversionCall(call)
+		if !isConv {
+			break
+		}
+		inner, ok := sceneValueOf(call.Args[0], consts)
+		if !ok {
+			return "", false
+		}
+		return sceneConvertInt(typ, inner)
+	}
 	e = unwrapSceneExpr(e)
 	switch x := e.(type) {
 	case *ast.BasicLit:
@@ -169,6 +190,10 @@ func sceneValueOf(e ast.Expr, consts sceneConstLookup) (string, bool) {
 	case *ast.SelectorExpr:
 		// todo22 P1：跨包常量（otherpkg.Const）——按 import 路径按需解析
 		// 目标包的 const 声明；解析不到就是"不是常量"，保持未知。
+		// todo23 §5：导入别名被局部变量遮蔽时不得当包常量。
+		if id, ok := x.X.(*ast.Ident); ok && id.Obj != nil && id.Obj.Kind != ast.Pkg {
+			return "", false
+		}
 		if v, ok := sceneConstValue(consts, exprTextShallow(x)); ok {
 			return v, true
 		}
@@ -195,10 +220,7 @@ func unwrapSceneExpr(e ast.Expr) ast.Expr {
 		case *ast.ParenExpr:
 			e = x.X
 		case *ast.CallExpr:
-			if len(x.Args) != 1 {
-				return e
-			}
-			if _, isIdent := x.Fun.(*ast.Ident); !isIdent {
+			if _, ok := sceneBuiltinConversionCall(x); !ok {
 				return e
 			}
 			e = x.Args[0]
@@ -206,32 +228,6 @@ func unwrapSceneExpr(e ast.Expr) ast.Expr {
 			return e
 		}
 	}
-}
-
-// sceneValueEqual 值比较：两侧都能解析为整数/浮点数时按数值比较
-// （Source=7 与常量 7、int32 转换后的值一致）；否则按文本比较。
-func sceneValueEqual(a, b string) bool {
-	if na, ok := sceneNumber(a); ok {
-		if nb, ok2 := sceneNumber(b); ok2 {
-			return na == nb
-		}
-	}
-	return a == b
-}
-
-// sceneNumber 整数/浮点字面量 → float64（去掉类型后缀与进制下划线）。
-func sceneNumber(s string) (float64, bool) {
-	v := strings.ReplaceAll(strings.TrimSuffix(strings.TrimSuffix(s, "i"), "_"), "_", "")
-	v = strings.ReplaceAll(v, "'", "") // 数字分隔符 1_000 / 1'000
-	f, err := strconv.ParseFloat(v, 64)
-	if err != nil {
-		if n, ok := new(big.Int).SetString(v, 0); ok {
-			fv, _ := new(big.Float).SetInt(n).Float64()
-			return fv, true
-		}
-		return 0, false
-	}
-	return f, true
 }
 
 // exprTextShallow 选择器表达式文本（pkg.Field / recv.Field——只到两层，

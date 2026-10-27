@@ -7174,3 +7174,19 @@ exit_code=0；取消契约 26.7ms + 复用边 3。**边界**：子进程 250µs 
 - 测试：`action_symbol_source_ext_test.go`（alias/interface/struct/const 块/
   var 块 selection、not_indexed、依赖定位 + go.mod 只读）；旧失败矩阵更新
   struct 由“不支持”改为正例；集成 `TestTodo22SymbolSourceRealCLI` 通过。
+
+## §140 todo23 §5：场景判定整数转换范围/遮蔽与布尔求值顺序（2026-10-27）
+
+- `action_scene_num.go`：`sceneBuiltinConversionCall` 只接受 `Ident.Obj==nil`
+  的内建整数类型名（`int/int8..uint64/byte/rune/uintptr`）；`sceneConvertInt`
+  用 `big.Int` 做有/无符号范围校验——`int8(256)`、`uint8(-1)`、
+  `int64(9223372036854775808)` 返回 unknown（不截断后匹配）。
+- `unwrapSceneExpr` 只剥未遮蔽的内建转换（字段侧 `int32(req.Source)`）；
+  同名包级函数/局部变量遮蔽时按普通调用处理（unknown）。
+- 跨包常量选择器：`x.Name` 的 `x` 有非 Pkg 对象（局部变量/遮蔽）时不查
+  包常量表。
+- 布尔短路：`unknown || taken` → unknown（`unknown:or-left-may-mutate`），
+  不因右侧为真忽略左侧未知调用的副作用；`taken || x` 与
+  `excluded && x` 仍按 Go 短路语义。
+- 测试：`action_scene_num_test.go`（范围/合法边界/遮蔽函数与局部变量/
+  `mutate() || ...` 顺序）。

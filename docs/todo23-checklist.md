@@ -31,7 +31,7 @@
 | §3.4 | 工厂返回实例的 switch/setter/getter 续接 | 未实现（One/Two/Box/Build 夹具与反例矩阵全待做） |
 | §4.2 | 外部事务函数列表/ellipsis/重写失效 | 普通回调已实现（todo22）；列表/ellipsis/参数重写失效待补 |
 | §4.3 | HTTP origin 跨模块续接 | 未实现（`http_server` 证据、HandleFunc/ListenAndServe 证明、反例矩阵） |
-| §5 | 整数转换范围校验/内建遮蔽/短路求值顺序 | 跨包常量与本轮字段传播已有；`int8(256)` 等范围校验、内建名遮蔽、`mutate() \|\| ...` 顺序待补 |
+| §5 | 整数转换范围校验/内建遮蔽/短路求值顺序 | **已完成（核心）**：内建整数转换按 big.Int 范围校验（int8(256)/uint8(-1)/int64 溢出 → unknown）；仅 `Ident.Obj==nil` 的未遮蔽内建名才当转换/解包；导入别名被局部变量遮蔽时不当包常量；`unknown || taken` 保持 unknown（未知调用可能改写变量）。跨包常量/字段传播沿用。测试 `action_scene_num_test.go`。**剩余**：枚举类型/字符字面量组合的真实 init→CLI 全覆盖（既有 §8 用例仍通过） |
 | §6 | struct/interface/alias/const/var 源码 + 依赖 location | **已完成（核心）**：`matchAnySymbolSourceDecl` 支持函数/方法/struct/interface/type alias/const/var；const/var 输出整块 + `selection_line_*`；type 单 spec 带 `type` 关键字；无图节点 → AST kind + `index_status=not_indexed`；依赖虚拟符号离线 `go list` 定位（location=dependency、绝对 file、不改 go.mod）；CLI 文本/help 同步；旧函数/方法契约与失败矩阵保持（struct 反例已改为正例）。测试：`action_symbol_source_ext_test.go`、`TestSymbolSource*`、`TestTodo22SymbolSourceRealCLI`。**剩余**：多模块包身份错配/标准库/不唯一边界反例矩阵、真实 init→CLI 的 const/var/alias/dependency 全链路（单元+依赖定位已覆盖） |
 | §7.2 | context 贯穿 SQL/源码/递归、资源释放 | todo21 已有取消；本轮无新增 |
 | §7.3 | 跨文件全局变量/守卫单例/DI 契约缓存、跨仓隔离 | 现有请求级缓存（字段/工厂/变量链）；新增对象身份/守卫单例/跨仓反例待补 |
