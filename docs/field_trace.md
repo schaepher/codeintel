@@ -6992,3 +6992,32 @@ status.SourceB`（`status` 是另一个包）里的 `status.SourceB` 被当成�
 `di-bean-annotation`；`Set("mem", &memStore{})` + 注解 → 具体化；**无注解 +
 同名字段** → 不走扩展 DI；跨包 `di.Setup` 注册 → 具体化 + `di/di.go:11`
 注册站点；同一请求多处注入只查一次 `GetFunctionsByNames`（calls=1）。
+
+## §132 todo22 P1：外部依赖方法调用 + 外部包内部跨包目标 + go.work（2026-10-27）
+
+**问题**：§4.2 只解析外部包**包级函数**（`ext.Run(...)`）；`extT.Method()` 的
+接收者类型不解析 → 未命中；外部包内部再调用自己的子包时 `go list` 用主仓库
+cwd，主模块 go.mod 没有该间接依赖 require 时会定位失败。
+
+**改法**：
+- 接收者类型解析：`seqReceiverTypeRef` 支持 ①局部变量（`var s ext.Store` /
+  `s := &ext.Store{}` / `s := ext.NewStore()`，来自 env 类型数据流）②当前
+  receiver 的字段（`s.store.Method()`，按结构体声明取字段类型）。新增
+  `seqRecordParamTypes`（形参声明类型）与 `recordSeqDecl` 的 `var x T` 类型；
+  构造器返回类型在 rhsTypes 未命中时按**外部源码第一个返回类型**解析。
+- 外部方法展开与包级函数共用 `seqExpandExternalDecl`：准确 ID
+  `symbol:go:<pkg>:(T).M`、depth=1 保留目标、标准库不展开、按外部方法自己的
+  形参绑定回调、receiver 字段类型表来自外部结构体声明。
+- `seqExternalPackageFrom(importPath, workDir)`：从外部包内部继续解析时
+  `go list` 的 cwd = 该外部包的模块根（`seqModuleRoot` 向上找 go.mod），
+  请求内缓存键含 workDir。
+- go.work：`go list` 从模块目录运行会自然使用工作区（无需额外参数）；
+  外部模块（app 的 go.mod 不 require，`go.work use` 提供）可定位。
+
+**测试**（`action_seq_external_method_test.go`，真实 replace / go.work 夹具）：
+声明类型/复合字面量/构造器返回三条来源都展开到
+`(Store).Run` 且回调内 `Inner` 执行一次；depth=1 只留目标 + depth 诊断；
+外部包内部 `util.Do` 解析到 `example.com/ext/util:Do`；go.work 外部模块
+`shared.Run` 展开并继续 `Called`；标准库 `bytes.Buffer.WriteString` 不按外部
+依赖展开。**未做**：跨文件/跨包结构体字段声明解析（当前只查当前文件的结构体
+声明；字段类型在同包另一个文件时保持未解析）。

@@ -44,6 +44,9 @@ type seqFileCtx struct {
 	file *ast.File
 	src  []byte
 	rel  string
+	// dir 文件所在绝对目录（外部依赖包：go list 的 cwd 以它为准，保证
+	// 外部包自己的导入能按其模块上下文解析；仓库内文件为空）。
+	dir string
 }
 
 // seqValue 一个函数值（或显式的未知）。

@@ -41,22 +41,18 @@ type seqExternalPkg struct {
 }
 
 // seqExternalPackage 解析 import path → 包目录与源码（带缓存）。
+// cwd = 仓库根（模块内依赖/replace 的相对路径以它为准）。
 func seqExternalPackage(a *Actions, req CodeSequenceRequest, importPath string) *seqExternalPkg {
-	if req.extPkgs != nil {
-		if p, ok := req.extPkgs[importPath]; ok {
-			return p
-		}
-	}
-	p := &seqExternalPkg{rel: "<external>/" + importPath}
-	p.dir, p.std, p.err = seqGoListPkg(req.ctx(), req.RepoAbs, importPath)
-	if p.err == nil && p.dir != "" && !p.std {
-		p.files = parseSeqDir(p.dir, p.rel)
-	}
-	if req.extPkgs != nil {
-		req.extPkgs[importPath] = p
-	}
-	return p
+	return seqExternalPackageFrom(a, req, importPath, "")
 }
+
+// seqExternalPackageFrom 同 seqExternalPackage，可指定 go list 的 cwd：
+// 从**外部包内部**继续解析它自己的导入时，用该外部包的模块根（否则主模块
+// go.mod 里没有该依赖的 require 时会解析失败——"外部包内部跨包调用"）。
+
+// seqExternalWorkDir 当前展开位置的 go list cwd：外部包内部用该包的模块根。
+
+// seqModuleRoot 从目录向上找最近的 go.mod（找不到返回 dir 本身）。
 
 // seqGoListPkg `go list -e -json -find -mod=readonly <importPath>`（离线只读）。
 // 成功返回 package Dir + 是否标准库；失败返回原因（查询阶段不构建索引、
@@ -151,7 +147,7 @@ func parseSeqDir(dir, relPrefix string) []*seqFileCtx {
 		if err != nil {
 			continue
 		}
-		out = append(out, &seqFileCtx{fset: fset, file: f, src: src, rel: path.Join(relPrefix, name)})
+		out = append(out, &seqFileCtx{fset: fset, file: f, src: src, rel: path.Join(relPrefix, name), dir: dir})
 	}
 	return out
 }
@@ -198,7 +194,7 @@ func seqExternalCallTarget(f *ast.File, fun ast.Expr) (string, string, string, b
 	return importPath, name, "symbol:go:" + importPath + ":" + name, true
 }
 
-// seqExpandExternalCall 按需展开外部依赖函数体。
+// seqExpandExternalCall 按需展开外部依赖**包级函数**体。
 // expanded=false 表示没有展开（调用方继续走未解析分类）。
 func seqExpandExternalCall(a *Actions, req CodeSequenceRequest, node *CodeSeqNode,
 	f *ast.File, fun ast.Expr, call *ast.CallExpr, depth int, curFile string, line int) bool {
@@ -209,6 +205,18 @@ func seqExpandExternalCall(a *Actions, req CodeSequenceRequest, node *CodeSeqNod
 	if req.pkgSet[importPath] {
 		return false // 本仓包（交给索引/接口派发路径）
 	}
+	return seqExpandExternalDecl(a, req, node, importPath, declName, extID, depth, call, curFile, line, "")
+}
+
+// seqExpandExternalMethodCall 按需展开外部依赖**方法**调用（`extT.Method()`）：
+// 接收者类型来自本函数内的类型数据流（声明/复合字面量/构造器返回）或当前
+// receiver 字段声明；只对**仓库外**包生效。
+
+// seqExpandExternalDecl 定位外部包声明并按它自己的形参绑定实参后展开。
+// 标准库不作为"外部依赖"展开（保持 external_target 分类，避免 stdlib 噪声）。
+func seqExpandExternalDecl(a *Actions, req CodeSequenceRequest, node *CodeSeqNode,
+	importPath, declName, extID string, depth int, call *ast.CallExpr,
+	curFile string, line int, recvType string) bool {
 	// 准确目标身份先写上（depth 截断也要保留外部目标 ID）
 	node.Evidence = &SeqEvidence{Source: SeqEvidenceAST, CallFile: curFile, CallLine: line,
 		SymbolID: extID, Reason: "external-target"}
@@ -223,7 +231,7 @@ func seqExpandExternalCall(a *Actions, req CodeSequenceRequest, node *CodeSeqNod
 		req.acc.cancel = true
 		return true
 	}
-	pkg := seqExternalPackage(a, req, importPath)
+	pkg := seqExternalPackageFrom(a, req, importPath, seqExternalWorkDir(req))
 	if pkg.err == nil && pkg.std {
 		// 标准库不按“外部依赖”展开（噪音），保持 external_target 分类
 		return false
@@ -246,16 +254,19 @@ func seqExpandExternalCall(a *Actions, req CodeSequenceRequest, node *CodeSeqNod
 	sub.curCtx = ctx
 	sub.curFile = ctx.rel
 	sub.curTgts = &seqTargets{} // 外部包没有本仓索引边；回调靠参数绑定证明
-	sub.curRecvType = ""
-	sub.curRecvDecl = nil
+	sub.curRecvType = recvType
+	sub.curRecvDecl = seqStructFieldTypes(sub, ctx, recvType)
 	sub.sceneConsts = nil
 	node.Evidence = &SeqEvidence{Source: SeqEvidenceExternal, CallFile: curFile, CallLine: line,
 		SymbolID: extID, File: ctx.rel, Line: ctx.fset.Position(fd.Pos()).Line,
 		Reason: "external-source"}
 	node.Nodes = walkStmts(a, sub, ctx.fset, ctx.src, fd.Body.List, sub.curTgts, depth,
-		"", nil, ctx.file, pkgPathOf(extID), ctx.rel)
+		recvType, sub.curRecvDecl, ctx.file, pkgPathOf(extID), ctx.rel)
 	if len(node.Nodes) == 0 {
 		node.Stop = &SeqStop{Code: SeqStopNoCalls}
 	}
 	return true
 }
+
+// seqStructFieldTypes 外部包某结构体的字段类型名（receiver 字段调用的
+// `x.Field.Method()` 具体化用；只到类型名，不解析完整类型）。

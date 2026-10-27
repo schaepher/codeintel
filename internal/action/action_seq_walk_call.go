@@ -135,16 +135,12 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 			if seqExpandExternalCall(a, req, node, f, fun, call, depth, curFile, pos.Line) {
 				return node
 			}
-			req.acc.unresolved++
-			code, detail := classifyUnresolvedCall(f, fun, curPkg, req.pkgSet)
-			// todo22 §2：函数值参数在未解析/外部调用里逃逸——无法确定是否、
-			// 何时被调用，明确标注原因（不展开内部执行）。
-			if esc := seqFuncArgEscape(a, req, call); esc != "" {
-				detail += "；" + esc
+			if seqExpandExternalMethodCall(a, req, node, call, depth, curFile, pos.Line) {
+				return node
 			}
-			node.Evidence = &SeqEvidence{Source: SeqEvidenceAST, CallFile: curFile, CallLine: pos.Line}
-			// todo12-13：AST 调用表达式存在 ≠ 目标实现已解析——明确终点诊断
-			node.Stop = &SeqStop{Code: code, Detail: detail}
+			// todo12-13：AST 调用表达式存在 ≠ 目标实现已解析——明确终点诊断；
+			// todo22 §2：函数值参数逃逸在分类里一并标注（不展开内部执行）。
+			seqUnresolvedCallFallback(a, req, node, f, fun, call, curPkg, curFile)
 		}
 
 		if depth <= 1 {

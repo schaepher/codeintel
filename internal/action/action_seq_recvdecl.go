@@ -133,6 +133,7 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 	req.sceneConsts = seqConstValues(a, req, n.FilePath)
 	env := newSeqEnv(nil)
 	bindSeqParams(env, fn.Type.Params, req.paramValues)
+	seqRecordParamTypes(req, env, fn.Type.Params)
 	req.env = env
 	req.paramValues = nil
 	// todo10-5：一层条件传播——调用点实参字面量按形参名对齐（下次展开覆盖）

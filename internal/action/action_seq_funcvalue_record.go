@@ -69,6 +69,13 @@ func recordSeqDecl(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx, gd *ast
 				req.env.set(name.Obj, listSeqValue(nil))
 				continue
 			}
+			// todo22 P1：`var s ext.Store` 的**声明类型**也要记录（外部包
+			// 方法调用/字段类型解析依赖它）。
+			if vs.Type != nil {
+				if ref, ok := seqTypeRefOf(req, ctx, vs.Type); ok {
+					req.env.types[name.Obj] = ref
+				}
+			}
 			req.env.set(name.Obj, unknownSeqValue("var 声明无初始值: "+name.Name))
 		}
 	}
@@ -181,6 +188,24 @@ func seqStampBinding(v *seqValue, obj *ast.Object, ctx *seqFileCtx, pos token.Po
 	for i := range v.cands {
 		if v.cands[i].cond == "" {
 			v.cands[i].cond = cond
+		}
+	}
+}
+
+// seqRecordParamTypes 记录形参的声明类型（局部变量之外的 `p.Method()` 解析）。
+func seqRecordParamTypes(req CodeSequenceRequest, env *seqEnv, params *ast.FieldList) {
+	if env == nil || params == nil || req.curCtx == nil {
+		return
+	}
+	for _, f := range params.List {
+		ref, ok := seqTypeRefOf(req, req.curCtx, f.Type)
+		if !ok {
+			continue
+		}
+		for _, n := range f.Names {
+			if n.Obj != nil {
+				env.types[n.Obj] = ref
+			}
 		}
 	}
 }

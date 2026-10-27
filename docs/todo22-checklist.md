@@ -486,6 +486,7 @@ go test ./... && bash scripts/verify.sh --quick && make it
 | # | 事项 | 状态 |
 | --- | --- | --- |
 | P1-a | ext-chain 全链 BFS 不再一次性加载 calls/implements 边 | **已完成**：`chainSymbols` 逐节点 `GetOutgoingFactsByKinds` + `InterfaceImplsExact` + 精确 `GetSymbol`；`chainGrpcHTTPDiag` 同步收口；本仓库实测 0.14s/72.7MB → 0.07s/31.1MB、产物逐字节相同；门槛测试拒绝全量扫描（`action_chain_symbols_exact_test.go`）；见 field_trace §127 |
+| P1-f | 外部包方法调用 / 外部包内部跨包目标 / go.work 外部模块 | **已完成**：接收者类型（声明/复合字面量/构造器返回/当前 receiver 字段）+ 共用 `seqExpandExternalDecl`；外部包内部 go list cwd = 该包模块根；go.work 外部模块可定位；标准库不展开；测试 4 组（含 depth=1 与 stdlib 反例）；跨文件字段声明仍不解析（如实记录）；见 field_trace §132 |
 | P1-e | 框架专有 DI 契约（Bean 注解 / 容器 Set）与跨包注册点 | **已完成**：Bean/Provider 注解（`@bean`/`di:bean`/`provide:`）按返回类型登记；`Set/Provide/Apply/Put` 容器形态；扩展契约必须有显式字段注解；跨包注册点按索引引导函数定点解析（`GetFunctionsByNames`，仅本地未命中时触发）；`diRegs/diRegsAll` 请求内缓存（哨兵键）；测试含正例/无注解反例/跨包站点/只查一次；见 field_trace §131 |
 | P1-d | AOP bypass 的运行时场景求解 | **已完成**：识别 `ctx.Value(<key>) ==/!= nil`，场景键 = context key（存在性布尔）；无 `--scene` 键/动态 key 保持 unknown；单测矩阵 + 真实时序裁剪（`action_scene_ctx_test.go`）；见 field_trace §130 |
 | P1-c | 场景值沿实参/结构体字段跨函数传播 | **已完成**：`litScopes` 增加 `req.Source` 字段键（字面量/字段赋值/整体覆盖/取址失效），`resolveSceneArgFields` + `paramFieldArgs` 把字段值传播到被调函数的 `param.Field`；实参已知值优先于 `--scene`，未知字段不回退；三跳测试覆盖正例 + 未知反例（`action_scene_field_prop_test.go`）；见 field_trace §129 |
