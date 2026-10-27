@@ -36,8 +36,14 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 	switch s := stmt.(type) {
 	case *ast.ExprStmt:
 		if call, ok := s.X.(*ast.CallExpr); ok {
+			// todo22 §2：Go 求值顺序——实参里的调用先执行；函数字面量只在
+			// 实际调用处展开（不穿透未执行的 FuncLit）。
+			nodes := seqArgCallNodes(callNode, call)
 			if n := callNode(call); n != nil {
-				return []*CodeSeqNode{n}
+				nodes = append(nodes, n)
+			}
+			if len(nodes) > 0 {
+				return nodes
 			}
 			return nil
 		}
@@ -47,11 +53,15 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		var out []*CodeSeqNode
 		for _, rhs := range s.Rhs {
 			for _, call := range collectCalls(rhs) {
+				out = append(out, seqArgCallNodes(callNode, call)...)
 				if n := callNode(call); n != nil {
 					out = append(out, n)
 				}
 			}
 		}
+		// todo22 §2：赋值更新函数值环境——在调用节点生成之后（RHS 读旧值，
+		// LHS 从下一条语句起生效：`f = wrap(ctx, f)` 的右侧是旧 f）。
+		recordSeqAssign(req, req.curCtx, s)
 		// todo10-2 part3：焦点模式下输出"纯赋值"步骤（状态字段赋值常常
 		// 不含调用，纯调用树看不到）；非焦点模式保持原输出不变
 		if req.focusActive() {
@@ -97,18 +107,45 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		case SceneUnknown:
 			req.sceneCount.Unknown++
 		}
+		// todo22 §2：分支各走一份环境副本，事后合并（多候选 → 未消歧），
+		// 后续语句看到的是"可能到达的多个值"而不是最后一个分支。
+		var branches []*seqEnv
 		if fit.Status != SceneExcluded {
-			node.Nodes = walkStmts(a, req, fset, src, s.Body.List, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
+			thenReq := req
+			if req.env != nil {
+				thenReq.env = req.env.clone()
+			}
+			node.Nodes = walkStmts(a, thenReq, fset, src, s.Body.List, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
+			if thenReq.env != nil {
+				branches = append(branches, thenReq.env)
+			}
 		}
 		// else 分支：条件取反（fit == excluded 时 else 反而成立）
 		if blk, ok := s.Else.(*ast.BlockStmt); ok {
 			if fit.Status != SceneTaken {
-				node.Else = walkStmts(a, req, fset, src, blk.List, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
+				elseReq := req
+				if req.env != nil {
+					elseReq.env = req.env.clone()
+				}
+				node.Else = walkStmts(a, elseReq, fset, src, blk.List, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
+				if elseReq.env != nil {
+					branches = append(branches, elseReq.env)
+				}
 			}
 		} else if elseIf, ok := s.Else.(*ast.IfStmt); ok {
 			if fit.Status != SceneTaken {
-				node.Else = walkStmt(a, req, fset, src, elseIf, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
+				elseReq := req
+				if req.env != nil {
+					elseReq.env = req.env.clone()
+				}
+				node.Else = walkStmt(a, elseReq, fset, src, elseIf, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
+				if elseReq.env != nil {
+					branches = append(branches, elseReq.env)
+				}
 			}
+		}
+		if req.env != nil && len(branches) > 0 {
+			req.env.mergeBranches(branches)
 		}
 		steps = append(steps, node)
 		return steps
@@ -117,11 +154,19 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		if label == "" {
 			label = "无限循环"
 		}
-		return []*CodeSeqNode{{Kind: "loop", Label: label, Line: fset.Position(s.Pos()).Line,
-			Nodes: walkStmts(a, req, fset, src, s.Body.List, tgts, depth, recvType, recvDecl, f, curPkg, curFile)}}
+		pre := req.env.clone()
+		nodes := walkStmts(a, req, fset, src, s.Body.List, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
+		if req.env != nil {
+			req.env.mergePossible(pre) // 循环体可能一次都不执行
+		}
+		return []*CodeSeqNode{{Kind: "loop", Label: label, Line: fset.Position(s.Pos()).Line, Nodes: nodes}}
 	case *ast.RangeStmt:
-		return []*CodeSeqNode{{Kind: "loop", Label: "range " + seqExprText(fset, src, s.X), Line: fset.Position(s.Pos()).Line,
-			Nodes: walkStmts(a, req, fset, src, s.Body.List, tgts, depth, recvType, recvDecl, f, curPkg, curFile)}}
+		pre := req.env.clone()
+		nodes := walkStmts(a, req, fset, src, s.Body.List, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
+		if req.env != nil {
+			req.env.mergePossible(pre)
+		}
+		return []*CodeSeqNode{{Kind: "loop", Label: "range " + seqExprText(fset, src, s.X), Line: fset.Position(s.Pos()).Line, Nodes: nodes}}
 	case *ast.BlockStmt:
 		return walkStmts(a, req, fset, src, s.List, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
 	case *ast.DeferStmt:
@@ -146,6 +191,7 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		var out []*CodeSeqNode
 		for _, r := range s.Results {
 			for _, call := range collectCalls(r) {
+				out = append(out, seqArgCallNodes(callNode, call)...)
 				if n := callNode(call); n != nil {
 					n.InReturn = true
 					out = append(out, n)
@@ -179,6 +225,7 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		//（纯值发送 ch <- 5 无调用可画——发送是通信动作，无消息线）
 		var out []*CodeSeqNode
 		for _, call := range collectCalls(s.Value) {
+			out = append(out, seqArgCallNodes(callNode, call)...)
 			if n := callNode(call); n != nil {
 				out = append(out, n)
 			}
@@ -210,6 +257,7 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 				}
 				for _, e := range commExprs {
 					for _, call := range collectCalls(e) {
+						caseNode.Nodes = append(caseNode.Nodes, seqArgCallNodes(callNode, call)...)
 						if n := callNode(call); n != nil {
 							caseNode.Nodes = append(caseNode.Nodes, n)
 						}
@@ -220,6 +268,14 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 			}
 		}
 		return []*CodeSeqNode{node}
+	case *ast.SwitchStmt, *ast.TypeSwitchStmt:
+		return walkSwitchStmt(a, req, fset, src, s, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
+	case *ast.DeclStmt:
+		// todo22 §2：`var f = func(){…}` / `var f func()`——只建值，不执行
+		if gd, ok := s.Decl.(*ast.GenDecl); ok {
+			recordSeqDecl(req, req.curCtx, gd)
+		}
+		return nil
 	case *ast.LabeledStmt:
 		// R100 续：Loop: for——原无 case 整块丢弃（label 本身无时序
 		// 语义，递归内部语句）
@@ -228,31 +284,6 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 
 		kind := s.Tok.String()
 		return []*CodeSeqNode{{Kind: kind, Label: kind, Line: fset.Position(s.Pos()).Line}}
-	case *ast.SwitchStmt:
-
-		tag := seqExprText(fset, src, s.Tag)
-		if tag == "" {
-			tag = "switch"
-		}
-		node := &CodeSeqNode{Kind: "branch", Label: tag, Line: fset.Position(s.Pos()).Line}
-		for _, st := range s.Body.List {
-			if cc, ok := st.(*ast.CaseClause); ok {
-				caseNode := &CodeSeqNode{Kind: "branch", Label: "case " + caseExpr(fset, src, cc), Line: fset.Position(cc.Pos()).Line}
-				caseNode.Nodes = walkStmts(a, req, fset, src, cc.Body, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
-				node.Nodes = append(node.Nodes, caseNode)
-			}
-		}
-		return []*CodeSeqNode{node}
-	case *ast.TypeSwitchStmt:
-		node := &CodeSeqNode{Kind: "branch", Label: "type switch", Line: fset.Position(s.Pos()).Line}
-		for _, st := range s.Body.List {
-			if cc, ok := st.(*ast.CaseClause); ok {
-				caseNode := &CodeSeqNode{Kind: "branch", Label: "case " + caseExpr(fset, src, cc), Line: fset.Position(cc.Pos()).Line}
-				caseNode.Nodes = walkStmts(a, req, fset, src, cc.Body, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
-				node.Nodes = append(node.Nodes, caseNode)
-			}
-		}
-		return []*CodeSeqNode{node}
 	}
 	return nil
 }

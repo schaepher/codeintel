@@ -105,9 +105,26 @@ func TestTodo15MatrixSemantics(t *testing.T) {
 	if !strings.Contains(fmt.Sprint(no), "Impl") {
 		t.Errorf("接口调用应按候选具体化（Impl.Do）: %+v", no)
 	}
+	// todo22 §2（2026-10-27）：函数值调用点从笼统 unresolved 改为更精确的
+	// func_value_unbound（"有明确调用点但回调值无法确定"）——语义仍是
+	// **未知、不展开**，只是诊断码细分了。CB 的形参 f 是入口参数、无实参
+	// 绑定，所以这里必须保留未知节点而不是猜一个回调。
 	cb := seqJSONT(t, dir, "symbol:go:example.com/matrix15:CB", 3)
-	if !seqHasCode(cb, "unresolved") {
-		t.Errorf("未知回调调用点应 unresolved: %+v", cb)
+	if !seqHasCode(cb, "func_value_unbound") {
+		t.Errorf("未知回调调用点应 func_value_unbound（未知、不展开）: %+v", cb)
+	}
+	// 未知回调不得被具体化到任何实现（没有 ImplType / 具体符号 ID）。
+	cbs := []map[string]any{}
+	seqJSONNodes(cb, "f", &cbs)
+	if len(cbs) != 1 {
+		t.Errorf("未知回调应保留 1 个 f 调用节点，got %d", len(cbs))
+	} else {
+		if v, _ := cbs[0]["ImplType"].(string); v != "" {
+			t.Errorf("未知回调不得具体化实现类型，got %q", v)
+		}
+		if nodes, _ := cbs[0]["Nodes"].([]any); len(nodes) != 0 {
+			t.Errorf("未知回调不得展开内部执行，got %d 子节点", len(nodes))
+		}
 	}
 	d1 := seqJSONT(t, dir, "symbol:go:example.com/matrix15:Use", 1)
 	d2 := seqJSONT(t, dir, "symbol:go:example.com/matrix15:Use", 2)

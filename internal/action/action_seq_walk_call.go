@@ -27,6 +27,16 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		pos := fset.Position(call.Lparen)
 		node = &CodeSeqNode{Kind: "call", Label: callLabel(fset, src, fun), Actor: callActor(fset, src, fun), Line: pos.Line}
 
+		// todo22 §2：被调者本身是函数值（IIFE / 闭包变量 / 回调形参）——按
+		// 调用点的数据流展开；不是函数值时继续走索引调用边/接口派发路径。
+		if fv, isFV := seqCallFuncValue(req, call); isFV {
+			seqFillFuncValueCall(a, req, call, fv, node, depth)
+			return node
+		}
+		// todo22 §2：本次调用的实参值（按位置）——被展开函数绑定形参后，
+		// 形参调用处才能证明执行的是哪个回调。
+		req.paramValues = seqBindCallArgs(req, req.curCtx, call)
+
 		tg, resolved := tgts.lookup(pos)
 		if !resolved {
 			// todo20-9：索引 calls 边按 (caller,target,kind) 汇总，重复调用
@@ -86,10 +96,33 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 				node.Stop = &SeqStop{Code: SeqStopPkg, Detail: pkgPathOf(tid) + "（seq.stop_packages）"}
 				return node
 			}
+		} else if symID, ok := seqASTCallTarget(fun, f, curPkg); ok && seqTargetIndexed(req, curPkg, symID) {
+			// todo22 §2.2：实参位置的调用（工厂/回调实参）在索引里没有 calls
+			// 边——按 AST 对象身份/导入路径恢复**准确**符号后照常展开；
+			// 不做模糊名称搜索。
+			node.Evidence = &SeqEvidence{Source: SeqEvidenceAST, CallFile: curFile,
+				CallLine: pos.Line, SymbolID: symID, Reason: "ast-symbol-identity"}
+			if depth <= 1 {
+				req.acc.depth = true
+				node.Stop = &SeqStop{Code: SeqStopDepthLimit,
+					Detail: "depth 上限（--depth " + itoaSeq(req.Depth) + "），未展开该调用内部"}
+				return node
+			}
+			if child, stop := codeSeqForSymbol(a, req, symID, depth-1); child != nil {
+				node.Nodes, node.Stop = child.Nodes, child.Stop
+			} else if stop != nil {
+				node.Stop = stop
+			}
+			return node
 		} else {
 			// 未解析到项目内符号：按消费者可区分的类别给出原因（todo13-13）
 			req.acc.unresolved++
 			code, detail := classifyUnresolvedCall(f, fun, curPkg, req.pkgSet)
+			// todo22 §2：函数值参数在未解析/外部调用里逃逸——无法确定是否、
+			// 何时被调用，明确标注原因（不展开内部执行）。
+			if esc := seqFuncArgEscape(req, call); esc != "" {
+				detail += "；" + esc
+			}
 			node.Evidence = &SeqEvidence{Source: SeqEvidenceAST, CallFile: curFile, CallLine: pos.Line}
 			// todo12-13：AST 调用表达式存在 ≠ 目标实现已解析——明确终点诊断
 			node.Stop = &SeqStop{Code: code, Detail: detail}

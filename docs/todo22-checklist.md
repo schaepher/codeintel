@@ -83,11 +83,11 @@ make it
 | 节 | 事项 | 现状 |
 | --- | --- | --- |
 | 1 | 夹具/证明边界/实施顺序 | 部分：todo12–21 已有 `example.com/seqbudget` 等真实 init→CLI 集成夹具；todo22 第 8 节的 `example.com/flow` + `example.com/tx` 夹具**未建** |
-| 2.1 | 闭包捕获统一接口（`captureSeqClosureValue/Args/CallbackLists`）、函数值解析/到达定义 | **未实现**（action 内无 `FuncLit` 处理、无上述函数） |
-| 2.2 | 函数字面量/IIFE/`defer`/`go`/回调形参绑定/赋值先 RHS 后 LHS | 部分：`defer/go` 已有位置保留（`action_seq_walk.go`）；FuncLit/IIFE/回调绑定**未实现** |
-| 2.3 | 工厂返回函数、条件返回、捕获值、证明失效 | **未实现** |
-| 2.4 | `[]func(...)` 命名函数列表、range 折叠装饰器、预算 16 路径×32 项 | **未实现** |
-| 3.1 | 到达定义/精确目标/同名不同包/行号回退核对 | 部分：`action_seq_dataflow.go`（receiver 字段写入溯源）、`action_seq_targets.go:matchAggregated`（todo20-9）已实现 |
+| 2.1 | 闭包捕获统一接口（`captureSeqClosureValue/Args/CallbackLists`）、函数值解析/到达定义 | **第一增量已完成（2026-10-27）**：值/环境模型 + 形参绑定 + 到达定义（`seqValue`/`seqEnv`，见 B.4）；spec 里的三个函数名未逐字采用（能力等价，命名按现有 `seq*` 约定） |
+| 2.2 | 函数字面量/IIFE/`defer`/`go`/回调形参绑定/赋值先 RHS 后 LHS | **1/2/3/5 已完成 + 4 已支持普通/具名回调**（见 B.4）；返回函数值（工厂）与具名返回值待 B.5 |
+| 2.3 | 工厂返回函数、条件返回、捕获值、证明失效 | **未实现**（调用结果一律 unknown，reason 写明"工厂返回/包装器—todo22 §2.3"） |
+| 2.4 | `[]func(...)` 命名函数列表、range 折叠装饰器、预算 16 路径×32 项 | **未实现**（复合字面量/变参列表绑定 unknown，reason 写明 §2.4） |
+| 3.1 | 到达定义/精确目标/同名不同包/行号回退核对 | 部分：`action_seq_dataflow.go`（receiver 字段写入溯源）、`action_seq_targets.go:matchAggregated`（todo20-9）+ 本轮新增**实参位置调用的 AST 对象身份恢复**（`seqASTCallTarget`，不做名称模糊搜索） |
 | 3.2 | 接口候选全集 + `candidate_depth`/`candidate_budget` 截断诊断 | 部分：`sceneImplChoice` 有候选集合 + ambiguous；**候选展开预算/截断诊断字段未实现**（现有 `candidate_budget` 属 `query async`） |
 | 3.3 | DI/AOP（Bean/Inject 注解、container/key 注册、事务 wrapper 内原实现） | **未实现** |
 | 4.1 | go-micro `NewRequest/Call` + 服务注册续接、跨仓 workspace 限定 | **未实现**（仅有 gRPC 方法入口 ID 约定 `GrpcMethodEntryID`） |
@@ -149,3 +149,41 @@ go test -tags integration ./integration -run 'TestTodo22SymbolSourceRealCLI' -co
 ```
 
 两项均 PASS（集成用例 1.34s，含真实 `init`）。
+
+### B.4 §2 第一增量：函数值/闭包/回调执行证明（已完成，2026-10-27）
+
+**范围**（用户确认的语义）：字面量只建值、在**实际调用处**展开；回调按调用点
+数据流证明（实参→形参绑定），证据记录绑定/调用位置与依据；确定不执行的不画，
+可能执行但证据不足的保留明确 unknown。
+
+| 要求 | 实现 / 证据 |
+| --- | --- |
+| 2.2-1 字面量只建值、调用处展开；未调用的字面量/回调不产出内部调用 | `collectCalls` 不再穿透 `FuncLit`；`seqArgCallNodes` 也跳过字面量体。测试：`NeverCalled`/`ArgLit` 零节点 |
+| 2.2-2 IIFE 执行一次；嵌套实参按 Go 求值顺序 | 调用节点先出实参调用（`seqArgCallNodes`），`seqCallFuncValue` 把 `call.Fun` 为字面量的情形当 IIFE。测试：`Iife` 恰 1 次、`Factory` 节点在 `Use` 之前 |
+| 2.2-3 `defer`/`go` 保留延迟/异步语义 | 沿用 `Exec=defer/async`（本轮未改；实参调用在声明处求值，与 Go 一致） |
+| 2.2-4 回调实参绑定到实际形参，形参调用处展开；支持参数/返回值/具名返回 | `bindSeqParams`（按位置；未绑定 → 显式 unknown）+ `seqExpandSingleValue`（字面量内联/具名函数走 `codeSeqForSymbol`）+ 闭包环境链（父环境=创建时环境） |
+| 2.2-5 赋值先 RHS 后 LHS；调用后赋值不倒推 | `recordSeqAssign` 在调用节点生成**之后**执行；测试：`g = func(){Latest}` 后调用 → 只执行 `Latest`，旧 `Overwritten` 不执行 |
+| 条件覆盖多值未消歧 | `IfStmt` 分支各走一份 `seqEnv` 副本并 `mergeBranches` → multi（证据 `ambiguous=true` + candidates），两个候选分别展开；循环 `mergePossible`（体可能 0 次） |
+| 阴影/对象身份 | 环境按 `*ast.Object` 索引（同名不同作用域不串） |
+| 回调逃逸 | 未解析/外部调用里出现函数值参数（值已知或**声明为 func 类型**）→ 调用节点 `Stop.Detail` 标注"逃逸（无法确定是否/何时被调用）"，不展开 |
+| 有调用点但值无法确定 | `seqValueUnknown` → 节点 `Stop.Code=func_value_unbound`、证据 `ambiguous=true`，无子节点 |
+| 实参位置调用的准确目标 | 索引里没有 calls 边（适配器只对非实参调用建边）→ `seqASTCallTarget` 按 AST 对象身份/import 路径恢复精确符号（同包或已索引包；外部库保持 `external_target`） |
+
+**验证**
+
+```sh
+go test ./internal/action -run 'TestSeqFuncValue' -count=1
+go test -tags integration ./integration -run 'TestTodo22' -count=1 -v
+```
+
+- 5 个单测：字面量/IIFE/覆盖顺序/条件多候选/求值顺序、回调绑定链
+  （Entry→Run→f()→Delivered）、未绑定 unknown、逃逸、具名函数值。
+- 真实 CLI（§8 夹具）：`tx.Run` 内 `f(ctx)` 带 `closure` + `callback-binding`
+  证据，`process(inner)` 在变参/工厂未落地前是**未消歧多候选**（`ambiguous`），
+  `store.Insert` 只作为候选出现——不冒充确定链路。
+
+**未做（下一增量 B.5）**：工厂返回函数（`MakeFirst(ctx)` → `First`）、
+条件返回、变参/`[]func` 列表与 range 折叠（`Execute` 的装饰器链）、
+预算 16 路径×32 项。这三个能力落地后 §8 的
+`tx.Run→BeforeSecond→BeforeFirst→Store.Insert→AfterFirst→AfterSecond` 才能
+成为确定链路。

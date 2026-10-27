@@ -85,49 +85,11 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 			Detail: n.FilePath + ":" + itoaSeq(n.LineStart) + "（索引行号处无函数声明）"}
 	}
 
-	// todo10-3：调用点映射用**原始 calls 边**（不预先做接口具体化）——
-	// 具体化留给 walk 层，才能记录候选集合与 ambiguous；否则
-	// CalleesConcrete 会静默把接口调用替换成"第一个实现"。
-	tgts := &seqTargets{}
-	sqlStart := time.Now()
-	// todo21-14.3：请求上下文下的调用边走查（一跳 = 直接邻接查询；取消
-	// 要能终止实际 SQL，而不是只在外层返回）——阈值沿用 MinConfidence。
-	facts, calleeErr := a.repo.GetCalleesContext(req.ctx(), domain.CanonicalID(symID), 1, MinConfidence)
-	req.acc.sqlQueries++
-	req.acc.sqlDur += time.Since(sqlStart)
-	if calleeErr == nil {
-		for _, f := range facts {
-			if ln, ok := f.Metadata["line_num"].(float64); ok {
-				if tgts.byLine == nil {
-					tgts.byLine = map[int]seqTarget{}
-				}
-				tgts.byLine[int(ln)] = seqTarget{tid: string(f.TargetID), confidence: f.Confidence}
-			}
-			if p, ok := f.Metadata["pos"].(float64); ok {
-				if tgts.byPos == nil {
-					tgts.byPos = map[int]seqTarget{}
-				}
-				tgts.byPos[int(p)] = seqTarget{tid: string(f.TargetID), confidence: f.Confidence}
-			}
-			// todo20-9：边按 (caller,target,kind) 汇总——重复调用只有首个
-			// 位置的 metadata。保留目标集合供未命中位置按调用名回退。
-			if name := seqTargetName(string(f.TargetID)); name != "" {
-				if tgts.byName == nil {
-					tgts.byName = map[string][]seqTarget{}
-				}
-				dup := false
-				for _, e := range tgts.byName[name] {
-					if e.tid == string(f.TargetID) {
-						dup = true
-						break
-					}
-				}
-				if !dup {
-					tgts.byName[name] = append(tgts.byName[name], seqTarget{tid: string(f.TargetID), confidence: f.Confidence})
-				}
-			}
-		}
-	}
+	// todo10-3：调用点映射用**原始 calls 边**（具体化留给 walk 层，才能
+	// 记录候选集合与 ambiguous）。todo22 §2：抽成 seqTargetsFor——函数字面量
+	// 内联展开时也要用**字面量所在函数**的调用边（索引把闭包内的调用记在
+	// 外层函数上）。
+	tgts := seqTargetsFor(a, req, symID)
 
 	recvType := ""
 
@@ -159,6 +121,17 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 	req.curBody = fn.Body
 	req.curParams = fn.Type.Params
 	req.curFile = n.FilePath
+	// todo22 §2：函数身份/文件上下文/值环境（形参值来自调用点实参绑定；
+	// 入口函数或外部调用者没有绑定 → 形参是明确的 unknown，而不是猜）。
+	req.curSym = symID
+	req.curTgts = tgts
+	req.curRecvType = recvType
+	req.curRecvDecl = recvDecl
+	req.curCtx = &seqFileCtx{fset: fset, file: f, src: src, rel: n.FilePath}
+	env := newSeqEnv(nil)
+	bindSeqParams(env, fn.Type.Params, req.paramValues)
+	req.env = env
+	req.paramValues = nil
 	// todo10-5：一层条件传播——调用点实参字面量按形参名对齐（下次展开覆盖）
 	req.sceneArgs = paramLiteralArgs(fn.Type.Params, req.callArgLits)
 	req.sceneSrc = paramSourceArgs(fn.Type.Params, req.callArgLits, req.callArgSrcs)

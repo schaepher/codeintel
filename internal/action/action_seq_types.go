@@ -74,6 +74,16 @@ type CodeSequenceRequest struct {
 	cliVersion string
 	// todo13-17：一次分析的源码解析缓存（同文件多函数展开不重复读盘/解析）
 	fileCache map[string]*seqParsedFile
+	// todo22 §2：函数值/闭包数据流——当前函数身份/文件上下文/值环境，
+	// 以及本次调用带给被展开函数的实参值（按位置）与字面量防环集合。
+	curSym      string
+	curTgts     *seqTargets
+	curCtx      *seqFileCtx
+	curRecvType string
+	curRecvDecl map[string]string
+	env         *seqEnv
+	paramValues []seqValue
+	litVisited  map[string]bool
 	// 内部（todo10-5）：场景统计（meta 汇总；req 按值传递——用指针共享）
 	sceneCount *sceneSummary
 }

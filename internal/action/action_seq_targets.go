@@ -8,6 +8,9 @@ import (
 	"go/ast"
 	"go/token"
 	"strings"
+	"time"
+
+	"github.com/schaepher/codeintel/internal/domain"
 )
 
 // seqTargets 时序图调用点 → 被调符号映射（R99-3——用户检查发现：
@@ -147,4 +150,78 @@ func seqSplitTarget(id string) (pkg, name string, method bool) {
 		return s[:i], s[i+1:], false
 	}
 	return "", "", false
+}
+
+// seqTargetsFor 构建某函数的"调用点 → 目标"映射（原始 calls 边）。
+// todo22 §2：函数字面量内联展开时复用**字面量所在函数**的映射——索引把
+// 闭包体内的调用记在外层函数上（位置偏移仍是全文件绝对偏移）。
+func seqTargetsFor(a *Actions, req CodeSequenceRequest, symID string) *seqTargets {
+	tgts := &seqTargets{}
+	sqlStart := time.Now()
+	// todo21-14.3：请求上下文下的调用边走查（一跳 = 直接邻接查询；取消要能
+	// 终止实际 SQL）——阈值沿用 MinConfidence。
+	facts, calleeErr := a.repo.GetCalleesContext(req.ctx(), domain.CanonicalID(symID), 1, MinConfidence)
+	req.acc.sqlQueries++
+	req.acc.sqlDur += time.Since(sqlStart)
+	if calleeErr != nil {
+		return tgts
+	}
+	for _, f := range facts {
+		if ln, ok := f.Metadata["line_num"].(float64); ok {
+			if tgts.byLine == nil {
+				tgts.byLine = map[int]seqTarget{}
+			}
+			tgts.byLine[int(ln)] = seqTarget{tid: string(f.TargetID), confidence: f.Confidence}
+		}
+		if p, ok := f.Metadata["pos"].(float64); ok {
+			if tgts.byPos == nil {
+				tgts.byPos = map[int]seqTarget{}
+			}
+			tgts.byPos[int(p)] = seqTarget{tid: string(f.TargetID), confidence: f.Confidence}
+		}
+		// todo20-9：边按 (caller,target,kind) 汇总——重复调用只有首个位置的
+		// metadata。保留目标集合供未命中位置按调用名回退。
+		if name := seqTargetName(string(f.TargetID)); name != "" {
+			if tgts.byName == nil {
+				tgts.byName = map[string][]seqTarget{}
+			}
+			dup := false
+			for _, e := range tgts.byName[name] {
+				if e.tid == string(f.TargetID) {
+					dup = true
+					break
+				}
+			}
+			if !dup {
+				tgts.byName[name] = append(tgts.byName[name], seqTarget{tid: string(f.TargetID), confidence: f.Confidence})
+			}
+		}
+	}
+	return tgts
+}
+
+// seqASTCallTarget 按 AST 对象身份/导入路径恢复**准确**调用目标（不查名称、
+// 不做模糊搜索）：包级函数的 Ident 声明对象，或包选择器 pkg.Fn 的 import
+// 路径。todo22 §2.2/§3.1：实参位置的调用在索引里没有 calls 边（适配器只对
+// 非实参调用建边），但工厂/回调实参必须能按准确符号展开。
+func seqASTCallTarget(fun ast.Expr, f *ast.File, curPkg string) (string, bool) {
+	switch fn := fun.(type) {
+	case *ast.Ident:
+		if fn.Obj == nil || fn.Obj.Kind != ast.Fun {
+			return "", false
+		}
+		if curPkg == "" {
+			return "", false
+		}
+		return "symbol:go:" + curPkg + ":" + fn.Name, true
+	case *ast.SelectorExpr:
+		id, ok := fn.X.(*ast.Ident)
+		if !ok || (id.Obj != nil && id.Obj.Kind != ast.Pkg) {
+			return "", false
+		}
+		if p := seqImportPath(f, id.Name); p != "" {
+			return "symbol:go:" + p + ":" + fn.Sel.Name, true
+		}
+	}
+	return "", false
 }

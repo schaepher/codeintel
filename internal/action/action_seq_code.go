@@ -118,6 +118,9 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	if req.fileCache == nil {
 		req.fileCache = map[string]*seqParsedFile{}
 	}
+	if req.litVisited == nil {
+		req.litVisited = map[string]bool{} // todo22 §2：函数字面量展开防环
+	}
 	// 阶段 1：符号解析（只查库，不读源码——与阶段 2/3 不重叠）
 	symStart := time.Now()
 	n, err := a.ResolveSymbol(req.Target)
@@ -172,24 +175,24 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	//   resolve = 解析符号；read = 读源码+语法解析；walk = 遍历展开（含
 	//   调用点定位/具体化/子函数递归）——walk 时间要扣掉其中的 read。
 	timing := &SeqTiming{
-		ResolveMS:   millis(tResolved.Sub(start)),
-		ReadMS:      millis(req.acc.read),
-		WalkMS:      millis(tWalked.Sub(tResolved) - req.acc.read),
-		TotalMS:     millis(tWalked.Sub(start)),
-		Nodes:       countSeqNodes(root),
-		Depth:       req.Depth,
-		Stop:        stopCode,
-		SymLookups:  req.acc.symLookups,
-		SymMS:       millis(req.acc.symDur),
-		Signature:   req.acc.sigLookups,
-		SignatureMS: millis(req.acc.sigDur),
-		Dispatch:    req.acc.dispatch,
-		DispatchMS:  millis(req.acc.dispatchDur),
-		SQLQueries:  req.acc.sqlQueries,
-		SQLMS:       millis(req.acc.sqlDur),
-		CacheHits:   req.acc.cacheHits,
-		CacheMisses: req.acc.cacheMisses,
-		StatsScope: "explicit_repo_calls: get_latest/resolve_symbol/get_symbol/callees/interface_impl/implements_edges",
+		ResolveMS:    millis(tResolved.Sub(start)),
+		ReadMS:       millis(req.acc.read),
+		WalkMS:       millis(tWalked.Sub(tResolved) - req.acc.read),
+		TotalMS:      millis(tWalked.Sub(start)),
+		Nodes:        countSeqNodes(root),
+		Depth:        req.Depth,
+		Stop:         stopCode,
+		SymLookups:   req.acc.symLookups,
+		SymMS:        millis(req.acc.symDur),
+		Signature:    req.acc.sigLookups,
+		SignatureMS:  millis(req.acc.sigDur),
+		Dispatch:     req.acc.dispatch,
+		DispatchMS:   millis(req.acc.dispatchDur),
+		SQLQueries:   req.acc.sqlQueries,
+		SQLMS:        millis(req.acc.sqlDur),
+		CacheHits:    req.acc.cacheHits,
+		CacheMisses:  req.acc.cacheMisses,
+		StatsScope:   "explicit_repo_calls: get_latest/resolve_symbol/get_symbol/callees/interface_impl/implements_edges",
 		UncoveredOps: "SSA adapter 内部 SQL 与预计算（计入 walk_ms）；源码读取（read_ms）",
 	}
 	// todo12-13：原分析诊断先固定下来（焦点/场景投影不得顶替 depth/unknown）

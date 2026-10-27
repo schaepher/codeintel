@@ -27,6 +27,8 @@ const (
 	SeqStopFuncNotFound = "func_not_found" // 源码里按行号定位不到函数声明
 	SeqStopParseError   = "parse_error"    // 源码语法解析失败
 	SeqStopFiltered     = "filtered"       // 被时序过滤规则排除
+	// todo22 §2：函数值（回调/字面量）在调用点无法确定 → 保留 unknown 节点
+	SeqStopFuncValueUnbound = "func_value_unbound"
 	// todo13-13：消费者可区分的调用分类（不再把所有未解析笼统称 index_gap）
 	SeqStopExternalTarget = "external_target"        // 外部库目标（调用表达式已知，库内实现未展开）
 	SeqStopUnknownImpl    = "unknown_implementation" // 接口方法无可证明实现
@@ -46,6 +48,9 @@ const (
 	SeqEvidenceFieldFlow = "field_dataflow" // receiver 字段赋值来源（SSA 摘要 + 源码）
 	SeqEvidenceLocalVar  = "localvar"       // 局部变量初始化来源（构造器/字面量）
 	SeqEvidenceGrpcImpl  = "grpc_impl"      // grpc 服务实现方法
+	// todo22 §2：函数值调用（IIFE / 闭包变量 / 回调形参绑定）——按调用点
+	// 数据流证明执行，证据记录绑定/调用位置与依据。
+	SeqEvidenceClosure = "closure"
 )
 
 // SeqReasonAggregatedCallEdge 目标由同函数汇总边的调用名唯一匹配恢复
@@ -234,6 +239,10 @@ func seqEvidenceVerdict(ev *SeqEvidence) string {
 		}
 		return SeqVerdictCorroborated
 	case SeqEvidenceFieldFlow, SeqEvidenceLocalVar, SeqEvidenceGrpcImpl, SeqEvidenceIface:
+		return SeqVerdictCorroborated
+	case SeqEvidenceClosure:
+		// 语法级数据流（绑定证明）：有明确绑定 → corroborated；
+		// 未绑定/多值未消歧（Ambiguous）→ 已在前面判为 unverified。
 		return SeqVerdictCorroborated
 	}
 	return SeqVerdictUnverified

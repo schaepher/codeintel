@@ -49,6 +49,11 @@ func collectCalls(expr ast.Expr) []*ast.CallExpr {
 	}
 	var out []*ast.CallExpr
 	ast.Inspect(expr, func(n ast.Node) bool {
+		if _, isLit := n.(*ast.FuncLit); isLit {
+			// todo22 §2：函数字面量只建立函数值——其体内的调用不在出现处
+			// 执行，收集调用时不得穿透。
+			return false
+		}
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
 			return true

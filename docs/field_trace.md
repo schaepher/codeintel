@@ -6385,3 +6385,55 @@ todo21 §110-14.4 把深递归物化列为"已知但未量化"。本轮交付可
 `integration/todo22_symbol_source_test.go` 真实 `init` 后断言 §6 期望的
 `source` 五字段逐字节相同（`flow.go` 15–18 行、原样文本），并断言无参数时
 无 `source` 键、struct 节点失败时 exit≠0 且 stdout 空。
+
+## §114 todo22 §2（第一增量）：函数值/闭包/回调执行证明（2026-10-27）
+
+### 语义（用户确认）
+
+函数字面量只建值，**在实际调用处**展开；回调按调用点数据流证明（实参→形参
+绑定），证据记录绑定/调用位置与依据；确定不执行的不画；可能执行但证据不足
+的保留明确 unknown（未绑定/多值未消歧/逃逸），不展开内部执行。
+
+### 实现
+
+- `action_seq_funcvalue*.go`：`seqValue`（lit/named/unknown/multi）+ `seqEnv`
+  （按 `*ast.Object` 身份，父环境=闭包捕获；`mergeBranches` 条件合并、
+  `mergePossible` 循环"可能未执行"）、`seqValueOfExpr`（字面量/标识符绑定/
+  包选择器按 import 路径/调用结果与复合字面量→明确 unknown）、
+  `bindSeqParams`（按位置绑定，未绑定=unknown）、`recordSeqAssign`
+  （赋值在调用节点之后记录 → RHS 读旧值）。
+- `action_seq_funcvalue_exec.go`：`seqCallFuncValue`（IIFE/闭包变量/回调形参）、
+  `seqExpandSingleValue`（字面量内联遍历 = 用字面量所在函数的 calls 边 +
+  闭包环境；具名函数走 `codeSeqForSymbol` 并传实参绑定）、
+  `seqArgCallNodes`（实参求值顺序，跳过 FuncLit）、`seqFuncArgEscape`。
+- `action_seq_walk.go`：`collectCalls` 不穿透 FuncLit；Expr/Assign/Return/
+  Send/select Comm 先出实参调用；`DeclStmt` 记录 `var f = func(){}`；
+  If 分支环境合并；For/Range 循环"可能未执行"合并。
+- `action_seq_targets.go`：抽 `seqTargetsFor`（字面量内联展开要复用**字面量
+  所在函数**的调用边——索引把闭包内调用记在外层函数上）+ `seqASTCallTarget`
+  （实参位置调用没有 calls 边，按 AST 对象身份/import 路径恢复精确符号；
+  外部库不用它冒充可展开目标）。
+- 证据：新增 `SeqEvidenceClosure` + 停止码 `func_value_unbound`；闭合证据
+  reason 为 `iife`/`callback-binding`/`func-value-var`（+`-literal`/`-named`），
+  未消歧 `func-value-multi`，未知 `func-value-unknown`（均 `ambiguous`）。
+
+### 反例矩阵与实测
+
+- 未调用字面量、作为实参传入但未调用的回调 → 零内部调用；
+- 调用前覆盖 → 旧值不执行；条件覆盖 → 两候选分别展开 + 整体 ambiguous；
+- IIFE 恰一次；实参工厂节点先于外层调用（Go 求值顺序）；
+- `Entry → Run → f()` 的 `f()` 证据 `closure`+`callback-binding`，其下展开
+  回调内部调用；形参无绑定 → `func_value_unbound` 且无子节点；
+- 函数值参数进入未解析调用 → `Stop.Detail` 标注"逃逸"；
+- §8 真实夹具：`process(inner)` 在变参/工厂未落地前必须是 ambiguous 多候选，
+  `store.Insert` 只作为候选出现（不冒充确定链路）。
+
+验证：`go test ./internal/action -run TestSeqFuncValue`、
+`go test -tags integration ./integration -run TestTodo22`、
+`scripts/verify.sh --quick`、`make it` 全绿。
+
+### 未做
+
+工厂返回函数 / 条件返回 / 变参+`[]func` 列表与 range 折叠（B.5）——做完
+§8 的 `BeforeSecond→BeforeFirst→Store.Insert→AfterFirst→AfterSecond` 才是
+确定链路。
