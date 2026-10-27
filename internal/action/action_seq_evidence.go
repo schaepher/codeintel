@@ -174,15 +174,13 @@ func (a *Actions) seqIfaceMethodImpl(methodID string) (chosen string, candidates
 	if !ok {
 		return "", nil, false
 	}
-	edges, err := a.repo.GetImplementsEdges()
+	// todo22 §7.1：按接口精确查询（整数邻接索引）——原实现加载**全量**
+	// implements 边再逐条过滤，大仓上一次派发就要扫全表。
+	impls, err := a.repo.InterfaceImplsExact(ifaceID)
 	if err != nil {
 		return chosen, nil, true
 	}
-	for _, e := range edges {
-		if string(e.SourceID) != ifaceID {
-			continue
-		}
-		impl := string(e.TargetID)
+	for _, impl := range impls {
 		if methodName == "" {
 			candidates = append(candidates, impl)
 			continue

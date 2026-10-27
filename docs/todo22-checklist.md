@@ -95,8 +95,8 @@ make it
 | 4.2 | 外部依赖源码按需解析（`go list -e -json -find -mod=readonly`、离线、缓存） | **已完成（2026-10-27，B.9）**：离线只读 go list + 请求内缓存 + 形参重新绑定；见 B.9 |
 | 5 | 场景推导（整型/枚举/跨包常量/短路/取反） | **已实现**（`action_scene*.go`，含 `Source=7/19` 与 `int32(...)` 场景测试） |
 | 6 | `SymbolSource` + `query symbol --include-source` | **已完成（2026-10-27）**，见 B.3 |
-| 7.1 | 接口候选精确邻接查询（不 Expand/不加载全量 implements） | 部分：`InterfaceMethodImpl` 单符号查询已存在；Reader 精确接口查询 + 拒绝全图扫描的包装器测试**未实现** |
-| 7.2 | 路由投影走已有索引 + EXPLAIN 计划测试 | 部分：`repo_packages_plan_test.go` 已锁包清单计划；路由投影计划未覆盖 |
+| 7.1 | 接口候选精确邻接查询（不 Expand/不加载全量 implements） | **已完成（2026-10-27，B.10）**：`InterfaceImplsExact`（整数邻接）+ 拒绝模糊/全扫的 Reader 包装器测试 + 冷暖次数对照 |
+| 7.2 | 路由投影走已有索引 + EXPLAIN 计划测试 | **已完成（2026-10-27，B.10）**：kind 常量/属性表达式幂等索引 + EXPLAIN 计划锁 + 结果等价 |
 | 7.3 | 请求内缓存（工厂来源/字段类型/DI/接口候选/AST） | 部分：`action_seq_*` 有请求级缓存设施（需按本节逐项补齐 DH/工厂/AST） |
 | 7.4 | 取消贯穿 SQL/源码定位/递归 | **已实现**（todo21-14.4/14.5，含物化 CTE 与预算记录） |
 | 7.5 | JSON/文本/Mermaid/SVG 同源 + 证据/身份可核对 | 部分：todo19/20/21 已做重复调用点/证据/矢量图；统一分析树与 `*_projection` 诊断已实现，新增能力须继续遵守 |
@@ -285,3 +285,16 @@ bash scripts/verify.sh --quick && make it
 **测试**（`internal/action/action_seq_external_test.go`，夹具用 `replace ../ext` 的本地模块，离线可复现）：回调已执行/未执行两种情形、depth=1 目标保留、缺失包 external_target + go.mod 只读。
 
 **未做**：外部包的**方法调用**（`extT.Method()` 需要 receiver 类型解析）、外部包内部跨包调用的目标解析（外部包没有本仓索引，只有回调/形参路径被证明）、go.work 工作区形态的外部模块。
+
+### B.10 §7.1/§7.2 精确查询与索引计划门禁（已完成，2026-10-27）
+
+| 要求 | 实现 / 证据 |
+| --- | --- |
+| 接口候选查询用准确 symbol 的**整数邻接索引**，不为一次派发加载全量 implements 边 | 新增 `Repo.InterfaceImplsExact(ifaceID)`：`nodes.id → id_int` 后走 `UNIQUE(source_ref,target_ref,kind)` 的最左前缀（不再 JOIN `edges_v` 视图）；`interfaceImpls` 与 `seqIfaceMethodImpl` 都改用它（后者原先 `GetImplementsEdges()` 全量扫描） |
+| 提供 Reader 精确接口查询 | `action.Reader.InterfaceImplsExact`；派发路径不再依赖"全量边 + 内存过滤" |
+| 拒绝模糊符号扫描/全图实现扫描的 Reader 包装器 | `strictReader`（`action_seq_iface_exact_test.go`）覆盖 `GetSymbolByName`/`AllSymbolNames`/`Expand`/`AllNodeIDs`/`GetImplementsEdges` 并全部报错；断言派发期间 0 次调用、`InterfaceImplsExact` 有调用 |
+| 固定输入下的冷暖耗时与查询次数对照（不能只报缓存命中或退出码） | 同一 canonical 入口跑两次：`cold: queries=7 total=0.634ms` / `warm: queries=7 total=0.500ms`，断言**次数一致**（确定性证据）+ 单次预算 ≤40 |
+| §7.2 路由投影走可命中索引；仅加索引不强制 schema 升级/重建业务索引 | `schema.go` 幂等加法：`idx_nodes_grpc_service`（部分索引 `WHERE kind='grpc_service'`）+ `idx_nodes_registers_service`（`json_extract` 表达式索引，因查询无 kind 谓词）；`bulk_load.go` 重建清单同步；**不递增 SchemaVersion** |
+| 测试真实 EXPLAIN 查询计划，不靠过滤合法服务名缩小结果 | `repo_routes_plan_test.go`：SQL 与生产共用常量（`grpcServicesSQL`/`registerNodeSQL`），`EXPLAIN QUERY PLAN` 断言命中索引且非 SCAN；同时断言结果等价（`GetGrpcServices`=1 条、`GetRegisterNode` 命中注册函数） |
+
+**未做**：`chainSymbols`（ext-chain 全链 BFS）仍会一次性加载 calls/implements 边——那是"整链"用例而非单次派发，改造成本高、收益待测（记入 §B.1 备注）。

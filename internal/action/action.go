@@ -101,8 +101,11 @@ type Reader interface {
 
 	// R95：grpc/http 调用链（query grpc-callers/http-callers/ext-chain）
 	GetImplementsEdges() ([]*domain.Fact, error) // 全部 implements 边（排除 Unimplemented 桩）
-	AllNodeIDs() ([]domain.CanonicalID, error)   // 全部节点 ID（接口具体化判定）
-	EnsureExtChainCache() error                  // 建 ext_chain_cache 表（幂等）
+	// InterfaceImplsExact todo22 §7.1：单接口的 implements 目标（整数邻接，
+	// 不加载全量 implements 边）
+	InterfaceImplsExact(ifaceID string) ([]string, error)
+	AllNodeIDs() ([]domain.CanonicalID, error) // 全部节点 ID（接口具体化判定）
+	EnsureExtChainCache() error                // 建 ext_chain_cache 表（幂等）
 	ExtChainCacheGet(symbol, build string) (string, bool)
 	ExtChainCacheSet(symbol, build, result string) error
 

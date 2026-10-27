@@ -225,7 +225,7 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 			dispStart := time.Now()
 			impl, cands, ok := a.seqIfaceMethodImpl(tid)
 			req.acc.dispatch++
-			req.acc.sqlQueries += 2 // InterfaceMethodImpl + GetImplementsEdges
+			req.acc.sqlQueries += 2 // InterfaceMethodImpl + InterfaceImplsExact（精确查询）
 			req.acc.dispatchDur += time.Since(dispStart)
 			if ok {
 				// todo22 §3.2：多个未验证候选 → 保留完整候选集合，**不选第一个**

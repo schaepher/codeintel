@@ -164,18 +164,35 @@ func (r *Repo) interfaceImpls(ifaceID string) []string {
 	if kind != "interface" {
 		return nil
 	}
-	implRows, err := r.Query(`SELECT target_id FROM edges_v
-		WHERE source_id = ? AND kind = 'implements' AND target_id NOT LIKE '%Unimplemented%'`, ifaceID)
+	implIDs, err := r.InterfaceImplsExact(ifaceID)
 	if err != nil {
 		return nil
 	}
-	var implIDs []string
-	for implRows.Next() {
-		var id string
-		if implRows.Scan(&id) == nil {
-			implIDs = append(implIDs, id)
-		}
-	}
-	implRows.Close()
 	return implIDs
+}
+
+// InterfaceImplsExact 接口的实现类型列表（todo22 §7.1：**精确**查询——
+// 用 nodes.id → id_int 的整数邻接 + UNIQUE(source_ref,target_ref,kind) 前缀，
+// 不 JOIN edges_v 视图、不加载全量 implements 边）。
+func (r *Repo) InterfaceImplsExact(ifaceID string) ([]string, error) {
+	logger := zap.L()
+	logger.Debug("enter (Repo).InterfaceImplsExact")
+	defer logger.Debug("exit (Repo).InterfaceImplsExact")
+	rows, err := r.Query(`SELECT t.id FROM nodes s
+		JOIN edges e ON e.source_ref = s.id_int AND e.kind = 'implements'
+		JOIN nodes t ON t.id_int = e.target_ref
+		WHERE s.id = ? AND t.id NOT LIKE '%Unimplemented%'`, ifaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }

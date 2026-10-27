@@ -63,6 +63,12 @@ CREATE TABLE IF NOT EXISTS edges (
 --   idx_edges_confidence → 全仓库无任何查询按 confidence 过滤（仅 SELECT 列）
 -- 旧库由 dropRedundantEdgeIndexes（maintenance.go）在 Open 时幂等 DROP——
 -- **不递增 SchemaVersion**：删索引不改表结构，不该逼用户重建整库。
+-- todo22 §7.2：路由投影（kind 常量查询）走可命中的索引。幂等加法——不改
+-- 表结构、不递增 SchemaVersion、不要求重建业务索引（旧库 Open 时自动补建）。
+CREATE INDEX IF NOT EXISTS idx_nodes_grpc_service ON nodes(kind) WHERE kind = 'grpc_service';
+-- registers_service 属性查询（Register 函数识别）用表达式索引；查询里没有
+-- kind 谓词，所以不能做成部分索引。
+CREATE INDEX IF NOT EXISTS idx_nodes_registers_service ON nodes(json_extract(properties, '$.registers_service'));
 CREATE INDEX IF NOT EXISTS idx_edges_kind ON edges(kind);
 -- 唯一以 target_ref 打头的索引（入边查询靠它，必须保留）
 CREATE INDEX IF NOT EXISTS idx_edges_target_kind ON edges(target_ref, kind);

@@ -1,0 +1,122 @@
+package action
+
+// todo22 §7.1 测试：接口派发只走**精确**查询——拒绝模糊符号扫描与全量
+// implements 扫描；固定输入下给出冷暖查询耗时与查询次数对照。
+
+import (
+	"errors"
+	"testing"
+
+	"github.com/schaepher/codeintel/internal/domain"
+)
+
+// strictReader 包一层 Reader：记录并拒绝"模糊名称搜索/全图扫描"类调用。
+type strictReader struct {
+	Reader
+	t *testing.T
+
+	implementsAll   int // GetImplementsEdges（全量 implements 边）
+	fuzzyNameLookup int // GetSymbolByName（模糊名称扫描）
+	allNames        int // AllSymbolNames（全名池）
+	expand          int // Expand（整图展开）
+	allNodeIDs      int // AllNodeIDs（全节点）
+	exactImpls      int // InterfaceImplsExact（允许的精确查询）
+}
+
+func (s *strictReader) GetImplementsEdges() ([]*domain.Fact, error) {
+	s.implementsAll++
+	return nil, errors.New("禁止：一次派发不得加载全量 implements 边（§7.1）")
+}
+
+func (s *strictReader) GetSymbolByName(name string) ([]*domain.CodeEntity, error) {
+	s.fuzzyNameLookup++
+	return nil, errors.New("禁止：内部 canonical ID 不得走模糊名称搜索（§7.1）")
+}
+
+func (s *strictReader) AllSymbolNames(limit int) ([]string, error) {
+	s.allNames++
+	return nil, errors.New("禁止：不得拉全名池（§7.1）")
+}
+
+func (s *strictReader) Expand(id domain.CanonicalID) ([]*domain.Fact, []*domain.CodeEntity, error) {
+	s.expand++
+	return nil, nil, errors.New("禁止：一次派发不得 Expand 整图（§7.1）")
+}
+
+func (s *strictReader) AllNodeIDs() ([]domain.CanonicalID, error) {
+	s.allNodeIDs++
+	return nil, errors.New("禁止：不得加载全节点（§7.1）")
+}
+
+func (s *strictReader) InterfaceImplsExact(ifaceID string) ([]string, error) {
+	s.exactImpls++
+	return s.Reader.InterfaceImplsExact(ifaceID)
+}
+
+// TestSeqIfaceExactQueriesAndBudget：接口派发只用精确查询；冷暖查询次数一致。
+func TestSeqIfaceExactQueriesAndBudget(t *testing.T) {
+	src := `package m
+
+type Doer interface{ Do() }
+
+type A struct{}
+type B struct{}
+
+func (a *A) Do() { OnlyA() }
+func (b *B) Do() { OnlyB() }
+
+func OnlyA() {}
+func OnlyB() {}
+
+func Run(d Doer) { d.Do() }
+`
+	acts, dir := seedIfaceRepo(t, src, []string{"A", "B"})
+	strict := &strictReader{Reader: acts.repo, t: t}
+	acts.repo = strict
+
+	// 入口用 canonical ID（用户输入的模糊解析属另一条已测路径 §14.1；这里
+	// 专门验证"内部派发不得模糊/全扫"）
+	req := CodeSequenceRequest{Target: "symbol:go:example.com/m:Run", RepoAbs: dir, Depth: 3}
+	root, err := acts.CodeSequence(req)
+	if err != nil {
+		t.Fatalf("CodeSequence: %v", err)
+	}
+	if root.Meta == nil || root.Meta.Timing == nil {
+		t.Fatalf("缺少 timing 元信息")
+	}
+	coldQueries := root.Meta.Timing.SQLQueries
+	coldMS := root.Meta.Timing.TotalMS
+
+	// 同一输入第二次（暖）：文件解析/解析缓存命中，查询次数必须一致
+	root2, err := acts.CodeSequence(CodeSequenceRequest{
+		Target: "symbol:go:example.com/m:Run", RepoAbs: dir, Depth: 3})
+	if err != nil {
+		t.Fatalf("CodeSequence(warm): %v", err)
+	}
+	warmQueries := root2.Meta.Timing.SQLQueries
+	warmMS := root2.Meta.Timing.TotalMS
+
+	if strict.implementsAll != 0 {
+		t.Errorf("不得加载全量 implements 边（调用 %d 次）", strict.implementsAll)
+	}
+	if strict.fuzzyNameLookup != 0 || strict.allNames != 0 {
+		t.Errorf("不得走模糊名称搜索/全名池：GetSymbolByName=%d AllSymbolNames=%d",
+			strict.fuzzyNameLookup, strict.allNames)
+	}
+	if strict.expand != 0 || strict.allNodeIDs != 0 {
+		t.Errorf("不得整图展开：Expand=%d AllNodeIDs=%d", strict.expand, strict.allNodeIDs)
+	}
+	if strict.exactImpls == 0 {
+		t.Errorf("应使用精确接口查询 InterfaceImplsExact（0 次）")
+	}
+	if coldQueries != warmQueries {
+		t.Errorf("冷暖查询次数应一致（查询次数是确定性证据）：cold=%d warm=%d", coldQueries, warmQueries)
+	}
+	// 固定输入下的查询预算（超出说明有隐藏全扫/重复查询）
+	const budget = 40
+	if coldQueries > budget {
+		t.Errorf("单次派发查询次数 %d 超过预算 %d", coldQueries, budget)
+	}
+	t.Logf("[seq.iface] cold: queries=%d total=%.3fms", coldQueries, coldMS)
+	t.Logf("[seq.iface] warm: queries=%d total=%.3fms", warmQueries, warmMS)
+}

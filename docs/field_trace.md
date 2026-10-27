@@ -6588,3 +6588,45 @@ DI 注解解析独立成 `action_seq_di_annotation.go`，保持文件 ≤300 行
 
 **测试**：`replace ../ext` 的本地模块夹具，覆盖"外部函数调用形参→回调执行"、
 "只保存不调用→回调不执行"、`depth=1` 目标保留、缺失包 + go.mod 只读。
+
+## §120 todo22 §7.1/§7.2：精确接口查询 + 路由投影索引计划（2026-10-27）
+
+### §7.1 单次派发不再全扫
+
+`seqIfaceMethodImpl` 原来调 `GetImplementsEdges()`（**全量** implements 边）再内存
+过滤接口；大仓上一次派发就是一次全表扫描。改为新仓储方法
+`Repo.InterfaceImplsExact(ifaceID)`：
+
+```sql
+SELECT t.id FROM nodes s
+JOIN edges e ON e.source_ref = s.id_int AND e.kind = 'implements'
+JOIN nodes t ON t.id_int = e.target_ref
+WHERE s.id = ? AND t.id NOT LIKE '%Unimplemented%'
+```
+
+走 `nodes.id` 唯一点查 → 整数 `source_ref` 的 `UNIQUE(source_ref,target_ref,kind)`
+最左前缀，不 JOIN `edges_v` 视图、不加载全量边。`interfaceImpls`（供
+`InterfaceMethodImpl`）也复用它。
+
+门禁测试 `TestSeqIfaceExactQueriesAndBudget`：`strictReader` 包装器把
+`GetSymbolByName`/`AllSymbolNames`/`Expand`/`AllNodeIDs`/`GetImplementsEdges`
+全部改成报错并计数，断言派发期间 0 次；同一 canonical 入口跑两次给出
+`cold: queries=7 total=0.634ms` / `warm: queries=7 total=0.500ms`，断言查询
+次数一致（速度只作参考，次数才可断言）。
+
+### §7.2 路由投影索引（幂等加法）
+
+- `idx_nodes_grpc_service`：部分索引 `ON nodes(kind) WHERE kind='grpc_service'`
+  （查询谓词 `kind='grpc_service'` 蕴含索引谓词，规划器可用）。
+- `idx_nodes_registers_service`：`ON nodes(json_extract(properties,'$.registers_service'))`
+  ——该查询没有 kind 谓词，只能做表达式索引。
+- 两处都在 `schema.go` 用 `CREATE INDEX IF NOT EXISTS`（旧库 Open 自动补建，
+  **不递增 SchemaVersion**、不要求 reindex），并同步进 `bulk_load.go` 的
+  重建清单（全量构建会先 DROP 再建）。
+- `repo_routes_plan_test.go` 用 `EXPLAIN QUERY PLAN` 锁计划（SQL 与生产共用
+  常量，避免漂移），并断言投影结果等价（不是靠过滤服务名缩小结果）。
+
+### 未做
+
+`chainSymbols`（ext-chain 全链 BFS）仍一次性加载 calls/implements 边——属"整链"
+用例，改造需按链局部取边；已记入 checklist。

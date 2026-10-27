@@ -13,14 +13,26 @@ import (
 	"go.uber.org/zap"
 )
 
+// 路由投影 SQL（todo22 §7.2）：查询与 EXPLAIN 计划测试共用同一常量，
+// 避免"测的语句和生产跑的不是同一句"。
+const (
+	grpcServicesSQL = `SELECT id, kind, name, file_path, line_start, line_end, properties
+		FROM nodes WHERE kind = 'grpc_service'`
+	registerNodeSQL = `SELECT id, kind, name, file_path, line_start, line_end, properties
+		FROM nodes WHERE json_extract(properties, '$.registers_service') = ? LIMIT 1`
+	httpRoutesSQL = `SELECT id, kind, name, file_path, line_start, line_end, properties
+		FROM nodes WHERE kind = 'http_route'`
+	cliCommandsSQL = `SELECT id, kind, name, file_path, line_start, line_end, properties
+		FROM nodes WHERE kind = 'cli_command'`
+)
+
 // GetGrpcServices kind='grpc_service' 节点全量（含 properties——
 // service_name/methods 属性）。
 func (r *Repo) GetGrpcServices() ([]*domain.CodeEntity, error) {
 	logger := zap.L()
 	logger.Debug("enter (Repo).GetGrpcServices")
 	defer logger.Debug("exit (Repo).GetGrpcServices")
-	rows, err := r.Query(`SELECT id, kind, name, file_path, line_start, line_end, properties
-		FROM nodes WHERE kind = 'grpc_service'`)
+	rows, err := r.Query(grpcServicesSQL)
 	if err != nil {
 		return nil, err
 	}
@@ -34,8 +46,7 @@ func (r *Repo) GetRegisterNode(svcName string) (*domain.CodeEntity, error) {
 	logger := zap.L()
 	logger.Debug("enter (Repo).GetRegisterNode")
 	defer logger.Debug("exit (Repo).GetRegisterNode")
-	n, err := scanNode(r.QueryRow(`SELECT id, kind, name, file_path, line_start, line_end, properties
-		FROM nodes WHERE json_extract(properties, '$.registers_service') = ? LIMIT 1`, svcName))
+	n, err := scanNode(r.QueryRow(registerNodeSQL, svcName))
 	if errors.Is(err, domain.ErrNotFound) {
 		return nil, nil
 	}
@@ -109,8 +120,7 @@ func (r *Repo) GetCLICommandNodes() ([]*domain.CodeEntity, error) {
 	logger := zap.L()
 	logger.Debug("enter (Repo).GetCLICommandNodes")
 	defer logger.Debug("exit (Repo).GetCLICommandNodes")
-	rows, err := r.Query(`SELECT id, kind, name, file_path, line_start, line_end, properties
-		FROM nodes WHERE kind = 'cli_command'`)
+	rows, err := r.Query(cliCommandsSQL)
 	if err != nil {
 		return nil, err
 	}
@@ -139,8 +149,7 @@ func (r *Repo) GetHTTPRouteNodes() ([]*domain.CodeEntity, error) {
 	logger := zap.L()
 	logger.Debug("enter (Repo).GetHTTPRouteNodes")
 	defer logger.Debug("exit (Repo).GetHTTPRouteNodes")
-	rows, err := r.Query(`SELECT id, kind, name, file_path, line_start, line_end, properties
-		FROM nodes WHERE kind = 'http_route'`)
+	rows, err := r.Query(httpRoutesSQL)
 	if err != nil {
 		return nil, err
 	}

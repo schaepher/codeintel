@@ -24,6 +24,8 @@ var bulkLoadIndexes = []struct {
 	{"nodes", "idx_nodes_name", "CREATE INDEX IF NOT EXISTS idx_nodes_name ON nodes(name)"},
 	{"nodes", "idx_nodes_field_path", "CREATE INDEX IF NOT EXISTS idx_nodes_field_path ON nodes(json_extract(properties, '$.full_path')) WHERE kind = 'field_access'"},
 	{"nodes", "idx_nodes_func_id", "CREATE INDEX IF NOT EXISTS idx_nodes_func_id ON nodes(json_extract(properties, '$.func_id'))"},
+	{"nodes", "idx_nodes_grpc_service", "CREATE INDEX IF NOT EXISTS idx_nodes_grpc_service ON nodes(kind) WHERE kind = 'grpc_service'"},
+	{"nodes", "idx_nodes_registers_service", "CREATE INDEX IF NOT EXISTS idx_nodes_registers_service ON nodes(json_extract(properties, '$.registers_service'))"},
 	{"edges", "idx_edges_kind", "CREATE INDEX IF NOT EXISTS idx_edges_kind ON edges(kind)"},
 	{"edges", "idx_edges_target_kind", "CREATE INDEX IF NOT EXISTS idx_edges_target_kind ON edges(target_ref, kind)"},
 	{"function_field_summary", "idx_summary_field", "CREATE INDEX IF NOT EXISTS idx_summary_field ON function_field_summary(field_path)"},
