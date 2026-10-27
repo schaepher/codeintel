@@ -7070,3 +7070,27 @@ cwd，主模块 go.mod 没有该间接依赖 require 时会定位失败。
 `TestIndexedConstructorReturnCache` 锁定工厂返回类型缓存命中同一结果。
 **判定**：缓存收益成立（查询/解析次数随调用点线性下降的隐患已消除），
 故落地；未做更激进的"跨请求缓存"（源码可能随工作区变化，请求级最安全）。
+
+## §135 todo22 P2：go-micro 根包 RegisterHandler 的具体类型实参（2026-10-27）
+
+**问题**：`micro.RegisterHandler(s server.Server, hdlr any)` 的第二参是 `any`，
+`microRegisterShape` 只从**形参类型**取 handler 接口名 → 具体类型注册
+（`micro.RegisterHandler(s, new(AccountServer))`）永远返回 `rpc_impl_missing`。
+
+**改法**（`ast_micro.go`）：
+- `microRegisterShape` 增加 `argType`（`TypesInfo.TypeOf(call.Args[1])`）；
+  根包形态先用 `microConcreteHandler(argType)`，再回退接口形态。
+- `microConcreteHandler`：具名非接口类型 → handler 名 = **类型名本身**
+  （go-micro 反射得到的 handler 名就是类型名，endpoint 前缀为
+  `AccountServer.Apply`），方法集取 `types.NewMethodSet(NewPointer(named))`
+  的导出方法（跳过 `mustEmbed*`）。
+- 根包注册没有 pb 包上下文：服务节点 ID 用**实现类型所在包**
+  （`typePkgPath`）+ `svc.<Type>`，避免不同包同名 handler 在
+  `go-micro.dev` 根包身份下碰撞；`grpc_impl` 边与 `registers_service` 属性
+  照常发射。
+- 动态实参（`interface{}` 变量）/非具名类型不猜（不产生服务节点）。
+
+**测试**（`ast_micro_test.go`）：`new(AccountServer)` → 服务节点
+`app:svc.AccountServer`、`service_name=AccountServer`、methods 含 Apply、
+实现边 + `registers_service`；`micro.RegisterHandler(s, h)`（动态）→ 不产生
+服务节点。

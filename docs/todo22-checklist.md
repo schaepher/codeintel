@@ -486,6 +486,7 @@ go test ./... && bash scripts/verify.sh --quick && make it
 | # | 事项 | 状态 |
 | --- | --- | --- |
 | P1-a | ext-chain 全链 BFS 不再一次性加载 calls/implements 边 | **已完成**：`chainSymbols` 逐节点 `GetOutgoingFactsByKinds` + `InterfaceImplsExact` + 精确 `GetSymbol`；`chainGrpcHTTPDiag` 同步收口；本仓库实测 0.14s/72.7MB → 0.07s/31.1MB、产物逐字节相同；门槛测试拒绝全量扫描（`action_chain_symbols_exact_test.go`）；见 field_trace §127 |
+| P2-b | go-micro 根包 RegisterHandler 具体类型实参 | **已完成**：根包形态按调用实参的实际类型取 handler 名（=类型名），方法集取指针方法；服务节点身份用实现类型所在包，`grpc_impl`/`registers_service` 照常；动态实参不猜；见 field_trace §135 |
 | P2-a | §7.3 receiver 字段类型/工厂来源缓存 | **已完成（先量化）**：`fieldWriters`/`fieldTypes`/`funcRets`/`varChains` 四张请求级缓存 + 写入函数复用共享 AST；3 处同字段调用实测 `GetFieldWriters` 3→1、写函数源码解析 3→1（cache_misses=1），结论不变；见 field_trace §134 |
 | P1-g | §2.1 覆盖表语义推广到实现候选分析 | **已完成**：`implState` 改为按 `*ast.Object` 分变量的到达定义（同名/遮蔽不串，`found` 区分"没有定义"与"定义为未知"）；修掉"函数内任意赋值都覆盖同一 defs"的真实缺陷；单测 + 时序回归（`d.Do`→ImplCN / `other.Do`→ImplJP）；见 field_trace §133 |
 | P1-f | 外部包方法调用 / 外部包内部跨包目标 / go.work 外部模块 | **已完成**：接收者类型（声明/复合字面量/构造器返回/当前 receiver 字段）+ 共用 `seqExpandExternalDecl`；外部包内部 go list cwd = 该包模块根；go.work 外部模块可定位；标准库不展开；测试 4 组（含 depth=1 与 stdlib 反例）；跨文件字段声明仍不解析（如实记录）；见 field_trace §132 |

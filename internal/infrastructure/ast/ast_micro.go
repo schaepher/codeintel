@@ -150,75 +150,19 @@ func (ctx *fileCtx) emitMicroCall(call *ast.CallExpr, callee *types.Func,
 }
 
 // microRegisterShape 注册调用形态：服务短名（handler 名）+ 方法全集。
-func microRegisterShape(callee *types.Func, sig *types.Signature) (handler string, methods []string, ok bool) {
-	calleePkg := callee.Pkg().Path()
-	// 形态 A：生成代码 `Register<X>Handler(s server.Server, hdlr XHandler, opts ...)`
-	if strings.HasPrefix(callee.Name(), "Register") && strings.HasSuffix(callee.Name(), "Handler") &&
-		len(callee.Name()) > len("RegisterHandler") && !isMicroRootPkg(calleePkg) {
-		handler = strings.TrimSuffix(strings.TrimPrefix(callee.Name(), "Register"), "Handler")
-		if h, ms, okI := microHandlerIface(sig.Params().At(1).Type()); okI {
-			// 接口名 `<X>Handler` 与函数名一致时以接口为准（更接近注册实参）
-			if h != "" && strings.TrimSuffix(handler, "Handler") != strings.TrimSuffix(h, "Handler") {
-				return "", nil, false
-			}
-			if h != "" {
-				handler = h
-			}
-			methods = ms
-		}
-		return handler, methods, handler != ""
-	}
-	// 形态 B：go-micro 根包 `micro.RegisterHandler(s server.Server, hdlr any, ...)`
-	if isMicroRootPkg(calleePkg) && callee.Name() == "RegisterHandler" {
-		handler, methods, _ = microHandlerIface(sig.Params().At(1).Type())
-		if handler == "" {
-			return "", nil, false
-		}
-		return handler, methods, true
-	}
-	return "", nil, false
-}
 
 // microHandlerIface 注册第二参（handler 接口）→ 服务短名 + 方法名。
 // 接口名 `<X>Handler` → X；非接口（`any`/具体类型）返回空（不猜）。
-func microHandlerIface(t types.Type) (handler string, methods []string, ok bool) {
-	if p, isPtr := t.(*types.Pointer); isPtr {
-		t = p.Elem()
-	}
-	named, okN := t.(*types.Named)
-	if !okN || named.Obj() == nil {
-		return "", nil, false
-	}
-	iface, okI := named.Underlying().(*types.Interface)
-	if !okI || iface.NumMethods() == 0 {
-		return "", nil, false
-	}
-	name := named.Obj().Name()
-	if !strings.HasSuffix(name, "Handler") || len(name) <= len("Handler") {
-		return "", nil, false
-	}
-	for i := 0; i < iface.NumMethods(); i++ {
-		methods = append(methods, iface.Method(i).Name())
-	}
-	return strings.TrimSuffix(name, "Handler"), methods, true
-}
+
+// microConcreteHandler 注册实参是**具体 handler 类型**（`new(AccountServer)`）：
+// go-micro 的 handler 名 = 反射得到的**类型名本身**（endpoint 前缀
+// `AccountServer.Apply`），因此服务短名取类型名，不做后缀裁剪；方法取该
+// 类型的指针方法集（导出方法）。类型名不可识别 → 不猜。
+
+// typePkgPath 具名类型的包路径（指针自动解引用；非具名返回空）。
 
 // typeCanonicalID 具名类型 → (canonical ID, 短名)；非具名（接口字面量/
 // 内建）返回 false。
-func typeCanonicalID(t types.Type) (domain.CanonicalID, string, bool) {
-	if t == nil {
-		return "", "", false
-	}
-	if p, ok := t.(*types.Pointer); ok {
-		t = p.Elem()
-	}
-	named, ok := t.(*types.Named)
-	if !ok || named.Obj() == nil || named.Obj().Pkg() == nil {
-		return "", "", false
-	}
-	return canonicalizer.GoSymbolID(named.Obj().Pkg().Path(), named.Obj().Name()),
-		named.Obj().Name(), true
-}
 
 // emitMicroRegistration 服务端注册调用 → grpc_service 节点（rpc_protocol=micro）
 // + grpc_impl 边（实现 → 服务）+ 注册函数的 registers_service 属性。
@@ -231,12 +175,21 @@ func (ctx *fileCtx) emitMicroRegistration(call *ast.CallExpr, callee *types.Func
 	if !isMicroServerType(sig.Params().At(0).Type()) {
 		return false
 	}
-	handler, methods, ok := microRegisterShape(callee, sig)
+	argType := ctx.pkg.TypesInfo.TypeOf(call.Args[1])
+	handler, methods, ok := microRegisterShape(callee, sig, argType)
 	if !ok {
 		return false
 	}
 	full := ctx.microServiceNameOf(call.Args[0])
-	svcID := canonicalizer.GoSymbolID(callee.Pkg().Path(), "svc."+handler)
+	svcPkg := callee.Pkg().Path()
+	// 根包注册（形参 any）没有 pb 包上下文：用实现类型所在包做服务节点身份，
+	// 避免不同包的同名 handler 在 go-micro 根包下碰撞。
+	if isMicroRootPkg(svcPkg) {
+		if p := typePkgPath(argType); p != "" {
+			svcPkg = p
+		}
+	}
+	svcID := canonicalizer.GoSymbolID(svcPkg, "svc."+handler)
 	props := map[string]any{
 		"service_name": handler,
 		"handler_name": handler,
@@ -254,7 +207,7 @@ func (ctx *fileCtx) emitMicroRegistration(call *ast.CallExpr, callee *types.Func
 		FilePath: relPath(ctx.repo.Path, pos.Filename), LineStart: pos.Line, LineEnd: pos.Line,
 		Properties: props,
 	}})
-	if implID, implName, okImpl := typeCanonicalID(ctx.pkg.TypesInfo.TypeOf(call.Args[1])); okImpl {
+	if implID, implName, okImpl := typeCanonicalID(argType); okImpl {
 		implPos := ctx.pkg.Fset.PositionFor(call.Args[1].Pos(), false)
 		_ = ctx.emit(domain.Item{Node: &domain.CodeEntity{
 			ID: implID, Kind: domain.KindStruct, Name: implName,
