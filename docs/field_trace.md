@@ -6250,3 +6250,52 @@ P1-03 原文只写"~100 文件按 R89 模式"，与 R98 的结论（"已基本�
 | 14.5 | `query_sequence_code.go` 预算记录 + `query_flags.go --mermaid` 别名 | `TestQuerySequenceCodeBudgetRecord` | 成功/取消各一条实测计时；取消 stdout 空 |
 | 14.6 | — | `TestTodo21SequenceBudgetRealCLI` | 真实 init→JSON/Mermaid/1ns 全链；退出码/身份/分支 |
 | 14.7 | — | 手工实测记录（本节） | go2o 实际规模与阶段数据；未验范围显式列出 |
+
+## §111 todo22：`--format svg` 矢量图出口（PNG 尺寸上限的正解，2026-11-03）
+
+问题来自用户提问："渲染 PNG 会不会超大被截断？能否用 plantuml/mermaid 出
+SVG？"——答案：会（PlantUML 默认 `PLANTUML_LIMIT_SIZE=4096`），能（`-tsvg`），
+但此前 CLI **没有** SVG 出口，且 `--format plantuml --out x.svg` 会把 PNG
+字节写进 `.svg`（exit=0，`file` 才能发现）。
+
+### 实测（本机 java + `/opt/plantuml/plantuml.jar`）
+
+| 场景 | PNG | SVG |
+| --- | --- | --- |
+| 300 步时序图（自然高 9655px） | 238×4096（底部裁掉） | 239×9655，尾行 `tail-marker-END` 在 y≈9578 |
+| `PLANTUML_LIMIT_SIZE=100` | 100×100 | 仍 9655px（**上限只作用于位图**） |
+| 140 调用真实 init → `Entry --depth 1` | 4096×4096 + 裁切警告 | 高 9854，含 `Step139` |
+
+### 改动
+
+- `plantuml_render.go`：`plantumlJavaArgsFormat(jar, "png"|"svg")`（`-tpng`/
+  `-tsvg`，headless/tmpdir/`-pipe` 一致）；`plantumlRenderSVG`；
+  `plantumlSizeWarning` 的出路首选改成 `--format svg`（保留
+  `PLANTUML_LIMIT_SIZE` 与手敲 java 的备选）。
+- `query_sequence_code.go`：`--format svg` = mermaid → PlantUML → `-tsvg`。
+  **失败即失败**（不降级文本、不写假扩展名）；成功时 `--out` 写文件 + 同名
+  `.puml` 可编辑源，无 `--out` 打印 SVG 文本（可管道/diff）。
+- 输出契约校验放在查询**之前**（不先跑大图分析再失败）：
+  `--json` + `--format svg` 互斥；非 svg 模式 `--out *.svg` 报错；svg 模式
+  `--out *.png` 报错。
+- `query_flags.go`/`query_dispatch.go`：`--mermaid` 别名（todo21）与 svg
+  走同一 format 解析；根帮助补 `--format svg` 与裁切说明。
+
+### 回归
+
+- `internal/cli/query_sequence_svg_test.go`：stdout SVG 文本（无 base64/
+  mermaid）、`--out` 写 SVG+`.puml`、渲染失败非零退出且不写文件、五组扩展名/
+  契约互斥（`plantuml→.svg`/`mermaid→.svg`/`text→.svg`/`svg→.png`/`svg+json`）、
+  `plantumlJavaArgsFormat` 用 `-tsvg`、裁切提示指向 `--format svg`。
+- `integration/todo22_svg_test.go`（真实 jar）：同一张大图 PNG 触顶
+  （高=4096、stderr 含 `尺寸上限 4096` + `--format svg`）vs SVG 完整
+  （高>4096、含最后一次调用、`.puml` sidecar、`PLANTUML_LIMIT_SIZE=100` 仍完整）；
+  无 `--out` 时 stdout 以 `<svg` 开头。
+- 修复前反例（HEAD 二进制）：`--format svg` → 缩进文本 exit=0；
+  `--format plantuml --out out.svg` → `out.svg: PNG image data` exit=0。
+
+### 未做（范围外，用户已确认先只做 query sequence）
+
+- `wiki --diagram` 仍嵌 PNG（HTML 的 mermaid 模式由浏览器渲染 SVG）；
+- `export graph` 无 SVG（可外部 `dot -Tsvg`）；无内置 mermaid→SVG/PNG
+  （可用 `npx @mermaid-js/mermaid-cli`）。

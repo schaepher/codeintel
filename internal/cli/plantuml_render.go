@@ -90,20 +90,41 @@ const plantumlDefaultLimit = 4096
 // plantumlJavaArgs java 启动参数（todo20-8：命令行场景固定 headless，
 // 不依赖调用方的 JAVA_TOOL_OPTIONS；tmpdir 在仓库外）。
 func plantumlJavaArgs(jar string) []string {
+	return plantumlJavaArgsFormat(jar, "png")
+}
+
+// plantumlJavaArgsFormat 按输出格式生成启动参数（todo22：svg 用 -tsvg）。
+// PNG 受 PLANTUML_LIMIT_SIZE（默认 4096）限制会被裁切；SVG 是矢量输出，
+// 不受该位图尺寸上限约束（实测同一张 9655px 高的图：PNG 238×4096 被裁、
+// SVG 239×9655 完整）。
+func plantumlJavaArgsFormat(jar, format string) []string {
+	flag := "-tpng"
+	if format == "svg" {
+		flag = "-tsvg"
+	}
 	return []string{
 		"-Djava.awt.headless=true",
-		"-Djava.io.tmpdir=" + plantumlTmpDir(), "-jar", jar, "-tpng", "-pipe",
+		"-Djava.io.tmpdir=" + plantumlTmpDir(), "-jar", jar, flag, "-pipe",
 	}
 }
 
 func plantumlRender(puml string) ([]byte, error) {
+	return plantumlRenderFormat(puml, "png")
+}
+
+// plantumlRenderSVG puml 文本 → SVG 字节（todo22：完整矢量图出口）。
+func plantumlRenderSVG(puml string) ([]byte, error) {
+	return plantumlRenderFormat(puml, "svg")
+}
+
+func plantumlRenderFormat(puml, format string) ([]byte, error) {
 	jar := plantumlJarPath()
 	if jar == "" {
 		return nil, fmt.Errorf("未找到 plantuml.jar（设 PLANTUML_JAR 或装到 /opt/plantuml/）")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), plantumlRenderBudget)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "java", plantumlJavaArgs(jar)...)
+	cmd := exec.CommandContext(ctx, "java", plantumlJavaArgsFormat(jar, format)...)
 	cmd.Stdin = strings.NewReader(puml)
 	var out, errb bytes.Buffer
 	cmd.Stdout = &out
@@ -152,9 +173,10 @@ func plantumlSizeWarning(png []byte) string {
 	if w < limit && h < limit {
 		return ""
 	}
-	hint := "可设置 PLANTUML_LIMIT_SIZE=16384（或更大）后重新生成"
+	// todo22：优先指向 CLI 内的矢量图出口（不用手敲 java 命令）。
+	hint := "可设置 PLANTUML_LIMIT_SIZE=16384（或更大）后重新生成；或改用 `--format svg` 输出完整矢量图"
 	if jar := plantumlJarPath(); jar != "" {
-		hint += fmt.Sprintf("；或用 `java -Djava.awt.headless=true -jar %s -tsvg <结果.puml>` 输出完整矢量图", jar)
+		hint += fmt.Sprintf("；也可直接 `java -Djava.awt.headless=true -jar %s -tsvg <结果.puml>`", jar)
 	}
 	return fmt.Sprintf("PNG %dx%d 已达到 PlantUML 尺寸上限 %d，图片可能被裁切（底部内容缺失）；%s",
 		w, h, limit, hint)

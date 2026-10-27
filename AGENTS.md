@@ -578,6 +578,14 @@ pre-commit 场景的兜底）。
 - **查询预算的"可观察范围"要单独记一行**：`[seq.query] elapsed=… budget=…
   canceled=…` 从创建 ctx 前到 CodeSequence 返回（含请求配置构造，不含开库/
   渲染）；进程墙钟另测。取消必须 stdout 为空、非零退出。
+- **PNG 一定有像素上限、SVG 没有**：PlantUML 默认 `PLANTUML_LIMIT_SIZE=4096`，
+  300 步时序图实测 PNG 238×4096（裁切）vs `-tsvg` 239×9655（完整），且
+  `LIMIT=100` 时 SVG 仍是 9655px（上限只作用于位图）。命令行工具的出路必须
+  是**内置矢量图出口**（`--format svg`），不能只让用户手敲 `java -jar … -tsvg`。
+- **扩展名与内容必须一致，且要在查询前校验**：`--format plantuml --out x.svg`
+  曾把 PNG 字节写进 `.svg` 且 exit=0（`file` 才看得出）。现在非 svg 模式写
+  `.svg`、svg 模式写 `.png`、`--json`+`--format svg` 都在**开库/分析之前**
+  报错；显式请求矢量图时渲染失败即非零退出（不降级文本、不写假产物）。
 
 ## 常用命令
 

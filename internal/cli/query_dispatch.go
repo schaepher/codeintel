@@ -189,7 +189,7 @@ func cmdQuery(args []string) int {
 		// R76：时序图；R81：--code 代码级时序（--depth 嵌套层级）；
 		// S4：--format plantuml 转 PNG base64
 		if f.code {
-			return cmdQuerySequenceCode(acts, abs, target, f.depth, f.format == "mermaid" || f.format == "plantuml", f.json, f.format, f.out, f.focus, f.evidence, f.scene, f.timeout, f.verifyEvidence)
+			return cmdQuerySequenceCode(acts, abs, target, f.depth, f.format == "mermaid" || f.format == "plantuml" || f.format == "svg", f.json, f.format, f.out, f.focus, f.evidence, f.scene, f.timeout, f.verifyEvidence)
 		}
 		return cmdQuerySequence(acts, target, f.depth, f.format == "mermaid", f.json)
 	case "callers", "callees", "impact":

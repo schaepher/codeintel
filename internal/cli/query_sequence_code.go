@@ -23,15 +23,35 @@ import (
 )
 
 // cmdQuerySequenceCode 实现 `query sequence --code <符号> [--depth N]
-// [--format mermaid|plantuml] [--json] [--out <file>] [--focus <字段|return>]`。
+// [--format mermaid|plantuml|svg] [--json] [--out <file>] [--focus <字段|return>]`。
 // depth：嵌套层级（1 = 只本函数；>1 递归展开被调函数内部）。
 // diagram：plantuml 时 mermaid → plantuml 转 PNG base64 输出；失败
 // 写文本（S4——用户：配置 plantuml.jar 用它转图片，失败才写文本）。
-// out：非空时主输出写文件（plantuml 成功 → PNG 字节；否则文本），
-// stdout 打印路径。
+// svg（todo22）时走同一转换但用 -tsvg 渲染矢量图：PNG 受 PlantUML 默认
+// PLANTUML_LIMIT_SIZE=4096 限制会被裁切，SVG 不受限；显式要矢量图时
+// **失败即失败**（不降级文本、不写假扩展名）。
+// out：非空时主输出写文件（plantuml 成功 → PNG 字节；svg → SVG 文本；
+// 否则文本），stdout 打印路径。扩展名与内容必须一致：非 svg 模式写
+// *.svg、svg 模式写 *.png 都直接报错。
 func cmdQuerySequenceCode(acts *action.Actions, abs, target string, depth int, mermaid bool, jsonOut bool, diagram, out string, focus []string, evidence bool, scene []string, timeout time.Duration, verifyEvidence string) int {
 	if depth <= 0 {
 		depth = 1
+	}
+	// todo22：输出契约校验要在**查询之前**完成——错误扩展名不得先跑一遍
+	// 大图分析再失败；更重要的是不能把 PNG 字节写进 .svg（历史上如此，
+	// exit=0，用 file 才能发现）。
+	if jsonOut && diagram == "svg" {
+		fmt.Fprintln(os.Stderr, "error: --json 与 --format svg 互斥（前者输出 JSON，后者输出矢量图）")
+		return 1
+	}
+	if out != "" && strings.EqualFold(filepath.Ext(out), ".svg") && diagram != "svg" {
+		fmt.Fprintf(os.Stderr, "error: --out %s 是 .svg，但 --format %s 不产出 SVG；请用 --format svg（或改用 .png/.mmd/文本扩展名）\n",
+			out, diagram)
+		return 1
+	}
+	if diagram == "svg" && out != "" && strings.EqualFold(filepath.Ext(out), ".png") {
+		fmt.Fprintf(os.Stderr, "error: --format svg 的内容是 SVG 文本，不能写到 .png（%s）；请改用 .svg\n", out)
+		return 1
 	}
 	// todo21-14.5：预算口径起点——创建查询 ctx **之前**（含请求配置构造），
 	// 终点是 CodeSequence 同步返回。此前的仓库打开/新鲜度检查与之后的
@@ -151,6 +171,10 @@ func renderCodeSeq(root *action.CodeSeqNode, mermaid, jsonOut bool, diagram, out
 	}
 	if mermaid {
 		m := renderCodeSeqMermaid(root)
+		if diagram == "svg" {
+			code, _ := renderCodeSeqSVG(m, out)
+			return code, false
+		}
 		if diagram == "plantuml" {
 			puml := mermaidSequenceToPlantuml(m)
 			var renderErr error
@@ -256,37 +280,4 @@ func finishSeqTiming(timing *action.SeqTiming, jsonOut bool, renderStart time.Ti
 		timing.SymLookups, timing.SymMS, timing.SQLQueries, timing.SQLMS,
 		timing.Signature, timing.SignatureMS, timing.Dispatch, timing.DispatchMS,
 		timing.CacheHits, timing.CacheMisses)
-}
-
-// seqBudgetLabel 查询预算的可读标注（未设置预算时 "none"）。
-func seqBudgetLabel(timeout time.Duration) string {
-	if timeout <= 0 {
-		return "none"
-	}
-	return timeout.String()
-}
-
-// seqTimingEnabled CODEINTEL_SEQ_TIMING 是否开启。
-func seqTimingEnabled() bool {
-	v := strings.TrimSpace(os.Getenv(seqTimingEnv))
-	return v != "" && v != "0" && !strings.EqualFold(v, "false")
-}
-
-// writeOutFile --out 写文件（成功打印路径；失败 stderr 提示并返回 false）。
-func writeOutFile(out string, data []byte) bool {
-	if err := os.WriteFile(out, data, 0o644); err != nil {
-		fmt.Fprintf(os.Stderr, "error: 写入 %s 失败: %v\n", out, err)
-		return false
-	}
-	fmt.Printf("已写入 %s\n", out)
-	return true
-}
-
-// pumlSidecarPath PNG 产物旁的 PlantUML 源文件路径（可编辑）。.png → .puml；
-// 其余后缀直接追加 .puml。
-func pumlSidecarPath(out string) string {
-	if strings.HasSuffix(strings.ToLower(out), ".png") {
-		return out[:len(out)-4] + ".puml"
-	}
-	return out + ".puml"
 }
