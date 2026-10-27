@@ -101,7 +101,7 @@ make it
 | 7.4 | 取消贯穿 SQL/源码定位/递归 | **已实现**（todo21-14.4/14.5，含物化 CTE 与预算记录） |
 | 7.5 | JSON/文本/Mermaid/SVG 同源 + 证据/身份可核对 | 部分：todo19/20/21 已做重复调用点/证据/矢量图；统一分析树与 `*_projection` 诊断已实现，新增能力须继续遵守 |
 | 8 | 第 8 节完整脱敏夹具与逐项断言表 | 夹具**已建**（`integration/flowfixture_test.go`，逐字照抄 §8 源码，供 §6 与后续 §2/§9 共用）；逐项断言表待 §2–§9 完成 |
-| 9.1 | 八个同步流程（SourceA/B × 新建/新增子项/编辑子项/编辑实体） | **未建** |
+| 9.1 | 八个同步流程（SourceA/B × 新建/新增子项/编辑子项/编辑实体） | **已完成（2026-10-27，B.14）**：flowmatrix 夹具 8 个独立入口 × 2 来源逐项验收（检查 4/7、RPC 续接、装饰器/事务、DI/AOP、存储终点、FinishReview=0） |
 | 9.2 | 二十个后续流程形态 + 审核 finish 次数规则 | **未建** |
 | 9.3 | 最终输出（逐行验收、JSON+Mermaid+SVG、全量回归） | **部分完成（2026-10-27，B.11）**：JSON↔Mermaid 调用顺序/条件结构一致性 + 流程 SVG 产物内容检查；逐编号验收行与含 RPC/DI 的 SVG 待 §4.1/§9.1-9.2 |
 
@@ -370,3 +370,48 @@ bash scripts/verify.sh --quick && make it
 | 资源关闭覆盖全部子树使用期 | `seqRPCResources`（请求级）：候选视图打开一次、请求结束 `defer closeAll()`；嵌套 `CodeSequence` 复用同一资源指针（不重复 defer 关闭）。`TestSeqRPCCrossRepo` 断言 opens=1/closes=1 |
 | 防环键含仓库身份 | `rpcVisited` 键 = `req.RepoAbs|方法入口`（跨仓 A→B→A 在第二次回到 A 时命中） |
 | 测试 | `internal/action/action_seq_rpc_repo_test.go`：客户端仓 → 候选服务端仓续接（证据/子节点/资源关闭）、无候选范围时 repo-only 明确未命中且不打开任何仓库 |
+
+### B.14 §9.1 八个同步流程（已完成，2026-10-27）
+
+夹具：`integration/flowmatrix_*_fixture_test.go`（module `example.com/flowmatrix`，
+go-micro stub + tx 本地 replace；沿用 §8 结构并补 trace/审核/RPC/DI/AOP）。
+
+| 编号 | 入口 | 来源 | 操作 | 存储终点（断言） |
+| --- | --- | --- | --- | --- |
+| 21 | `(App).Flow21NewEntityA` | A | 新建实体 | `(Store).Insert` |
+| 22 | `(App).Flow22NewChildA` | A | 新增子项 | `(Store).InsertChild` |
+| 23 | `(App).Flow23EditChildA` | A | 编辑子项 | `(Store).UpdateChild` |
+| 24 | `(App).Flow24NewEntityB` | B | 新建实体 | `(Store).Insert` |
+| 25 | `(App).Flow25NewChildB` | B | 新增子项 | `(Store).InsertChild` |
+| 26 | `(App).Flow26EditChildB` | B | 编辑子项 | `(Store).UpdateChild` |
+| 27 | `(App).Flow27EditEntityA` | A | 编辑实体 | `(Store).UpdateEntity` |
+| 28 | `(App).Flow28EditEntityB` | B | 编辑实体 | `(Store).UpdateEntity` |
+
+每条要求（§9.1）逐项落地：
+
+| 要求 | 证据 |
+| --- | --- |
+| 八个独立入口（SourceA/SourceB × 四种操作） | 8 个方法入口，各自独立存储方法；测试 16 个子测试（每流程 × 每来源）独立断言，不合并通过 |
+| 沿用第 8 节夹具结构 | 同名 `MakeFirst/First/Second/Execute/Store/重载检查清单`；RPC/DI/AOP/审核为新增事实 |
+| 接入 trace 提交 | 每个流程断言 `SaveTrace` 在 `ApplyRemote` 之前 |
+| 准确 RPC 注册 | `ApplyRemote` → `(AccountServer).Apply`（`evidence.source=rpc`、`rpc_service=example.flow.AccountService`，§4.1 同款） |
+| DI/AOP | `a.Store.Insert` 证据 `source=di`、`reason=di-aop-wrapper`、目标 `(storeAOP).Insert` → `(Store).Insert`（不跳过 wrapper） |
+| 非空装饰器 | `MakeFirst` + `Second` 两层（树上 BeforeFirst/BeforeSecond/AfterFirst/AfterSecond 齐全；bypass 两条分支保留） |
+| 事务回调 | `tx.Run` 节点 + 回调内存储调用（`ExecContext` 在 `Store.<Op>` 内） |
+| 存储 API | 按操作断言不同终点方法（见上表）+ 到达 `s.DB.ExecContext` |
+| trace 批准 | `ApproveTrace` 在存储终点之后 |
+| SourceA/SourceB 四/七项检查差异 | 每个流程两种来源分别断言 Check1–4 = 1 次、Check5–7 = 0（A）/1（B） |
+| 八项人工 FinishReview 次数为零 | 每流程断言 `FinishReview`/`FinishDataReview`/`FinishServiceReview`/`AutoApprove` 均为 0 |
+| 完整入口到存储终点（不孤立查询子函数） | 顺序断言 `SaveTrace < ApplyRemote < 存储终点 < ApproveTrace`，全部从入口一次查询得到 |
+
+顺带修正（同一提交）：① 查询侧源码解析改为 `parser.ParseComments`（DI 注释注解
+此前静默失效，单测靠字段名兜底）；② 闭包展开的 `curSym`/`curFile` 取"字面量
+所在函数/文件"（此前用内联调用者的包，跨包回调时 DI 注册表/包身份全错）。
+
+验证：
+
+```sh
+PATH=$(go env GOPATH)/bin:$PATH go test -tags integration ./integration -run 'TestTodo22SyncFlows' -count=1
+```
+
+结果：16/16 子测试 PASS（1.6s，含 init）。

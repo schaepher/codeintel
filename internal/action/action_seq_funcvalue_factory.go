@@ -154,7 +154,7 @@ func seqFileCtxFor(req CodeSequenceRequest, rel string) *seqFileCtx {
 		return nil
 	}
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, rel, src, 0)
+	f, err := parser.ParseFile(fset, rel, src, parser.ParseComments)
 	if err != nil {
 		return nil
 	}

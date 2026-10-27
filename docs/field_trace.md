@@ -6748,3 +6748,45 @@ ext-chain 同款 opener）+ cli `seqCandidateRepos`——起始仓库有 workspa
 **未做**（下一步）：go-micro 直接 `micro.RegisterHandler` 形态的服务短名规则
 （当前只在第二参是 `<X>Handler` 接口时可解析；具体类型注册保留
 `rpc_impl_missing`，不猜）。
+
+## §124 todo22 §9.1：八个同步流程验收 + 两处闭包上下文修正（2026-10-27）
+
+夹具 `integration/flowmatrix_*_fixture_test.go`（module `example.com/flowmatrix`）：
+§8 的装饰器/事务回调/存储/检查清单结构 + trace 提交与批准 + 准确 go-micro RPC
+注册（§4.1 的 stub 模块）+ DI/AOP 字段注入（`// @inject store` 注解 +
+`WrapStore(&Store{})` 包装器）+ 审核完成函数（`FinishDataReview` /
+`FinishServiceReview` 各调一次 `FinishReview`，node_id 不同）。
+
+八个入口（`flow_sync.go`，编号 21–28）：SourceA/B × 新建实体/新增子项/编辑
+子项/编辑实体，每个入口独立方法、独立存储终点（`Insert` / `InsertChild` /
+`UpdateChild` / `UpdateEntity`）。公共链：检查清单（4/7）→ `SaveTrace` →
+`ApplyRemote`（go-micro 客户端 → 服务端 `(AccountServer).Apply`）→
+`a.tx{Op}`（`Execute` + `MakeFirst`/`Second` 两层装饰器 + `tx.Run` 事务回调）→
+DI → `storeAOP`（AOP wrapper）→ `Store.<Op>` → `ExecContext` → `ApproveTrace`。
+
+验收 `TestTodo22SyncFlows`（16 个子测试 = 8 流程 × 2 来源，逐项独立）：
+检查次数（4/7 各一次）、链路顺序（SaveTrace < ApplyRemote < 存储 < ApproveTrace）、
+RPC 目标身份（`(AccountServer).Apply`）、装饰器/事务节点齐全、DI 证据
+（`di-aop-wrapper` + `storeAOP`）、到达 `(DB).ExecContext`、人工 FinishReview
+**0 次**（也不出现 AutoApprove）。
+
+### 顺带修的两处闭包上下文错误（§2.1 口径）
+
+1. **`codeSeqForSymbol`/`seqFileCtxFor` 用 `parser.ParseFile(..., 0)` 丢注释**：
+   DI 注释注解（`// @inject store`）永远读不到——§3.3 的单测之所以"通过"，是
+   按字段名兜底匹配（字段名恰好等于注册 key）。改为 `parser.ParseComments`；
+   注释形态从此真正生效（本夹具字段 `Store` + key `store` 只能靠注解对上）。
+2. **闭包展开的 `curSym`/`curFile` 用了"当前内联到哪"而不是"字面量写在哪个
+   函数/文件"**：闭包经包级函数（Execute/tx.Run/工厂）回调后在别的包执行时，
+   包身份/文件口径全错（实测 DI 注册表去 `example.com/tx` 的目录里找、
+   `storeAOP` 被解析成 `example.com/tx:(storeAOP)`）。修法：字面量展开时
+   `sub.curSym = fv.enclosing`、`sub.curFile = fv.ctx.rel`（与工厂返回值的
+   既有口径一致）。
+
+### 已知诊断（不阻塞验收，属 §2 既有语义）
+
+`Execute` 的 `process` 在循环里被重新赋值 → 入口展开时 `process` 是
+"循环未执行（原值）/已执行（包装后）"的多候选，树上因此保留
+`func_value_unbound`（0 候选那条诊断）+ 多候选两条分支；`MakeFirst(ctx)` 作为
+变参装饰器元素只有标签、无 symbol 证据（`iface first-of-2`）。§9.3 的
+"候选/截断/未知"列会如实记录这些项。

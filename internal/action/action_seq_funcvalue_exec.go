@@ -134,9 +134,19 @@ func seqExpandSingleValue(a *Actions, req CodeSequenceRequest, call *ast.CallExp
 		sub := req
 		sub.env = newSeqEnv(fv.env) // 闭包捕获：父环境 = 创建时的环境
 		bindSeqParams(sub.env, fv.lit.Type.Params, args)
-		sub.curSym = req.curSym // 字面量内的调用边归属 = 字面量所在函数
+		// 字面量内的调用边/包身份归属 = **字面量所在函数**（不是把它内联展开的
+		// 调用者——闭包经包级函数/工厂回调后可能在任何包里执行；DI 注册表、
+		// 同包符号解析都以它为准）。
+		sub.curSym = fv.enclosing
+		if sub.curSym == "" {
+			sub.curSym = req.curSym
+		}
 		sub.curTgts = seqTargetsCached(a, req, fv.enclosing)
 		sub.curCtx = fv.ctx
+		// 字面量的**源码文件**是它自己的（不是当前展开到的调用者——闭包可能
+		// 在另一个文件/包里创建，经包级函数回调后在别处被调用）。DI 注册表
+		// 扫描、证据 call_file、同包常量都依赖这个口径。
+		sub.curFile = fv.ctx.rel
 		sub.curRecvType = fv.recvType
 		sub.curRecvDecl = fv.recvDecl
 		sub.sceneConsts = seqConstValues(req, fv.ctx.rel)

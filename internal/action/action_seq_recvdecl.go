@@ -57,7 +57,9 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 			return nil, &SeqStop{Code: SeqStopSourceMiss, Detail: n.FilePath}
 		}
 		fset = token.NewFileSet()
-		f, err = parser.ParseFile(fset, n.FilePath, src, 0)
+		// 解析注释：DI 字段注入注解（`// @inject store`）等证据在 Doc 上，
+		// 不带 ParseComments 时注释不可见（§3.3 注释形式会静默失效）。
+		f, err = parser.ParseFile(fset, n.FilePath, src, parser.ParseComments)
 		if err != nil {
 			req.acc.read += time.Since(readStart)
 			return nil, &SeqStop{Code: SeqStopParseError, Detail: n.FilePath + ": " + err.Error()}
