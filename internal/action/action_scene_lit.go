@@ -261,8 +261,3 @@ func lastSymName(id string) string {
 	}
 	return id
 }
-func (s *implState) clone() *implState {
-	out := &implState{defs: make([]implDef, len(s.defs))}
-	copy(out.defs, s.defs)
-	return out
-}

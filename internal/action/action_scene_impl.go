@@ -26,13 +26,15 @@ type implDef struct {
 //
 // 只分析当前函数体（req.curBody），不扫别的函数。
 func (a *Actions) sceneImplChoice(req CodeSequenceRequest, fset *token.FileSet, callOffset int,
-	file *ast.File, varName, methodName, pkgPath string) (impl, reason string, cands []string, guard bool, ok bool) {
+	file *ast.File, recvObj *ast.Object, varName, methodName, pkgPath string) (impl, reason string, cands []string, guard bool, ok bool) {
 	body := req.curBody
-	if body == nil || varName == "" || methodName == "" {
+	if body == nil || (recvObj == nil && varName == "") || methodName == "" {
 		return "", "", nil, false, false
 	}
-	defs := reachingImplsAt(fset, body, token.Pos(callOffset), varName)
-	if len(defs) == 0 {
+	// todo22 P1：到达定义按**声明对象**（*ast.Object）区分——同名不同变量/
+	// 遮蔽不串；"没有定义"与"定义为未知"分开。
+	defs, found := reachingImplsAt(fset, body, token.Pos(callOffset), recvObj, varName)
+	if !found || len(defs) == 0 {
 		return "", "", nil, false, false
 	}
 	sel := map[string]bool{}
@@ -114,15 +116,90 @@ func evalImplGuards(d implDef, scene Scene, args, srcs map[string]string, consts
 }
 
 // reachingImplsAt 调用点之前 varName 的到达实现定义（含分支守卫）。
-func reachingImplsAt(fset *token.FileSet, body *ast.BlockStmt, target token.Pos, varName string) []implDef {
-	st := &implState{}
+func reachingImplsAt(fset *token.FileSet, body *ast.BlockStmt, target token.Pos,
+	obj *ast.Object, varName string) ([]implDef, bool) {
+	if body == nil {
+		return nil, false
+	}
+	st := newImplState()
 	walkImplStmts(fset, body.List, target, st, nil, 0)
-	return st.defs
+	if obj != nil {
+		defs, ok := st.defs[obj]
+		return defs, ok
+	}
+	// 无声明对象（极少见）：回退按名字找唯一匹配
+	for o, defs := range st.defs {
+		if o != nil && o.Name == varName {
+			return defs, true
+		}
+	}
+	return nil, false
 }
 
-// implState 到达定义集合（赋值替换；分支合并）。
+// implState 到达定义集合：**按声明对象**分别保存（赋值替换；分支合并）。
+// 与函数值环境（seqEnv）同一口径：同名不同对象（遮蔽）不串，
+// "没有该变量的定义"（键不存在）≠"定义为未知"（键存在、defs 为空）。
 type implState struct {
-	defs []implDef
+	defs map[*ast.Object][]implDef
+}
+
+func newImplState() *implState {
+	return &implState{defs: map[*ast.Object][]implDef{}}
+}
+
+func (st *implState) set(obj *ast.Object, defs []implDef) {
+	if st == nil || obj == nil {
+		return
+	}
+	if st.defs == nil {
+		st.defs = map[*ast.Object][]implDef{}
+	}
+	if defs == nil {
+		st.defs[obj] = nil
+		return
+	}
+	st.defs[obj] = defs
+}
+
+func (st *implState) get(obj *ast.Object) ([]implDef, bool) {
+	if st == nil || obj == nil {
+		return nil, false
+	}
+	defs, ok := st.defs[obj]
+	return defs, ok
+}
+
+// clone 深拷贝（分支分析各自演进，合流时再合并）。
+func (st *implState) clone() *implState {
+	out := newImplState()
+	if st == nil {
+		return out
+	}
+	for obj, defs := range st.defs {
+		cp := append([]implDef(nil), defs...)
+		out.defs[obj] = cp
+	}
+	return out
+}
+
+// mergeImplStates 分支合流：逐变量取并集（与旧实现的"defs 并集"语义一致）。
+func mergeImplStates(states ...*implState) *implState {
+	out := newImplState()
+	for _, st := range states {
+		if st == nil {
+			continue
+		}
+		for obj, defs := range st.defs {
+			if defs == nil {
+				if _, ok := out.defs[obj]; !ok {
+					out.defs[obj] = nil
+				}
+				continue
+			}
+			out.defs[obj] = mergeImplDefs(out.defs[obj], defs)
+		}
+	}
+	return out
 }
 
 func walkImplStmts(fset *token.FileSet, stmts []ast.Stmt, target token.Pos, st *implState,

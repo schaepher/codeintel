@@ -7021,3 +7021,28 @@ cwd，主模块 go.mod 没有该间接依赖 require 时会定位失败。
 `shared.Run` 展开并继续 `Called`；标准库 `bytes.Buffer.WriteString` 不按外部
 依赖展开。**未做**：跨文件/跨包结构体字段声明解析（当前只查当前文件的结构体
 声明；字段类型在同包另一个文件时保持未解析）。
+
+## §133 todo22 P1：到达定义按声明对象区分推广到实现候选分析（2026-10-27）
+
+**问题**：§2.1 给函数值环境建立的"覆盖表按 `*ast.Object` 区分 + 区分'没有
+覆盖'与'明确未知'"只用于 `seqEnv`；实现候选分析（`implState`）仍是**单个
+`defs []implDef`**——`reachingImplsAt` 的 `varName` 参数压根没用，函数里任何
+变量的赋值都会覆盖同一份 defs。真实后果（本轮回归测试锁定）：同一函数里
+`d := &A{}; other := &B{}; other.Do(); d.Do()` 两个调用点都拿到 `B`
+（最后赋值的实现）。
+
+**改法**：
+- `implState.defs` 改为 `map[*ast.Object][]implDef`；`set/get/clone/merge`
+  按对象身份操作（`DeclStmt`/`AssignStmt` 用 `id.Obj` 定位变量）。
+- `reachingImplsAt(fset, body, target, obj, varName)` 返回
+  `(defs, found bool)`：键不存在 = 没有定义；键存在但 defs 为空 = 定义为
+  未知（不再混为一谈）。`obj == nil` 时回退按名字找（旧调用兼容）。
+- 分支/循环/switch 合流逐变量取并集（保持旧"defs 并集"语义）；
+  `sceneImplChoice` 传接收者 `*ast.Ident.Obj`。
+
+**测试**：`action_scene_impl_object_test.go`（两变量各拿自己的定义、内外层
+同名遮蔽按对象区分、未知 vs 未声明）+ 时序回归
+`TestSceneImplTwoVarsReachingPerObject`（`d.Do`→ImplCN、`other.Do`→ImplJP）。
+
+**边界**：结构体字段键仍是 `var.Field` 名称口径（词法作用域栈已隔离同名
+变量），不引入字段声明对象；函数值环境保持原实现。

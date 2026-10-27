@@ -163,7 +163,7 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 			if sel, isSel := fun.(*ast.SelectorExpr); isSel {
 				if recv, isID := sel.X.(*ast.Ident); isID {
 					dispStart := time.Now()
-					impl, reason, cands, guard, ok := a.sceneImplChoice(req, fset, pos.Offset, f, recv.Name,
+					impl, reason, cands, guard, ok := a.sceneImplChoice(req, fset, pos.Offset, f, recv.Obj, recv.Name,
 						sel.Sel.Name, pkgOfID(domain.CanonicalID(tid)))
 					req.acc.dispatch++
 					req.acc.dispatchDur += time.Since(dispStart)

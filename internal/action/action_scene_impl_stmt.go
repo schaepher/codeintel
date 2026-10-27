@@ -1,8 +1,13 @@
 package action
 
-import "go/ast"
-import "go/token"
-import "strings"
+// todo22 P1：实现候选的到达定义——**按声明对象**分别保存（同名变量/遮蔽
+// 不串），并区分"没有定义"（键不存在）与"定义为未知"（键存在、值为空）。
+
+import (
+	"go/ast"
+	"go/token"
+	"strings"
+)
 
 func applyImplStmt(fset *token.FileSet, stmt ast.Stmt, st *implState, guards []sceneGuard, depth int) {
 	if depth > 12 {
@@ -15,15 +20,14 @@ func applyImplStmt(fset *token.FileSet, stmt ast.Stmt, st *implState, guards []s
 		}
 		for i, lhs := range x.Lhs {
 			id, ok := lhs.(*ast.Ident)
-			if !ok {
+			if !ok || id.Name == "_" || id.Obj == nil {
 				continue
 			}
 			if t := implTypeFromExpr(x.Rhs[i]); t != "" {
-				st.defs = []implDef{{impl: t, line: fset.Position(x.Pos()).Line,
-					guards: append([]sceneGuard{}, guards...)}}
-			} else if id.Name != "_" {
-
-				st.defs = nil
+				st.set(id.Obj, []implDef{{impl: t, line: fset.Position(x.Pos()).Line,
+					guards: append([]sceneGuard{}, guards...)}})
+			} else {
+				st.set(id.Obj, nil) // 明确未知：不再沿用旧实现
 			}
 		}
 	case *ast.DeclStmt:
@@ -37,40 +41,41 @@ func applyImplStmt(fset *token.FileSet, stmt ast.Stmt, st *implState, guards []s
 				continue
 			}
 			for i, name := range vs.Names {
-				if name.Name == "_" {
+				if name.Name == "_" || name.Obj == nil {
 					continue
 				}
 				if i < len(vs.Values) {
 					if t := implTypeFromExpr(vs.Values[i]); t != "" {
-						st.defs = []implDef{{impl: t, line: fset.Position(name.Pos()).Line,
-							guards: append([]sceneGuard{}, guards...)}}
+						st.set(name.Obj, []implDef{{impl: t, line: fset.Position(name.Pos()).Line,
+							guards: append([]sceneGuard{}, guards...)}})
 						continue
 					}
+					st.set(name.Obj, nil)
+					continue
 				}
-				st.defs = nil
+				// `var d Doer`：变量存在但没有任何实现定义
+				st.set(name.Obj, nil)
 			}
 		}
 	case *ast.BlockStmt:
+		// 块内新变量按对象身份加入；对外层变量的赋值照常覆盖外层键
 		walkImplStmts(fset, x.List, token.NoPos, st, guards, depth+1)
 	case *ast.IfStmt:
 		thenE := st.clone()
 		walkImplStmts(fset, x.Body.List, token.NoPos, thenE, appendGuard(guards, x.Cond, true), depth+1)
-		if x.Else == nil {
-
-			st.defs = mergeImplDefs(st.defs, thenE.defs)
-			return
-		}
 		elseE := st.clone()
-		applyImplStmt(fset, x.Else, elseE, appendGuard(guards, x.Cond, false), depth+1)
-		st.defs = mergeImplDefs(thenE.defs, elseE.defs)
+		if x.Else != nil {
+			applyImplStmt(fset, x.Else, elseE, appendGuard(guards, x.Cond, false), depth+1)
+		}
+		*st = *mergeImplStates(thenE, elseE)
 	case *ast.ForStmt:
 		loopE := st.clone()
 		walkImplStmts(fset, x.Body.List, token.NoPos, loopE, guards, depth+1)
-		st.defs = mergeImplDefs(st.defs, loopE.defs)
+		*st = *mergeImplStates(st.clone(), loopE) // 循环可能执行 0 次
 	case *ast.RangeStmt:
 		loopE := st.clone()
 		walkImplStmts(fset, x.Body.List, token.NoPos, loopE, guards, depth+1)
-		st.defs = mergeImplDefs(st.defs, loopE.defs)
+		*st = *mergeImplStates(st.clone(), loopE)
 	case *ast.SwitchStmt:
 		mergeImplClauses(fset, x.Body, st, guards, depth)
 	case *ast.TypeSwitchStmt:
@@ -79,9 +84,10 @@ func applyImplStmt(fset *token.FileSet, stmt ast.Stmt, st *implState, guards []s
 		mergeImplClauses(fset, x.Body, st, guards, depth)
 	}
 }
+
 func mergeImplClauses(fset *token.FileSet, body *ast.BlockStmt, st *implState, guards []sceneGuard, depth int) {
-	base := st.defs
-	var all []implDef
+	base := st.clone()
+	var branches []*implState
 	hasDefault := false
 	for _, c := range body.List {
 		cl, ok := c.(*ast.CaseClause)
@@ -91,23 +97,29 @@ func mergeImplClauses(fset *token.FileSet, body *ast.BlockStmt, st *implState, g
 		if cl.List == nil {
 			hasDefault = true
 		}
-		e := &implState{defs: append([]implDef{}, base...)}
+		e := base.clone()
 		walkImplStmts(fset, cl.Body, token.NoPos, e, guards, depth+1)
-		all = append(all, e.defs...)
+		branches = append(branches, e)
 	}
 	if !hasDefault {
-		all = append(all, base...)
+		branches = append(branches, base)
 	}
-	st.defs = dedupeImplDefs(all)
+	if len(branches) == 0 {
+		return
+	}
+	*st = *mergeImplStates(branches...)
 }
+
 func appendGuard(gs []sceneGuard, cond ast.Expr, positive bool) []sceneGuard {
 	out := make([]sceneGuard, len(gs), len(gs)+1)
 	copy(out, gs)
 	return append(out, sceneGuard{cond: cond, positive: positive})
 }
+
 func mergeImplDefs(a, b []implDef) []implDef {
 	return dedupeImplDefs(append(append([]implDef{}, a...), b...))
 }
+
 func dedupeImplDefs(defs []implDef) []implDef {
 	seen := map[string]bool{}
 	out := make([]implDef, 0, len(defs))

@@ -57,6 +57,13 @@ func Uninitialized(cond bool) {
 	}
 	d.Do()
 }
+
+func TwoVarsDo() {
+	d := &ImplCN{}
+	other := &ImplJP{}
+	other.Do()
+	d.Do()
+}
 `
 
 func seedSceneImplRepo(t *testing.T) (*Actions, string) {
@@ -78,6 +85,7 @@ func seedSceneImplRepo(t *testing.T) (*Actions, string) {
 		{ID: "symbol:go:example.com/m:Pick", Kind: domain.KindFunction, Name: "Pick", FilePath: "main.go", LineStart: 17},
 		{ID: "symbol:go:example.com/m:Override", Kind: domain.KindFunction, Name: "Override", FilePath: "main.go", LineStart: 29},
 		{ID: "symbol:go:example.com/m:Uninitialized", Kind: domain.KindFunction, Name: "Uninitialized", FilePath: "main.go", LineStart: 35},
+		{ID: "symbol:go:example.com/m:TwoVarsDo", Kind: domain.KindFunction, Name: "TwoVarsDo", FilePath: "main.go", LineStart: 43},
 		{ID: "symbol:go:example.com/m:Doer", Kind: domain.KindInterface, Name: "Doer"},
 		{ID: "symbol:go:example.com/m:(Doer).Do", Kind: domain.KindMethod, Name: "(Doer).Do"},
 		{ID: "symbol:go:example.com/m:ImplCN", Kind: domain.KindStruct, Name: "ImplCN"},
@@ -94,6 +102,7 @@ func seedSceneImplRepo(t *testing.T) (*Actions, string) {
 	}
 	facts := []*domain.Fact{
 		callAt("Pick", 26), callAt("Override", 32), callAt("Uninitialized", 40),
+		callAt("TwoVarsDo", 46), callAt("TwoVarsDo", 47),
 		{SourceID: "symbol:go:example.com/m:Doer", TargetID: "symbol:go:example.com/m:ImplCN",
 			Kind: domain.FactImplements, Confidence: 1.0},
 		{SourceID: "symbol:go:example.com/m:Doer", TargetID: "symbol:go:example.com/m:ImplUS",
@@ -195,5 +204,28 @@ func TestSceneImplOverrideAndUninitialized(t *testing.T) {
 	n = ifaceCallNode(t, root)
 	if n.Evidence == nil || !n.Evidence.Ambiguous {
 		t.Errorf("未初始化/条件赋值应保留候选 + ambiguous: %+v", n.Evidence)
+	}
+}
+
+// TestSceneImplTwoVarsReachingPerObject：同一函数里两个接口变量互不串
+// （旧实现把全部赋值并进一个 defs，导致两个调用点都拿到最后赋值的实现）。
+func TestSceneImplTwoVarsReachingPerObject(t *testing.T) {
+	acts, dir := seedSceneImplRepo(t)
+	root, err := acts.CodeSequence(CodeSequenceRequest{
+		Target: "symbol:go:example.com/m:TwoVarsDo", RepoAbs: dir, Depth: 3})
+	if err != nil {
+		t.Fatalf("CodeSequence: %v", err)
+	}
+	got := map[string]string{}
+	for _, n := range root.Nodes {
+		if n.Kind == "call" {
+			got[n.Label] = n.ImplType
+		}
+	}
+	if got["d.Do"] != "m.ImplCN" {
+		t.Errorf("d.Do 应具体化为 m.ImplCN，got %q（%v）", got["d.Do"], got)
+	}
+	if got["other.Do"] != "m.ImplJP" {
+		t.Errorf("other.Do 应具体化为 m.ImplJP，got %q（%v）", got["other.Do"], got)
 	}
 }
