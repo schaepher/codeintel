@@ -130,16 +130,9 @@ func seqExpandRPCForward(a *Actions, req CodeSequenceRequest, node *CodeSeqNode,
 	base := &SeqEvidence{Source: SeqEvidenceRPC, CallFile: curFile, CallLine: line,
 		Reason: "micro-client-stub", ServiceID: string(fwd.ServiceID),
 		RPCService: fwd.FullIdentity, RPCProtocol: fwd.Protocol, RPCMethod: fwd.Method}
-	if depth <= 1 {
-		// 深度预算：保留准确 RPC 目标 + 深度诊断（与外部依赖同一口径）
-		req.acc.depth = true
-		base.SymbolID = seqRPCTargetIDFor(fwd)
-		base.File, base.Line = "", 0
-		node.Evidence = base
-		node.Stop = &SeqStop{Code: SeqStopDepthLimit,
-			Detail: "depth 上限（--depth " + itoaSeq(req.Depth) + "），未展开 RPC 服务端子树"}
-		return true
-	}
+	// todo23 §4.1：先解析并证明服务实现方法，**再**应用展开深度——
+	// depth=1 也必须输出与深查询相同的方法 canonical ID（不能用服务节点 ID
+	// 代替方法前沿）；缺注册/多实现保持未知。
 	svc, remoteRepo, targetActs := seqRPCServiceAcrossRepos(a, req, fwd)
 	if svc == nil || svc.stop != nil {
 		node.Evidence = base
@@ -181,6 +174,14 @@ func seqExpandRPCForward(a *Actions, req CodeSequenceRequest, node *CodeSeqNode,
 	base.Reason = "micro-" + svc.reason
 	node.Evidence = base
 	node.ImplType = implTypeShort(svc.impls[0])
+	if depth <= 1 {
+		// 身份已证明，仅不展开子树（深度是展开预算，不是身份解析预算）
+		req.acc.depth = true
+		base.File, base.Line = "", 0
+		node.Stop = &SeqStop{Code: SeqStopDepthLimit,
+			Detail: "depth 上限（--depth " + itoaSeq(req.Depth) + "），未展开 RPC 服务端子树"}
+		return true
+	}
 	// 防环：跨仓库也按 (仓库|方法入口) 计——同仓时与既有 visited 同口径
 	if req.rpcVisited != nil {
 		key := req.RepoAbs + "|" + entry
@@ -204,13 +205,4 @@ func seqExpandRPCForward(a *Actions, req CodeSequenceRequest, node *CodeSeqNode,
 		node.Stop = stop
 	}
 	return true
-}
-
-// seqRPCTargetIDFor depth 截断时保留的准确目标（实现方法 ID；服务未解析时用
-// 服务节点 ID——仍可核对，不写成"未知"）。
-func seqRPCTargetIDFor(fwd *domain.RPCForward) string {
-	if fwd == nil {
-		return ""
-	}
-	return string(fwd.ServiceID)
 }

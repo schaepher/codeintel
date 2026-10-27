@@ -156,8 +156,13 @@ func TestTodo22MicroRPCSameRepo(t *testing.T) {
 	if rpcShallow.Stop == nil || rpcShallow.Stop.Code != action.SeqStopDepthLimit {
 		t.Errorf("depth=1 RPC 节点诊断 = %+v; want depth", rpcShallow.Stop)
 	}
-	if !strings.Contains(rpcShallow.Evidence.SymbolID, "svc.AccountService") {
-		t.Errorf("depth=1 仍须保留准确 RPC 目标: %q", rpcShallow.Evidence.SymbolID)
+	// todo23 §4.1：depth=1 的前沿是**实现方法** ID（不是服务节点 ID），
+	// 与深查询一致。
+	if !strings.Contains(rpcShallow.Evidence.SymbolID, "(AccountServer).Apply") {
+		t.Errorf("depth=1 应保留准确实现方法 ID: %q", rpcShallow.Evidence.SymbolID)
+	}
+	if strings.Contains(rpcShallow.Evidence.SymbolID, ":svc.") {
+		t.Errorf("depth=1 不得用服务节点 ID 代替方法前沿: %q", rpcShallow.Evidence.SymbolID)
 	}
 }
 
