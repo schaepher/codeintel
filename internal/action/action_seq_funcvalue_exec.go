@@ -21,7 +21,9 @@ import (
 func seqCallFuncValue(a *Actions, req CodeSequenceRequest, call *ast.CallExpr) (seqValue, bool) {
 	switch f := call.Fun.(type) {
 	case *ast.FuncLit:
-		return literalSeqValue(req, req.curCtx, req.env, f, seqOriginLiteral), true
+		v := captureSeqClosureValue(a, req, req.curCtx, f)
+		v.origin = seqOriginLiteral
+		return v, true
 	case *ast.Ident:
 		if req.env != nil {
 			if v, ok := req.env.lookup(f.Obj); ok {
@@ -105,7 +107,7 @@ func seqExpandSingleValue(a *Actions, req CodeSequenceRequest, call *ast.CallExp
 	fv seqValue, node *CodeSeqNode, depth int) {
 	reason := seqReasonForOrigin(fv.origin)
 	// 本次调用的实参值（按位置）——被展开函数的形参绑定。
-	args := seqBindCallArgs(a, req, req.curCtx, call)
+	args := captureSeqClosureArgs(a, req, req.curCtx, call)
 	switch fv.kind {
 	case seqValueLit:
 		node.Evidence = &SeqEvidence{Source: SeqEvidenceClosure, CallFile: req.curFile,
@@ -174,7 +176,7 @@ func seqFuncArgEscape(a *Actions, req CodeSequenceRequest, call *ast.CallExpr) s
 		return ""
 	}
 	for _, arg := range call.Args {
-		v := seqValueOfExpr(a, req, req.curCtx, req.env, arg)
+		v := captureSeqClosureValue(a, req, req.curCtx, arg)
 		switch v.kind {
 		case seqValueLit, seqValueNamed, seqValueMulti:
 			return "函数值参数在未解析调用中逃逸（无法确定是否/何时被调用）: " + v.label()

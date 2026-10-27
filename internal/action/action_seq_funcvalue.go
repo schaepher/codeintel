@@ -62,6 +62,12 @@ type seqValue struct {
 	why       string // unknown 原因
 	cands     []seqValue
 	elems     []seqValue // list：元素（按源码/变参顺序）
+	// todo22 §2.1：绑定元数据——声明对象（区分同名阴影）、调用上下文
+	// （绑定发生的文件/行）与条件（在哪个分支条件下成立）。
+	declObj  *ast.Object
+	bindFile string
+	bindLine int
+	cond     string
 }
 
 func unknownSeqValue(why string) seqValue {
@@ -120,9 +126,9 @@ func (v seqValue) equal(o seqValue) bool {
 	}
 	switch v.kind {
 	case seqValueLit:
-		return v.lit == o.lit
+		return v.lit == o.lit && v.cond == o.cond && v.declObj == o.declObj
 	case seqValueNamed:
-		return v.symID == o.symID
+		return v.symID == o.symID && v.cond == o.cond && v.declObj == o.declObj
 	case seqValueUnknown:
 		return v.why == o.why
 	case seqValueMulti:

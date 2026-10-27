@@ -35,7 +35,7 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		}
 		// todo22 §2：本次调用的实参值（按位置）——被展开函数绑定形参后，
 		// 形参调用处才能证明执行的是哪个回调。
-		req.paramValues = seqBindCallArgs(a, req, req.curCtx, call)
+		req.paramValues = captureSeqClosureArgs(a, req, req.curCtx, call)
 
 		tg, resolved := tgts.lookup(pos)
 		if !resolved {

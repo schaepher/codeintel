@@ -168,13 +168,18 @@ func typeSources(t ast.Expr, imports map[string]string, curPkg string) []writeSo
 // callReturnTypes 构造器调用 → 返回类型来源：同包函数直接 AST 查；
 // 跨包（pkg.NewX）经索引节点读源码。
 func callReturnTypes(a *Actions, req CodeSequenceRequest, f *ast.File, imports map[string]string, fun ast.Expr, depth int, curPkg string) []writeSource {
+	// 递归构造器（func F() func() { return F() }）必须由深度预算终止——
+	// 早前这里不减 depth，遇到自引用工厂会无限递归（栈溢出）。
+	if depth <= 0 {
+		return nil
+	}
 	switch e := fun.(type) {
 	case *ast.Ident:
-		return funcReturnTypes(a, req, f, imports, e.Name, depth, curPkg)
+		return funcReturnTypes(a, req, f, imports, e.Name, depth-1, curPkg)
 	case *ast.SelectorExpr:
 		if id, ok := e.X.(*ast.Ident); ok {
 			if pkg, ok := imports[id.Name]; ok {
-				return indexedFuncReturnTypes(a, req, pkg, e.Sel.Name, depth)
+				return indexedFuncReturnTypes(a, req, pkg, e.Sel.Name, depth-1)
 			}
 		}
 	}

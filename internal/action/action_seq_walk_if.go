@@ -18,8 +18,10 @@ func fillSeqIfBranches(a *Actions, req CodeSequenceRequest, fset *token.FileSet,
 	s *ast.IfStmt, fit *SceneFit, node *CodeSeqNode, tgts *seqTargets, depth int,
 	recvType string, recvDecl map[string]string, f *ast.File, curPkg, curFile string) bool {
 	var branches []*seqEnv
+	condText := seqExprText(fset, src, s.Cond)
 	if fit.Status != SceneExcluded {
 		thenReq := req
+		thenReq.branchCond = condText
 		if req.env != nil {
 			thenReq.env = req.env.clone()
 		}
@@ -35,6 +37,7 @@ func fillSeqIfBranches(a *Actions, req CodeSequenceRequest, fset *token.FileSet,
 		if fit.Status != SceneTaken {
 			sawElse = true
 			elseReq := req
+			elseReq.branchCond = "!(" + condText + ")"
 			if req.env != nil {
 				elseReq.env = req.env.clone()
 			}
@@ -48,6 +51,7 @@ func fillSeqIfBranches(a *Actions, req CodeSequenceRequest, fset *token.FileSet,
 		if fit.Status != SceneTaken {
 			sawElse = true
 			elseReq := req
+			elseReq.branchCond = "!(" + condText + ")"
 			if req.env != nil {
 				elseReq.env = req.env.clone()
 			}

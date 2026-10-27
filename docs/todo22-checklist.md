@@ -83,7 +83,7 @@ make it
 | 节 | 事项 | 现状 |
 | --- | --- | --- |
 | 1 | 夹具/证明边界/实施顺序 | 部分：todo12–21 已有 `example.com/seqbudget` 等真实 init→CLI 集成夹具；todo22 第 8 节的 `example.com/flow` + `example.com/tx` 夹具**未建** |
-| 2.1 | 闭包捕获统一接口（`captureSeqClosureValue/Args/CallbackLists`）、函数值解析/到达定义 | **第一增量已完成（2026-10-27）**：值/环境模型 + 形参绑定 + 到达定义（`seqValue`/`seqEnv`，见 B.4）；spec 里的三个函数名未逐字采用（能力等价，命名按现有 `seq*` 约定） |
+| 2.1 | 闭包捕获统一接口（`captureSeqClosureValue/Args/CallbackLists`）、函数值解析/到达定义 | **已完成（2026-10-27，B.6）**：三个统一入口 + 绑定元数据（声明对象/上下文/条件/包/receiver/词法文件与 AST）+ 方法值；见 B.6 |
 | 2.2 | 函数字面量/IIFE/`defer`/`go`/回调形参绑定/赋值先 RHS 后 LHS | **1/2/3/5 已完成 + 4 已支持普通/具名回调**（见 B.4）；返回函数值（工厂）与具名返回值待 B.5 |
 | 2.3 | 工厂返回函数、条件返回、捕获值、证明失效 | **已完成（2026-10-27，B.5）**：按被调函数的 return 表达式解析（具名/字面量/传入回调），多 return → 未消歧多候选；见 B.5 |
 | 2.4 | `[]func(...)` 命名函数列表、range 折叠装饰器、预算 16 路径×32 项 | **已完成（2026-10-27，B.5）**：复合字面量/append/变参列表、range 按元素顺序折叠、空列表确定、预算诊断；见 B.5 |
@@ -221,3 +221,19 @@ bash scripts/verify.sh --quick && make it
 ```
 
 **未做（下一增量）**：§2.1 的显式统一接口（`captureSeq*` 命名）、方法值（`x.Method`）、跨包常量、§3.3 DI/AOP、§4 RPC/外部源码。
+
+### B.6 §2.1 收口：统一捕获入口 + 绑定元数据 + 方法值（已完成，2026-10-27）
+
+| 要求 | 实现 / 证据 |
+| --- | --- |
+| 统一 `captureSeqClosureValue` / `captureSeqClosureArgs` / `captureSeqCallbackLists`，所有调用点（普通/外部/未解析分支/测试）都带显式 `*Actions` | `action_seq_capture.go`：三入口即唯一取数路径；`newSeqCallNode`（含接口/字段/局部变量/grpc/外部/未解析分支）、`recordSeqAssign/Decl`、range 元素、工厂 return、逃逸判定全部改走它们（`rg 'seqValueOfExpr\(' ` 仅剩 capture 内部实现） |
+| 函数绑定保存词法文件/AST/包/receiver/声明对象/调用上下文/条件 | `seqValue` 增加 `declObj`（声明对象）、`bindFile`/`bindLine`（绑定站点）、`cond`（分支条件）；`ctx`（fset+AST+源码+相对路径）、`pkgPath`、`recvType/recvDecl`、`enclosing` 早已随值保存；`seqStampBinding` 统一盖章（条件也盖到候选上） |
+| 按 AST 对象身份区分形参/局部变量/阴影 | 环境 `vals`/`types` 都以 `*ast.Object` 为键；测试：内层 `f := …B` 阴影只执行 B、外层执行 A |
+| 临时覆盖表区分"没有覆盖"与"明确未知" | `seqEnv.lookup` 沿闭包父链找"没有覆盖"；覆盖为不支持的值 → 显式 `unknownSeqValue(原因)` 存在当前层，**不会**回退到父/旧绑定；测试：`f = Mutate()` 后 `f()` 为 `func_value_unbound` 且旧字面量的 A 不执行 |
+| 方法值 `x.Method`（receiver 身份） | `seqMethodValue`：接收者类型来自**同一声明对象**的类型数据流（`&T{}`/`T{}`/构造器返回值），符号必须真实存在于索引；测试：`f := s.Run; f()` 与 `Use(s.Run)` 都解析到 `(S).Run` 并展开其函数体 |
+| 不保留返回 nil 的占位 / 未接入字段 | 值一律非零（unknown 带原因）；req 字段 `env/paramValues/curTgts/curCtx/curRecvType/curRecvDecl/litVisited/tgtsCache/branchCond` 全部接线；自引用工厂用深度预算终止（不再栈溢出） |
+
+**顺带修的坑**：`callReturnTypes` 递归构造器时不递减 depth（`func F() func(){return F()}`
+会无限递归 → 栈溢出）——现按预算递减，并加回归 `TestSeqCaptureRecursiveFactory`。
+
+**验证**：`go test ./internal/action -run 'TestSeqCapture' -count=1`（方法值/未覆盖 vs 明确未知/阴影/条件候选带条件/自引用工厂）、`TestSeqFuncValue*`、`TestScene*`、集成 `TestTodo22*`、`verify.sh --quick`、`make it` 全绿。

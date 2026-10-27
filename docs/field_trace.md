@@ -6482,3 +6482,41 @@ todo21 §110-14.4 把深递归物化列为"已知但未量化"。本轮交付可
   合并；但场景明确 taken 时不能补（否则会把 7 项列表当成 4/7 多候选）。
 - `runCLIOut` 用 `os.Stdout` 管道，树大过管道缓冲（>64KB JSON）时
   `json.Encoder` 写阻塞，表现为"分析卡死"——大输出用例必须用外部进程。
+
+## §116 todo22 §2.1：捕获入口统一 + 绑定元数据 + 方法值（2026-10-27）
+
+### 统一入口
+
+`action_seq_capture.go` 提供 `captureSeqClosureValue` / `captureSeqClosureArgs` /
+`captureSeqCallbackLists`（均带显式 `*Actions`），所有取函数值的位置（普通调用、
+接口/字段/局部变量具体化、grpc、外部未解析分支、赋值/var 声明、range 元素、
+工厂 return、逃逸判定）都只走这三个入口；底层的 `seqValueOfExprDepth` 只被
+capture 内部调用，口径不再分叉。方法值在 capture 里兜底解析。
+
+### 绑定元数据
+
+`seqValue` 现在保存：词法文件 + AST（`seqFileCtx`）、包（`pkgPath`）、
+receiver（`recvType/recvDecl`）、所在函数（`enclosing`）、**声明对象**
+（`declObj`）、**调用上下文**（`bindFile`/`bindLine`）与**条件**（`cond`），
+并由 `seqStampBinding` 在赋值/声明时统一盖章。条件一路进到多候选证据
+（`candidates: ["... (when cond)", "... (when !(cond))"]`），对应 §2.3
+"保留每条返回路径、条件及原回调身份"。
+
+### 覆盖表语义
+
+`seqEnv.lookup` 沿闭包父链区分"没有覆盖"；覆盖为不支持的值时在当前层写入
+**明确未知**，不会回退到旧/父绑定（测试：`f = Mutate()` 后旧字面量不再执行）。
+同名阴影按 `*ast.Object` 身份隔离（内层 B、外层 A 各执行一次）。
+
+### 方法值
+
+`seqMethodValue`：接收者类型来自同一 `*ast.Object` 的类型数据流
+（`&T{}`/`T{}`/构造器返回类型，走现有 `rhsTypes`），再构造
+`symbol:go:<pkg>:(T).Method` 并要求索引中真实存在；不做按变量名的全局搜索。
+
+### 顺带修的坑
+
+`callReturnTypes` 在递归构造器场景不递减 depth——`func F() func() { return F() }`
+经 `rhsTypes → callReturnTypes → funcReturnTypes → rhsTypes` 无限递归（栈溢出，
+`fatal error: stack overflow`）。改为每层递减并由 `seqMaxFactoryDepth` 之外的
+depth 预算终止；回归 `TestSeqCaptureRecursiveFactory`。

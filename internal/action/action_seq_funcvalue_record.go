@@ -29,7 +29,14 @@ func recordSeqAssign(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx, s *as
 		if !ok || id.Obj == nil {
 			continue
 		}
-		req.env.set(id.Obj, seqValueOfExpr(a, req, ctx, req.env, s.Rhs[i]))
+		v := captureSeqClosureValue(a, req, ctx, s.Rhs[i])
+		seqStampBinding(&v, id.Obj, ctx, s.Pos(), req.branchCond)
+		req.env.set(id.Obj, v)
+		if ref, ok := seqTypeOfExpr(a, req, ctx, s.Rhs[i]); ok {
+			req.env.types[id.Obj] = ref
+		} else {
+			delete(req.env.types, id.Obj) // 明确未知：不沿用旧的类型绑定
+		}
 	}
 }
 
@@ -48,7 +55,12 @@ func recordSeqDecl(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx, gd *ast
 				continue
 			}
 			if i < len(vs.Values) {
-				req.env.set(name.Obj, seqValueOfExpr(a, req, ctx, req.env, vs.Values[i]))
+				v := captureSeqClosureValue(a, req, ctx, vs.Values[i])
+				seqStampBinding(&v, name.Obj, ctx, vs.Pos(), req.branchCond)
+				req.env.set(name.Obj, v)
+				if ref, ok := seqTypeOfExpr(a, req, ctx, vs.Values[i]); ok {
+					req.env.types[name.Obj] = ref
+				}
 				continue
 			}
 			// todo22 §2.4：`var list []func()` 是**确定的空列表**（nil slice
@@ -68,11 +80,15 @@ func seqValueCandidates(v seqValue) []string {
 	case seqValueMulti:
 		out := make([]string, 0, len(v.cands))
 		for _, c := range v.cands {
+			label := c.label()
 			if c.kind == seqValueNamed {
-				out = append(out, c.symID)
-			} else {
-				out = append(out, c.label())
+				label = c.symID
 			}
+			// todo22 §2.1/§2.3：候选要带"在哪个条件下成立"
+			if c.cond != "" {
+				label += " (when " + c.cond + ")"
+			}
+			out = append(out, label)
 		}
 		return out
 	case seqValueNamed:
@@ -147,4 +163,24 @@ func seqEmptyFuncSliceType(t ast.Expr) bool {
 	}
 	_, isFunc := at.Elt.(*ast.FuncType)
 	return isFunc
+}
+
+// seqStampBinding 给值盖上绑定元数据（声明对象/调用上下文/条件），供证据与
+// 诊断使用（todo22 §2.1：不能只保留"某个值"，要能说清它绑在谁身上）。
+func seqStampBinding(v *seqValue, obj *ast.Object, ctx *seqFileCtx, pos token.Pos, cond string) {
+	if v == nil {
+		return
+	}
+	v.declObj = obj
+	if ctx != nil {
+		v.bindFile = ctx.rel
+	}
+	v.bindLine = lineOfOffset(ctx, pos)
+	v.cond = cond
+	// 统一把元数据也盖到候选上（多候选时每个候选各自的条件才有意义）
+	for i := range v.cands {
+		if v.cands[i].cond == "" {
+			v.cands[i].cond = cond
+		}
+	}
 }

@@ -43,7 +43,7 @@ func seqCalleeReturnValues(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx,
 		return nil, false
 	}
 	env := newSeqEnv(nil)
-	bindSeqParams(env, fn.Type.Params, seqBindCallArgs(a, req, ctx, call))
+	bindSeqParams(env, fn.Type.Params, captureSeqClosureArgs(a, req, ctx, call))
 	return seqReturnValuesOf(a, req, fileCtx, fn, env, depth)
 }
 
@@ -56,7 +56,7 @@ func seqValueReturnValues(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx,
 			return nil, false
 		}
 		env := newSeqEnv(fv.env)
-		bindSeqParams(env, fv.lit.Type.Params, seqBindCallArgs(a, req, ctx, call))
+		bindSeqParams(env, fv.lit.Type.Params, captureSeqClosureArgs(a, req, ctx, call))
 		sub := req
 		sub.curSym = fv.enclosing
 		sub.env = env
@@ -67,7 +67,7 @@ func seqValueReturnValues(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx,
 			return nil, false
 		}
 		env := newSeqEnv(nil)
-		bindSeqParams(env, fn.Type.Params, seqBindCallArgs(a, req, ctx, call))
+		bindSeqParams(env, fn.Type.Params, captureSeqClosureArgs(a, req, ctx, call))
 		sub := req
 		sub.curSym = fv.symID
 		sub.env = env
@@ -105,7 +105,9 @@ func seqReturnValuesOf(a *Actions, req CodeSequenceRequest, fileCtx *seqFileCtx,
 			return true
 		}
 		for _, r := range rs.Results {
-			vals = append(vals, seqValueOfExprDepth(a, req, fileCtx, env, r, depth+1))
+			sub := req
+			sub.env = env
+			vals = append(vals, captureSeqClosureValueDepth(a, sub, fileCtx, r, depth+1))
 		}
 		return true
 	})
@@ -183,21 +185,13 @@ func seqTargetsCached(a *Actions, req CodeSequenceRequest, symID string) *seqTar
 	return t
 }
 
-// seqRangeElems range 的对象是否是已知函数列表（只认确定的列表；多候选
-// 不套用"按顺序展开"——那会把未消歧的值当确定顺序）。
-func seqRangeElems(req CodeSequenceRequest, x ast.Expr) (seqValue, bool) {
+// seqRangeElems range 的对象是否是已知函数列表（统一走 captureSeqCallbackLists
+// ——只认确定的列表；多候选不套用"按顺序展开"）。
+func seqRangeElems(a *Actions, req CodeSequenceRequest, x ast.Expr) (seqValue, bool) {
 	if req.env == nil {
 		return seqValue{}, false
 	}
-	id, ok := x.(*ast.Ident)
-	if !ok {
-		return seqValue{}, false
-	}
-	v, ok := req.env.lookup(id.Obj)
-	if !ok || v.kind != seqValueList {
-		return seqValue{}, false
-	}
-	return v, true
+	return captureSeqCallbackLists(a, req, req.curCtx, x)
 }
 
 // seqRangeOverFuncList 按列表元素顺序展开循环体（每次迭代绑定元素值；

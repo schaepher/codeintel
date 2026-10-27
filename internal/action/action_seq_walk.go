@@ -126,7 +126,7 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 	case *ast.RangeStmt:
 		// todo22 §2.4：range 已知函数列表 → 按元素顺序展开（每项都可确定
 		// 执行一次；循环体按迭代顺序折叠，如 process = wrapper(ctx, process)）
-		if list, ok := seqRangeElems(req, s.X); ok {
+		if list, ok := seqRangeElems(a, req, s.X); ok {
 			return []*CodeSeqNode{seqRangeOverFuncList(a, req, fset, src, s, list,
 				tgts, depth, recvType, recvDecl, f, curPkg, curFile)}
 		}

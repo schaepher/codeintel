@@ -5,14 +5,23 @@ package action
 
 import "go/ast"
 
+// seqTypeRef 接收者类型引用（todo22 §2.1：函数绑定保存 receiver 身份）。
+type seqTypeRef struct {
+	pkgPath  string
+	typeName string
+}
+
 // seqEnv 一个函数调用的值环境（父环境 = 闭包捕获/外层绑定）。
+// types 记录局部变量/形参的接收者类型（方法值 x.Method 用），同样按 AST
+// 对象身份区分阴影。
 type seqEnv struct {
 	parent *seqEnv
 	vals   map[*ast.Object]seqValue
+	types  map[*ast.Object]seqTypeRef
 }
 
 func newSeqEnv(parent *seqEnv) *seqEnv {
-	return &seqEnv{parent: parent, vals: map[*ast.Object]seqValue{}}
+	return &seqEnv{parent: parent, vals: map[*ast.Object]seqValue{}, types: map[*ast.Object]seqTypeRef{}}
 }
 
 func (e *seqEnv) lookup(obj *ast.Object) (seqValue, bool) {
@@ -36,9 +45,14 @@ func (e *seqEnv) clone() *seqEnv {
 	if e == nil {
 		return nil
 	}
-	out := &seqEnv{parent: e.parent, vals: make(map[*ast.Object]seqValue, len(e.vals))}
+	out := &seqEnv{parent: e.parent,
+		vals:  make(map[*ast.Object]seqValue, len(e.vals)),
+		types: make(map[*ast.Object]seqTypeRef, len(e.types))}
 	for k, v := range e.vals {
 		out.vals[k] = v
+	}
+	for k, v := range e.types {
+		out.types[k] = v
 	}
 	return out
 }

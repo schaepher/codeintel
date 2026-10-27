@@ -109,26 +109,6 @@ func seqImportPath(f *ast.File, name string) string {
 	return ""
 }
 
-// seqBindCallArgs 把调用实参求值为位置参数值（形参绑定用）。origin 记为 arg
-// ——展开时的证据是"回调绑定"。
-func seqBindCallArgs(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx, call *ast.CallExpr) []seqValue {
-	if call == nil {
-		return nil
-	}
-	out := make([]seqValue, 0, len(call.Args))
-	for i, arg := range call.Args {
-		v := seqValueOfExpr(a, req, ctx, req.env, arg)
-		v.origin = seqOriginArg
-		// todo22 §2.4：`f(wrappers...)` 把列表元素摊平为实参
-		if call.Ellipsis.IsValid() && i == len(call.Args)-1 && v.kind == seqValueList {
-			out = append(out, v.elems...)
-			continue
-		}
-		out = append(out, v)
-	}
-	return out
-}
-
 // bindSeqParams 按位置把实参值绑到形参（多重名/无名形参都按位置消耗）。
 // 没有实参绑定的形参 = 明确的 unknown（入口函数/外部调用者）。
 func bindSeqParams(env *seqEnv, params *ast.FieldList, values []seqValue) {
@@ -163,6 +143,7 @@ func bindSeqParams(env *seqEnv, params *ast.FieldList, values []seqValue) {
 			if i < len(values) {
 				v := values[i]
 				v.origin = seqOriginArg
+				v.declObj = name.Obj
 				env.set(name.Obj, v)
 			} else {
 				env.set(name.Obj, unknownSeqValue("形参 "+name.Name+" 无实参绑定（入口函数或外部调用者）"))
