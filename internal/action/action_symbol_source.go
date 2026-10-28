@@ -46,6 +46,15 @@ type SymbolSource struct {
 	SelectionLineEnd   int    `json:"selection_line_end,omitempty"`
 	Location           string `json:"location,omitempty"`     // repository|dependency
 	IndexStatus        string `json:"index_status,omitempty"` // not_indexed（AST 有声明但图无节点）
+	// todo24 §11.4：声明所在文件的 imports（源文件顺序；无显式别名时省略
+	// alias，不按目录末段猜包名）。这是文件上下文，不表示该声明使用了每项。
+	Imports []SymbolSourceImport `json:"imports,omitempty"`
+}
+
+// SymbolSourceImport 源文件的一条导入（显式别名 "."/"_" 原样保留）。
+type SymbolSourceImport struct {
+	Path  string `json:"path"`
+	Alias string `json:"alias,omitempty"`
 }
 
 // SymbolSource 按 canonical ID 输出声明源码（todo22 §6；todo23 扩展到
@@ -111,6 +120,7 @@ func buildSymbolSource(id string, d *symbolSourceDecl, fileLabel, location, inde
 		Text:      string(src[start:end]),
 		Kind:      d.kind,
 		Location:  location,
+		Imports:   d.imports,
 	}
 	if indexStatus != "" {
 		out.IndexStatus = indexStatus

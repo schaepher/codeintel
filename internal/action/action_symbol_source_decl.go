@@ -13,8 +13,33 @@ import (
 	"go/ast"
 	"go/token"
 	"sort"
+	"strconv"
 	"strings"
 )
+
+// symbolSourceImports 按源文件顺序提取 imports（显式别名 "."/"_" 原样保留；
+// 无显式别名时不填 alias——不按目录末段猜包名）。
+func symbolSourceImports(f *ast.File) []SymbolSourceImport {
+	if f == nil || len(f.Imports) == 0 {
+		return nil
+	}
+	out := make([]SymbolSourceImport, 0, len(f.Imports))
+	for _, im := range f.Imports {
+		if im == nil || im.Path == nil {
+			continue
+		}
+		path, err := strconv.Unquote(im.Path.Value)
+		if err != nil {
+			path = strings.Trim(im.Path.Value, "`\"")
+		}
+		item := SymbolSourceImport{Path: path}
+		if im.Name != nil {
+			item.Alias = im.Name.Name
+		}
+		out = append(out, item)
+	}
+	return out
+}
 
 // symbolSourceDecl 匹配到的声明（含展示范围与选中范围）。
 type symbolSourceDecl struct {
@@ -23,10 +48,13 @@ type symbolSourceDecl struct {
 	selNode   ast.Node // 选中项（函数声明/TypeSpec/ValueSpec）
 	fset      *token.FileSet
 	fileLabel string
+	// todo24 §11.4：声明所在文件的 imports（源文件顺序，显式别名原样保留）。
+	imports []SymbolSourceImport
 }
 
 // matchAnySymbolSourceDecl 在一个文件里按声明名匹配（含函数/类型/值）。
 func matchAnySymbolSourceDecl(fset *token.FileSet, f *ast.File, name, relFile string) (*symbolSourceDecl, error) {
+	imports := symbolSourceImports(f)
 	if strings.HasPrefix(name, "(") || isPlainIdent(name) {
 		// 函数/方法优先（名称形态与既有契约一致）
 		if fd, err := matchSymbolSourceDecl(fset, f, name, relFile); err == nil {
@@ -34,7 +62,8 @@ func matchAnySymbolSourceDecl(fset *token.FileSet, f *ast.File, name, relFile st
 			if fd.Recv != nil {
 				kind = "method"
 			}
-			return &symbolSourceDecl{kind: kind, textNode: fd, selNode: fd, fset: fset, fileLabel: relFile}, nil
+			return &symbolSourceDecl{kind: kind, textNode: fd, selNode: fd, fset: fset,
+				fileLabel: relFile, imports: imports}, nil
 		} else if strings.Contains(err.Error(), "多重声明") {
 			// 函数名多重声明不能继续按类型/常量匹配（会让错误契约失真）
 			return nil, err
@@ -65,7 +94,7 @@ func matchAnySymbolSourceDecl(fset *token.FileSet, f *ast.File, name, relFile st
 					text = gd // 单 spec：带 `type` 关键字
 				}
 				typeHits = append(typeHits, &symbolSourceDecl{kind: kind, textNode: text,
-					selNode: spec, fset: fset, fileLabel: relFile})
+					selNode: spec, fset: fset, fileLabel: relFile, imports: imports})
 			case *ast.ValueSpec:
 				matched := false
 				for _, nm := range spec.Names {
@@ -82,7 +111,7 @@ func matchAnySymbolSourceDecl(fset *token.FileSet, f *ast.File, name, relFile st
 					kind = "const"
 				}
 				valueHits = append(valueHits, &symbolSourceDecl{kind: kind, textNode: gd,
-					selNode: spec, fset: fset, fileLabel: relFile})
+					selNode: spec, fset: fset, fileLabel: relFile, imports: imports})
 			}
 		}
 	}

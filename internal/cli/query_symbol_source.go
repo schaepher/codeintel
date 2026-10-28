@@ -7,6 +7,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/schaepher/codeintel/internal/action"
 )
@@ -35,6 +36,18 @@ func printSymbolSource(src *action.SymbolSource) {
 	}
 	if src.IndexStatus != "" {
 		fmt.Printf("索引状态:   %s\n", src.IndexStatus)
+	}
+	if len(src.Imports) > 0 {
+		// todo24 §11.4：声明所在文件的 imports（文件上下文，不表示该声明使用）
+		parts := make([]string, 0, len(src.Imports))
+		for _, im := range src.Imports {
+			if im.Alias != "" {
+				parts = append(parts, im.Alias+" "+im.Path)
+				continue
+			}
+			parts = append(parts, im.Path)
+		}
+		fmt.Printf("导入:       %s\n", strings.Join(parts, ", "))
 	}
 	fmt.Println(src.Text)
 }

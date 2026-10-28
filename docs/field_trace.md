@@ -7295,3 +7295,20 @@ query_ms（ephemeral 夹具的事件等待发生在查询边界之前）。
 计数；普通名称查询仍调用 `GetSymbolByName`）；集成
 `integration/todo24_symbol_exact_test.go`（真实 init → CLI：非零退出、stdout 为空、
 stderr 含 not-found；`Present` 名称查询正常返回）。
+
+## §148 todo24 §11.4：SymbolSource 携带声明文件 imports（2026-10-27）
+
+**改法**：`SymbolSource` 增加可选 `imports[]{path,alias?}`（源文件顺序，
+`f.Imports`）。别名只在 `ImportSpec.Name` 存在时输出——显式别名、点导入 `.`、
+副作用导入 `_` 原样保留，不做"目录末段猜包名"。提取函数
+`symbolSourceImports(f)` 在 `matchAnySymbolSourceDecl` 里统一调用，故函数/方法、
+struct/interface/type/alias、const/var 声明回退、依赖源码（`location=dependency`）
+与名称入口（先 ResolveSymbol 再取源码）共用同一份逻辑；原正文/位置
+（`line_start/end`、`selection_*`）契约不变，无导入文件省略字段。CLI 文本模式
+增加一行"导入:"。
+
+**测试**：`action_symbol_source_imports_test.go`（Entry/Value/Flag/Current 四种
+声明 kinds 的 imports 逐项相等、无导入文件为空、离线依赖 `str "strings"`）；
+集成 `integration/todo24_source_imports_test.go`（真实 init → CLI：canonical ID
+入口与名称入口的 source.imports 精确一致；未传 `--include-source` 时不附带
+source）。
