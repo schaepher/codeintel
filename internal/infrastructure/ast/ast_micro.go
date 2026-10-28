@@ -176,6 +176,10 @@ func (ctx *fileCtx) emitMicroRegistration(call *ast.CallExpr, callee *types.Func
 		return false
 	}
 	argType := ctx.pkg.TypesInfo.TypeOf(call.Args[1])
+	// todo25 §4.1：注册实参经过类型断言/DI 工厂取值时，静态类型是接口；
+	// 具体实现类型取断言/取值的**来源表达式**类型（仍要求具名具体类型，
+	// 动态 any 不猜）。handler 短名仍按注册实参的静态接口类型推导。
+	implArgType := microConcreteArgType(ctx.pkg, call.Args[1], argType)
 	handler, methods, ok := microRegisterShape(callee, sig, argType)
 	if !ok {
 		return false
@@ -185,7 +189,7 @@ func (ctx *fileCtx) emitMicroRegistration(call *ast.CallExpr, callee *types.Func
 	// 根包注册（形参 any）没有 pb 包上下文：用实现类型所在包做服务节点身份，
 	// 避免不同包的同名 handler 在 go-micro 根包下碰撞。
 	if isMicroRootPkg(svcPkg) {
-		if p := typePkgPath(argType); p != "" {
+		if p := typePkgPath(implArgType); p != "" {
 			svcPkg = p
 		}
 	}
@@ -207,7 +211,7 @@ func (ctx *fileCtx) emitMicroRegistration(call *ast.CallExpr, callee *types.Func
 		FilePath: relPath(ctx.repo.Path, pos.Filename), LineStart: pos.Line, LineEnd: pos.Line,
 		Properties: props,
 	}})
-	if implID, implName, okImpl := typeCanonicalID(argType); okImpl {
+	if implID, implName, okImpl := typeCanonicalID(implArgType); okImpl {
 		implPos := ctx.pkg.Fset.PositionFor(call.Args[1].Pos(), false)
 		_ = ctx.emit(domain.Item{Node: &domain.CodeEntity{
 			ID: implID, Kind: domain.KindStruct, Name: implName,
@@ -241,4 +245,22 @@ func (ctx *fileCtx) emitMicroRegistration(call *ast.CallExpr, callee *types.Func
 		}})
 	}
 	return true
+}
+
+// microConcreteArgType 注册实参的具体类型：类型断言 `expr.(I)` 取 expr 的
+// 静态类型（`container.Get().(pb.XHandler)` → 工厂返回的具体类型）；其它
+// 表达式用自身静态类型。接口值/any 仍保持非具名（调用方不猜）。
+func microConcreteArgType(pkg *packages.Package, arg ast.Expr, static types.Type) types.Type {
+	for {
+		switch e := arg.(type) {
+		case *ast.ParenExpr:
+			arg = e.X
+			continue
+		case *ast.TypeAssertExpr:
+			if t := pkg.TypesInfo.TypeOf(e.X); t != nil {
+				return t
+			}
+		}
+		return static
+	}
 }

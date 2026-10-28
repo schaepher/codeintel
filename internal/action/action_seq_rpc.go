@@ -48,12 +48,32 @@ func seqRPCForwardAt(a *Actions, req CodeSequenceRequest, callerSym string,
 			return f, false, true
 		}
 	}
-	// 旧索引/无 pos 的边：按行号回退（同函数同一行多 RPC 时取第一个，
-	// 与调用点映射的既有回退口径一致）
+	// 旧索引/无 pos 的边：按行号回退。同函数同一行可能有多条 RPC
+	// （Account/Other 同名方法）——必须再按静态方法名消歧；仍不唯一则
+	// 保持未知（不取第一个，todo25 §4.1）。
+	var lineMatches []*domain.RPCForward
 	for _, f := range fwds {
 		if f.Line != 0 && f.Line == pos.Line {
-			return f, false, true
+			lineMatches = append(lineMatches, f)
 		}
+	}
+	if len(lineMatches) == 1 {
+		return lineMatches[0], false, true
+	}
+	if len(lineMatches) > 1 && method != "" {
+		var methodMatches []*domain.RPCForward
+		for _, f := range lineMatches {
+			if f.Method == method {
+				methodMatches = append(methodMatches, f)
+			}
+		}
+		if len(methodMatches) == 1 {
+			return methodMatches[0], true, true
+		}
+		return nil, false, false
+	}
+	if len(lineMatches) > 1 {
+		return nil, false, false
 	}
 	// 同义边合并（UNIQUE(source,target,kind,edge_key)）：同一函数重复调用同一
 	// 服务方法只留首个位置的 metadata——按 RPC 方法名唯一匹配回退，并标记为
