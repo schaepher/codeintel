@@ -7576,3 +7576,10 @@ Impl）。
   节点时，`query symbol --include-source` 在 `SymbolDetail` 失败后回退到
   `SymbolSource`，JSON 只输出 `source`（`index_status=not_indexed`），不写
   伪节点；const/var 块保留整段正文与 selection 行号。
+
+## §160 todo25 §6：离线依赖声明源码与失败矩阵（2026-10-28）
+
+`integration/todo25_source_decl_test.go` 增加：离线 `replace ../tx` 依赖的
+`query symbol --include-source` 输出 `location=dependency`、绝对 file、完整
+正文，查询前后 go.mod 字节不变且不生成 go.sum；未知符号非零退出、stdout
+为空、stderr 说明原因。
