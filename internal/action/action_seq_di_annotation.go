@@ -106,3 +106,45 @@ func tagValue(tag, name string) (string, bool) {
 	}
 	return rest[:j], true
 }
+
+// diFieldKeyInPackage 字段注解 key：当前文件优先；找不到时沿**嵌入字段**
+// 在包内查找（Box 嵌入 Base，Base.Store 的注解同样适用；多条提升路径
+// 给出不同 key 时保守返回未知）。
+func diFieldKeyInPackage(req CodeSequenceRequest, f *ast.File, recvType, field string) (string, string) {
+	if k, from := diFieldKey(f, recvType, field); from != "" {
+		return k, from
+	}
+	rel := seqFileRelOf(req, f)
+	var keys []string
+	var reasons []string
+	seen := map[string]bool{}
+	var walk func(typeName string, depth int)
+	walk = func(typeName string, depth int) {
+		if typeName == "" || depth > 4 || seen[typeName] {
+			return
+		}
+		seen[typeName] = true
+		ctx, st, ok := seqFindStructInPackage(req, rel, typeName)
+		if !ok {
+			return
+		}
+		for _, emb := range seqEmbeddedTypeNames(ctx, st) {
+			if k, from := diFieldKey(ctx.file, emb, field); from != "" {
+				keys = append(keys, k)
+				reasons = append(reasons, from)
+				continue
+			}
+			walk(emb, depth+1)
+		}
+	}
+	walk(recvType, 0)
+	if len(keys) == 0 {
+		return "", ""
+	}
+	for _, k := range keys[1:] {
+		if k != keys[0] {
+			return "", ""
+		}
+	}
+	return keys[0], reasons[0]
+}

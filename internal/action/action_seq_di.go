@@ -41,6 +41,7 @@ type seqDIReg struct {
 	line     int    // 注册点行号
 	wrapper  bool   // impl 是包装调用（AOP）
 	kind     string // register|bind|set|provide|apply|put|bean（契约来源）
+	invalid  bool   // 未知容器方法可能改写该注册（todo25 §3.3）
 }
 
 // extended 非 Register/Bind 的容器/注解契约：必须有**字段注解**才采纳
@@ -67,7 +68,7 @@ func (a *Actions) diFieldImpl(req CodeSequenceRequest, f *ast.File, recvType, fi
 	if field == "" {
 		return seqDIImpl{}, false
 	}
-	key, annReason := diFieldKey(f, recvType, field)
+	key, annReason := diFieldKeyInPackage(req, f, recvType, field)
 	regs := seqDIRegistrations(a, req)
 	pick, ok := diPickRegistration(regs, key, field)
 	if !ok {
@@ -91,6 +92,10 @@ func (a *Actions) diFieldImpl(req CodeSequenceRequest, f *ast.File, recvType, fi
 			reason: seqReasonDIRegistration}, true
 	}
 	reg := pick.reg
+	if reg.invalid {
+		return seqDIImpl{why: "未知容器方法可能改写注册 key " + reg.key + "（无法证明最终绑定）",
+			reason: seqReasonDIRegistration}, true
+	}
 	reason := seqReasonDIRegistration
 	if annReason != "" {
 		reason = annReason
@@ -157,20 +162,6 @@ func seqIsBootstrapFunc(fd *ast.FuncDecl) bool {
 		return true
 	}
 	return false
-}
-
-// seqScanRegistrations 扫描一个引导函数体内的注册调用（顶层语句；条件/
-// 循环里的注册不计入——无法证明一定执行）。
-func seqScanRegistrations(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx,
-	body *ast.BlockStmt, out map[string][]seqDIReg) {
-	for _, st := range body.List {
-		// 允许 init 里调用 RegisterXxx()（一跳展开到同包函数）
-		if es, ok := st.(*ast.ExprStmt); ok {
-			if call, ok2 := es.X.(*ast.CallExpr); ok2 {
-				seqCollectRegCalls(a, req, ctx, call, out, 0)
-			}
-		}
-	}
 }
 
 // seqCollectRegCalls 收集注册调用（含一跳同包 RegisterXxx 展开）。
