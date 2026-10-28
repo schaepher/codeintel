@@ -7583,3 +7583,15 @@ Impl）。
 `query symbol --include-source` 输出 `location=dependency`、绝对 file、完整
 正文，查询前后 go.mod 字节不变且不生成 go.sum；未知符号非零退出、stdout
 为空、stderr 说明原因。
+
+## §161 todo25 第五批五项（2026-10-28）
+
+1. §2.5：`integration/todo25_continuation_test.go::TestTodo25CycleInboundCallbackContext`
+   覆盖独立真实 init 输入：不同入站回调上下文都展开（Sink=1/cycle=0），同上下文
+   递归 cycle=1/Sink=0。
+2. §4.3：同路径两条证明注册保留歧义（`TestSeqHTTPOriginAmbiguous`）；同包不同
+   文件路由 ID 唯一（`TestHTTPRouteIDsUniqueAcrossFiles`）。
+3. §7.5：复跑 `TestTodo22FlowMatrixJSONMermaid` PASS（JSON/Mermaid 调用顺序与
+   条件结构一致）。
+4. §9.1：复跑 `TestTodo22SyncFlows` 16/16 PASS。
+5. §9.2：复跑 `TestTodo22FlowForms` / `TestTodo22SegmentedFlow` PASS。

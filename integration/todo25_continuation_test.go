@@ -260,3 +260,36 @@ func TestTodo25FactoryFieldNegative(t *testing.T) {
 			countSeqSym(root, ":OneEvent"), countSeqSym(root, ":TwoEvent"))
 	}
 }
+
+const todo25CycleFlow = `package flow
+
+func Entry() { Execute(func() { Middle() }) }
+func Execute(f func()) { f() }
+func Middle() { Execute(func() { Sink() }) }
+func Sink() {}
+`
+
+// TestTodo25CycleInboundCallbackContext：todo25 §2.5 独立输入——两个不同
+// Execute 回调上下文都展开、Sink 恰好一次；递归同上下文 cycle 一次、Sink 0。
+func TestTodo25CycleInboundCallbackContext(t *testing.T) {
+	if !scipGoAvailable() {
+		t.Skip("scip-go not found")
+	}
+	dir := todo25ContinuationRepo(t, todo25CycleFlow)
+	root := seqTreeJSON(t, dir, "symbol:go:example.com/continuation:Entry", 16)
+	if countSeqSym(root, ":Sink") != 1 {
+		t.Errorf("Sink=%d; want 1", countSeqSym(root, ":Sink"))
+	}
+	if seqDiagnosticCount(root, "cycle") != 0 {
+		t.Errorf("不同回调上下文不应有 cycle: %+v", root.Meta.Diagnostics)
+	}
+	rec := strings.Replace(todo25CycleFlow,
+		"func Entry() { Execute(func() { Middle() }) }",
+		"func Entry() { Again(func() { Sink() }) }", 1) + "\nfunc Again(f func()) { Again(f) }\n"
+	dir2 := todo25ContinuationRepo(t, rec)
+	loop := seqTreeJSON(t, dir2, "symbol:go:example.com/continuation:Entry", 16)
+	if seqDiagnosticCount(loop, "cycle") != 1 || countSeqSym(loop, ":Sink") != 0 {
+		t.Errorf("递归应 cycle=1 且 Sink=0，got cycle=%d Sink=%d",
+			seqDiagnosticCount(loop, "cycle"), countSeqSym(loop, ":Sink"))
+	}
+}

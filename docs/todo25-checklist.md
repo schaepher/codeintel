@@ -61,3 +61,13 @@ bash scripts/verify.sh --quick
 | §11 字段来源预算（跨包单例/构造器→getter） | **已完成（本轮）** | `action_seq_global_var.go`：函数体 `return <pkgVar>` → 包内全部赋值 → writer 形参沿 `init` 调用实参取具体类型（独立 8 层来源预算）；`receiverFieldImpls` 返回全部具体实现，多个写者保留候选 + `iface_ambiguous`，不再取第一个。真实 init：depth=1/8 均为 `(Impl).Run`，depth=8 展开 Sink；另一个实现写者/无 init 写入均不保留唯一 Impl。`integration/todo25_field_budget_test.go`。 |
 | §5 枚举类型/跨包常量组合 | **已完成（本轮验收）** | `integration/todo25_scene_test.go`：`type Source int32` + 本包 `SourceA=7` + 跨包 `dep.B=19`/`AliasB` 类型转换；真实 init 后 `--scene Source=7` 只 Check1–4，`Source=19` Check1–7。 |
 | §6 alias/const/var/依赖声明源码 | **已完成（核心 + 依赖 + 失败）** | `integration/todo25_source_decl_test.go`：Alias/B/Right 真实 init，整段 const/var 正文 + `selection_line_*`；索引无节点时 CLI 回退 `SymbolSource` 输出 `index_status=not_indexed`；离线 replace 依赖 `location=dependency`、绝对 file、不修改 go.mod/不生成 go.sum；未知符号非零退出且 stdout 为空。 |
+
+## 第五批五项（本轮）
+
+| # | 任务 | 状态 | 证据 |
+| --- | --- | --- | --- |
+| 1 | §2.5 入站回调上下文防环（独立真实 init 输入） | **完成** | `TestTodo25CycleInboundCallbackContext`：不同 Execute 回调都展开、Sink=1、cycle=0；递归同上下文 cycle=1、Sink=0。 |
+| 2 | §4.3 同路径注册冲突保留歧义 | **完成（单元）** | `TestSeqHTTPOriginAmbiguous`：两个满足 origin 证明的注册 → 两条候选；`TestHTTPRouteIDsUniqueAcrossFiles` 保证同包不同文件 ID 不合并。 |
+| 3 | §7.5 JSON/Mermaid 同一分析树 | **完成（复验）** | `TestTodo22FlowMatrixJSONMermaid` PASS：调用顺序逐项相等、条件结构存在。 |
+| 4 | §9.1 八个同步流程 | **完成（复验）** | `TestTodo22SyncFlows` 16/16 子测试 PASS（Source=7/19 × 8 流程）。 |
+| 5 | §9.2 二十个流程形态 | **完成（复验）** | `TestTodo22FlowForms` PASS；`TestTodo22SegmentedFlow` PASS。 |
