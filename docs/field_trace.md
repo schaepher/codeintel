@@ -7609,3 +7609,25 @@ range 顺序执行 A/B/C；确定空列表跨函数 `Forward` 转发后 range �
 CLI 断言：Source=7/19 的 Check 1–7 计数、Setup 恰一次、MakeFirst/First/Second
 两层装饰、Store.Insert→ExecContext、ApproveTrace，以及 Second bypass/非 bypass
 两条分支同时保留（不串行）。
+
+## §164 todo25 §7.3：跨仓同名接口方法缓存隔离（2026-10-28）
+
+**问题**：`ifaceImpls`（方法级结果）与 `ifaceImplTypes`（实现类型）的键只有
+接口/方法身份。外层 workspace 请求若复用同一份请求缓存解析多个仓库，同名接口
+（canonical ID 相同）会命中另一个仓库的实现候选；RPC 跨仓解析的 `another`
+分支也只清了 `ifaceImplTypes`，漏了 `ifaceImpls`。
+
+**改法**：
+- 新增 `seqIfaceRepoKey(repoAbs, ifaceID)`：`RepoAbs` 非空时键为
+  `<repo>\x00<ifaceID>`（空值保持旧键形态，单测/库内直调行为不变）；
+  `ifaceImpls`（再加 `\x00<method>`）与 `ifaceImplTypes` 共用该前缀。
+- `seqRPCServiceAcrossRepos` 的目标仓库子请求同时清空 `ifaceImpls`。
+
+**验证**：
+- `TestSeqIfaceCacheRepoIsolation`（unit）：两个仓库 DB 各自 `API → StoreA/StoreB`；
+  同一 `req.ifaceImpls` 缓存下切换 `RepoAbs`，Insert 分别得到本仓实现，
+  候选不含另一仓；Missing 不借用 Insert/SaveService；暖查询与冷查询逐项一致。
+- `integration/todo25_iface_repo_test.go`：两仓各含 `API.Insert/SaveService`
+  与 `Store`，真实 init + workspace 外层请求；主仓路径与 workspace worktree
+  路径都落到本仓 `(Store).Insert`、`HitInsert` 一次、`HitSave` 零次，
+  且两次查询的控制流（kind/label/actor/证据 ID+reason）完全相同。

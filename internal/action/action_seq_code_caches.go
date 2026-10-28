@@ -55,3 +55,13 @@ func seqInitRequestCaches(req *CodeSequenceRequest) {
 		req.httpFiles = map[string]*seqParsedFile{}
 	}
 }
+
+// seqIfaceRepoKey 接口缓存键的仓库身份前缀（空 RepoAbs 保持旧键形态，
+// 单测/库内直调行为不变）。todo25 §7.3：外层 workspace 请求可能复用同一
+// 请求缓存解析多个仓库的同名接口，键必须含仓库身份。
+func seqIfaceRepoKey(repoAbs, ifaceID string) string {
+	if repoAbs == "" {
+		return ifaceID
+	}
+	return repoAbs + "\x00" + ifaceID
+}

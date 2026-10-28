@@ -128,8 +128,9 @@ func seqRPCServiceAcrossRepos(a *Actions, req CodeSequenceRequest, fwd *domain.R
 		another.rpcSvcs = map[string]*seqRPCSvc{} // 目标仓库自己的解析缓存
 		another.rpcByFunc = map[string][]*domain.RPCForward{}
 		another.fileCache = nil
-		another.constPkgs = nil // 跨包常量表按仓库隔离
-		another.diRegsAll = nil // 跨包 DI 注册表按仓库隔离
+		another.constPkgs = nil  // 跨包常量表按仓库隔离
+		another.diRegsAll = nil  // 跨包 DI 注册表按仓库隔离
+		another.ifaceImpls = nil // todo25 §7.3：目标仓库自己的方法级缓存
 		another.ifaceImplTypes = nil
 		another.fieldWriters = nil
 		another.fieldTypes = nil

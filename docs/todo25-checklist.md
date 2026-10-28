@@ -106,7 +106,7 @@ bash scripts/verify.sh --quick
 | §7.1 精确邻接查询/拒绝全扫 | 完成（既有） | `TestSeqIfaceExact*` PASS |
 | §7.2 投影缓存/查询次数 | 完成（既有复验） | `TestCallFactsProjectionCacheHitAndInvalidation` PASS |
 | §7.4 递归 SQL 取消 | 完成（既有复验） | `TestCalleesContextInterruptsRecursiveSQL` PASS |
-| §7.3 跨仓同名接口方法/冷暖对照 | **未完成** | 仍待补：两仓同名 `API.Insert/SaveService` 的外层 workspace 请求、缓存键含仓库身份、Missing 不借用 Insert。 |
+| §7.3 跨仓同名接口方法/冷暖对照 | **已完成（本轮）** | 接口缓存键加仓库身份（`seqIfaceRepoKey`：`RepoAbs\x00ifaceID`，实现类型与方法级结果都按仓库隔离）；RPC 跨仓解析分支显式清 `ifaceImpls`（此前只清 `ifaceImplTypes`）。`TestSeqIfaceCacheRepoIsolation`：同一请求缓存在两个仓库间切换，同名 `(API).Insert` 各自得到 `StoreA/StoreB`，Missing 不借用；`integration/todo25_iface_repo_test.go`：两仓同名 `API.Insert/SaveService` 真实 init + workspace 外层请求，主仓/workspace 路径都只落到本仓实现，`HitSave` 零执行，冷暖两次查询控制流逐项一致。 |
 
 ## 第十批（§4.3 负例）
 

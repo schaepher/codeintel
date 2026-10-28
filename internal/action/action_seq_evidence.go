@@ -185,7 +185,11 @@ func (a *Actions) seqIfaceMethodImpl(req CodeSequenceRequest, methodID string) (
 	// todo23 §7.1：缓存键必须含**方法身份**——chosen/candidates 是方法级 ID
 	// （`(Store).Insert` vs `(Store).SaveService`），只按接口缓存会把第一个
 	// 方法的结果复用给同接口的其它方法。
-	cacheKey := ifaceID + "\x00" + methodName
+	// todo25 §7.3：缓存键含**仓库身份**——外层 workspace 请求可能复用同一
+	// 请求缓存解析多个仓库的同名接口（canonical ID 相同），只按接口/方法
+	// 缓存会把另一个仓库的实现候选串过来。
+	repoKey := seqIfaceRepoKey(req.RepoAbs, ifaceID)
+	cacheKey := repoKey + "\x00" + methodName
 	if req.ifaceImpls != nil {
 		if c, hit := req.ifaceImpls[cacheKey]; hit {
 			return c.chosen, c.cands, c.ok
@@ -201,7 +205,7 @@ func (a *Actions) seqIfaceMethodImpl(req CodeSequenceRequest, methodID string) (
 	// todo22 §7.1：按接口精确查询（整数邻接索引）——不加载全量 implements 边。
 	// todo23 §7.1：只缓存实现**类型**（与所选方法无关），候选 ID 按当前
 	// 方法重建。
-	impls, cached := req.ifaceImplTypes[ifaceID]
+	impls, cached := req.ifaceImplTypes[repoKey]
 	if !cached {
 		var err error
 		impls, err = a.repo.InterfaceImplsExact(ifaceID)
@@ -209,7 +213,7 @@ func (a *Actions) seqIfaceMethodImpl(req CodeSequenceRequest, methodID string) (
 			return chosen, nil, true
 		}
 		if req.ifaceImplTypes != nil {
-			req.ifaceImplTypes[ifaceID] = impls
+			req.ifaceImplTypes[repoKey] = impls
 		}
 	}
 	for _, impl := range impls {

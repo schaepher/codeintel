@@ -226,3 +226,75 @@ func TestSeqIfaceCacheMethodIdentity(t *testing.T) {
 		t.Errorf("实现类型缓存应有 1 个实现，got %v", req.ifaceImplTypes)
 	}
 }
+
+// seedIfaceRepoWithImpl 建一个最小接口仓库：API 的 Insert/SaveService 由
+// implType 实现（两个方法都存在，用于验证跨仓同名接口不串候选）。
+func seedIfaceRepoWithImpl(t *testing.T, implType string) (*Actions, string) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/api\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	r := sqlite.NewRepo(db)
+	base := "symbol:go:example.com/api:"
+	if _, err := r.SaveBatchStats([]*domain.CodeEntity{
+		{ID: domain.CanonicalID(base + "API"), Kind: domain.KindInterface, Name: "API"},
+		{ID: domain.CanonicalID(base + "(API).Insert"), Kind: domain.KindMethod, Name: "(API).Insert"},
+		{ID: domain.CanonicalID(base + "(API).SaveService"), Kind: domain.KindMethod, Name: "(API).SaveService"},
+		{ID: domain.CanonicalID(base + implType), Kind: domain.KindStruct, Name: implType},
+		{ID: domain.CanonicalID(base + "(" + implType + ").Insert"), Kind: domain.KindMethod, Name: "(" + implType + ").Insert"},
+		{ID: domain.CanonicalID(base + "(" + implType + ").SaveService"), Kind: domain.KindMethod, Name: "(" + implType + ").SaveService"},
+	}, []*domain.Fact{{
+		SourceID: domain.CanonicalID(base + "API"), TargetID: domain.CanonicalID(base + implType),
+		Kind: domain.FactImplements, Confidence: 1.0,
+	}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	return New(r), dir
+}
+
+// TestSeqIfaceCacheRepoIsolation：外层 workspace 请求复用同一份请求缓存时，
+// 同名接口（相同 canonical ID）在两个仓库的实现候选不得互相串用；Missing
+// 也不得借用 Insert 的结果。
+func TestSeqIfaceCacheRepoIsolation(t *testing.T) {
+	actsA, dirA := seedIfaceRepoWithImpl(t, "StoreA")
+	actsB, dirB := seedIfaceRepoWithImpl(t, "StoreB")
+	req := CodeSequenceRequest{RepoAbs: dirA, ifaceImpls: map[string]seqIfaceCached{},
+		ifaceImplTypes: map[string][]string{}}
+
+	insertA, candsA, ok := actsA.seqIfaceMethodImpl(req, "symbol:go:example.com/api:(API).Insert")
+	if !ok || insertA != "symbol:go:example.com/api:(StoreA).Insert" {
+		t.Fatalf("仓库 A 的 Insert 应具体化到 StoreA.Insert，got %q %v", insertA, candsA)
+	}
+	if len(candsA) != 1 || !strings.HasSuffix(candsA[0], "(StoreA).Insert") {
+		t.Errorf("仓库 A 候选不得含其它仓库实现：%v", candsA)
+	}
+	saveA, candsAS, ok := actsA.seqIfaceMethodImpl(req, "symbol:go:example.com/api:(API).SaveService")
+	if !ok || saveA != "symbol:go:example.com/api:(StoreA).SaveService" {
+		t.Errorf("仓库 A 的 SaveService 应具体化到 StoreA.SaveService，got %q %v", saveA, candsAS)
+	}
+
+	req.RepoAbs = dirB
+	insertB, candsB, ok := actsB.seqIfaceMethodImpl(req, "symbol:go:example.com/api:(API).Insert")
+	if !ok || insertB != "symbol:go:example.com/api:(StoreB).Insert" {
+		t.Fatalf("仓库 B 的 Insert 应具体化到 StoreB.Insert（不得命中 A 的缓存），got %q %v", insertB, candsB)
+	}
+	if len(candsB) != 1 || !strings.HasSuffix(candsB[0], "(StoreB).Insert") {
+		t.Errorf("仓库 B 候选不得含 A 的实现：%v", candsB)
+	}
+	missing, candsM, okM := actsB.seqIfaceMethodImpl(req, "symbol:go:example.com/api:(API).Missing")
+	if okM || missing != "" || len(candsM) != 0 {
+		t.Errorf("Missing 不得借用 Insert/SaveService 或其它仓库的结果，got %q %v (%v)", missing, candsM, okM)
+	}
+
+	// 冷暖对照：同一仓库第二次查询（缓存命中）结论逐项相同。
+	again, candsAgain, okAgain := actsB.seqIfaceMethodImpl(req, "symbol:go:example.com/api:(API).Insert")
+	if !okAgain || again != insertB || strings.Join(candsAgain, "|") != strings.Join(candsB, "|") {
+		t.Errorf("暖查询结论应与冷查询一致：cold=%q %v warm=%q %v", insertB, candsB, again, candsAgain)
+	}
+}
