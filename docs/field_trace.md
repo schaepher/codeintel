@@ -7822,3 +7822,86 @@ action；开库前先 `ValidateRuntimeData`）。
 - 测试：`TestRelationProgressFlow`（Begin total/Advance/End/nil 不 panic）、
   `TestActionsPrecomputeRelations`（action 编排注入 Progress）；真实 CLI
   `--progress plain` 实测 stdout 只有结果、stderr 一行步骤；`--progress none` 静默。
+
+## §174 todo26：调用求值/续查兼容/HTTP 分步/U 项边界（2026-10-29）
+
+本轮按 todo26 文件逐项实现，先写测试再改实现；每项单独提交（pre-commit 跑
+`scripts/verify.sh --changed`）。**未完成项如实列在最后**，不宣称已交付。
+
+### 已交付（生产代码 + 回归）
+
+- **U05 SQLite 文件 URI**：`dbDSN`/注册表/`LatestCommitSHAFromPath`/`materialize
+  ATTACH` 统一走 `sqliteFileURI`（`url.URL{Scheme:"file",Path:abs}`）——`#`/`?`/`%`/
+  空格不再被当成 URI 片段/参数/转义。回归：`file_uri_test.go`（含 `repo#one` vs
+  `repo#two` 不串库、连续重开、WAL/外键/busy_timeout 保持）。
+- **U01 规范化 scope 判重**：v2 快照 IN 值去重 + 稳定排序（`normalizeRuntimeScope`），
+  判重键带类型前缀（int 2 ≠ string "2"）；重复/冲突 observation 拒绝，错误文本
+  `runtime-data: duplicate normalized scope (source=…, table=…, node_id in [2,3])`。
+- **U02 状态预算不静默截断**：`capStates` 超 64 → `runtime-data: analysis state
+  budget exhausted (64)`（不丢尾部状态继续排除分支）；`rtEval` 接入 ctx（执行中
+  取消 → `ErrSeqCanceled`、无半棵树）。
+- **U06 未知实例来源不借唯一实现**：接口字段无写入/DI 证明 → `unknown_receiver`
+  （`Ambiguous` + 空 SymbolID，不展开实现、不计确定执行）；渲染参与者标
+  「实例来源未知」。正例（DI 注册/工厂 setter 证明）不受影响。
+- **T01 调用求值顺序**：defer/go 的实参在当前流程求值（`defer Use(Build())` 的
+  Build 立即执行，延迟/异步标记只加在被调度的调用）；AST 身份恢复的调用补参与者
+  类型（与索引边路径一致）。
+- **T08 场景常量归一化**：整型/字符字面量归一化为十进制（`0x4` → `4`；`'a'` →
+  `97`），十六/八/二进制、下划线一致；回归矩阵覆盖 iota/别名常量、遮蔽、越界转换、
+  布尔短路顺序。
+- **T11/U07 HTTP 传输与 handler 分步**：调用点保留 `net/http:Post` 身份
+  （verdict=corroborated），handler 作为子步骤 `HTTP POST <url>`（canonical ID +
+  origin 证明），handler 内部调用的发送方是 handler 节点自身（无空发送方）；
+  `SeqEvidenceHTTPServer` 纳入 verdict 判定。
+- **T12 兼容续查入口**：`CodeSequenceRequest.Continue *SeqContinuationOptions{MaxSegments}`
+  归一到 `ContinueSegments` 引擎（互斥、1–128、同步续接、`extra_expansions` 计数）；
+  身份变化保留原前沿并标 `identity_changed`；兼容入口进入 `config_hash`；CLI
+  `--continue-segments` 补「后接 flag」用例。
+- **T13 声明源码**：type/const/var 统一输出整组 `GenDecl` 正文（`type ( … )`），
+  selection 指向所选项；`SymbolSource.Package`；未索引路径 JSON 顶层
+  `file/id/index_status/kind/line/name + source`；`SymbolID`/`Target` 双入口
+  （不一致即失败）。
+- **T14 运行时边界**：链式接收者调用先展开（`DB.QueryRowContext(...).Scan` 两级，
+  DB 参与者恢复 `sql.DB`）；取址实参跨调用使标量证明失效（`rewrite(&enabled)` 后
+  两分支都保留）；解释器步数预算 10000 + 深度 16（耗尽即失败）；`LoadRuntimeData`
+  兼容入口；`--runtime-data` 重复/空值/后接 flag 开库前拒绝。
+- **T15 async 缓存与截断提示**：截断 detail 对齐
+  `direct_call/field_identity/type_scope/call_path/id_name + canonical ID`；边界证明
+  解析缓存（请求内成功/失败都缓存，下一请求重新读取）。
+- **T16 路由投影/接口邻接**：`GetRouteRegisterNodes` 一次投影（grpcRoutes 复用，
+  不再每服务查属性；同名未注册 helper 不成路由）；可取消
+  `GetInterfaceImplements`（整数邻接、只取 implements、稳定排序、未知接口空集）；
+  `idx_nodes_grpc_service`/`idx_nodes_registers_service` DDL 单一定义（schema 与
+  bulk_load 共用）。
+- **T17 构建身份与取消**：`acquireWorker` 抢槽前检查取消；注册台账 BuildID/commitSHA
+  用本次构建身份（无自身 git 的相邻模块保持空 commit，worktree 用自身 HEAD，重建保留
+  `RegisteredAt`）；新增独立 `emitUnlessCanceled` 包装器（未接入生产发射路径）。
+
+### 未完成（本轮未实现，勿按"已完成"引用）
+
+- **T02/T03/T04/T05/T06/T09/T10**：函数列表/到达定义/构造器与字段数据流/DI 契约/
+  micro 注册/离线依赖回调——基线已有部分能力（todo22/23/25），但本轮**未**补齐
+  todo26 要求的增量形态（E-T02/E-T03 的 `callback list path`/`item 1/2` 渲染、
+  E-T05 的工厂字段分支、E-T06 的容器源码契约等），未改代码。
+- **T07**：候选分支渲染（`alt unverified implementation` + 每候选 ≤2 层/≤12 实现）。
+- **U03**：生成过滤器与 model/tag 表列映射。
+- **U04**：跨入口多节点审核（多次 FinishReview）。
+- **T18**：仅完成本文档 + 少量参数/回归；未新增完整的「真实 init→CLI 联合回归」。
+- **T12 剩余**：候选后代不升级续查的端到端断言未单独补测（现有 `seqCanContinueFrontier`
+  已排除 ambiguous/未证明前沿）。
+
+### 本轮踩坑
+
+- **文件行数门槛会拦住"只加 3 行"**：`action_seq_walk_call.go` 恰好被推到 300+，
+  必须把整块逻辑（场景守卫选择 / 未知接收者）拆到 `action_seq_walk_impl.go` /
+  `action_seq_unknown_receiver.go`——拆分时注意 import 重复（`time` 两次）与移出后的
+  未使用 import。
+- **U06 与既有 DI 正例冲突**：`seqTryDIAndLocalVar` 在字段分支之后执行——不能一发现
+  "无写入证明"就返回，必须先让 DI/局部变量证明有机会命中，否则 todo10-3 的 DI 用例
+  全红。最终实现：先记 `unknownField`，DI 未命中才落 `unknown_receiver`。
+- **`--continue-segments` 后接 flag** 原本也会被当数值解析失败（`--evidence` → 需要整数），
+  行为正确但缺显式回归；补用例而非改实现。
+- **旧的 `/tmp/ci` 二进制导致"改动没生效"的误判**（U06 第一次验证）：改完必须
+  `go build -o /tmp/ci` 再跑夹具（与 R37 同一坑）。
+- **tests 引用 `Evidence.Verdict(...)` 这类臆造方法**会直接编译失败——证据 verdict
+  统一由 `seqEvidenceVerdict(ev)` 计算。

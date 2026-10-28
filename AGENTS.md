@@ -102,6 +102,31 @@ internal/cli        internal/action            internal/infrastructure
 （PostToolUse 非阻断提醒，改 Go 文件后提示跑 verify.sh——未装
 pre-commit 场景的兜底）。
 
+## todo26 教训（2026-10-29）
+
+- **SQLite 文件 URI 必须整体编码路径**：`file:<path>?...` 里 `#`（片段）、`?`（参数）、
+  `%`（转义）会截断/篡改库路径——`repo#one` 与 `repo#two` 会落同一个 `repo` 并串库。
+  统一 `url.URL{Scheme:"file",Path:abs}`（`sqliteFileURI`），Open/注册表/只读打开/
+  `ATTACH ... base` 共用；回归用带 `#/?/%/空格` 的目录 + 连续重开。
+- **"超出预算就截断"会静默改变结论**：符号执行 64 状态上限丢掉尾部状态后，可达分支
+  被判成 `excluded`。预算耗尽要**明确失败**（`runtime-data: analysis state budget
+  exhausted (64)`，stdout 为空），不能返回"保守但看起来成功"的结果。
+- **未知实例来源 ≠ 唯一实现**：接口字段没有写入/DI 证明时，即使全库只有一个实现也
+  不能接成确定调用（`unknown_receiver` + `Ambiguous`，不展开、不计执行）；判定要
+  **在 DI/局部变量证明之后**做，否则会把参数注入等正例一起打死。
+- **defer/go 的实参是"现在"求值**：`defer Use(Build())` 的 Build 立即执行，延迟/
+  异步语义只加在被调度的调用上；否则时序图会漏掉实参里的调用。
+- **字面量展示要归一化**：`0x4`/`0b100`/`1_0`/`'a'` 与十进制值在比较上早已等价，
+  但证据文本必须给可读十进制（`sourceType=4`），否则同一场景两种写法出现两种图。
+- **HTTP 续接要分两步**：传输调用（`net/http:Post`）与 handler（`HTTP POST <url>`
+  → `Submit`）身份分开，handler 内部调用的发送方是 handler 节点自身——否则会出现
+  空发送方（`->>P3`）或把 handler 伪装成 http 参与者。
+- **拆分超 300 行文件时先看 import**：整块剪切后常留下重复/未使用 import
+  （`time` 重复声明、`domain` 未使用），`gofmt` 不会替你删；拆完立刻
+  `go build ./...` + 相关包单测。
+- **夹具行号必须由源码解析得到**（不要手写）：action 测试里索引行号与源码不一致会
+  直接落成 `index_gap`，表现为"功能没生效"。
+
 ## Q254c/d 整数代理键 + 写库流水线教训（2026-09-20）
 
 - **外键不能引用 `rowid`**：`REFERENCES nodes(rowid)` → `foreign key mismatch`
