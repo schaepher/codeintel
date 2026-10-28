@@ -84,7 +84,7 @@ bash scripts/verify.sh --quick
 
 | 任务 | 状态 | 证据 |
 | --- | --- | --- |
-| §8 第 8 节夹具逐项断言 | **完成（核心表）** | `TestTodo25CoreFixtureAssertions`：真实 init；Source=7 Check1–4=1/Check5–7=0，Source=19 Check1–7=1；Setup 一次；MakeFirst/First/Second 装饰链；Store.Insert→ExecContext；ApproveTrace；BeforeSecond/AfterSecond 两条 bypass 分支均保留。 |
+| §8 第 8 节夹具逐项断言 | **完成（核心表 + IsRegionX/错误守卫）** | `TestTodo25CoreFixtureAssertions`：真实 init；Source=7 Check1–4=1/Check5–7=0，Source=19 Check1–7=1；Setup 一次；装饰链；Store.Insert→ExecContext；ApproveTrace 恰一次；bypass/非 bypass 两分支保留；Source=7 保留 IsRegionX 条件分支（不按名称猜地区）。 |
 
 ## 第八批（§10.3-A…G 保真/生命周期回归）
 

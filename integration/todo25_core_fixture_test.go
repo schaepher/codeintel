@@ -80,4 +80,18 @@ func TestTodo25CoreFixtureAssertions(t *testing.T) {
 		t.Errorf("bypass/非 bypass 两条路径都应保留: BeforeSecond=%d AfterSecond=%d",
 			beforeSecond, afterSecond)
 	}
+	// IsRegionX 是运行时事实 → 条件分支保留（不按函数名/返回值猜地区）。
+	var regionCond bool
+	walkSeq(a, func(n *action.CodeSeqNode) {
+		if strings.Contains(n.Label, "IsRegionX") {
+			regionCond = true
+		}
+	})
+	if !regionCond {
+		t.Errorf("Source=7 应保留 IsRegionX 条件分支")
+	}
+	// Insert 的错误守卫保留；ApproveTrace 只在 Execute 成功后出现一次。
+	if countSeqSym(b, ":ApproveTrace") != 1 {
+		t.Errorf("ApproveTrace 应恰一次，got %d", countSeqSym(b, ":ApproveTrace"))
+	}
 }
