@@ -15,7 +15,7 @@ func (a *Actions) ResolveSymbol(input string) (*domain.CodeEntity, error) {
 	logger := zap.L()
 	logger.Info("enter (Actions).ResolveSymbol", zap.String("input", input))
 	defer logger.Info("exit (Actions).ResolveSymbol")
-	if strings.HasPrefix(input, "symbol:") || strings.HasPrefix(input, "file:") || strings.HasPrefix(input, "commit:") {
+	if isCanonicalID(input) {
 		n, err := a.repo.GetSymbol(domain.CanonicalID(input))
 		if err == nil {
 			return n, nil
@@ -23,6 +23,12 @@ func (a *Actions) ResolveSymbol(input string) (*domain.CodeEntity, error) {
 		if !errors.Is(err, domain.ErrNotFound) {
 			return nil, err
 		}
+		// todo24 §11.3：输入已是 canonical ID（含 symbol:/file:/commit: 前缀）时，
+		// 精确查询未命中就是"不存在"——禁止退回 GetSymbolByName 的 LIKE 全扫、
+		// 相似名池或全库扫描（既慢又会把别的符号当候选）。普通名称查询仍走
+		// 下面的候选/歧义提示。
+		return nil, fmt.Errorf("not found: canonical ID %q 精确查询未命中（不做名称扫描）: %w",
+			input, domain.ErrNotFound)
 	}
 	matches, err := a.repo.GetSymbolByName(input)
 	if err != nil {
@@ -42,6 +48,13 @@ func (a *Actions) ResolveSymbol(input string) (*domain.CodeEntity, error) {
 			input, len(matches), joinIDs(matches))
 	}
 	return matches[0], nil
+}
+
+// isCanonicalID 输入是否已是 canonical ID（symbol:/file:/commit: 前缀）。
+func isCanonicalID(input string) bool {
+	return strings.HasPrefix(input, "symbol:") ||
+		strings.HasPrefix(input, "file:") ||
+		strings.HasPrefix(input, "commit:")
 }
 
 // joinIDs 拼接候选 ID（多匹配错误提示用）。

@@ -7278,3 +7278,20 @@ query_ms（ephemeral 夹具的事件等待发生在查询边界之前）。
 
 **测试**：`TestWalkBenchShortQueryTempPeakFixture` / `TestWalkBenchShortLivedTempPeakFixture` /
 `TestWalkBenchShortQueryNoTempFileIsZero` / `TestInotifyNamesParsesShortLivedEvents`。
+
+## §147 todo24 §11.3：canonical ID 精确未命中不再退回名称扫描（2026-10-27）
+
+**问题**：`ResolveSymbol` 对 `symbol:`/`file:`/`commit:` 输入先精确查，未命中后
+**继续走名称查找**（`GetSymbolByName` 的 LIKE 全扫）→ 再拉
+`AllSymbolNames(5000)` 做相似名候选。代价高、且把别的符号当候选误导。
+
+**改法**：`isCanonicalID()` 判定三种前缀；精确 miss 直接返回
+`fmt.Errorf("not found: ...: %w", domain.ErrNotFound)`——不进名称扫描、不拉
+全名池。普通名称查询原样保留（候选/歧义提示、相似名建议）。`ResolveAnchor`
+经 `ResolveSymbol` 自动继承该边界（仍有字段路径回退）。
+
+**测试**：单测 `action_symbol_exact_test.go`（三种前缀均 `errors.Is(ErrNotFound)`、
+计数 reader 断言 `GetSymbolByName`/`AllSymbolNames` 均为 0；200 个无关节点不改变
+计数；普通名称查询仍调用 `GetSymbolByName`）；集成
+`integration/todo24_symbol_exact_test.go`（真实 init → CLI：非零退出、stdout 为空、
+stderr 含 not-found；`Present` 名称查询正常返回）。
