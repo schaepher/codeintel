@@ -102,6 +102,12 @@ func LoadRuntimeSnapshot(path string) (*RuntimeSnapshot, error) {
 	return snap, nil
 }
 
+// LoadRuntimeData 兼容入口（T14）：与 LoadRuntimeSnapshot 同一统一引擎——
+// 不另起一套解析/校验路径。
+func LoadRuntimeData(path string) (*RuntimeSnapshot, error) {
+	return LoadRuntimeSnapshot(path)
+}
+
 // ValidateRuntimeData 供 CLI 在打开数据库前调用（验证逻辑仍在 action）。
 func ValidateRuntimeData(path string) error {
 	_, err := LoadRuntimeSnapshot(path)

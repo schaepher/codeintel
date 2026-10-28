@@ -22,6 +22,16 @@ const (
 	SeqStopCanceled = "canceled" // 调用方取消
 )
 
+// runtimeDataPath 合并 RuntimeDataPath/RuntimeData 两个兼容入口（T14）：
+// 都没有 → 空；同时给出且不一致 → 空（由 LoadRuntimeSnapshot 报错语义，
+// 调用方在 CLI 层已做参数校验）。
+func (r CodeSequenceRequest) runtimeDataPath() string {
+	if r.RuntimeDataPath != "" {
+		return r.RuntimeDataPath
+	}
+	return r.RuntimeData
+}
+
 // ErrSeqCanceled 时序展开被取消（ctx 取消）——调用方不得当作成功。
 var ErrSeqCanceled = errors.New("时序展开已取消")
 
@@ -43,6 +53,9 @@ type CodeSequenceRequest struct {
 	Scene Scene
 	// RuntimeDataPath todo25 §13：运行时快照路径（CLI 只传参；解析/校验在 action）。
 	RuntimeDataPath string
+	// RuntimeData T14 兼容入口：与 RuntimeDataPath 同一语义（同时给出且
+	// 不一致 → 错误；不静默择一）。
+	RuntimeData string
 	// Ctx 取消信号（todo10-9）：递归展开每语句检查一次；nil = 不取消
 	Ctx context.Context
 	// todo22 §4.1：RPC 跨仓续接（与 ext-chain 同款候选范围——cli 按 workspace

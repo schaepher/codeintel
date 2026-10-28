@@ -38,7 +38,7 @@ type rtDecision struct {
 
 // runRuntimeAnalysis 从入口符号执行；错误属于输入/结构问题 → 查询失败。
 func (a *Actions) runRuntimeAnalysis(req CodeSequenceRequest, entryID string) (*runtimeAnalysis, error) {
-	snap, err := LoadRuntimeSnapshot(req.RuntimeDataPath)
+	snap, err := LoadRuntimeSnapshot(req.runtimeDataPath())
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +52,7 @@ func (a *Actions) runRuntimeAnalysis(req CodeSequenceRequest, entryID string) (*
 		an.collectPackageVars(req, ctx.file)
 		_ = fn
 	}
-	e := &rtEval{a: a, an: an, req: req, ctx: req.Ctx, maxDepth: 8, maxStates: 64}
+	e := &rtEval{a: a, an: an, req: req, ctx: req.Ctx, maxDepth: runtimeEvalMaxDepth, maxStates: 64}
 	if _, err := e.evalFunc(domain.CanonicalID(entryID), nil, 0); err != nil {
 		return nil, err
 	}

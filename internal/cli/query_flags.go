@@ -20,6 +20,22 @@ func parseContinueSegments(raw string) (int, string) {
 	return n, ""
 }
 
+// setRuntimeData 记录 --runtime-data 路径（T14：重复/空值/后接 flag 一律
+// 开库前拒绝；返回错误文本，空串表示已记录）。
+func (f *queryFlags) setRuntimeData(path string) string {
+	if path == "" {
+		return "--runtime-data 路径为空"
+	}
+	if strings.HasPrefix(path, "-") {
+		return "--runtime-data 缺少路径（后接的是 flag：" + path + "）"
+	}
+	if f.runtimeData != "" {
+		return "--runtime-data 重复指定（" + f.runtimeData + " / " + path + "）"
+	}
+	f.runtimeData = path
+	return ""
+}
+
 // parseQueryFlags 手动解析 query 参数（flags 与位置参数任意顺序）。
 func parseQueryFlags(args []string) queryFlags {
 	f := queryFlags{repoPath: "."}
@@ -148,14 +164,15 @@ func parseQueryFlags(args []string) queryFlags {
 		case a == "--runtime-data":
 			if i+1 >= len(args) {
 				f.runtimeDataErr = "--runtime-data 缺少路径"
+			} else if dup := f.setRuntimeData(args[i+1]); dup != "" {
+				f.runtimeDataErr = dup
+				i++
 			} else {
-				f.runtimeData = args[i+1]
 				i++
 			}
 		case strings.HasPrefix(a, "--runtime-data="):
-			f.runtimeData = strings.TrimPrefix(a, "--runtime-data=")
-			if f.runtimeData == "" {
-				f.runtimeDataErr = "--runtime-data 路径为空"
+			if dup := f.setRuntimeData(strings.TrimPrefix(a, "--runtime-data=")); dup != "" {
+				f.runtimeDataErr = dup
 			}
 		case a == "--target-field" && i+1 < len(args):
 			f.targetField, f.targetFieldSet = args[i+1], true

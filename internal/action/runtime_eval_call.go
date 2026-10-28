@@ -5,8 +5,6 @@ package action
 import (
 	"go/ast"
 	"strconv"
-
-	"github.com/schaepher/codeintel/internal/domain"
 )
 
 func (e *rtEval) evalCall(frame *rtFrame, call *ast.CallExpr, s *rtState, depth int) (rtValue, []*rtState) {
@@ -105,87 +103,20 @@ func (e *rtEval) evalCall(frame *rtFrame, call *ast.CallExpr, s *rtState, depth 
 			for _, oc := range out {
 				statesOut = append(statesOut, oc.state)
 			}
+			// T14：被调函数可能通过指针实参改写局部标量（rewrite(&enabled)）
+			// ——除非该调用是已证明的读取（Scan/Query 已在上方返回），否则
+			// 取址实参的旧值不能跨调用继续使用。
+			for _, st := range statesOut {
+				e.invalidateAddrTaken(call, st)
+			}
 			return out[0].val, statesOut
 		}
 	}
+	// T14：未知调用同样可能改写取址的局部变量 → 降级为 unknown。
+	e.invalidateAddrTaken(call, s)
 	return rtUnknownValue(), []*rtState{s}
 }
 
-// evalFuncCallOutcomes 函数调用 → 每个 return 路径一个变体（保留值与错误相关）。
-func (e *rtEval) evalFuncCallOutcomes(frame *rtFrame, call *ast.CallExpr, s *rtState, depth int) []rtOutcome {
-	target, ok := runtimeCalleeID(frame, call)
-	if !ok {
-		return nil
-	}
-	return e.evalFuncCallOutcomesFor(frame, call, s, depth, target)
-}
-
-func (e *rtEval) evalMethodCallOutcomes(frame *rtFrame, call *ast.CallExpr, s *rtState, depth int) []rtOutcome {
-	recvType, recvVal, method, ok := e.runtimeMethodCall(frame, call, s, depth)
-	if !ok {
-		return nil
-	}
-	target := "symbol:go:" + frame.pkgPath + ":(" + recvType + ")." + method
-	return e.evalFuncCallOutcomesWithReceiver(frame, call, s, depth, target, &recvVal)
-}
-
-func (e *rtEval) evalFuncCallOutcomesFor(frame *rtFrame, call *ast.CallExpr, s *rtState, depth int, target string) []rtOutcome {
-	vals, states := e.evalArgs(frame, call.Args, s, depth)
-	vals = flattenRuntimeVariadic(vals, call)
-	if len(states) == 0 {
-		states = []*rtState{s}
-	}
-	rets, err := e.evalFunc(domain.CanonicalID(target), vals, depth+1)
-	if err != nil || len(rets) == 0 {
-		return nil
-	}
-	out := make([]rtOutcome, 0, len(rets))
-	for _, r := range rets {
-		st := cloneRuntimeState(states[0])
-		val := rtUnknownValue()
-		switch len(r.vals) {
-		case 0:
-			val = rtUnknownValue()
-		case 1:
-			val = r.vals[0]
-		default:
-			val = rtValue{kind: rtTuple, elems: append([]rtValue(nil), r.vals...)}
-		}
-		out = append(out, rtOutcome{state: st, val: val})
-	}
-	return out
-}
-
-// valWithStates 单值 + 状态变体（把返回值与变体一起返回的语法糖）。
-func (e *rtEval) evalFuncCallOutcomesWithReceiver(frame *rtFrame, call *ast.CallExpr,
-	s *rtState, depth int, target string, recv *rtValue) []rtOutcome {
-	vals, states := e.evalArgs(frame, call.Args, s, depth)
-	vals = flattenRuntimeVariadic(vals, call)
-	if len(states) == 0 {
-		states = []*rtState{s}
-	}
-	rets, err := e.evalFuncWithReceiver(domain.CanonicalID(target), recv, vals, depth+1)
-	if err != nil || len(rets) == 0 {
-		return nil
-	}
-	out := make([]rtOutcome, 0, len(rets))
-	for _, r := range rets {
-		st := cloneRuntimeState(states[0])
-		val := rtUnknownValue()
-		switch len(r.vals) {
-		case 0:
-			val = rtUnknownValue()
-		case 1:
-			val = r.vals[0]
-		default:
-			val = rtValue{kind: rtTuple, elems: append([]rtValue(nil), r.vals...)}
-		}
-		out = append(out, rtOutcome{state: st, val: val})
-	}
-	return out
-}
-
-// runtimeMethodCall 本仓方法调用：receiver 类型来自轻量类型表。
 func (e *rtEval) runtimeMethodCall(frame *rtFrame, call *ast.CallExpr, s *rtState, depth int) (string, rtValue, string, bool) {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {

@@ -53,6 +53,8 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		var out []*CodeSeqNode
 		for _, rhs := range s.Rhs {
 			for _, call := range collectCalls(rhs) {
+				// T14：链式调用的接收者调用先求值（x := DB.QueryRowContext(...).Scan(&v)
+				// 先有 QueryRowContext 再有 Scan），与实参调用同一顺序口径。
 				out = append(out, seqArgCallNodes(callNode, call)...)
 				if n := callNode(call); n != nil {
 					out = append(out, n)

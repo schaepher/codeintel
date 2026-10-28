@@ -268,6 +268,11 @@ func seqArgCallNodes(callNode func(*ast.CallExpr) *CodeSeqNode, call *ast.CallEx
 	for _, arg := range call.Args {
 		walkExpr(arg)
 	}
+	// T14：链式调用的接收者调用（`DB.QueryRowContext(...).Scan(&v)` 的
+	// QueryRowContext）在索引里是独立 calls 边——也要按准确目标展开，
+	// 否则接收者身份/返回类型整体丢失。函数操作数在实参之后走（与既有
+	// 实参优先口径一致；不改变已确定的调用顺序语义）。
+	walkExpr(call.Fun)
 	return out
 }
 

@@ -138,3 +138,27 @@ func TestTodo26U02CancelNoPartialTree(t *testing.T) {
 		t.Fatalf("错误应写 stderr: %q", errOut)
 	}
 }
+
+// T14：解释器步数预算耗尽必须失败（stdout 为空、非零退出），不返回截断
+// 后的"成功"结果。
+func TestTodo26T14StepBudgetExhausted(t *testing.T) {
+	if !scipGoAvailable() {
+		t.Skip("scip-go not found")
+	}
+	var b strings.Builder
+	b.WriteString("package flow\n\nfunc Entry(){\n")
+	for i := 0; i < 10001; i++ {
+		b.WriteString("\t_ = 1\n")
+	}
+	b.WriteString("}\n")
+	snap := `{"version":1,"environment":"test","region":"ID","captured_at":"2026-10-28T00:00:00Z","bindings":[],"databases":[]}`
+	dir, snapPath := writeTodo26Repo(t, b.String(), snap)
+	code, out, errOut := runCLIOutErr(t, "query", "sequence", "symbol:go:example.com/flow:Entry",
+		"--code", "--depth", "12", "--format", "mermaid", "--runtime-data", snapPath, "--repo", dir)
+	if code == 0 || strings.TrimSpace(out) != "" {
+		t.Fatalf("步数预算耗尽应失败且 stdout 为空: exit=%d out=%q", code, out)
+	}
+	if !strings.Contains(errOut, "budget") {
+		t.Fatalf("stderr 应含 budget: %q", errOut)
+	}
+}

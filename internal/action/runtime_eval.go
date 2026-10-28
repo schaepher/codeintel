@@ -6,8 +6,6 @@ import (
 	"context"
 	"go/ast"
 	"go/token"
-
-	"github.com/schaepher/codeintel/internal/domain"
 )
 
 type rtState struct {
@@ -43,92 +41,19 @@ type rtEval struct {
 	// 不得静默丢尾部状态后继续判定分支）。
 	err error
 	// ctx 取消信号（U02：已开始执行后的取消必须停下，不产出半棵确定树）。
-	ctx   context.Context
+	ctx context.Context
+	// steps T14：解释器步数预算（函数/语句/表达式统一计数；耗尽即失败，
+	// 不返回截断后的"成功"结果）。
+	steps int
 	stack map[string]bool
 }
 
-// canceled 检查 ctx 取消（每个语句块检查一次；取消记 ErrSeqCanceled）。
-func (e *rtEval) canceled() bool {
-	if e.err != nil {
-		return true
-	}
-	if e.ctx != nil && e.ctx.Err() != nil {
-		e.err = ErrSeqCanceled
-		return true
-	}
-	return false
-}
-
-func (e *rtEval) evalFunc(symID domain.CanonicalID, args []rtValue, depth int) ([]rtReturn, error) {
-	return e.evalFuncWithReceiver(symID, nil, args, depth)
-}
-
-func (e *rtEval) evalFuncWithReceiver(symID domain.CanonicalID, recv *rtValue, args []rtValue, depth int) ([]rtReturn, error) {
-	if e.canceled() {
-		return nil, e.err
-	}
-	if depth >= e.maxDepth || e.stack[string(symID)] {
-		return []rtReturn{{vals: []rtValue{rtUnknownValue()}}}, nil
-	}
-	fn, ctx, ok := seqFuncSource(e.a, e.req, string(symID))
-	if !ok {
-		return nil, nil
-	}
-	if e.stack == nil {
-		e.stack = map[string]bool{}
-	}
-	e.stack[string(symID)] = true
-	defer delete(e.stack, string(symID))
-	frame := &rtFrame{fn: fn, ctx: ctx, symID: string(symID), pkgPath: pkgPathOf(string(symID))}
-	st := &rtState{env: map[*ast.Object]rtValue{}, types: map[*ast.Object]*runtimeType{}}
-	bindRuntimeParams(st.env, fn.Type.Params, args)
-	if fn.Recv != nil && len(fn.Recv.List) > 0 && recv != nil {
-		for _, name := range fn.Recv.List[0].Names {
-			if name.Obj != nil {
-				st.env[name.Obj] = *recv
-				if rt := runtimeTypeOfTypeExpr(name.Obj, fn.Recv.List[0].Type); rt != nil {
-					st.types[name.Obj] = rt
-				}
-			}
-		}
-	}
-	bindRuntimeParamTypes(st.types, fn.Type.Params)
-	states := e.execBlock(frame, fn.Body.List, []*rtState{st}, depth)
-	var out []rtReturn
-	for _, s := range states {
-		if s.ret != nil {
-			out = append(out, *s.ret)
-		}
-	}
-	if len(out) == 0 {
-		out = append(out, rtReturn{})
-	}
-	if e.err != nil {
-		return nil, e.err
-	}
-	return out, nil
-}
-
-func bindRuntimeParams(env map[*ast.Object]rtValue, params *ast.FieldList, args []rtValue) {
-	if params == nil {
-		return
-	}
-	i := 0
-	for _, fl := range params.List {
-		for _, nm := range fl.Names {
-			if nm.Obj == nil {
-				i++
-				continue
-			}
-			if i < len(args) {
-				env[nm.Obj] = args[i]
-			} else {
-				env[nm.Obj] = rtUnknownValue()
-			}
-			i++
-		}
-	}
-}
+const (
+	// runtimeEvalMaxDepth 解释器最大调用深度（T14）。
+	runtimeEvalMaxDepth = 16
+	// runtimeEvalMaxSteps 解释器步数预算（T14）。
+	runtimeEvalMaxSteps = 10000
+)
 
 func (e *rtEval) execBlock(frame *rtFrame, stmts []ast.Stmt, states []*rtState, depth int) []*rtState {
 	if e.err != nil {
@@ -155,6 +80,9 @@ func (e *rtEval) execBlock(frame *rtFrame, stmts []ast.Stmt, states []*rtState, 
 }
 
 func (e *rtEval) execStmt(frame *rtFrame, st ast.Stmt, s *rtState, depth int) []*rtState {
+	if e.canceled() || !e.step() {
+		return nil
+	}
 	switch x := st.(type) {
 	case *ast.ExprStmt:
 		_, out := e.evalExpr(frame, x.X, s, depth)

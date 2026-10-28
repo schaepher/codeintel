@@ -57,19 +57,17 @@ func TestRuntimeEvalCancelStopsMidExecution(t *testing.T) {
 	}
 }
 
-// flipCtx 前 n 次 Err() 返回 nil（模拟"已开始执行"），之后返回取消错误。
+// flipCtx 显式控制取消时点（模拟"已开始执行后取消"）。
 // 计时无法确定性复现中途中止，用可控的实现锁住"中途检查"语义。
 type flipCtx struct {
-	n    int
-	errs int
+	armed bool
 }
 
 func (c *flipCtx) Deadline() (time.Time, bool) { return time.Time{}, false }
 func (c *flipCtx) Done() <-chan struct{}       { return nil }
 func (c *flipCtx) Value(any) any               { return nil }
 func (c *flipCtx) Err() error {
-	c.errs++
-	if c.errs > c.n {
+	if c.armed {
 		return context.Canceled
 	}
 	return nil
@@ -77,13 +75,14 @@ func (c *flipCtx) Err() error {
 
 // 已开始执行后再取消：第一次执行正常，第二次停下且不产出状态。
 func TestRuntimeEvalCancelAfterStart(t *testing.T) {
-	ctx := &flipCtx{n: 1}
+	ctx := &flipCtx{}
 	e := &rtEval{ctx: ctx, maxStates: 64}
 	st := &rtState{env: map[*ast.Object]rtValue{}, types: map[*ast.Object]*runtimeType{}}
 	block := []ast.Stmt{&ast.ExprStmt{X: &ast.Ident{Name: "x"}}}
 	if out := e.execBlock(nil, block, []*rtState{st}, 0); out == nil {
 		t.Fatal("首次执行不应被取消")
 	}
+	ctx.armed = true
 	if out := e.execBlock(nil, block, []*rtState{st}, 0); out != nil {
 		t.Fatalf("取消后不得返回状态: %v", out)
 	}
