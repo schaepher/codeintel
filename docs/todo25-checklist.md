@@ -119,4 +119,4 @@ bash scripts/verify.sh --quick
 | 任务 | 状态 | 结果 |
 | --- | --- | --- |
 | 全量 `make it`（真实 init/CLI/serve + todo22/24/25 集成套件） | 完成（本轮） | PASS，`integration` 62.677s，exit=0。 |
-| §4.2 外部函数列表/ellipsis/参数重写 | **未完成（已复现缺口）** | 外部 `RunAll(fs ...func())` / `RunList([]func())` 的列表元素未展开（A/B/C/D 零执行）；需在外部形参绑定后支持 variadic/list range，及 `f = func(){Wrong()}` 重写失效。 |
+| §4.2 外部函数列表/ellipsis/参数重写 | **已完成（回归验证 + 固化）** | `TestSeqExternalFuncListBoundary`：外部 `RunAll(fs ...func())`（直接变参）、`RunList([]func())`、调用点 `list...` 展开、本包 `Forward(fs ...func())` 转发到外部变参四条路径元素内部调用各一次；外部实现 `f = func(){Wrong()}` 重写后传入回调 `Sink` 零执行、重写后的 `Wrong` 一次。前置缺口实测为夹具元素函数体为空（无可观察调用），分析路径本身已按外部形参绑定→普通 range 展开。 |

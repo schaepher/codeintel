@@ -23,6 +23,23 @@ func Store(f func()) {
 	_ = f
 }
 
+func RunAll(fs ...func()) {
+	for _, f := range fs {
+		f()
+	}
+}
+
+func RunList(fs []func()) {
+	for _, f := range fs {
+		f()
+	}
+}
+
+func Drop(f func()) {
+	f = func() { Wrong() }
+	f()
+}
+
 `
 
 // TestSeqExternalCallbackOnlyWhenCalled：外部函数真的调用形参 → 回调执行；
@@ -78,6 +95,70 @@ func Entry(ctx context.Context) {
 	}
 	if got := seqCallNodesNamed(stores[0], "Inner"); len(got) != 0 {
 		t.Errorf("外部实现未调用形参时不得执行回调（Inner 出现 %d 次）", len(got))
+	}
+}
+
+// TestSeqExternalFuncListBoundary：外部函数的变参/列表形参在调用点展开
+// （A/B 各一次）；外部实现重写形参（`f = func(){Wrong()}`）后，调用点传入的
+// 回调不再算已执行（Sink 零次）。
+func TestSeqExternalFuncListBoundary(t *testing.T) {
+	appSrc := `package app
+
+import "example.com/ext"
+
+func A() { HitA() }
+
+func B() { HitB() }
+
+func HitA() {}
+
+func HitB() {}
+
+func Sink() {}
+
+func Forward(fs ...func()) { ext.RunAll(fs...) }
+
+func Entry() {
+	ext.RunAll(A, B)
+	ext.RunList([]func(){A, B})
+	list := []func(){A, B}
+	ext.RunAll(list...)
+	Forward(A, B)
+	ext.Drop(func() { Sink() })
+}
+`
+	acts, app := seedSeqFuncValueRepoInDir(t, appSrc)
+
+	root, err := acts.CodeSequence(CodeSequenceRequest{Target: "Entry", RepoAbs: app, Depth: 6})
+	if err != nil {
+		t.Fatalf("CodeSequence: %v", err)
+	}
+	for _, label := range []string{"ext.RunAll", "ext.RunList"} {
+		nodes := seqCallNodesNamed(root, label)
+		if label == "ext.RunAll" && len(nodes) != 3 {
+			t.Fatalf("应有 3 个 %s 节点（直接变参 + 切片展开 + 本包变参转发），got %d", label, len(nodes))
+		}
+		if label != "ext.RunAll" && len(nodes) != 1 {
+			t.Fatalf("应有 1 个 %s 节点，got %d", label, len(nodes))
+		}
+		_ = nodes[0]
+		for i, n := range nodes {
+			for _, fn := range []string{"HitA", "HitB"} {
+				if got := seqCallNodesNamed(n, fn); len(got) != 1 {
+					t.Errorf("%s[%d] 外部列表元素内部调用 %s 应执行一次，got %d", label, i, fn, len(got))
+				}
+			}
+		}
+	}
+	drop := seqCallNodesNamed(root, "ext.Drop")
+	if len(drop) != 1 {
+		t.Fatalf("应有 1 个 ext.Drop 节点，got %d", len(drop))
+	}
+	if got := seqCallNodesNamed(drop[0], "Sink"); len(got) != 0 {
+		t.Errorf("外部实现重写形参后不得执行传入回调（Sink 出现 %d 次）", len(got))
+	}
+	if got := seqCallNodesNamed(drop[0], "Wrong"); len(got) != 1 {
+		t.Errorf("重写后的调用应保留（Wrong 一次），got %d", len(got))
 	}
 }
 
