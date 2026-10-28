@@ -147,21 +147,33 @@ func TestWalkBenchChild(t *testing.T) {
 		db.Close()
 		t.Fatalf("%s", res.Error)
 	}
-	// todo23 14.4-B：查询生命周期内的子进程临时文件采样（含已 unlink fd）。
+	// todo23/todo24 14.4-B：查询生命周期内的子进程临时文件采样（含已 unlink
+	// fd 与"两次轮询之间创建/扩容/关闭"的短生命周期文件）。
 	tmpDir := os.TempDir()
-	var fixture *benchTempFixture
-	if os.Getenv(benchTempFixtureEnv) == "1" {
-		fixture = newBenchFixtureTemp(tmpDir)
-	}
+	fixtureMode := os.Getenv(benchTempFixtureEnv)
 	sampler := newSelfTempSampler(tmpDir)
+	stopWatch := startTempWatch(sampler)
 	stopSampler := make(chan struct{})
 	var samplerWG sync.WaitGroup
 	samplerWG.Add(1)
 	go func() { defer samplerWG.Done(); sampler.loop(stopSampler) }()
 	sampler.snapshot("query_start")
-	if fixture != nil {
-		fixture.Grow()
-		sampler.snapshot("grow")
+	var fixture *benchTempFixture
+	var ephemeral *benchEphemeralTemp
+	switch fixtureMode {
+	case "1", "hold":
+		fixture = newBenchFixtureTemp(tmpDir)
+		if fixture != nil {
+			fixture.Grow()
+			sampler.snapshot("grow")
+		}
+	case "ephemeral":
+		// 创建/扩容/关闭全部发生在查询边界**之外**（不拖长 query_ms），峰值
+		// 只能由事件驱动的快照记录；等待发生在查询开始之前。
+		ephemeral = newBenchEphemeralTemp(tmpDir)
+		if ephemeral.err == nil {
+			waitSamplerMinPeak(t, sampler, benchFixtureTempFinalSize, 2*time.Second)
+		}
 	}
 	// 查询边界：QueryContext → 全部 Rows.Next/Scan 完成 → Close（todo22 要求
 	// "比较的查询边界必须包含全部 Rows.Next/Scan"）。
@@ -183,17 +195,17 @@ func TestWalkBenchChild(t *testing.T) {
 		fixture.Unlink()
 		sampler.snapshot("unlink")
 	}
+	if ephemeral != nil {
+		ephemeral.Remove()
+	}
 	close(stopSampler)
 	samplerWG.Wait()
+	stopWatch()
 	if fixture != nil {
 		fixture.Close()
 	}
 	res.QueryMS = benchMS(queryStart)
-	res.TempPeak = sampler.peak
-	res.TempSamples = sampler.samples
-	res.TempMaxGapMS = float64(sampler.maxGap.Microseconds()) / 1000
-	res.TempEvents = sortedTempEvents(sampler.events)
-	res.TempPeakSource = "child_query_poll"
+	res.fillTempStats(sampler)
 	if scanErr != nil {
 		res.Error = "scan: " + scanErr.Error()
 		writeResult()

@@ -96,7 +96,10 @@ func collectBenchMeta(t *testing.T, reps int) benchMeta {
 		Reps:       reps,
 		MemTotal:   benchMeasure{Note: "读取 /proc/meminfo MemTotal 失败"},
 		TimeTool:   "unavailable（回退子进程自报 VmHWM）",
-		TempSampling: fmt.Sprintf("/proc/<pid>/fd 采样，间隔 %.0fms；覆盖 SQLite 已 unlink 仍打开的临时文件",
+		TempSampling: fmt.Sprintf("/proc/self/fd + TMPDIR 目录项：父进程 /proc/<pid>/fd 间隔 %.0fms，"+
+			"子进程内 250µs 轮询 + inotify 事件驱动快照（两次轮询之间创建/扩容/关闭的短生命周期文件）+ "+
+			"查询起止边界快照；覆盖 SQLite 已 unlink 仍打开的临时文件；"+
+			"整个存在期都在采样间隙且已 unlink 的文件记 unobserved，峰值输出 unavailable（不给 0）",
 			float64(benchTempInterval.Microseconds())/1000),
 		ColdWarmNote: "cold_first_query = 该 (N) 库上本轮的第一次查询；其余 warm_repeat。" +
 			"未 drop OS page cache（无权限），且夹具刚由 SaveBatchStats 写入——" +

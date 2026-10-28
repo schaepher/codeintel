@@ -73,8 +73,13 @@ type benchSample struct {
 	TempPeakNote         string           `json:"temp_peak_note,omitempty"`
 	TempSampleIntervalMS float64          `json:"temp_sample_interval_ms"`
 	TempSamples          int              `json:"temp_samples"`
+	TempEventSamples     int              `json:"temp_event_samples,omitempty"`
 	TempMaxGapMS         float64          `json:"temp_sample_max_gap_ms"`
 	TempPeakSource       string           `json:"temp_peak_source,omitempty"`
+	TempPeakBasis        string           `json:"temp_peak_basis,omitempty"`
+	TempPeakPhase        string           `json:"temp_peak_phase,omitempty"`
+	TempWatchNote        string           `json:"temp_watch_note,omitempty"`
+	TempUnobserved       []string         `json:"temp_unobserved,omitempty"`
 	TempEvents           []benchTempEvent `json:"temp_events,omitempty"`
 
 	OpenMS   float64 `json:"open_ms"`
@@ -108,13 +113,20 @@ type benchChildResult struct {
 	SQLiteVer    string `json:"sqlite_version"`
 	TempStore    int    `json:"temp_store"`
 	CacheSize    int    `json:"cache_size_pages"`
-	// todo23 14.4-B：子进程内查询生命周期的临时文件采样（短查询可靠覆盖）
-	TempPeak       int64            `json:"temp_peak_bytes"`
-	TempSamples    int              `json:"temp_samples"`
-	TempMaxGapMS   float64          `json:"temp_max_gap_ms"`
-	TempEvents     []benchTempEvent `json:"temp_events,omitempty"`
-	TempPeakSource string           `json:"temp_peak_source,omitempty"`
-	Error          string           `json:"error,omitempty"`
+	// todo23/todo24 14.4-B：子进程内查询生命周期的临时文件采样（短查询可靠
+	// 覆盖；事件驱动覆盖两次轮询之间的短生命周期文件）。
+	TempPeak         int64            `json:"temp_peak_bytes"`
+	TempPeakBasis    string           `json:"temp_peak_basis,omitempty"`
+	TempPeakPhase    string           `json:"temp_peak_phase,omitempty"`
+	TempPeakNote     string           `json:"temp_peak_note,omitempty"`
+	TempSamples      int              `json:"temp_samples"`
+	TempEventSamples int              `json:"temp_event_samples,omitempty"`
+	TempMaxGapMS     float64          `json:"temp_max_gap_ms"`
+	TempEvents       []benchTempEvent `json:"temp_events,omitempty"`
+	TempPeakSource   string           `json:"temp_peak_source,omitempty"`
+	TempWatchNote    string           `json:"temp_watch_note,omitempty"`
+	TempLost         []string         `json:"temp_unobserved,omitempty"`
+	Error            string           `json:"error,omitempty"`
 }
 
 // procSampler 采样子进程 TMPDIR 下打开着的（含已 unlink 的）临时文件总量。

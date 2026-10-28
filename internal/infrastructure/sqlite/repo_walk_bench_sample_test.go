@@ -55,6 +55,9 @@ func runBenchSample(t *testing.T, bin, outDir string, fx *benchFixture, depth in
 	if v := os.Getenv(benchTempFixtureEnv); v != "" {
 		extraEnv[benchTempFixtureEnv] = v
 	}
+	if v := os.Getenv(benchTempPollEnv); v != "" {
+		extraEnv[benchTempPollEnv] = v
+	}
 	childEnv := benchEnv(extraEnv)
 	childArgs := []string{"-test.run=^TestWalkBenchChild$", "-test.timeout=10m"}
 
@@ -146,15 +149,32 @@ func runBenchSample(t *testing.T, bin, outDir string, fx *benchFixture, depth in
 	// todo23 14.4-B：优先采用子进程内查询生命周期采样（短查询也能可靠覆盖；
 	// 含 unlink 仍打开的文件）。父进程轮询只作为回退。
 	if res.TempSamples > 0 {
-		smp.TempPeakBytes = benchMeasure{Value: res.TempPeak, OK: true}
 		smp.TempSamples = res.TempSamples
+		smp.TempEventSamples = res.TempEventSamples
 		smp.TempMaxGapMS = res.TempMaxGapMS
 		smp.TempPeakSource = res.TempPeakSource
 		smp.TempEvents = res.TempEvents
-		if res.TempPeak == 0 {
-			smp.TempPeakNote = fmt.Sprintf(
-				"查询生命周期内子进程采样 %d 次（最大间隔 %.2fms）未出现 TMPDIR 临时文件：SQLite 留在页缓存/未落盘（有效观测）",
-				res.TempSamples, res.TempMaxGapMS)
+		smp.TempPeakBasis = res.TempPeakBasis
+		smp.TempPeakPhase = res.TempPeakPhase
+		smp.TempWatchNote = res.TempWatchNote
+		smp.TempUnobserved = res.TempLost
+		switch res.TempPeakBasis {
+		case "lower_bound":
+			// 短生命周期文件在两次采样之间创建/扩容并 unlink：真实峰值不可知，
+			// 不能把下界当峰值（更不能用 0）——按 unavailable 输出并写清原因。
+			note := res.TempPeakNote
+			if note == "" {
+				note = "短生命周期临时文件在两次采样之间创建/扩容并 unlink，峰值不可知"
+			}
+			smp.TempPeakBytes = benchMeasure{Note: note}
+			smp.TempPeakNote = note
+		default:
+			smp.TempPeakBytes = benchMeasure{Value: res.TempPeak, OK: true}
+			if res.TempPeak == 0 {
+				smp.TempPeakNote = fmt.Sprintf(
+					"查询生命周期内子进程采样 %d 次（事件驱动 %d 次，最大间隔 %.2fms）未出现 TMPDIR 临时文件：SQLite 留在页缓存/未落盘（有效观测）",
+					res.TempSamples, res.TempEventSamples, res.TempMaxGapMS)
+			}
 		}
 		if smp.Error == "" {
 			os.RemoveAll(work)

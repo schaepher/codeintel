@@ -7246,3 +7246,35 @@ SSA 写入证明。现在：
   方法），不一致则回退 `matchAggregated` 的唯一匹配；仍不唯一则未解析
   （不猜）。`TestLookupCallSameLineDifferentPackages` 锁定同一行
   `a.Foo(); b.Foo()` 不串包。
+
+## §146 todo24 14.4-B：短生命周期临时文件峰值（事件驱动 + unavailable 下界）（2026-10-27）
+
+**问题**：§138 的子进程 250µs 轮询对"生存期短于采样间隔"的临时文件只能记录
+被观察到的 create/grow——整个存在期都落在两次采样之间（创建→扩容→关闭，或
+再 unlink）时，采样不覆盖，却仍按 0/观测值报告峰值（把轮询覆盖等同于精确峰值）。
+
+**改法**：
+- **事件驱动采样**（`repo_walk_bench_watch_linux_test.go`）：子进程用 inotify
+  监听 TMPDIR 的 create/modify/attrib/close_write/delete/moved，事件到达即做一次
+  `snapshot("event")`——采样时机不再取决于轮询间隔；非 Linux 记
+  `temp_watch_note` 后回退轮询（`repo_walk_bench_watch_other_test.go`）。
+- **快照同时枚举 TMPDIR 目录项**：短生命周期文件在采样间隙被**关闭但仍在目录
+  里**时按路径 stat 到大小并计入本次快照（`sized` 保存历史最大，`onDiskSeen`
+  用于 grow/closed 事件）。已 unlink 且仍打开的仍按 fd 计入。
+- **峰值依据显式化**：`temp_peak_basis=exact|lower_bound`、
+  `temp_peak_phase=event|poll|query_start|query_end`、`temp_unobserved[]`。
+  文件整个存在期都没取到尺寸（create→grow→unlink 全在间隙里）→ `lower_bound`，
+  父进程输出 `unavailable` + 原因（观测值是下界），**不用 0 冒充观测**。
+- **可控夹具**：`hold`（4KB→64KB→unlink 后持 fd→查询后关闭，原有）与
+  `ephemeral`（4KB→64KB→close，留在目录里；轮询间隔显式拉到 100ms，故峰值
+  只能来自事件快照）。断言峰值精确 65536、`temp_peak_phase=event`、
+  `temp_peak_basis=exact`、事件含最终大小、`temp_unobserved` 为空。
+- 平台：`requireLinuxTempSampling` 在非 Linux 显式 skip 并说明原因（inotify +
+  /proc/self/fd 均不可用，生产采集返回 unavailable），不把跳过计为验收通过。
+
+**边界**：inotify 事件本身不携带大小；若文件在事件唤醒前被 unlink 且从未取得
+尺寸，峰值仍不可知（→ lower_bound/unavailable）。采集仍不 sleep、不拖长
+query_ms（ephemeral 夹具的事件等待发生在查询边界之前）。
+
+**测试**：`TestWalkBenchShortQueryTempPeakFixture` / `TestWalkBenchShortLivedTempPeakFixture` /
+`TestWalkBenchShortQueryNoTempFileIsZero` / `TestInotifyNamesParsesShortLivedEvents`。
