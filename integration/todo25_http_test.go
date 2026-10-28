@@ -162,11 +162,13 @@ func TestTodo25HTTPContinuationRealCLI(t *testing.T) {
 			outsideHTTP = n
 		}
 	})
-	if outsideHTTP != nil && outsideHTTP.Stop != nil &&
-		outsideHTTP.Stop.Code != action.SeqStopHTTPTargetUnproven {
+	if outsideHTTP == nil {
+		t.Fatalf("workspace 外查询仍应保留 HTTP 调用节点")
+	}
+	if outsideHTTP.Stop == nil || outsideHTTP.Stop.Code != action.SeqStopHTTPTargetUnproven {
 		t.Errorf("workspace 外应为 http_target_unproven: %+v", outsideHTTP.Stop)
 	}
-	if outsideHTTP != nil && hasSymbolWith(outsideHTTP, "server:Submit") {
+	if hasSymbolWith(outsideHTTP, "server:Submit") {
 		t.Errorf("workspace 外不得续接到 server:Submit")
 	}
 }
