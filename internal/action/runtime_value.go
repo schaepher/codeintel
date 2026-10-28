@@ -27,6 +27,11 @@ const (
 	rtRows  // 查询返回的多行（元素为 rtRow）
 	rtTuple // 多返回值（函数调用结果，elems 按返回槽）
 	rtDB    // 数据库句柄（s = target symbol canonical ID）
+	// U03：reflect 类型链（TypeOf/Field/Tag.Get）——只承载源码可证明的
+	// 类型元信息（s=类型名/标签文本；cols=字段名/tag）。
+	rtTypeInfo
+	rtFieldInfo
+	rtTagInfo
 )
 
 type rtValue struct {
@@ -224,6 +229,12 @@ func (v rtValue) rtDisplay() string {
 		return "error"
 	case rtDB:
 		return "db(" + v.s + ")"
+	case rtTypeInfo:
+		return "type(" + v.s + ")"
+	case rtFieldInfo:
+		return "field(" + v.cols["name"].s + ")"
+	case rtTagInfo:
+		return "tag(" + v.s + ")"
 	case rtSlice:
 		parts := make([]string, 0, len(v.elems))
 		for _, e := range v.elems {

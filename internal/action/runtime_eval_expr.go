@@ -61,6 +61,13 @@ func (e *rtEval) evalExpr(frame *rtFrame, expr ast.Expr, s *rtState, depth int) 
 				return fv, variants
 			}
 		}
+		// U03：reflect 字段元信息 —— field.Tag（struct tag 文本）。
+		if v.kind == rtFieldInfo && x.Sel.Name == "Tag" {
+			if tv, ok := v.cols["tag"]; ok {
+				return rtValue{kind: rtTagInfo, s: tv.s}, variants
+			}
+			return rtValue{kind: rtTagInfo}, variants
+		}
 		return rtUnknownValue(), variants
 	case *ast.IndexExpr:
 		base, variants := e.evalExpr(frame, x.X, s, depth)

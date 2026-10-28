@@ -84,6 +84,10 @@ func (e *rtEval) evalCall(frame *rtFrame, call *ast.CallExpr, s *rtState, depth 
 			return rtUnknownValue(), variants
 		}
 	}
+	// U03：reflect 元信息链（TypeOf/Field/Tag.Get）——静态源码可证的类型/标签。
+	if rv, out, handled := e.evalReflectCall(frame, call, s, depth); handled {
+		return rv, out
+	}
 	if qv, out, handled := e.evalQueryCall(frame, call, s, depth); handled {
 		return qv, out
 	}

@@ -50,49 +50,70 @@ func runtimeObservationColumns(obs *runtimeObservation, q *runtimeQuery) bool {
 	return true
 }
 
-// runtimeScopeCovers observation 的 scope 是否覆盖查询谓词（查询更窄/相等）。
+// runtimeScopeCovers observation 的 scope 是否足以覆盖查询（T14 方向：
+// **查询必须蕴含 observation 的每条限制**——observation 只对该 scope 完整）。
+//   - 全表 observation（scope=[]）覆盖任意查询；
+//   - observation(region=ID) 覆盖 query(region=ID, node=2)；
+//   - observation(region=ID, node=2) 不覆盖 query(region=ID)（行被 node 过滤过）；
+//   - observation 的每个谓词都要能在 query 里找到"同等或更窄"的谓词。
 func runtimeScopeCovers(scope, query []runtimePredicate) bool {
-	if len(query) == 0 {
-		return len(scope) == 0 // 只有全表 observation 能覆盖"查全表"
+	if len(scope) == 0 {
+		return true // 全表 observation：行是完整的，可回答任意查询
 	}
-	for _, qp := range query {
+	if len(query) == 0 {
+		return false // 查全表需要全表 observation
+	}
+	for _, op := range scope {
 		var found *runtimePredicate
-		for i := range scope {
-			if scope[i].Field == qp.Field {
-				found = &scope[i]
+		for i := range query {
+			if query[i].Field == op.Field {
+				found = &query[i]
 				break
 			}
 		}
 		if found == nil {
 			return false
 		}
-		if !runtimePredicateCovers(*found, qp) {
+		if !runtimePredicateImplies(*found, op) {
 			return false
 		}
 	}
 	return true
 }
 
-func runtimePredicateCovers(obs, q runtimePredicate) bool {
+// runtimePredicateImplies q 的取值集合是否被 observation 谓词 obs 完整包含
+// （即 q 比 obs 更窄或相等）。
+func runtimePredicateImplies(q, obs runtimePredicate) bool {
 	switch q.Op {
 	case "eq":
 		switch obs.Op {
 		case "eq":
-			eq, known := rtEqual(obs.Value, q.Value)
+			eq, known := rtEqual(q.Value, obs.Value)
 			return known && eq
 		case "in":
 			return runtimeInContains(obs.Value, q.Value)
 		}
 	case "in":
-		if obs.Op != "in" || q.Value.kind != rtSlice || obs.Value.kind != rtSlice {
+		if q.Value.kind != rtSlice || len(q.Value.elems) == 0 {
 			return false
 		}
-		for _, qv := range q.Value.elems {
-			if !runtimeInContains(obs.Value, qv) {
-				return false
+		switch obs.Op {
+		case "eq":
+			for _, qv := range q.Value.elems {
+				eq, known := rtEqual(qv, obs.Value)
+				if !known || !eq {
+					return false
+				}
 			}
+			return true
+		case "in":
+			for _, qv := range q.Value.elems {
+				if !runtimeInContains(obs.Value, qv) {
+					return false
+				}
+			}
+			return true
 		}
-		return true
 	}
 	return false
 }
