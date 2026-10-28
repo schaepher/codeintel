@@ -7393,3 +7393,41 @@ a.Store.Insert(inner) }`。闭包展开时 `curRecvObj=nil / curRecvName=""`（"
 **测试**：既有 `TestTodo22SyncFlows` / `TestTodo22FlowForms` /
 `TestTodo22FlowMatrixJSONMermaid|SVG` / `TestTodo22SegmentedFlow` 由红转绿
 （此前 4 个套件长期红），integration 整包 `-count=1` 全绿（52.8s）。
+
+## §152 todo24 §2：`--continue-segments` 分段续查深度前沿（2026-10-27）
+
+**问题**：`sequence --code` 的 depth 是展开预算——depth=1 时只输出被调函数
+的准确 ID + `stop.code=depth`，业务链（装饰器/回调/事务/存储）要人工顺着源码
+再补接。提高 depth 重跑会把整棵前缀重算且无法区分"哪一段是追加的"。
+
+**改法**（`action_seq_continue.go`）：
+- **前沿登记**：停在 depth 的调用节点在构造结束时登记 `seqFrontier`，保存
+  **请求值快照**（env/形参-实参绑定/receiver/文件上下文/场景条件）+ 防环祖先
+  集合副本 + 恢复闭包。四种前沿：已证明符号（`codeSeqForSymbol`）、函数值回调
+  （`seqExpandSingleValue`，保留字面量/具名与实参绑定）、RPC 服务端子树
+  （`seqExpandRPCForward`，跨仓按 `RemoteRepo`）、AST 身份恢复目标。
+- **续查循环**：每段对当前前沿展开"原请求 depth 层"，新前沿进入下一段；前沿
+  按节点指针去重（回调+普通调用两层只算一次）；同步完成（不延后用被改写的
+  环境）；跨段防环用祖先集合副本（自递归第二段即 cycle，不靠耗尽段数）。
+- **记账**：`meta.continuation{segments_budget,segments_used,budget_stops,
+  frontiers[]}`（逐段 call_file/call_line/target_id/repo/depth_reason/continued）；
+  预算耗尽时保留原 depth 诊断并加 `continuation_budget` 诊断（明示"段数预算不是
+  节点/内存硬上限"）。未启用时不输出该键、argv/config_hash 与旧行为一致
+  （`seqConfigHash` 用 `*int + omitempty` 保持兼容）。
+- **CLI**：`--continue-segments` 严格校验（缺值/非数字/0/负数/>128/非
+  `sequence --code`）在**开库前** exit 2；合法值进入结构化 argv 与 config_hash。
+
+**验收（真实 init→CLI，公开夹具）**：`integration/todo24_continue_test.go`：
+depth=1 只有 First+depth；+16 段得到 Entry→First→Second→Execute→回调→Sink
+（Sink 1 次/Wrong 0 次，覆写不污染旧绑定）；JSON 与 Mermaid 调用顺序逐步一致；
+`--continue-segments 1` → budget_stops=1 + continuation_budget；DifferentEntry
+两个 Execute 回调都展开；LoopEntry cycle=1/Wrong=0；`--scene kind=1` 只走
+Sink 分支且保留场景依据、未知守卫保留互斥分支；DeferredEntry Sink×2 且
+defer/async 标记保留；1ns 预算非零退出且 stdout 为空；证据 argv 含
+`--continue-segments 3` 且 config_hash 与未启用不同；flowmatrix 联合夹具
+depth=2 + 20 段仍保持 MakeFirst/Setup 顺序、First/Second 装饰器、AOP 包装器
+→ Store.Insert → ExecContext、RPC 服务端 (AccountServer).Apply、ApproveTrace。
+
+**边界（保留）**：HTTP 跨仓续接（§4.3 的 origin/handler 证明）尚未实现——
+HTTP 调用点仍按原样停在未解析/外部诊断，不做自动续查；`Cleanup` defer 标记
+与"外部事务回调"以本地 `tx.Run` 夹具等价验证（todo24 业务仓库原件不在本仓）。

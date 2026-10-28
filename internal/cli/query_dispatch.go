@@ -31,6 +31,18 @@ func cmdQuery(args []string) int {
 	rest := args[1:]
 
 	f := parseQueryFlags(rest)
+	// todo24 §2：--continue-segments 的用法校验必须在**开库之前**完成
+	// （缺值/非数字/越界/用错命令都非零退出，绝不静默忽略）。
+	if f.contSegSet {
+		if f.contSegErr != "" {
+			fmt.Fprintf(os.Stderr, "error: %s\n", f.contSegErr)
+			return 2
+		}
+		if sub != "sequence" || !f.code {
+			fmt.Fprintln(os.Stderr, "error: --continue-segments 只能用于 `query sequence --code`")
+			return 2
+		}
+	}
 	target := ""
 
 	if sub != "unused" && sub != "async" && sub != "effects" && sub != "module-calls" && sub != "enums" && sub != "entities" && sub != "grpc-routes" && sub != "http-routes" && sub != "cli-routes" && sub != "external-deps" && sub != "external-interfaces" && sub != "kafka-topics" && sub != "grpc-composites" && sub != "grpc-callers" && sub != "http-callers" && sub != "ext-chain" && sub != "packages" && sub != "architecture" && sub != "er" && sub != "processes" && sub != "helpers" && !(sub == "relations" && f.all) {
@@ -193,7 +205,7 @@ func cmdQuery(args []string) int {
 		// R76：时序图；R81：--code 代码级时序（--depth 嵌套层级）；
 		// S4：--format plantuml 转 PNG base64
 		if f.code {
-			return cmdQuerySequenceCode(acts, abs, target, f.depth, f.format == "mermaid" || f.format == "plantuml" || f.format == "svg", f.json, f.format, f.out, f.focus, f.evidence, f.scene, f.timeout, f.verifyEvidence, f.allRepos)
+			return cmdQuerySequenceCode(acts, abs, target, f.depth, f.contSegments, f.format == "mermaid" || f.format == "plantuml" || f.format == "svg", f.json, f.format, f.out, f.focus, f.evidence, f.scene, f.timeout, f.verifyEvidence, f.allRepos)
 		}
 		return cmdQuerySequence(acts, target, f.depth, f.format == "mermaid", f.json)
 	case "callers", "callees", "impact":

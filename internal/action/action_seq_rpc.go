@@ -180,6 +180,11 @@ func seqExpandRPCForward(a *Actions, req CodeSequenceRequest, node *CodeSeqNode,
 		base.File, base.Line = "", 0
 		node.Stop = &SeqStop{Code: SeqStopDepthLimit,
 			Detail: "depth 上限（--depth " + itoaSeq(req.Depth) + "），未展开 RPC 服务端子树"}
+		// todo24 §2：RPC 前沿续查（服务端子树按原请求 depth 展开；跨仓由
+		// seqExpandRPCForward 自己切换仓库上下文）。
+		seqRegisterFrontier(req, node, entry, func(sub CodeSequenceRequest) {
+			seqExpandRPCForward(a, sub, node, fwd, sub.Depth+1, curFile, line)
+		}, node.Stop.Detail)
 		return true
 	}
 	// 防环：跨仓库也按 (仓库|方法入口) 计——同仓时与既有 visited 同口径

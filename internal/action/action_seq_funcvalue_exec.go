@@ -116,6 +116,11 @@ func seqExpandSingleValue(a *Actions, req CodeSequenceRequest, call *ast.CallExp
 			req.acc.depth = true
 			node.Stop = &SeqStop{Code: SeqStopDepthLimit,
 				Detail: "depth 上限（--depth " + itoaSeq(req.Depth) + "），未展开该回调内部"}
+			// todo24 §2：回调前沿同样可续查——续查沿用**该调用点**的实参与
+			// 绑定环境（字面量/具名都按同一入口重新展开）。
+			seqRegisterFrontier(req, node, fv.symID, func(sub CodeSequenceRequest) {
+				seqExpandSingleValue(a, sub, call, fv, node, sub.Depth+1)
+			}, node.Stop.Detail)
 			return
 		}
 		if fv.ctx == nil || fv.lit == nil || fv.lit.Body == nil {
@@ -177,6 +182,9 @@ func seqExpandSingleValue(a *Actions, req CodeSequenceRequest, call *ast.CallExp
 			req.acc.depth = true
 			node.Stop = &SeqStop{Code: SeqStopDepthLimit,
 				Detail: "depth 上限（--depth " + itoaSeq(req.Depth) + "），未展开该调用内部"}
+			seqRegisterFrontier(req, node, fv.symID, func(sub CodeSequenceRequest) {
+				seqExpandSingleValue(a, sub, call, fv, node, sub.Depth+1)
+			}, node.Stop.Detail)
 			return
 		}
 		sub := req

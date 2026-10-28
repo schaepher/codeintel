@@ -22,7 +22,9 @@ type SeqEvidenceRequest struct {
 	Evidence bool              `json:"evidence,omitempty"`
 	Format   string            `json:"format,omitempty"`
 	Out      string            `json:"out,omitempty"`
-	IndexSHA string            `json:"index_sha,omitempty"`
+	// ContinueSegments todo24 §2：分段续查段数预算（0/缺省 = 未启用）。
+	ContinueSegments int    `json:"continue_segments,omitempty"`
+	IndexSHA         string `json:"index_sha,omitempty"`
 	// todo13-14：影响结果的配置/身份（来自实际配置与构建）
 	StopPkgs   []string   `json:"stop_packages,omitempty"`
 	Filter     *SeqFilter `json:"filter,omitempty"`
@@ -66,14 +68,21 @@ func analyzerVersion() string {
 
 // seqConfigHash 影响结果的配置身份（过滤/停止包/场景/焦点/深度）。
 func seqConfigHash(req CodeSequenceRequest) string {
+	// Cont 用指针 + omitempty：未启用续查时 JSON 与旧结构一致（保持既有
+	// config_hash/证据身份兼容），启用后才参与身份。
 	cfg := struct {
 		Depth int
 		Stop  []string
 		Focus []string
 		Scene map[string]string
 		Fil   SeqFilter
+		Cont  *int `json:",omitempty"`
 	}{Depth: req.Depth, Stop: append([]string{}, req.StopPackages...),
 		Focus: append([]string{}, req.Focus...), Scene: req.Scene.Values, Fil: req.Filter}
+	if req.ContinueSegments > 0 {
+		v := req.ContinueSegments
+		cfg.Cont = &v
+	}
 	b, _ := json.Marshal(cfg)
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:8])
@@ -87,7 +96,8 @@ func seqEvidenceSnapshot(req CodeSequenceRequest, symbol string) *SeqEvidenceReq
 	snap := &SeqEvidenceRequest{
 		Repo: req.RepoAbs, Symbol: symbol, Depth: req.Depth,
 		Focus: append([]string{}, req.Focus...), Evidence: req.Evidence,
-		Format: req.Format, Out: req.Out, IndexSHA: req.indexSHA,
+		ContinueSegments: req.ContinueSegments,
+		Format:           req.Format, Out: req.Out, IndexSHA: req.indexSHA,
 		CLI: "unknown", Analyzer: analyzerVersion(), BuildID: req.buildID, BuiltAt: req.builtAt,
 		ConfigHash: seqConfigHash(req),
 	}
@@ -113,6 +123,9 @@ func seqEvidenceSnapshot(req CodeSequenceRequest, symbol string) *SeqEvidenceReq
 func seqEvidenceArgv(snap *SeqEvidenceRequest) []string {
 	args := []string{"codeintel", "query", "sequence", snap.Symbol,
 		"--repo", snap.Repo, "--code", "--depth", itoaSeq(snap.Depth)}
+	if snap.ContinueSegments > 0 {
+		args = append(args, "--continue-segments", itoaSeq(snap.ContinueSegments))
+	}
 	keys := make([]string, 0, len(snap.Scene))
 	for k := range snap.Scene {
 		keys = append(keys, k)

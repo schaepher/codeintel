@@ -30,6 +30,10 @@ type CodeSequenceRequest struct {
 	Target       string    // 符号名或 canonical ID
 	RepoAbs      string    // 仓库绝对路径（源码读取）
 	Depth        int       // 嵌套层级（1 = 只本函数；>1 递归展开被调函数内部）
+	// ContinueSegments todo24 §2：分段续查 depth 前沿（0 = 不启用，维持原深度限制）。
+	// 每段沿当前前沿再展开 Depth 层，结果接回同一棵树；N 的合法范围 1–128
+	// 由 CLI 在开库前校验。
+	ContinueSegments int
 	StopPackages []string  // 停止包列表（cli 从 config.yaml 读取——命中不深入）
 	Filter       SeqFilter // S5：导出过滤（按包/文件/函数/正则——命中不生成节点，如 log 调用）
 	// Focus 关注目标（todo10-2 part3）：字段路径（pkg.T.F / T.F / F 后缀匹配）

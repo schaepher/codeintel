@@ -47,6 +47,30 @@ type SeqMeta struct {
 	Coverage *SeqCoverage `json:"coverage,omitempty"`
 	// todo13-14：证据身份（整次分析一份：argv/版本/构建/配置）
 	Evidence *SeqEvidenceIdentity `json:"evidence,omitempty"`
+	// todo24 §2：分段续查记账（未启用 --continue-segments 时不出现）
+	Continuation *SeqContinuationMeta `json:"continuation,omitempty"`
+}
+
+// SeqContinuationMeta 分段续查的预算与实际展开（todo24 §2）。
+type SeqContinuationMeta struct {
+	SegmentsBudget int `json:"segments_budget"`
+	SegmentsUsed   int `json:"segments_used"`
+	// BudgetStops 段数预算耗尽时仍停在 depth 的前沿数（同一前沿只计一次）。
+	BudgetStops int `json:"budget_stops"`
+	// Frontiers 逐段的前沿调用位置 / 目标 canonical ID / 仓库 / 原 depth 原因。
+	Frontiers []SeqContinuationFrontier `json:"frontiers,omitempty"`
+	Note      string                    `json:"note,omitempty"`
+}
+
+// SeqContinuationFrontier 一个前沿的续查记录（continued=false = 预算耗尽）。
+type SeqContinuationFrontier struct {
+	Segment     int    `json:"segment"`
+	CallFile    string `json:"call_file,omitempty"`
+	CallLine    int    `json:"call_line,omitempty"`
+	TargetID    string `json:"target_id,omitempty"`
+	Repo        string `json:"repo,omitempty"`
+	DepthReason string `json:"depth_reason,omitempty"`
+	Continued   bool   `json:"continued"`
 }
 
 // SeqCoverage 构建期覆盖/降级信息（查询携带；与 SQL 解析统计分开）。
@@ -86,6 +110,13 @@ type seqTimingAcc struct {
 	symLookups, sigLookups, dispatch, sqlQueries int
 	symDur, sigDur, dispatchDur, sqlDur          time.Duration
 	cacheHits, cacheMisses                       int
+	// todo24 §2：分段续查（前沿登记 / 段数消耗 / 预算停止数 / 逐段记录）
+	frontiers           []*seqFrontier
+	frontierSeen        map[*CodeSeqNode]bool
+	continueSegment     int // 当前段号（登记时用；0 = 初始展开）
+	continueUsed        int
+	continueBudgetStops int
+	continuation        []SeqContinuationFrontier
 }
 
 // millis Duration → 毫秒（保留小数——单次阶段可能远小于 1ms）。

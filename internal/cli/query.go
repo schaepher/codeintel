@@ -47,6 +47,9 @@ type queryFlags struct {
 	code             bool     // R81：sequence --code——代码级时序（AST 解析函数体：调用名 + 分支/循环）
 	minPkgs          int      // R88：helpers --min-packages——跨包使用数阈值（0 = 配置默认 3）
 	out              string   // R100：sequence --out——输出写文件（plantuml → PNG；否则文本）
+	contSegments     int      // todo24 §2：sequence --code --continue-segments N（0=未传）
+	contSegSet       bool     // --continue-segments 显式出现（含非法值——须拒绝）
+	contSegErr       string   // --continue-segments 解析错误（缺值/非数字/越界）
 	focus            []string // todo10-2：sequence --code --focus——关注目标（字段路径 / return）
 	evidence         bool     // todo10-8：sequence --code --evidence——输出箭头证据清单
 	scene            []string // todo10-5：--scene k=v——场景条件（静态可判定，用于分支裁剪）

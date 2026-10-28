@@ -147,6 +147,12 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 			root, stop = codeSeqForSymbol(a, req, impl, req.Depth)
 		}
 	}
+	// todo24 §2：分段续查 depth 前沿（同步完成；新前沿进入下一段）。续查
+	// 属于"展开"阶段，计入 walk_ms；收尾后按剩余 depth 诊断重算 stop。
+	seqContinueSegments(a, req, root)
+	if req.acc != nil {
+		req.acc.depth = seqHasDepthStop(root)
+	}
 	tWalked := time.Now()
 	// 取消优先：ctx 已取消或展开途中被取消 → 错误（不得报告成功）
 	if ctx.Err() != nil || req.acc.cancel {
@@ -209,6 +215,16 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	root.Meta = &SeqMeta{Version: 1, Target: req.Target, Timing: timing,
 		Diagnostics: append(analysisDiags, projectionDiags...),
 		Coverage:    seqCoverage(buildMeta)}
+	// todo24 §2：分段续查记账（预算/实际段数/预算停止数/逐段前沿）。
+	if cm := seqContinuationMeta(req); cm != nil {
+		root.Meta.Continuation = cm
+		if cm.BudgetStops > 0 {
+			root.Meta.Diagnostics = append(root.Meta.Diagnostics, SeqDiagCount{
+				Code: "continuation_budget", Count: cm.BudgetStops,
+				Detail: "段数预算 --continue-segments " + itoaSeq(cm.SegmentsBudget) +
+					" 已用完，仍有 " + itoaSeq(cm.BudgetStops) + " 个 depth 前沿未展开（保留原 depth 诊断；这是段数预算，不是节点/内存硬上限）"})
+		}
+	}
 	if req.Evidence {
 		root.Meta.Evidence = seqEvidenceIdentity(req)
 	}

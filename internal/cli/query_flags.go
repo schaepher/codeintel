@@ -1,10 +1,24 @@
 package cli
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// parseContinueSegments 解析 --continue-segments 的段数预算（todo24 §2）：
+// 合法范围 1–128（0/负数/非数字/超过 128 都是用法错误，不能静默忽略）。
+func parseContinueSegments(raw string) (int, string) {
+	n, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil {
+		return 0, fmt.Sprintf("--continue-segments 需要整数，got %q", raw)
+	}
+	if n < 1 || n > 128 {
+		return 0, fmt.Sprintf("--continue-segments 超出范围（1–128），got %d", n)
+	}
+	return n, ""
+}
 
 // parseQueryFlags 手动解析 query 参数（flags 与位置参数任意顺序）。
 func parseQueryFlags(args []string) queryFlags {
@@ -153,6 +167,17 @@ func parseQueryFlags(args []string) queryFlags {
 			f.pathBudget, _ = strconv.Atoi(strings.TrimPrefix(a, "--path-budget="))
 		case a == "--evidence":
 			f.evidence = true
+		case a == "--continue-segments":
+			f.contSegSet = true
+			if i+1 >= len(args) {
+				f.contSegErr = "--continue-segments 缺少数值（合法范围 1–128）"
+				break
+			}
+			f.contSegments, f.contSegErr = parseContinueSegments(args[i+1])
+			i++
+		case strings.HasPrefix(a, "--continue-segments="):
+			f.contSegSet = true
+			f.contSegments, f.contSegErr = parseContinueSegments(strings.TrimPrefix(a, "--continue-segments="))
 		case a == "--focus" && i+1 < len(args):
 			f.focus = append(f.focus, splitComma(args[i+1])...)
 			i++

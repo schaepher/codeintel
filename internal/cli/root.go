@@ -148,7 +148,8 @@ const usageText = `codeintel - Go 代码库智能索引与查询（MVP）
                                   外部系统调用链（按 RPC 方法精确续接到服务端
                                   同名方法；目标仓库经注册表跨仓解析；未续接
                                   原因带诊断）
-  codeintel query sequence <sym> [--code] [--depth N] [--format mermaid|plantuml|svg]
+  codeintel query sequence <sym> [--code] [--depth N] [--continue-segments N]
+                 [--format mermaid|plantuml|svg]
                  [--out <file>] [--focus <字段|return>] [--evidence] [--scene k=v]
                                   调用时序图（默认 depth 2）；--code 代码级
                                   （AST 分支/循环/switch 嵌套展开，默认 depth 1；
@@ -158,7 +159,10 @@ const usageText = `codeintel - Go 代码库智能索引与查询（MVP）
                                   完整矢量图（不受该上限），无 --out 打印 SVG 文本；
                                   --focus 只看指定状态字段/返回值；--evidence
                                   逐箭头列证据来源/支持程度，mermaid 带 %% evidence；
-                                  --scene k=v 按已知业务条件裁剪分支并标注依据）
+                                  --scene k=v 按已知业务条件裁剪分支并标注依据；
+                                  --continue-segments N（1–128）沿 depth 前沿分段
+                                  续查 N 段（每段再展开原 depth 层，结果接回同一
+                                  棵树，meta.continuation 记录预算/前沿/预算停止））
   codeintel query packages [--json]
                                   包结构清单（包路径/职责/符号数）
   codeintel query architecture [--json]
