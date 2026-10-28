@@ -162,11 +162,17 @@ func applyReachingStmt(fset *token.FileSet, src []byte, st ast.Stmt, s *litScope
 			}
 			return
 		}
+		// todo23 §2.2：先算全部 RHS（旧环境）再更新 LHS——`x, y = y, x`
+		// 的第二个 RHS 读旧 x。
+		vals := make([]litVal, len(x.Rhs))
+		for i := range x.Rhs {
+			vals[i] = evalLitExpr(fset, x.Rhs[i], s)
+		}
 		for i, lhs := range x.Lhs {
 
 			if sel, ok := lhs.(*ast.SelectorExpr); ok {
 				if id, ok2 := sel.X.(*ast.Ident); ok2 && id.Name != "_" {
-					s.assign(exprTextShallow(sel), evalLitExpr(fset, x.Rhs[i], s))
+					s.assign(exprTextShallow(sel), vals[i])
 				}
 				continue
 			}
@@ -174,7 +180,7 @@ func applyReachingStmt(fset *token.FileSet, src []byte, st ast.Stmt, s *litScope
 			if !ok || id.Name == "_" {
 				continue
 			}
-			v := evalLitExpr(fset, x.Rhs[i], s)
+			v := vals[i]
 			if x.Tok == token.DEFINE {
 				s.declare(id.Name, v)
 				declareStructFields(fset, s, id.Name, x.Rhs[i])

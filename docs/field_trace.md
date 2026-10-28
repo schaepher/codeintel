@@ -7215,3 +7215,13 @@ exit_code=0；取消契约 26.7ms + 复用边 3。**边界**：子进程 250µs 
   的逃逸判定改走新入口；旧的无上下文 `seqIsFuncType`/`seqExprFuncTyped`/
   `seqEmptyFuncSliceType` 删除（避免死代码）。
 - 测试：`action_seq_functype_test.go`（命名/别名/环/非函数、跨包 dep.Check）。
+
+## §143 todo23 §2.2（第一步）：平行赋值先算全部 RHS（2026-10-27）
+
+`recordSeqAssign`（函数值环境）与 `applyReachingStmt`（场景值流）此前按
+`Lhs[i] → Rhs[i]` 顺序边算边写：`a, b = b, a` 的第二个 RHS 会读到刚被
+覆盖的 `a`，导致 `b` 得到新值。现在先收集全部 RHS 值/类型（旧环境），
+再统一更新 LHS；调用后的赋值语义（`f = wrap(ctx,f)` 的 RHS 读旧 f）不变。
+
+测试：`action_seq_parallel_assign_test.go`（场景 `x,y=y,x` 后 y=旧 x；
+函数值 `a,b=b,a` 后 `b()` 命中旧 `A`）。

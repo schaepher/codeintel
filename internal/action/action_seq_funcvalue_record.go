@@ -24,16 +24,25 @@ func recordSeqAssign(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx, s *as
 		}
 		return
 	}
+	// todo23 §2.2：先计算**全部 RHS**（用旧环境），再更新 LHS——
+	// `a, b = b, a` 的第二个 RHS 必须读旧 a，不能被前一项赋值污染。
+	vals := make([]seqValue, len(s.Rhs))
+	refs := make([]seqTypeRef, len(s.Rhs))
+	refOK := make([]bool, len(s.Rhs))
+	for i := range s.Rhs {
+		vals[i] = captureSeqClosureValue(a, req, ctx, s.Rhs[i])
+		refs[i], refOK[i] = seqTypeOfExpr(a, req, ctx, s.Rhs[i])
+	}
 	for i, lhs := range s.Lhs {
 		id, ok := lhs.(*ast.Ident)
 		if !ok || id.Obj == nil {
 			continue
 		}
-		v := captureSeqClosureValue(a, req, ctx, s.Rhs[i])
+		v := vals[i]
 		seqStampBinding(&v, id.Obj, ctx, s.Pos(), req.branchCond)
 		req.env.set(id.Obj, v)
-		if ref, ok := seqTypeOfExpr(a, req, ctx, s.Rhs[i]); ok {
-			req.env.types[id.Obj] = ref
+		if refOK[i] {
+			req.env.types[id.Obj] = refs[i]
 		} else {
 			delete(req.env.types, id.Obj) // 明确未知：不沿用旧的类型绑定
 		}
