@@ -155,3 +155,80 @@ func TestTodo25SourceFailures(t *testing.T) {
 		t.Errorf("失败原因应写 stderr: %q", errOut)
 	}
 }
+
+// TestTodo25SourceMultiModuleIdentity：两个嵌套 module 都有 package pkg，声明
+// 源码必须按各自 module 身份定到正确文件；用 A 的 import path 查 B 的符号
+// 必须失败（不跨 module 借用同名声明）。
+func TestTodo25SourceMultiModuleIdentity(t *testing.T) {
+	if !scipGoAvailable() {
+		t.Skip("scip-go not found")
+	}
+	root := t.TempDir()
+	a := filepath.Join(root, "a")
+	b := filepath.Join(root, "b")
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/root\n\ngo 1.26.2\n")
+	writeFile(t, filepath.Join(root, "root.go"), "package root\n")
+	writeFile(t, filepath.Join(a, "go.mod"), "module example.com/a\n\ngo 1.26.2\n")
+	writeFile(t, filepath.Join(a, "pkg", "x.go"), "package pkg\n\nfunc OnlyA() {}\n")
+	writeFile(t, filepath.Join(b, "go.mod"), "module example.com/b\n\ngo 1.26.2\n")
+	writeFile(t, filepath.Join(b, "pkg", "x.go"), "package pkg\n\nfunc OnlyB() {}\n")
+	gitRun(t, root, "init")
+	gitRun(t, root, "add", "-A")
+	gitRun(t, root, "commit", "-m", "init")
+	clearIndex(t, root)
+	if code := runCLI(t, "init", "--repo", root, "--workers", "1", "--progress", "none"); code != 0 {
+		t.Fatalf("init exit=%d", code)
+	}
+	for _, tc := range []struct{ id, file, text string }{
+		{"symbol:go:example.com/a/pkg:OnlyA", "a/pkg/x.go", "func OnlyA"},
+		{"symbol:go:example.com/b/pkg:OnlyB", "b/pkg/x.go", "func OnlyB"},
+	} {
+		code, out := runCLIOut(t, "query", "symbol", tc.id, "--repo", root, "--include-source", "--json")
+		if code != 0 {
+			t.Fatalf("%s exit=%d: %s", tc.id, code, out)
+		}
+		var wrapper struct {
+			Source *action.SymbolSource `json:"source"`
+		}
+		if err := json.Unmarshal([]byte(out), &wrapper); err != nil || wrapper.Source == nil {
+			t.Fatalf("%s source JSON: %v\n%s", tc.id, err, out)
+		}
+		if wrapper.Source.File != tc.file || !strings.Contains(wrapper.Source.Text, tc.text) {
+			t.Errorf("%s 定位错误: file=%q text=%q", tc.id, wrapper.Source.File, wrapper.Source.Text)
+		}
+	}
+	// 用 A 的包身份查只存在于 B 的符号：不得跨 module 借用。
+	code, out, errOut := runCLIOutErr(t, "query", "symbol", "symbol:go:example.com/a/pkg:OnlyB",
+		"--repo", root, "--include-source", "--json")
+	if code == 0 || strings.TrimSpace(out) != "" {
+		t.Errorf("跨 module 同名包查不到声明应失败且 stdout 为空: exit=%d out=%q", code, out)
+	}
+	if !strings.Contains(errOut, "找不到") && !strings.Contains(errOut, "error") {
+		t.Errorf("失败原因应写 stderr: %q", errOut)
+	}
+}
+
+// TestTodo25SourceStdlibFailure：标准库符号不伪造源码（非零退出 + stdout 空）。
+func TestTodo25SourceStdlibFailure(t *testing.T) {
+	if !scipGoAvailable() {
+		t.Skip("scip-go not found")
+	}
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "go.mod"), "module example.com/m\n\ngo 1.26.2\n")
+	writeFile(t, filepath.Join(dir, "m.go"), "package m\n\nfunc Exists(){}\n")
+	gitRun(t, dir, "init")
+	gitRun(t, dir, "add", "-A")
+	gitRun(t, dir, "commit", "-m", "init")
+	clearIndex(t, dir)
+	if code := runCLI(t, "init", "--repo", dir, "--workers", "1", "--progress", "none"); code != 0 {
+		t.Fatalf("init exit=%d", code)
+	}
+	code, out, errOut := runCLIOutErr(t, "query", "symbol", "symbol:go:fmt:Println",
+		"--repo", dir, "--include-source", "--json")
+	if code == 0 || strings.TrimSpace(out) != "" {
+		t.Errorf("标准库源码应明确失败且 stdout 为空: exit=%d out=%q", code, out)
+	}
+	if !strings.Contains(errOut, "标准库") {
+		t.Errorf("失败原因应说明标准库不支持: %q", errOut)
+	}
+}
