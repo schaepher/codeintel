@@ -162,20 +162,22 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 	case *ast.BlockStmt:
 		return walkStmts(a, req, fset, src, s.List, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
 	case *ast.DeferStmt:
-		// todo10-2：defer 是"函数返回时执行"——位置保留在声明处（事实），
-		// Exec 标注执行时机（不渲染成声明处立即执行）
+		// todo10-2：defer 位置保留在声明处，Exec 标注执行时机（不是立即执行）。
+		// T01：defer 的实参在当前流程求值，延迟标记只加在被调度的调用上。
+		nodes := seqArgCallNodes(callNode, s.Call)
 		if n := callNode(s.Call); n != nil {
 			n.Exec = SeqExecDefer
-			return []*CodeSeqNode{n}
+			nodes = append(nodes, n)
 		}
-		return nil
+		return nodes
 	case *ast.GoStmt:
-		// todo10-2：go 是并发启动——完成顺序未知，渲染层不得画成同步完成
+		// todo10-2：go 是并发启动（完成顺序未知）；T01：实参同样同步求值。
+		nodes := seqArgCallNodes(callNode, s.Call)
 		if n := callNode(s.Call); n != nil {
 			n.Exec = SeqExecAsync
-			return []*CodeSeqNode{n}
+			nodes = append(nodes, n)
 		}
-		return nil
+		return nodes
 	case *ast.ReturnStmt:
 		// todo10-2：返回语义分两步——① 返回表达式内的调用按书写顺序先
 		// 求值（InReturn 标注）② 独立 return 节点携带返回表达式/结果槽/

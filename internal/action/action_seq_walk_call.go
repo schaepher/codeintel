@@ -130,6 +130,10 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 			// todo22 §2.2：实参位置的调用（工厂/回调实参）在索引里没有 calls
 			// 边——按 AST 对象身份/导入路径恢复**准确**符号后照常展开；
 			// 不做模糊名称搜索。
+			// T01：AST 身份恢复的调用也要给出参与者类型（与索引边路径一致）。
+			if node.Type == "" {
+				node.Type = implTypeShort(symID)
+			}
 			node.Evidence = &SeqEvidence{Source: SeqEvidenceAST, CallFile: curFile,
 				CallLine: pos.Line, SymbolID: symID, Reason: "ast-symbol-identity"}
 			if depth <= 1 {
