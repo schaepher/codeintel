@@ -6,6 +6,7 @@ package sqlite
 import (
 	"database/sql"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,13 +72,26 @@ type DB struct {
 	repoPath string
 }
 
+// sqliteFileURI 把文件系统路径编码成 SQLite URI（U05）：路径里的 #、?、%、
+// 空格必须百分号转义，否则会被 SQLite 当成 URI 片段/查询参数/转义序列——
+// 库会落到截断后的路径（repo#one → repo）并与另一个仓串库。
+// 只编码路径部分（file: 方案 + 绝对路径），参数由调用方追加。
+func sqliteFileURI(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		abs = path // 极端情况（cwd 不可读）退化为原路径，仍走同一编码
+	}
+	u := url.URL{Scheme: "file", Path: filepath.ToSlash(abs)}
+	return u.String()
+}
+
 // dbDSN 仓库数据库连接串（WAL + busy_timeout + 外键 + Q246 调参）。
 // 抽成函数供 Open 与 rebuild_schema.go（不跑 schema 校验的原始打开）共用。
 func dbDSN(dir string) string {
-	return fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"+
+	return fmt.Sprintf("%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"+
 		"&_pragma=cache_size(-131072)&_pragma=synchronous(NORMAL)"+
 		"&_pragma=journal_size_limit(%d)",
-		filepath.Join(dir, "codeintel.db"), journalSizeLimit)
+		sqliteFileURI(filepath.Join(dir, "codeintel.db")), journalSizeLimit)
 }
 
 func (db *DB) init() error {

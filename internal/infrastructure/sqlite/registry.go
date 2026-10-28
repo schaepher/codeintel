@@ -223,6 +223,6 @@ func nowStamp() string {
 // modernc 纯 Go 驱动，_pragma 形式）。注册表与图库共用；测试用它构造
 // 旧版表验证迁移。
 func openRawSQLite(path string) (*sql.DB, error) {
-	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)", path)
+	dsn := sqliteFileURI(path) + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
 	return sql.Open("sqlite", dsn)
 }

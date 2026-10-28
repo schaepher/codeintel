@@ -28,7 +28,7 @@ func (r *Repo) MaterializeBase(basePath string) (bool, error) {
 		return false, fmt.Errorf("base 索引不存在: %w", err)
 	}
 	// ATTACH base（只读）→ base 构建 commit（物化对比键）
-	if _, err := r.Exec(fmt.Sprintf("ATTACH DATABASE 'file:%s?mode=ro&immutable=1' AS base", baseDB)); err != nil {
+	if _, err := r.Exec(fmt.Sprintf("ATTACH DATABASE '%s?mode=ro&immutable=1' AS base", sqliteFileURI(baseDB))); err != nil {
 		return false, fmt.Errorf("attach base: %w", err)
 	}
 	defer r.Exec("DETACH DATABASE base")

@@ -40,7 +40,7 @@ func LatestCommitSHAFromPath(repoPath string) string {
 	logger.Debug("enter LatestCommitSHAFromPath")
 	defer logger.Debug("exit LatestCommitSHAFromPath")
 	path := filepath.Join(repoPath, ".codeintel", "codeintel.db")
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)")
+	db, err := sql.Open("sqlite", sqliteFileURI(path)+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		return ""
 	}
