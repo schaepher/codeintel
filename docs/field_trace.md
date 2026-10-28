@@ -7312,3 +7312,34 @@ struct/interface/type/alias、const/var 声明回退、依赖源码（`location=
 集成 `integration/todo24_source_imports_test.go`（真实 init → CLI：canonical ID
 入口与名称入口的 source.imports 精确一致；未传 `--include-source` 时不附带
 source）。
+
+## §149 todo24 §11.6：汇总调用边不混用实例方法与包函数（2026-10-27）
+
+**问题**：`seqCallSiteIdentity` 对 SelectorExpr 只在 base 是 Ident 时才做类别判断：
+嵌套 receiver（`box.worker.Error()`）返回"类别未知"，导入别名按**名字**匹配、不看
+AST 对象——于是 `logger := w; logger.Error()` 被当成包调用、`err.Error()` 可
+按名称借用同名包函数（旧行为 kindKnown=false 时包函数也能匹配）。
+
+**改法**：
+- 嵌套 receiver（base 非 Ident）→ 一定是方法/字段值调用：`method=true,
+  kindKnown=true`，包函数候选被排除。
+- base 是 Ident 时**先核对 AST 对象**：`id.Obj != nil && Kind != ast.Pkg`
+  （参数/局部变量/遮蔽导入名）一律按实例 selector 处理，再看导入路径；
+  局部包级变量（跨文件 Obj==nil 但不是导入）同样按实例处理。
+- 汇总回退（`matchAggregated`）多候选时按**可证明的 receiver 类型**消歧：
+  `seqCallSiteReceiverType` 支持当前 receiver、`recvDecl` 字段类型、
+  同函数局部变量（`:=` RHS 的 `&T{}`/`T{}`/`new(T)`/已知变量链，深度≤3，
+  屏蔽绕圈）与嵌套匿名结构体字段类型。类型不可证明时保持歧义（不选第一个）；
+  唯一候选沿用既有回退（接口方法目标记录的是静态接口类型，与局部具体类型
+  不同不算矛盾——否则接口派发会全部失效）。
+
+**测试**：`action_seq_call_identity_test.go`（包函数恢复、`err.Error` 不借用包
+函数、receiver/遮蔽/嵌套三种实例调用、可证明类型消歧、未知 receiver 多方法
+歧义、仅包候选不得选中）；集成 `integration/todo24_call_identity_test.go`
+（真实 init → CLI：Entry 两处 `logger.Error`=log:Error 且 `err.Error` 无
+aggregated/corroborated 证据；三个实例入口均为 `(Worker).Error`；Mermaid
+不出现 `log:Error`）。
+
+**边界**：未知 receiver + 唯一方法候选仍沿用旧回退（真实索引里接口方法调用
+不建节点/边，故 `err.Error` 在夹具中是无候选 → unresolved）；函数值/工厂返
+回类型走 §3.4 的专门路径，不在此处按名字猜。

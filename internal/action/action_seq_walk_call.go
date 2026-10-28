@@ -48,7 +48,7 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		// todo20-9：索引 calls 边按 (caller,target,kind) 汇总，重复调用
 		// 只有首个位置的 metadata——按本函数目标集合 + 调用名回退。
 		// todo23 §3.1：旧行号命中也要核对调用名/包/种类（同行多包不串）。
-		tg, resolved := tgts.lookupCall(pos, fun, f, curPkg, recvType, recvDecl)
+		tg, resolved := tgts.lookupCall(pos, fun, f, curPkg, recvType, req.curRecvName, recvDecl)
 		if resolved {
 			tid := tg.tid
 			if seqFilterHit(req.Filter, tid, curFile, node.Label) {

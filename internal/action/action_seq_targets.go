@@ -54,46 +54,25 @@ func (t *seqTargets) lookup(pos token.Position) (seqTarget, bool) {
 // 必须核对调用名/包/种类，不能把同行的另一个包调用当成本调用；核对失败
 // 回退按目标集合唯一匹配（todo23 §3.1）。
 func (t *seqTargets) lookupCall(pos token.Position, fun ast.Expr, f *ast.File,
-	curPkg, recvType string, recvDecl map[string]string) (seqTarget, bool) {
+	curPkg, recvType, recvName string, recvDecl map[string]string) (seqTarget, bool) {
 	if t.byPos != nil {
-		if tg, ok := t.byPos[pos.Offset]; ok {
+		if tg, ok := t.byPos[pos.Offset]; ok && seqTargetMatchesCall(tg, fun, f, curPkg, recvType, recvName, recvDecl) {
 			return tg, true
 		}
 	}
 	if t.byLine != nil {
-		if tg, ok := t.byLine[pos.Line]; ok && seqTargetMatchesCall(tg, fun, f, curPkg, recvType, recvDecl) {
+		if tg, ok := t.byLine[pos.Line]; ok && seqTargetMatchesCall(tg, fun, f, curPkg, recvType, recvName, recvDecl) {
 			return tg, true
 		}
 	}
-	return t.matchAggregated(fun, f, curPkg, recvType, recvDecl)
-}
-
-// seqTargetMatchesCall 旧行号目标与调用表达式的静态身份是否一致
-// （调用名/包提示/函数-vs-方法；未知字段不参与核对）。
-func seqTargetMatchesCall(tg seqTarget, fun ast.Expr, f *ast.File,
-	curPkg, recvType string, recvDecl map[string]string) bool {
-	name, pkgHint, wantMethod, kindKnown := seqCallSiteIdentity(fun, f, curPkg, recvType, recvDecl)
-	if name == "" {
-		return true // 无法核对：保留旧行为（由后续展开/诊断处理）
-	}
-	pkg, tname, tmethod := seqSplitTarget(tg.tid)
-	if tname != name {
-		return false
-	}
-	if pkgHint != "" && pkg != pkgHint {
-		return false
-	}
-	if kindKnown && tmethod != wantMethod {
-		return false
-	}
-	return true
+	return t.matchAggregated(fun, f, curPkg, recvType, recvName, recvDecl)
 }
 
 // matchAggregated 位置未命中时按"本次函数调用的目标集合 + 调用名"回退
 // （todo20-9）。索引 calls 边按 (caller,target,kind) 汇总，重复调用只有
 // 首个位置的 metadata；不能因此把后续调用点判成 unresolved。
 // 只有过滤后**唯一**候选才回退——同名多目标保持未解析，不猜。
-func (t *seqTargets) matchAggregated(fun ast.Expr, f *ast.File, curPkg, recvType string, recvDecl map[string]string) (seqTarget, bool) {
+func (t *seqTargets) matchAggregated(fun ast.Expr, f *ast.File, curPkg, recvType, recvName string, recvDecl map[string]string) (seqTarget, bool) {
 	name, pkgHint, wantMethod, kindKnown := seqCallSiteIdentity(fun, f, curPkg, recvType, recvDecl)
 	if name == "" {
 		return seqTarget{}, false
@@ -108,6 +87,12 @@ func (t *seqTargets) matchAggregated(fun ast.Expr, f *ast.File, curPkg, recvType
 			continue
 		}
 		matched = append(matched, tg)
+	}
+	// todo24 §11.6：多个同名方法候选时，按调用点**可证明**的 receiver 类型
+	// 消歧；不可证明则保持歧义（不选第一个）。唯一候选沿用既有回退语义
+	// （接口方法目标记录的是静态接口类型，与局部具体类型不同不算矛盾）。
+	if len(matched) > 1 && wantMethod {
+		matched = seqFilterByRecvType(matched, fun, recvType, recvName, recvDecl)
 	}
 	if len(matched) != 1 {
 		return seqTarget{}, false
@@ -128,7 +113,17 @@ func seqCallSiteIdentity(fun ast.Expr, f *ast.File, curPkg, recvType string, rec
 		name = x.Sel.Name
 		id, ok := x.X.(*ast.Ident)
 		if !ok {
-			return name, "", true, false
+			// 嵌套 receiver（`box.worker.Error()`）：一定是方法/字段值调用，
+			// 不能按同名借用独立包函数（todo24 §11.6）。
+			return name, "", true, true
+		}
+		// 先核对 AST 局部对象：参数/局部变量遮蔽导入别名时（`logger := w;
+		// logger.Error()`）它**不是**包调用，绝不能按导入路径当包函数。
+		if id.Obj != nil && id.Obj.Kind != ast.Pkg {
+			if recvType != "" && id.Name == recvType {
+				return name, curPkg, true, true
+			}
+			return name, "", true, true
 		}
 		if path := seqImportPathOfName(f, id.Name); path != "" {
 			return name, path, false, true
@@ -139,7 +134,7 @@ func seqCallSiteIdentity(fun ast.Expr, f *ast.File, curPkg, recvType string, rec
 		if _, ok := recvDecl[id.Name]; ok {
 			return name, "", true, true
 		}
-		return name, "", true, false
+		return name, "", true, true
 	}
 	return "", "", false, false
 }
@@ -166,29 +161,6 @@ func seqImportPathOfName(f *ast.File, name string) string {
 		}
 	}
 	return ""
-}
-
-// seqTargetName 被调符号短名（函数=名字；方法=方法名）。
-func seqTargetName(id string) string {
-	_, name, _ := seqSplitTarget(id)
-	return name
-}
-
-// seqSplitTarget canonical ID → (包路径, 短名, 是否方法)。
-func seqSplitTarget(id string) (pkg, name string, method bool) {
-	s := strings.TrimPrefix(id, "symbol:go:")
-	if i := strings.Index(s, ":("); i >= 0 {
-		pkg = s[:i]
-		rest := s[i+2:]
-		if j := strings.Index(rest, ")."); j >= 0 {
-			name = rest[j+2:]
-		}
-		return pkg, name, true
-	}
-	if i := strings.LastIndex(s, ":"); i >= 0 {
-		return s[:i], s[i+1:], false
-	}
-	return "", "", false
 }
 
 // seqTargetsFor 构建某函数的"调用点 → 目标"映射（原始 calls 边）。

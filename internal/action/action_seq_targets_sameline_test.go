@@ -49,11 +49,11 @@ func F() {
 			"Foo": {{tid: "symbol:go:example.com/a:Foo"}, {tid: "symbol:go:example.com/b:Foo"}},
 		},
 	}
-	gotA, okA := tgts.lookupCall(fset.Position(calls[0].Lparen), calls[0].Fun, f, "example.com/m", "", nil)
+	gotA, okA := tgts.lookupCall(fset.Position(calls[0].Lparen), calls[0].Fun, f, "example.com/m", "", "", nil)
 	if !okA || gotA.tid != "symbol:go:example.com/a:Foo" {
 		t.Errorf("a.Foo() 应命中 example.com/a:Foo，got %+v ok=%v", gotA, okA)
 	}
-	gotB, okB := tgts.lookupCall(fset.Position(calls[1].Lparen), calls[1].Fun, f, "example.com/m", "", nil)
+	gotB, okB := tgts.lookupCall(fset.Position(calls[1].Lparen), calls[1].Fun, f, "example.com/m", "", "", nil)
 	if !okB || gotB.tid != "symbol:go:example.com/b:Foo" {
 		t.Errorf("b.Foo() 应命中 example.com/b:Foo，got %+v ok=%v", gotB, okB)
 	}
