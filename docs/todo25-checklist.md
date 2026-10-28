@@ -113,3 +113,9 @@ bash scripts/verify.sh --quick
 | 任务 | 状态 | 证据 |
 | --- | --- | --- |
 | Client.Do / 自定义 facade 不猜测 HTTP 目标 | 完成 | `TestTodo25HTTPEndpointAndWorkspaceBoundaries` 新增 Gateway（`http.NewRequest` + `Client.Do`）与 Facade（普通转发）查询：均不产生 `source=http_server` 节点。 |
+
+## 第十一批（§9.3 全量回归）
+
+| 任务 | 状态 | 结果 |
+| --- | --- | --- |
+| 全量 `make it`（真实 init/CLI/serve + todo22/24/25 集成套件） | 完成（本轮） | PASS，`integration` 62.677s，exit=0。 |
