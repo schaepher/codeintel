@@ -7877,18 +7877,61 @@ action；开库前先 `ValidateRuntimeData`）。
   用本次构建身份（无自身 git 的相邻模块保持空 commit，worktree 用自身 HEAD，重建保留
   `RegisteredAt`）；新增独立 `emitUnlessCanceled` 包装器（未接入生产发射路径）。
 
-### 未完成（本轮未实现，勿按"已完成"引用）
+### 全量交付补充（第二轮：T02–T10 / U03 / U04 / T12 / T14 / T18）
 
-- **T02/T03/T04/T05/T06/T09/T10**：函数列表/到达定义/构造器与字段数据流/DI 契约/
-  micro 注册/离线依赖回调——基线已有部分能力（todo22/23/25），但本轮**未**补齐
-  todo26 要求的增量形态（E-T02/E-T03 的 `callback list path`/`item 1/2` 渲染、
-  E-T05 的工厂字段分支、E-T06 的容器源码契约等），未改代码。
-- **T07**：候选分支渲染（`alt unverified implementation` + 每候选 ≤2 层/≤12 实现）。
-- **U03**：生成过滤器与 model/tag 表列映射。
-- **U04**：跨入口多节点审核（多次 FinishReview）。
-- **T18**：仅完成本文档 + 少量参数/回归；未新增完整的「真实 init→CLI 联合回归」。
-- **T12 剩余**：候选后代不升级续查的端到端断言未单独补测（现有 `seqCanContinueFrontier`
-  已排除 ambiguous/未证明前沿）。
+- **T02/T03 函数列表回调路径**：`range` 函数列表渲染为
+  `callback list path`（Scene taken，理由 source-callback-list）+
+  `item i/N` 逐项循环；列表元素调用与其内部调用 verdict=corroborated；
+  支持 `list...` 转发、`append`、确定空列表（零元素、不生成分支）、
+  未知列表（明确诊断，不当空列表）、路径上限 16 / 元素上限 32。
+- **T04 构造器/单例/字段来源**：接口返回的**单一具体 return 来源**才采纳
+  （多来源回退声明接口）；包级单例未知写者使结论失效（哨兵）；
+  builtin `new(T)` 来源；`Get().Work()` getter 具体化（唯一具体类型），
+  来源未知时 `unknown_receiver`（不借唯一实现）。
+- **T05/U07 工厂字段续接**：局部变量携带工厂来源（Run→Step 不丢失）；
+  守卫分支（kind==1/2）各有准确 `(One/Two).Work` + `kind` 守卫；
+  候选实现节点带稳定参与者（无空发送方）；无 default/未知方法改写/
+  接口类型 setter 实参 → 拒绝旧证明。`funcDeclReturnTypes` 对接口返回值
+  改为"唯一具体来源才采纳"。
+- **T06 DI 字段注入契约**：`/*@Inject(name=worker)*/`（同行块注释按位置
+  解析）、`RegisterBeanByType(key, reflect.TypeOf((*T)(nil)))` 注册、
+  容器自身 `GetBean` + `FieldByName` + `Set` + 注解读取的四步同函数证明；
+  动态 key / 非 init 注册 / 契约缺失 → 未知；反射容器依据统一标
+  `di-field-registration`（含注册点与注入代码位置）。
+- **T07 未验证实现候选**：多实现接口调用展开为互斥
+  `alt unverified implementation: <id>` 分支（每候选 ≤2 层、最多 12 个，
+  父候选列表保留全部，`candidate_depth/candidate_budget` 记录），后代
+  `candidate=true`（不计确定执行）、禁止自动续查。
+- **T09 micro 注册实参工厂证明**：`c.Get().(pb.Handler)` 沿工厂函数体
+  **全部第一返回槽**的唯一具体具名类型证明实现；含 nil/接口/不一致返回
+  → 不产生唯一注册证明（E-T09 反例）。
+- **T10 外部依赖回调边界**：形参按外部函数自身签名重绑定（不继承调用者
+  同名参数）；外部包定位/失败均请求内缓存（`timing.external_loads`）；
+  ctx 取消中止 go list 与目录解析。
+- **U03 运行时集合/动态 SQL/model-tag**：条件拼接 SQL（`q +=`）可求值、
+  `IN (?,?)` 参数展开、多列 `Scan(&a,&b)`、`map[K]V` 分组与索引；
+  review_config(int 键) 与 feature_flag(string 键) 同一实现（无业务名
+  特判）；`make(map)` 完整空 → len=0；不完整/错绑定/范围不符 → 两分支保留；
+  `reflect.TypeOf/Field/Tag.Get` 链解析（E-U03：Manual=1/Auto=0/Failure=1）。
+- **T14 scope 覆盖方向（规则修正）**：observation scope 的每条限制必须被
+  **查询蕴含**（全表 observation 覆盖任意查询；`region=ID` 覆盖
+  `region+node`；`region+node` 不覆盖只查 region）。
+- **U04 持久化边界**：INSERT/UPDATE 字面量的表/列写进调用诊断，明示
+  "参数值来源/跨入口顺序未证明"，不凭配置把 Submit 连到后续人工审核；
+  FinishReview 的 kind 分支与读取调用保留。
+- **T12 候选后代不续查**：`inCandidate` 时前沿登记 no-op（单测）+
+  init→CLI 断言候选后代不进入 continuation frontiers。
+
+### 未完成（明确边界，勿按"已完成"引用）
+
+- **U03 "实际生成过滤器"的完整框架形态**（如第三方 query builder 生成
+  SQL）：只支持"源码内字符串拼接 + 字面量"这条可静态证明的路径；
+  外部 DSL/反射构造 SQL 保持 unknown（不新增配置表达式）。
+- **U04 跨入口整合**（Submit→两次人工 FinishReview→完成的多入口顺序与
+  同记录身份）：只输出持久化边界；顺序/身份证明未建模（夹具本身不足以
+  证明，规范也要求作为边界输出）。
+- **T09 客户端桩的无索引源码回退**：E-T09 走索引/生成桩路径已验证；
+  完全未索引的客户端桩源码回退未单独实现。
 
 ### 本轮踩坑
 

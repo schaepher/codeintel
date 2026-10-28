@@ -121,6 +121,12 @@ pre-commit 场景的兜底）。
 - **HTTP 续接要分两步**：传输调用（`net/http:Post`）与 handler（`HTTP POST <url>`
   → `Submit`）身份分开，handler 内部调用的发送方是 handler 节点自身——否则会出现
   空发送方（`->>P3`）或把 handler 伪装成 http 参与者。
+- **`git checkout -- <file>` 会丢未提交的整份改动**（本轮真踩）：T02/T09
+  还没提交就去 checkout 修一个被覆盖的文件，瞬间丢了两处实现——只能按记录
+  重写。撤探针要么精确编辑、要么先提交/`git stash`。
+- **"逐项验收"要覆盖反例矩阵**：工厂字段/DI/候选/运行时值流每项都至少
+  一个"改一个事实就失效"的反例（返回另一对象、Get 读另一字段、未知写者、
+  nil 返回、动态 key、DISTINCT、类型不兼容...），否则很容易把正例当完成。
 - **拆分超 300 行文件时先看 import**：整块剪切后常留下重复/未使用 import
   （`time` 重复声明、`domain` 未使用），`gofmt` 不会替你删；拆完立刻
   `go build ./...` + 相关包单测。
