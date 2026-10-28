@@ -94,4 +94,33 @@ func TestTodo25CoreFixtureAssertions(t *testing.T) {
 	if countSeqSym(b, ":ApproveTrace") != 1 {
 		t.Errorf("ApproveTrace 应恰一次，got %d", countSeqSym(b, ":ApproveTrace"))
 	}
+	// 错误路径后继的精确位置：`if err != nil { return err }` 分支内不得含
+	// ApproveTrace；ApproveTrace 必须是该分支之后的下一条顶层步骤（不是
+	// 仅"整棵树里出现一次"）。
+	var errBranch *action.CodeSeqNode
+	errIdx, approveIdx := -1, -1
+	for i, n := range b.Nodes {
+		if n.Kind == "branch" && strings.Contains(n.Label, "err != nil") {
+			errBranch, errIdx = n, i
+		}
+		if strings.Contains(n.Label, "ApproveTrace") {
+			approveIdx = i
+		}
+	}
+	if errBranch == nil {
+		t.Fatalf("应保留 err != nil 错误守卫分支: %+v", b.Nodes)
+	}
+	walkSeq(errBranch, func(n *action.CodeSeqNode) {
+		if strings.Contains(n.Label, "ApproveTrace") {
+			t.Errorf("错误分支内不得出现 ApproveTrace: %+v", n)
+		}
+	})
+	if approveIdx < 0 || errIdx < 0 || approveIdx <= errIdx {
+		t.Errorf("ApproveTrace 应在 err != nil 分支之后（approve=%d err=%d）", approveIdx, errIdx)
+	}
+	for _, n := range b.Nodes[approveIdx+1:] {
+		if n.Kind != "return" {
+			t.Errorf("ApproveTrace 之后只应有 return（错误路径已提前返回），got %s|%s", n.Kind, n.Label)
+		}
+	}
 }
