@@ -1,7 +1,10 @@
 package action
 
 // todo25 §13：赋值目标/多返回路径展开（从 runtime_eval.go 拆出）。
-import "go/ast"
+import (
+	"go/ast"
+	"go/token"
+)
 
 func (e *rtEval) execAssign(frame *rtFrame, x *ast.AssignStmt, s *rtState, depth int) []*rtState {
 	// 单 RHS：函数返回（可能多值/多返回路径）与 Scan（成功/失败）按**变体**
@@ -17,6 +20,9 @@ func (e *rtEval) execAssign(frame *rtFrame, x *ast.AssignStmt, s *rtState, depth
 			if outcomes == nil {
 				outcomes = e.evalFuncCallOutcomes(frame, call, s, depth)
 			}
+			if outcomes == nil {
+				outcomes = e.evalMethodCallOutcomes(frame, call, s, depth)
+			}
 			if outcomes == nil && isRuntimeQueryCall(call) {
 				outcomes = e.evalQueryOutcomes(frame, call, s, depth)
 			}
@@ -25,6 +31,7 @@ func (e *rtEval) execAssign(frame *rtFrame, x *ast.AssignStmt, s *rtState, depth
 			var out []*rtState
 			for _, oc := range outcomes {
 				assignRuntimeValues(e, frame, oc.state, x.Lhs, oc.val)
+				e.recordAssignTypes(frame, oc.state, x, 0, depth)
 				out = append(out, oc.state)
 			}
 			if call, ok := x.Rhs[0].(*ast.CallExpr); ok && isRuntimeQueryCall(call) && len(x.Lhs) > 0 {
@@ -45,7 +52,18 @@ func (e *rtEval) execAssign(frame *rtFrame, x *ast.AssignStmt, s *rtState, depth
 			states[0] = variants[0]
 		}
 		if i < len(x.Lhs) {
+			if x.Tok == token.ADD_ASSIGN {
+				if id, ok := x.Lhs[i].(*ast.Ident); ok {
+					old := e.evalIdent(frame, id, states[0])
+					if old.kind == rtString && v.kind == rtString {
+						v = rtStringValue(old.s + v.s)
+					} else if old.kind == rtInt && v.kind == rtInt {
+						v = rtIntValue(old.i + v.i)
+					}
+				}
+			}
 			e.assignExprValue(frame, x.Lhs[i], v, states[0])
+			e.recordAssignTypes(frame, states[0], x, i, depth)
 		}
 	}
 	return states

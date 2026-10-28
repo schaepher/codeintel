@@ -26,17 +26,19 @@ const (
 	rtRow   // 一行业务数据（列名 → 值）
 	rtRows  // 查询返回的多行（元素为 rtRow）
 	rtTuple // 多返回值（函数调用结果，elems 按返回槽）
+	rtDB    // 数据库句柄（s = target symbol canonical ID）
 )
 
 type rtValue struct {
-	kind  rtKind
-	i     int64
-	f     float64
-	s     string
-	b     bool
-	elems []rtValue
-	cols  map[string]rtValue
-	order []string
+	kind     rtKind
+	i        int64
+	f        float64
+	s        string
+	b        bool
+	elems    []rtValue
+	cols     map[string]rtValue
+	order    []string
+	typeName string // 结构体实例的真实类型（接口变量持有具体类型时用于方法解析）
 }
 
 func rtUnknownValue() rtValue          { return rtValue{kind: rtUnknown} }
@@ -46,6 +48,7 @@ func rtFloatValue(v float64) rtValue   { return rtValue{kind: rtFloat, f: v} }
 func rtStringValue(v string) rtValue   { return rtValue{kind: rtString, s: v} }
 func rtBoolValue(v bool) rtValue       { return rtValue{kind: rtBool, b: v} }
 func rtErrorValue() rtValue            { return rtValue{kind: rtError} }
+func rtDBValue(symbol string) rtValue  { return rtValue{kind: rtDB, s: symbol} }
 func rtSliceValue(v []rtValue) rtValue { return rtValue{kind: rtSlice, elems: v} }
 func rtMapValue(m map[string]rtValue) rtValue {
 	order := make([]string, 0, len(m))
@@ -219,6 +222,8 @@ func (v rtValue) rtDisplay() string {
 		return fmt.Sprintf("%t", v.b)
 	case rtError:
 		return "error"
+	case rtDB:
+		return "db(" + v.s + ")"
 	case rtSlice:
 		parts := make([]string, 0, len(v.elems))
 		for _, e := range v.elems {

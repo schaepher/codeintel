@@ -39,10 +39,10 @@ func (e *rtEval) evalExpr(frame *rtFrame, expr ast.Expr, s *rtState, depth int) 
 				return rtFloatValue(-v.f), variants
 			}
 		case token.AND:
-			// &T{} / &struct{...}{}：结构体实例（字段由后续 Scan/赋值填充）。
+			// &T{...} / &struct{...}{...}：结构体实例（字段值来自复合字面量）。
 			if cl, ok := runtimeUnparen(x.X).(*ast.CompositeLit); ok {
 				if _, isMap := cl.Type.(*ast.MapType); !isMap {
-					return rtRowValue(map[string]rtValue{}, nil), variants
+					return e.evalRuntimeStructLit(frame, cl, s, depth)
 				}
 			}
 		}
@@ -91,7 +91,8 @@ func (e *rtEval) evalExpr(frame *rtFrame, expr ast.Expr, s *rtState, depth int) 
 			return rtMapValue(map[string]rtValue{}), []*rtState{s}
 		}
 		if isRuntimeStructType(x.Type) {
-			return rtRowValue(map[string]rtValue{}, nil), []*rtState{s}
+			v, variants := e.evalRuntimeStructLit(frame, x, s, depth)
+			return v, variants
 		}
 		if len(x.Elts) == 0 {
 			return rtSliceValue(nil), []*rtState{s}
@@ -150,6 +151,10 @@ func (e *rtEval) evalIdent(frame *rtFrame, id *ast.Ident, s *rtState) rtValue {
 				return v
 			}
 		case ast.Var:
+			sym := "symbol:go:" + frame.pkgPath + ":" + id.Name
+			if _, bound := e.an.snap.Bindings[sym]; bound {
+				return rtDBValue(sym)
+			}
 			return e.an.globalByNameOf(id).value
 		}
 		return rtUnknownValue()
@@ -237,7 +242,15 @@ func (e *rtEval) evalBinary(frame *rtFrame, x *ast.BinaryExpr, s *rtState, depth
 					val = rtBoolValue(cmp >= 0)
 				}
 			}
-		case token.ADD, token.SUB, token.MUL:
+		case token.ADD:
+			if lv.kind == rtString && rv.kind == rtString {
+				val = rtStringValue(lv.s + rv.s)
+				break
+			}
+			if lv.kind == rtInt && rv.kind == rtInt {
+				val = rtIntValue(lv.i + rv.i)
+			}
+		case token.SUB, token.MUL:
 			if lv.kind == rtInt && rv.kind == rtInt {
 				switch x.Op {
 				case token.ADD:
@@ -252,4 +265,29 @@ func (e *rtEval) evalBinary(frame *rtFrame, x *ast.BinaryExpr, s *rtState, depth
 		out = append(out, st)
 	}
 	return val, out
+}
+
+// evalRuntimeStructLit 结构体复合字面量：keyed 字段（生成 DAO/工厂常见形态）。
+func (e *rtEval) evalRuntimeStructLit(frame *rtFrame, cl *ast.CompositeLit, s *rtState, depth int) (rtValue, []*rtState) {
+	row := rtRowValue(map[string]rtValue{}, nil)
+	row.typeName = runtimeTypeNameOfExpr(cl.Type)
+	for _, el := range cl.Elts {
+		kv, ok := el.(*ast.KeyValueExpr)
+		if !ok {
+			continue
+		}
+		key, ok := kv.Key.(*ast.Ident)
+		if !ok {
+			continue
+		}
+		v, variants := e.evalExpr(frame, kv.Value, s, depth)
+		if len(variants) > 0 {
+			s = variants[0]
+		}
+		row.cols[key.Name] = v
+		if !containsRuntimeString(row.order, key.Name) {
+			row.order = append(row.order, key.Name)
+		}
+	}
+	return row, []*rtState{s}
 }

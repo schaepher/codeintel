@@ -2,7 +2,9 @@ package action
 
 // todo25 §13：分支/返回/循环的运行时语句执行（从 runtime_eval.go 拆出）。
 
-import "go/ast"
+import (
+	"go/ast"
+)
 
 func (e *rtEval) execIf(frame *rtFrame, x *ast.IfStmt, s *rtState, depth int) []*rtState {
 	states := []*rtState{s}

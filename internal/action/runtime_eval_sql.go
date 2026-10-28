@@ -11,20 +11,33 @@ func (e *rtEval) evalQueryCall(frame *rtFrame, call *ast.CallExpr, s *rtState, d
 	if !ok || !isRuntimeQueryMethod(sel.Sel.Name) {
 		return rtUnknownValue(), nil, false
 	}
-	recv, ok := sel.X.(*ast.Ident)
-	if !ok {
-		return rtUnknownValue(), []*rtState{s}, true
-	}
 	e.an.fact(call) // 保证 map 初始化
-	sym := "symbol:go:" + frame.pkgPath + ":" + recv.Name
+	sym := ""
+	if recv, ok := sel.X.(*ast.Ident); ok {
+		// 包级 DB 变量：rebind（DB=nil 等）后不再使用旧绑定。
+		if recv.Obj != nil {
+			g := e.an.globalByNameOf(recv)
+			if g.mutated {
+				ev := &SeqRuntimeEvidence{SnapshotPath: e.an.snap.Path, SnapshotHash: e.an.snap.Hash,
+					Version: e.an.snap.Version, Reason: "binding-mutated", Result: "unknown"}
+				e.an.facts[call] = ev
+				return rtUnknownValue(), []*rtState{s}, true
+			}
+		}
+		sym = "symbol:go:" + frame.pkgPath + ":" + recv.Name
+	} else {
+		// 结构体字段/工厂返回值里的 db 句柄（`d.db.QueryContext`）。
+		rv, variants := e.evalExpr(frame, sel.X, s, depth)
+		if len(variants) > 0 {
+			s = variants[0]
+		}
+		if rv.kind == rtDB {
+			sym = rv.s
+		}
+	}
 	ev := &SeqRuntimeEvidence{SnapshotPath: e.an.snap.Path, SnapshotHash: e.an.snap.Hash,
 		Version: e.an.snap.Version, Reason: "runtime-query", Result: "unknown"}
 	e.an.facts[call] = ev
-	g := e.an.globalByNameOf(recv)
-	if g.mutated {
-		ev.Reason = "binding-mutated"
-		return rtUnknownValue(), []*rtState{s}, true
-	}
 	source := runtimeResolveSource(e.an.snap, sym)
 	if source == "" {
 		ev.Reason = "binding-missing"
@@ -44,10 +57,15 @@ func (e *rtEval) evalQueryCall(frame *rtFrame, call *ast.CallExpr, s *rtState, d
 		return rtUnknownValue(), []*rtState{s}, true
 	}
 	args := make([]rtValue, 0, len(call.Args)-2)
-	for _, arg := range call.Args[2:] {
+	rawArgs := call.Args[2:]
+	for i, arg := range rawArgs {
 		v, variants2 := e.evalExpr(frame, arg, s, depth)
 		if len(variants2) > 0 {
 			s = variants2[0]
+		}
+		if call.Ellipsis.IsValid() && i == len(rawArgs)-1 && v.kind == rtSlice {
+			args = append(args, v.elems...)
+			continue
 		}
 		args = append(args, v)
 		ev.Args = append(ev.Args, v.rtDisplay())
@@ -58,6 +76,7 @@ func (e *rtEval) evalQueryCall(frame *rtFrame, call *ast.CallExpr, s *rtState, d
 		return rtUnknownValue(), []*rtState{s}, true
 	}
 	q.SourceID = source
+	q.Args = append([]rtValue(nil), args...)
 	e.an.queries[call] = q
 	ev.Table = q.Table
 	ev.Columns = append([]string(nil), q.Columns...)
@@ -74,6 +93,7 @@ func (e *rtEval) evalQueryCall(frame *rtFrame, call *ast.CallExpr, s *rtState, d
 		return rtUnknownValue(), []*rtState{s}, true
 	}
 	ev.Rows = len(rows)
+	q.RowCount = len(rows)
 	if sel.Sel.Name == "QueryRow" || sel.Sel.Name == "QueryRowContext" {
 		if len(rows) == 1 {
 			ev.Result = "row"
@@ -117,12 +137,12 @@ func (e *rtEval) evalScanOutcomes(frame *rtFrame, scan *ast.CallExpr, inner *ast
 		ev.Table = q.Table
 		ev.Columns = append([]string(nil), q.Columns...)
 	}
-	targetName := ""
-	if len(scan.Args) > 0 {
-		targetName = runtimeScanTargetName(scan.Args[0])
+	var targets []string
+	for _, arg := range scan.Args {
+		targets = append(targets, runtimeScanTargetName(arg))
 	}
-	ev.ScanTarget = targetName
-	ev.ReturnSlot = targetName
+	ev.ScanTarget = strings.Join(targets, ",")
+	ev.ReturnSlot = ev.ScanTarget
 	if val.kind != rtRows || len(scan.Args) == 0 || q == nil {
 		if ev.Reason == "" {
 			ev.Reason = "scan-unknown"
@@ -156,17 +176,24 @@ func (e *rtEval) evalScanOutcomes(frame *rtFrame, scan *ast.CallExpr, inner *ast
 		}
 		return []rtOutcome{{state: s, val: rtUnknownValue()}}
 	}
-	if !runtimeScanTargetAccepts(scan.Args[0], colVal) {
-		ev.Reason = "scan-type-incompatible"
-		for _, arg := range scan.Args {
-			e.assignScanTarget(arg, rtUnknownValue(), s)
-		}
-		return []rtOutcome{{state: s, val: rtUnknownValue()}}
-	}
+	_ = colVal
 	success := cloneRuntimeState(s)
-	e.assignScanTarget(scan.Args[0], colVal, success)
 	failure := cloneRuntimeState(s)
-	e.assignScanTarget(scan.Args[0], rtUnknownValue(), failure)
+	for i, arg := range scan.Args {
+		if i >= len(q.Columns) {
+			break
+		}
+		v, ok := row.cols[q.Columns[i]]
+		if !ok {
+			v = rtUnknownValue()
+		}
+		if !runtimeScanTargetAccepts(arg, v) {
+			ev.Reason = "scan-type-incompatible"
+			v = rtUnknownValue()
+		}
+		e.assignScanTarget(arg, v, success)
+		e.assignScanTarget(arg, rtUnknownValue(), failure)
+	}
 	ev.Result = "row"
 	return []rtOutcome{{state: success, val: rtNullValue()}, {state: failure, val: rtErrorValue()}}
 }
@@ -231,7 +258,11 @@ func (e *rtEval) evalRowsScanOutcomes(frame *rtFrame, scan *ast.CallExpr, rowsID
 	}
 	ev := &SeqRuntimeEvidence{SnapshotPath: e.an.snap.Path, SnapshotHash: e.an.snap.Hash,
 		Version: e.an.snap.Version, Reason: "runtime-rows-scan", Result: "row",
-		Table: q.Table, Columns: append([]string(nil), q.Columns...)}
+		SourceID: q.SourceID, Table: q.Table, Columns: append([]string(nil), q.Columns...),
+		Query: runtimePredicateDisplays(q.Predicates), Rows: q.RowCount}
+	for _, a := range q.Args {
+		ev.Args = append(ev.Args, a.rtDisplay())
+	}
 	e.an.facts[scan] = ev
 	var targets []string
 	for i, arg := range scan.Args {
@@ -248,51 +279,4 @@ func (e *rtEval) evalRowsScanOutcomes(frame *rtFrame, scan *ast.CallExpr, rowsID
 	ev.ScanTarget = strings.Join(targets, ",")
 	ev.ReturnSlot = ev.ScanTarget
 	return []rtOutcome{{state: s, val: rtNullValue()}}
-}
-
-// runtimeScanTargetAccepts Scan 目标声明类型与行值兼容性（null/布尔/分数
-// 不得当整数；目标类型未知时只按值保留）。
-func runtimeScanTargetAccepts(target ast.Expr, v rtValue) bool {
-	if v.kind == rtUnknown {
-		return true
-	}
-	ident := runtimeScanIdent(target)
-	if ident == nil || ident.Obj == nil {
-		return true
-	}
-	typ := ""
-	switch d := ident.Obj.Decl.(type) {
-	case *ast.ValueSpec:
-		typ = exprTypeName(d.Type)
-	case *ast.Field:
-		typ = exprTypeName(d.Type)
-	}
-	switch typ {
-	case "", "any", "interface{}":
-		return true
-	case "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64":
-		return v.kind == rtInt
-	case "float32", "float64":
-		return v.kind == rtFloat || v.kind == rtInt
-	case "string":
-		return v.kind == rtString
-	case "bool":
-		return v.kind == rtBool
-	}
-	return true
-}
-
-func runtimeScanIdent(target ast.Expr) *ast.Ident {
-	if u, ok := target.(*ast.UnaryExpr); ok {
-		target = u.X
-	}
-	switch t := target.(type) {
-	case *ast.Ident:
-		return t
-	case *ast.SelectorExpr:
-		if id, ok := t.X.(*ast.Ident); ok {
-			return id
-		}
-	}
-	return nil
 }

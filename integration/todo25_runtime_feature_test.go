@@ -127,3 +127,78 @@ func TestTodo25RuntimeFeatureGenericV2(t *testing.T) {
 			countRuntimeLabel(rootN, "On"), countRuntimeLabel(rootN, "Off"))
 	}
 }
+
+const todo25FeatureDAOSrc = `package feature
+import ("context"; "database/sql")
+var DB *sql.DB
+type FlagRow struct { TenantID string; Feature string; Enabled int }
+type Filter struct { Tenant string; Features []string }
+type DAO struct{ db *sql.DB }
+func On(){}
+func Off(){}
+func Failure(){}
+func NewDAO(db *sql.DB) *DAO { return &DAO{db: db} }
+func (d *DAO) QueryByFilter(ctx context.Context, f Filter) ([]*FlagRow, error) {
+    sql := "SELECT tenant_id,feature,enabled FROM feature_flag WHERE tenant_id = ? AND feature IN (?,?)"
+    args := []any{f.Tenant, f.Features[0], f.Features[1]}
+    rows, err := d.db.QueryContext(ctx, sql, args...)
+    if err != nil { return nil, err }
+    defer rows.Close()
+    var out []*FlagRow
+    for rows.Next() {
+        r := &FlagRow{}
+        if err := rows.Scan(&r.TenantID, &r.Feature, &r.Enabled); err != nil { return nil, err }
+        out = append(out, r)
+    }
+    return out, nil
+}
+func Group(ctx context.Context, features []string) {
+    d := NewDAO(DB)
+    rows, err := d.QueryByFilter(ctx, Filter{Tenant: "tenant-a", Features: features})
+    if err != nil { Failure(); return }
+    m := make(map[string][]*FlagRow)
+    for _, r := range rows { m[r.Feature] = append(m[r.Feature], r) }
+    if len(m) == 2 { On() } else { Off() }
+    if r := m["alpha"]; len(r) > 0 && r[0].Enabled == 1 { On() }
+}
+`
+
+func TestTodo25RuntimeFeatureCollectionDAO(t *testing.T) {
+	if !scipGoAvailable() {
+		t.Skip("scip-go not found")
+	}
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "go.mod"), "module example.com/feature\n\ngo 1.26.2\n")
+	writeFile(t, filepath.Join(dir, "feature.go"), todo25FeatureDAOSrc)
+	snap := filepath.Join(dir, "runtime-v2.json")
+	writeFile(t, snap, strings.Replace(todo25FeatureV2,
+		`"resource": {"table": "feature_flag"}`, `"resource": {"table": "feature_flag"}`, 1))
+	gitRun(t, dir, "init")
+	gitRun(t, dir, "add", "-A")
+	gitRun(t, dir, "commit", "-m", "init")
+	clearIndex(t, dir)
+	if code := runCLI(t, "init", "--repo", dir, "--workers", "1", "--progress", "none"); code != 0 {
+		t.Fatalf("init exit=%d", code)
+	}
+	// Group 的 features 形参来自入口调用；建立两个入口常量。
+	src := strings.Replace(todo25FeatureDAOSrc, "func Group(ctx context.Context, features []string) {",
+		"func GroupBoth(ctx context.Context) { Group(ctx, []string{\"alpha\", \"beta\"}) }\nfunc GroupOne(ctx context.Context) { Group(ctx, []string{\"alpha\", \"alpha\"}) }\nfunc Group(ctx context.Context, features []string) {", 1)
+	writeFile(t, filepath.Join(dir, "feature.go"), src)
+	gitRun(t, dir, "add", "-A")
+	gitRun(t, dir, "commit", "-m", "entries")
+	clearIndex(t, dir)
+	if code := runCLI(t, "init", "--repo", dir, "--workers", "1", "--progress", "none"); code != 0 {
+		t.Fatalf("re-init exit=%d", code)
+	}
+	both, _ := runtimeSeqTree(t, dir, "symbol:go:example.com/feature:GroupBoth", 16, snap)
+	if countRuntimeLabel(both, "On") != 2 || countRuntimeLabel(both, "Off") != 0 {
+		t.Errorf("feature 两项分组应 On=2 Off=0: %d/%d",
+			countRuntimeLabel(both, "On"), countRuntimeLabel(both, "Off"))
+	}
+	one, _ := runtimeSeqTree(t, dir, "symbol:go:example.com/feature:GroupOne", 16, snap)
+	// len(m)==1 → 源码 else 分支 Off；alpha enabled=1 → 再走 On。
+	if countRuntimeLabel(one, "On") != 1 || countRuntimeLabel(one, "Off") != 1 {
+		t.Errorf("feature 仅 alpha 应 Off(Else)=1 + On(enabled)=1: %d/%d",
+			countRuntimeLabel(one, "On"), countRuntimeLabel(one, "Off"))
+	}
+}

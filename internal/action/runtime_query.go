@@ -28,6 +28,8 @@ type runtimeQuery struct {
 	Table      string
 	Columns    []string
 	Predicates []runtimePredicate
+	Args       []rtValue
+	RowCount   int
 }
 
 // parseRuntimeSelect 解析 SELECT（占位符按出现顺序绑定 args）。

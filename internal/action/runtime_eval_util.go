@@ -52,3 +52,36 @@ func isRuntimeStructType(t ast.Expr) bool {
 	}
 	return false
 }
+
+func (e *rtEval) evalStringsBuiltin(frame *rtFrame, call *ast.CallExpr, name string, s *rtState, depth int) (rtValue, []*rtState, bool) {
+	switch name {
+	case "Repeat":
+		if len(call.Args) != 2 {
+			return rtValue{}, nil, false
+		}
+		sv, variants := e.evalExpr(frame, call.Args[0], s, depth)
+		cv, _ := e.evalExpr(frame, call.Args[1], s, depth)
+		if sv.kind == rtString && cv.kind == rtInt && cv.i >= 0 && cv.i < 1024 {
+			return rtStringValue(strings.Repeat(sv.s, int(cv.i))), variants, true
+		}
+		return rtUnknownValue(), variants, true
+	case "Join":
+		if len(call.Args) != 2 {
+			return rtValue{}, nil, false
+		}
+		sv, variants := e.evalExpr(frame, call.Args[0], s, depth)
+		sep, _ := e.evalExpr(frame, call.Args[1], s, depth)
+		if sv.kind == rtSlice && sep.kind == rtString {
+			parts := make([]string, 0, len(sv.elems))
+			for _, el := range sv.elems {
+				if el.kind != rtString {
+					return rtUnknownValue(), variants, true
+				}
+				parts = append(parts, el.s)
+			}
+			return rtStringValue(strings.Join(parts, sep.s)), variants, true
+		}
+		return rtUnknownValue(), variants, true
+	}
+	return rtValue{}, nil, false
+}

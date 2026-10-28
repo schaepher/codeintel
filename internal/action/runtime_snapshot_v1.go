@@ -15,9 +15,9 @@ type runtimeV1Binding struct {
 }
 
 type runtimeV1Table struct {
-	Name     string         `json:"name"`
-	Scope    map[string]any `json:"scope"`
-	Complete bool           `json:"complete"`
+	Name     string           `json:"name"`
+	Scope    map[string]any   `json:"scope"`
+	Complete bool             `json:"complete"`
 	Rows     []map[string]any `json:"rows"`
 }
 
@@ -27,12 +27,12 @@ type runtimeV1Database struct {
 }
 
 type runtimeV1Doc struct {
-	Version    int                `json:"version"`
-	Environment string            `json:"environment"`
-	Region     string            `json:"region"`
-	CapturedAt string            `json:"captured_at"`
-	Bindings   []runtimeV1Binding `json:"bindings"`
-	Databases  []runtimeV1Database `json:"databases"`
+	Version     int                 `json:"version"`
+	Environment string              `json:"environment"`
+	Region      string              `json:"region"`
+	CapturedAt  string              `json:"captured_at"`
+	Bindings    []runtimeV1Binding  `json:"bindings"`
+	Databases   []runtimeV1Database `json:"databases"`
 }
 
 func parseRuntimeV1(data []byte) (*RuntimeSnapshot, error) {

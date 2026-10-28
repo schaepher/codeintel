@@ -4,6 +4,7 @@ package action
 
 import (
 	"go/ast"
+	"strconv"
 
 	"github.com/schaepher/codeintel/internal/domain"
 )
@@ -28,6 +29,22 @@ func (e *rtEval) evalCall(frame *rtFrame, call *ast.CallExpr, s *rtState, depth 
 				return out[0].val, []*rtState{out[0].state}
 			}
 			return rtUnknownValue(), []*rtState{s}
+		}
+	}
+	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+		if id, ok2 := sel.X.(*ast.Ident); ok2 {
+			p := seqImportPath(frame.ctx.file, id.Name)
+			if p == "strings" {
+				if v, out, ok3 := e.evalStringsBuiltin(frame, call, sel.Sel.Name, s, depth); ok3 {
+					return v, out
+				}
+			}
+			if p == "strconv" && sel.Sel.Name == "Itoa" && len(call.Args) == 1 {
+				v, variants := e.evalExpr(frame, call.Args[0], s, depth)
+				if v.kind == rtInt {
+					return rtStringValue(strconv.Itoa(int(v.i))), variants
+				}
+			}
 		}
 	}
 	name := runtimeCallName(call.Fun)
@@ -72,6 +89,16 @@ func (e *rtEval) evalCall(frame *rtFrame, call *ast.CallExpr, s *rtState, depth 
 	if qv, out, handled := e.evalQueryCall(frame, call, s, depth); handled {
 		return qv, out
 	}
+	if recvType, recvVal, method, ok := e.runtimeMethodCall(frame, call, s, depth); ok {
+		target := "symbol:go:" + frame.pkgPath + ":(" + recvType + ")." + method
+		if out := e.evalFuncCallOutcomesWithReceiver(frame, call, s, depth, target, &recvVal); len(out) > 0 {
+			statesOut := make([]*rtState, 0, len(out))
+			for _, oc := range out {
+				statesOut = append(statesOut, oc.state)
+			}
+			return out[0].val, statesOut
+		}
+	}
 	if target, ok := runtimeCalleeID(frame, call); ok {
 		if out := e.evalFuncCallOutcomesFor(frame, call, s, depth, target); len(out) > 0 {
 			statesOut := make([]*rtState, 0, len(out))
@@ -93,8 +120,18 @@ func (e *rtEval) evalFuncCallOutcomes(frame *rtFrame, call *ast.CallExpr, s *rtS
 	return e.evalFuncCallOutcomesFor(frame, call, s, depth, target)
 }
 
+func (e *rtEval) evalMethodCallOutcomes(frame *rtFrame, call *ast.CallExpr, s *rtState, depth int) []rtOutcome {
+	recvType, recvVal, method, ok := e.runtimeMethodCall(frame, call, s, depth)
+	if !ok {
+		return nil
+	}
+	target := "symbol:go:" + frame.pkgPath + ":(" + recvType + ")." + method
+	return e.evalFuncCallOutcomesWithReceiver(frame, call, s, depth, target, &recvVal)
+}
+
 func (e *rtEval) evalFuncCallOutcomesFor(frame *rtFrame, call *ast.CallExpr, s *rtState, depth int, target string) []rtOutcome {
 	vals, states := e.evalArgs(frame, call.Args, s, depth)
+	vals = flattenRuntimeVariadic(vals, call)
 	if len(states) == 0 {
 		states = []*rtState{s}
 	}
@@ -120,6 +157,58 @@ func (e *rtEval) evalFuncCallOutcomesFor(frame *rtFrame, call *ast.CallExpr, s *
 }
 
 // valWithStates 单值 + 状态变体（把返回值与变体一起返回的语法糖）。
+func (e *rtEval) evalFuncCallOutcomesWithReceiver(frame *rtFrame, call *ast.CallExpr,
+	s *rtState, depth int, target string, recv *rtValue) []rtOutcome {
+	vals, states := e.evalArgs(frame, call.Args, s, depth)
+	vals = flattenRuntimeVariadic(vals, call)
+	if len(states) == 0 {
+		states = []*rtState{s}
+	}
+	rets, err := e.evalFuncWithReceiver(domain.CanonicalID(target), recv, vals, depth+1)
+	if err != nil || len(rets) == 0 {
+		return nil
+	}
+	out := make([]rtOutcome, 0, len(rets))
+	for _, r := range rets {
+		st := cloneRuntimeState(states[0])
+		val := rtUnknownValue()
+		switch len(r.vals) {
+		case 0:
+			val = rtUnknownValue()
+		case 1:
+			val = r.vals[0]
+		default:
+			val = rtValue{kind: rtTuple, elems: append([]rtValue(nil), r.vals...)}
+		}
+		out = append(out, rtOutcome{state: st, val: val})
+	}
+	return out
+}
+
+// runtimeMethodCall 本仓方法调用：receiver 类型来自轻量类型表。
+func (e *rtEval) runtimeMethodCall(frame *rtFrame, call *ast.CallExpr, s *rtState, depth int) (string, rtValue, string, bool) {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return "", rtValue{}, "", false
+	}
+	if id, ok2 := sel.X.(*ast.Ident); ok2 && id.Obj != nil && id.Obj.Kind == ast.Pkg {
+		return "", rtValue{}, "", false
+	}
+	rt := e.runtimeTypeFromExpr(frame, sel.X, s, depth)
+	recv, _ := e.evalExpr(frame, sel.X, s, depth)
+	if recv.kind == rtRow && recv.typeName != "" {
+		rt = &runtimeType{name: recv.typeName}
+	}
+	if rt == nil {
+		return "", rtValue{}, "", false
+	}
+	id := "symbol:go:" + frame.pkgPath + ":(" + rt.name + ")." + sel.Sel.Name
+	if _, _, ok := seqFuncSource(e.a, e.req, id); !ok {
+		return "", rtValue{}, "", false
+	}
+	return rt.name, recv, sel.Sel.Name, true
+}
+
 func valWithStates(v rtValue, states []*rtState) (rtValue, []*rtState) { return v, states }
 
 func (e *rtEval) evalArgs(frame *rtFrame, args []ast.Expr, s *rtState, depth int) ([]rtValue, []*rtState) {

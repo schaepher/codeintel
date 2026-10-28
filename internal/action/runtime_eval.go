@@ -10,8 +10,14 @@ import (
 )
 
 type rtState struct {
-	env map[*ast.Object]rtValue
-	ret *rtReturn
+	env   map[*ast.Object]rtValue
+	types map[*ast.Object]*runtimeType
+	ret   *rtReturn
+}
+
+type runtimeType struct {
+	pkgPath string
+	name    string
 }
 
 type rtReturn struct {
@@ -36,6 +42,10 @@ type rtEval struct {
 }
 
 func (e *rtEval) evalFunc(symID domain.CanonicalID, args []rtValue, depth int) ([]rtReturn, error) {
+	return e.evalFuncWithReceiver(symID, nil, args, depth)
+}
+
+func (e *rtEval) evalFuncWithReceiver(symID domain.CanonicalID, recv *rtValue, args []rtValue, depth int) ([]rtReturn, error) {
 	if depth >= e.maxDepth || e.stack[string(symID)] {
 		return []rtReturn{{vals: []rtValue{rtUnknownValue()}}}, nil
 	}
@@ -49,8 +59,19 @@ func (e *rtEval) evalFunc(symID domain.CanonicalID, args []rtValue, depth int) (
 	e.stack[string(symID)] = true
 	defer delete(e.stack, string(symID))
 	frame := &rtFrame{fn: fn, ctx: ctx, symID: string(symID), pkgPath: pkgPathOf(string(symID))}
-	st := &rtState{env: map[*ast.Object]rtValue{}}
+	st := &rtState{env: map[*ast.Object]rtValue{}, types: map[*ast.Object]*runtimeType{}}
 	bindRuntimeParams(st.env, fn.Type.Params, args)
+	if fn.Recv != nil && len(fn.Recv.List) > 0 && recv != nil {
+		for _, name := range fn.Recv.List[0].Names {
+			if name.Obj != nil {
+				st.env[name.Obj] = *recv
+				if rt := runtimeTypeOfTypeExpr(name.Obj, fn.Recv.List[0].Type); rt != nil {
+					st.types[name.Obj] = rt
+				}
+			}
+		}
+	}
+	bindRuntimeParamTypes(st.types, fn.Type.Params)
 	states := e.execBlock(frame, fn.Body.List, []*rtState{st}, depth)
 	var out []rtReturn
 	for _, s := range states {
@@ -197,6 +218,9 @@ func (e *rtEval) execDecl(frame *rtFrame, x *ast.DeclStmt, s *rtState, depth int
 				}
 				if name.Obj != nil {
 					s.env[name.Obj] = v
+					if rt := e.runtimeTypeFromExpr(frame, vs.Values[i], s, depth); rt != nil {
+						s.types[name.Obj] = rt
+					}
 					if gd.Tok == token.VAR && e.an.pkgVars[name.Obj] {
 						g := e.an.globalByNameOf(name)
 						g.value = v
@@ -209,7 +233,11 @@ func (e *rtEval) execDecl(frame *rtFrame, x *ast.DeclStmt, s *rtState, depth int
 				case *ast.MapType:
 					s.env[name.Obj] = rtMapValue(map[string]rtValue{})
 				default:
-					s.env[name.Obj] = rtUnknownValue()
+					if isRuntimeStructType(vs.Type) || e.runtimeStructTypeName(frame, runtimeTypeNameOfExpr(vs.Type)) {
+						s.env[name.Obj] = rtRowValue(map[string]rtValue{}, nil)
+					} else {
+						s.env[name.Obj] = rtUnknownValue()
+					}
 				}
 			}
 		}
@@ -217,62 +245,6 @@ func (e *rtEval) execDecl(frame *rtFrame, x *ast.DeclStmt, s *rtState, depth int
 	return []*rtState{s}
 }
 
-func (e *rtEval) assignExpr(frame *rtFrame, lhs ast.Expr, v rtValue, s *rtState) {
-	switch l := lhs.(type) {
-	case *ast.Ident:
-		e.assignIdent(l, v, s)
-	case *ast.SelectorExpr:
-		if id, ok := l.X.(*ast.Ident); ok {
-			g := e.an.globalByNameOf(id)
-			g.mutated = true
-		}
-	case *ast.StarExpr:
-		if id, ok := l.X.(*ast.Ident); ok {
-			g := e.an.globalByNameOf(id)
-			g.mutated = true
-		}
-	}
-}
-
-func (e *rtEval) assignIdent(id *ast.Ident, v rtValue, s *rtState) {
-	if id == nil {
-		return
-	}
-	if id.Obj != nil {
-		if e.an.pkgVars[id.Obj] {
-			g := e.an.globalByNameOf(id)
-			g.value = v
-			g.mutated = true
-			return
-		}
-		s.env[id.Obj] = v
-		return
-	}
-	g := e.an.globalByNameOf(id)
-	g.value = v
-	g.mutated = true
-}
-
-func cloneRuntimeState(s *rtState) *rtState {
-	out := &rtState{ret: s.ret, env: make(map[*ast.Object]rtValue, len(s.env))}
-	for k, v := range s.env {
-		out.env[k] = v
-	}
-	return out
-}
-
-func (e *rtEval) capStates(in []*rtState) []*rtState {
-	if e.maxStates <= 0 || len(in) <= e.maxStates {
-		return in
-	}
-	out := in[:e.maxStates]
-	for i := range out {
-		out[i] = cloneRuntimeState(out[i])
-	}
-	return out
-}
-
-// rowsNextLoop 识别 `for rows.Next() { ... }` 并返回查询结果（rtRows）。
 func (e *rtEval) rowsNextLoop(frame *rtFrame, cond ast.Expr, s *rtState) (*ast.Ident, rtValue, bool) {
 	call, ok := cond.(*ast.CallExpr)
 	if !ok {
@@ -292,3 +264,5 @@ func (e *rtEval) rowsNextLoop(frame *rtFrame, cond ast.Expr, s *rtState) (*ast.I
 	}
 	return id, v, true
 }
+
+// recordAssignTypes 记录赋值/短声明变量的轻量类型（方法调用解析用）。

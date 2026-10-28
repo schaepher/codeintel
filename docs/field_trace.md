@@ -7742,3 +7742,18 @@ action；开库前先 `ValidateRuntimeData`）。
   真实 init→CLI：v1/v2、node=2/3/4、scope 不覆盖、complete=false、
   binding 错、重复行、缺快照、TwoReads/Rebind/RunChecked 返回相关性、
   feature alpha/beta/gamma、集合 2/1/0 元素、非法输入开库前失败。
+
+## §172 todo25 §13.4：生成 DAO/动态 SQL、集合与多轮审核（2026-10-28）
+
+- **生成 DAO/动态 SQL**：轻量符号执行新增 `rtDB`（绑定全局 `*sql.DB` 或结构体
+  字段）、结构体 keyed 字面量/`&T{...}`、工厂返回具体类型、方法调用
+  （`(DAO).QueryByFilter`，含接口变量持有具体 DAO 时按值的真实类型解析）、
+  `sql += ...` 字符串拼接、`[]any` + `append` + `args...` 展开、`strings.Repeat/
+  Join`/`strconv.Itoa`、`make(map)`/`append`/range map、多列 `Scan`。
+- **状态保持**：`cloneRuntimeState` 深拷贝 rtRow/rtMap/rtSlice——此前成功/失败
+  状态共享 map，Scan 多目标时成功值被失败状态的 unknown 覆盖。
+- **多轮审核**：`Load` 返回 `(Cfg,error)`，`Audit` 按配置行 `Enabled/Auto`
+  条件决定 Finish/Auto；两行配置不等于两次 Finish，未知 node 保留未知。
+- **验证**：`TestTodo25RuntimeGeneratedDAO`（2/1/0 元素、动态 SQL、接口传播、
+  不完整范围）、`TestTodo25RuntimeFeatureCollectionDAO`（tenant/feature 二/一
+  元素）、`TestTodo25RuntimeMultiRoundAudit`（node2/node3/未知 node）。

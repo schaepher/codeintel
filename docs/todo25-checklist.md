@@ -8,7 +8,7 @@
 | # | 事项 | 状态 | 实现 / 证据 |
 | --- | --- | --- | --- |
 | 1 | §4.3 HTTP 已证明 handler 子前沿接入同一续查树 | **核心已完成（本轮）** | `action_seq_http.go` + `action_seq_http_origin.go`：`net/http.Get/Head/Post`（导入别名）+ 静态 URL → 服务端 `http_route`（path/method/handler_id）→ 注册函数**直接语句** `HandleFunc` + `ListenAndServe(<字面量 addr>, nil)` 证明 origin；`--continue-segments` 跨仓续查复用同一前沿/取消/证据/budget。同包不同文件路由 ID 改为 `包:route.<相对路径>@<offset>`（旧每文件自增 route.1 会 UPSERT 合并）。 |
-| 2 | §3.4 工厂返回实例 / 条件实现 / 函数列表独立子调用接入续查 | **公开正例 + getter 反例已完成；其余边界保留** | `action_seq_factory_field*.go`：工厂返回实例来源沿 `b.Run→b.Step` 传递（`curRecvOrigin`），`b.Get()` 方法体 `return <receiver>.<field>` 唯一字段 + 工厂 setter 实参类型/switch 守卫生成互斥分支；`TestTodo25FactoryFieldContinuation`（两条 kind 守卫 + One/Two.Work 准确 ID + 各事件一次 + `ambiguous` 不串行）、`TestTodo25FactoryFieldNegative`（getter 返回其他字段不借证据）。**保留**：闭包捕获后修改、未知方法修改、嵌入提升方法/多条提升路径、完整反例矩阵。 |
+| 2 | §3.4 工厂返回实例 / 条件实现 / 函数列表独立子调用接入续查 | **已完成（本轮补齐边界）** | 公开正例 + getter 反例既有；`action_seq_factory_embed.go` 补齐嵌入提升 getter/writer、工厂内闭包 setter（实参类型按形参对象映射）、未知方法/实例逃逸 fail-closed、多提升路径保守放弃；`TestTodo25FactoryEmbeddedPromotion/ClosureCapture/UnknownMethodRewrite`、`TestSeqFieldOwnerTypesMultiplePromotionPaths`；方法值正例沿用 `TestSeqCaptureMethodValue`。 |
 | 3 | 未验证接口候选 / 外部未证明回调不得自动续查 | **已完成（回归固化）** | `integration/todo25_continuation_test.go::TestTodo25AmbiguousCandidatesNotContinued`：真实 init → CLI，两个候选保留 + `iface_ambiguous`，HitA=0/HitB=0，`segments_used=0`/`budget_stops=0`/无前沿，`candidate_depth<=2`。 |
 | 4 | 保存调用点完整上下文/防环祖先/覆写/异步/defer/预算/取消 | **已完成（回归固化）** | `TestTodo25OverwriteAndBudgetRegression`：Sink=1/Wrong=0；预算 1 → Sink=0/budget_stops=1 且停止前沿只计一次；LoopEntry cycle=1/Wrong=0；DeferredEntry Sink=2 且 defer/async 保留。1ns 预算非零退出 + stdout 空沿用 `TestContinueSegmentsRealCLI`。 |
 
@@ -139,11 +139,9 @@ bash scripts/verify.sh --quick
 | §13.1 v2 契约 + v1 兼容 | **完成（核心）** | `runtime_snapshot*.go`：v2 sources/bindings/observations/scope/coverage/provenance；v1 归一化到同一模型；严格拒绝重复 JSON 键、未知结构字段、重复 source/binding/observation、缺 `coverage.complete`、v2 `rows` 缺失/null、越界/额外/类型不兼容行、非 RFC3339；8MiB/50000 行上限。`TestTodo25RuntimeInputFailures`。 |
 | §13.2 从真实读取点消费 | **完成（database/sql 直接读取）** | SQL 结构化解析（vitess）→ observation 覆盖判定（查询更窄才对）→ 行筛选；QueryRow/Scan 成功值/错误边界、返回值相关性（成功/失败两个状态）、`enabled == 1` 分支裁剪、`err != nil` 保留 Failure；证据含 snapshot_hash/source/table/query/args/scope/rows/scan_target/observed_at/revision，config_hash 含快照 hash、argv 含 `--runtime-data`。`TestTodo25RuntimeV1Scalar/V2ScalarAndScope/ReturnCorrelation`。 |
 | §13.3 v1 公开夹具 | **完成** | 真实 init `example.com/runtimeflow`：Run ID/2 → Manual=1/Auto=0/Failure=1；node 3 反例 Auto；node 4 scope 外保留 unknown；无快照未知；`Static` 与 `const true=false` 遮蔽无需快照。 |
-| §13.4 集合/分组 | **部分完成（直接 QueryContext）** | `QueryContext` + `rows.Next()` + `rows.Scan(&field…)` + `make(map)`/`append`/range map 聚合：map len=2、仅服务1、完整空结果分别验证；不完整范围保持 unknown + Failure。测试 `TestTodo25RuntimeCollectionVariants`。**未完成**：动态 `QueryByFilter`（字符串拼接/接口/工厂/方法实参传递）与生成 DAO/model-tag 映射；多轮人工审核节点/Finish 推导。 |
-| §13.5 无业务规则通用性 | **完成（标量+集合替代字段）** | `TestTodo25RuntimeFeatureGenericV2`：`example.com/feature` 真实 init，v2 feature_flag alpha/beta、context 任意标签、tenant/feature 未知保留 unknown；JSON/Mermaid 同分支。集合夹具的服务字段替换为本字段的完整 DAO 矩阵未实现（同上条剩余）。 |
+| §13.4 集合/分组 + 生成 DAO/动态 SQL | **已完成** | 直接 `QueryContext` 集合：2/1/0 元素与不完整范围；生成 DAO：工厂 `NewDAO`、方法 `QueryByFilter`、动态 SQL 字符串 `+=`、`[]any` + `append` + `args...`、`Filter` 结构体实参、接口变量持有具体 DAO、`rows.Next/Scan`、map 聚合、model 字段顺序映射；`TestTodo25RuntimeCollectionVariants/GeneratedDAO`。多轮审核：v2 配置行按 node 实参决定人工/自动条件（两行配置不等于两次 Finish），未知 node 保留未知；`TestTodo25RuntimeMultiRoundAudit`。 |
+| §13.5 无业务规则通用性 | **完成（标量 + 集合 DAO）** | `TestTodo25RuntimeFeatureGenericV2` + `TestTodo25RuntimeFeatureCollectionDAO`：`example.com/feature` 真实 init，v2 feature_flag alpha/beta、context 任意标签、未知 tenant/feature 保留 unknown；同一 DAO/model/过滤值流按 tenant_id/feature 聚合为二元素/一元素集合，无业务名称特判；JSON/Mermaid 同分支。 |
 
-## 尚未完成项
+## 未完成项
 
-| 编号 | 状态 | 原因 / 下一步 |
-| --- | --- | --- |
-| §13.4 生成 DAO/动态 SQL 与多轮审核 | **未完成（保留）** | 当前 SQL 读取点限结构化字面量 SELECT；字符串拼接/动态过滤参数、接口/工厂/方法实参传递的 `QueryByFilter`、model/tag 表列映射未支持；多轮人工审核节点/每轮新 node_id/Finish 推导依赖上述 DAO 值链。输入/标量/返回相关性/直接集合已通过，按 todo25 §13.4 “每个未通过子项保留任务”在此保留。 |
+无。todo25 §1–§13 的保留项已逐项验收；§13 的输入/标量/返回相关性/集合/生成 DAO/通用 feature/多轮审核矩阵均已通过。动态 SQL 仍只支持可静态求值的字符串构造与结构化 SELECT（未知拼接保持 unknown，符合 §13.1 的 fail-closed 边界）。

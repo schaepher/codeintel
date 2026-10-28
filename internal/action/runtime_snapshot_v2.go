@@ -28,12 +28,12 @@ type runtimeV2Predicate struct {
 }
 
 type runtimeV2Observation struct {
-	Source     string `json:"source"`
-	Resource   struct {
+	Source   string `json:"source"`
+	Resource struct {
 		Table string `json:"table"`
 	} `json:"resource"`
-	Scope      []runtimeV2Predicate `json:"scope"`
-	Coverage   struct {
+	Scope    []runtimeV2Predicate `json:"scope"`
+	Coverage struct {
 		Complete *bool    `json:"complete"`
 		Columns  []string `json:"columns"`
 	} `json:"coverage"`
@@ -45,11 +45,11 @@ type runtimeV2Observation struct {
 }
 
 type runtimeV2Doc struct {
-	Version      int                      `json:"version"`
+	Version      int                        `json:"version"`
 	Context      map[string]json.RawMessage `json:"context"`
-	Sources      []runtimeV2Source        `json:"sources"`
-	Bindings     []runtimeV2Binding       `json:"bindings"`
-	Observations []runtimeV2Observation   `json:"observations"`
+	Sources      []runtimeV2Source          `json:"sources"`
+	Bindings     []runtimeV2Binding         `json:"bindings"`
+	Observations []runtimeV2Observation     `json:"observations"`
 }
 
 func parseRuntimeV2(data []byte) (*RuntimeSnapshot, error) {

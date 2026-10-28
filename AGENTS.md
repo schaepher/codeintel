@@ -633,6 +633,14 @@ pre-commit 场景的兜底）。
 - **SQL 只用结构化解析**：vitess AST 提取表/列/WHERE eq/in；`IN (?,?)` 的
   Arguments 顺序消费；JOIN/聚合/动态 SQL 保持 unknown，不用表名字符串补值。
 
+- **符号执行的成功/失败变体不能共享可变容器**：`cloneRuntimeState` 早先浅拷贝
+  env，`rtRow`/`rtMap` 的 map 被两个状态共享——`Scan` 多目标时失败状态把成功
+  值改成 unknown（多轮审核 `c.Auto` 因此永远 unknown）。变体状态必须深拷贝；
+  这类问题只会在"同一次读取既有成功又有错误路径"时暴露。
+- **接口变量持有具体值时，方法解析用值的真实类型**：`var r Repo = NewRepo(DB)`
+  的静态类型是接口，`Repo.QueryByFilter` 在接口方法未建节点；运行时值带
+  `typeName`（DAO）即可解析到具体方法。方法实参跨函数传递时同样保留该值身份。
+
 ## 常用命令
 
 ```shell
