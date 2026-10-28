@@ -94,6 +94,32 @@ func (e *seqEnv) mergeBranches(branches []*seqEnv) {
 	}
 }
 
+// sameSeqValue 两个函数值是否同一来源（kind + 字面量/符号/未知原因）。
+func sameSeqValue(a, b seqValue) bool {
+	if a.kind != b.kind {
+		return false
+	}
+	switch a.kind {
+	case seqValueLit:
+		return a.lit == b.lit
+	case seqValueNamed:
+		return a.symID == b.symID
+	case seqValueUnknown:
+		return a.why == b.why
+	case seqValueList:
+		if len(a.elems) != len(b.elems) {
+			return false
+		}
+		for i := range a.elems {
+			if !sameSeqValue(a.elems[i], b.elems[i]) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
 // mergePossible 循环体可能 0 次执行：当前值与原值都作为候选。
 func (e *seqEnv) mergePossible(pre *seqEnv) {
 	if e == nil || pre == nil {
@@ -111,11 +137,18 @@ func (e *seqEnv) mergePossible(pre *seqEnv) {
 	}
 	for _, obj := range objs {
 		var cands []seqValue
-		if v, ok := e.vals[obj]; ok {
-			cands = append(cands, v)
+		cur, hasCur := e.vals[obj]
+		old, hasOld := pre.vals[obj]
+		if hasCur {
+			cands = append(cands, cur)
 		}
-		if v, ok := pre.vals[obj]; ok {
-			cands = append(cands, v)
+		if hasOld {
+			cands = append(cands, old)
+		}
+		// todo24 §11.5：循环体**没有改写**该槽（只读回调）时保持原来源——
+		// 不能仅因为"循环可能不执行"就把确定值降级成多候选。
+		if hasCur && hasOld && sameSeqValue(cur, old) {
+			continue
 		}
 		e.set(obj, multiSeqValue(cands, "循环体可能未执行（值可能仍是循环前的）"))
 	}

@@ -13,6 +13,7 @@ import (
 	"go/ast"
 	"go/token"
 	"strings"
+	"time"
 )
 
 // seqTryDIAndLocalVar 尝试 DI 字段注入与局部变量具体化；命中时已填好 node。
@@ -91,6 +92,54 @@ func seqExpandGrpcServiceImpl(a *Actions, req CodeSequenceRequest, node *CodeSeq
 		return true
 	} else if stop != nil && node.Stop == nil {
 		node.Stop = stop
+	}
+	return false
+}
+
+// seqExpandIfaceTarget todo24：接口方法目标 → 实现（多候选保留候选集合、不选
+// 第一个；单实现展开；无可证明实现给明确诊断）。返回 true = 已处理该节点。
+func seqExpandIfaceTarget(a *Actions, req CodeSequenceRequest, node *CodeSeqNode, tid string,
+	confidence float64, curFile string, pos token.Position, depth int) bool {
+	if !a.isIfaceMethodID(tid) {
+		return false
+	}
+	dispStart := time.Now()
+	impl, cands, ok := a.seqIfaceMethodImpl(req, tid)
+	req.acc.dispatch++
+	req.acc.sqlQueries += 2 // InterfaceMethodImpl + InterfaceImplsExact（精确查询）
+	req.acc.dispatchDur += time.Since(dispStart)
+	if ok {
+		// todo22 §3.2：多个未验证候选 → 保留完整候选集合，**不选第一个**
+		// 展开（不制造具体实现）；候选数上限 12，超出明确标注截断。
+		cands, truncated := capSeqCandidates(cands)
+		if len(cands) > 1 {
+			ev := seqIfaceEvidence(curFile, pos.Line, "", cands, confidence)
+			ev.CandidateBudget = seqIfaceBudget(len(cands), truncated)
+			node.Evidence = ev
+			node.Stop = &SeqStop{Code: SeqStopIfaceAmbiguous,
+				Detail: "接口方法 " + tid + " 有 " + itoaSeq(len(cands)) + " 个未验证实现候选（无消歧证据，未展开）"}
+			return true
+		}
+		node.ImplType = implTypeShort(impl)
+		node.Evidence = seqIfaceEvidence(curFile, pos.Line, impl, cands, confidence)
+		node.Evidence.CandidateBudget = seqIfaceBudget(len(cands), truncated)
+		// todo22 §4.1：接口消歧命中的实现是 go-micro 客户端桩 → 续接
+		// 服务端子树（不展开桩源码）。
+		if seqExpandRPC(a, req, node, impl, depth, curFile, pos.Line) {
+			return true
+		}
+		if child, stop := codeSeqForSymbol(a, req, impl, depth-1); child != nil {
+			node.Nodes = child.Nodes
+			return true
+		} else if stop != nil {
+			node.Stop = stop
+		}
+	} else {
+		// todo13-13：接口身份与调用位置已知，但无可证明实现——
+		// 不得把“调用边已知”当作“实现已验证”，也不冒充索引缺失。
+		node.Stop = &SeqStop{Code: SeqStopUnknownImpl,
+			Detail: "接口方法 " + tid + " 无可证明实现（调用边/接口身份已知，实现未验证）"}
+		return true
 	}
 	return false
 }

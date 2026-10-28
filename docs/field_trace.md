@@ -7431,3 +7431,30 @@ depth=2 + 20 段仍保持 MakeFirst/Setup 顺序、First/Second 装饰器、AOP 
 **边界（保留）**：HTTP 跨仓续接（§4.3 的 origin/handler 证明）尚未实现——
 HTTP 调用点仍按原样停在未解析/外部诊断，不做自动续查；`Cleanup` defer 标记
 与"外部事务回调"以本地 `tx.Run` 夹具等价验证（todo24 业务仓库原件不在本仓）。
+
+## §153 todo24 §11.5：普通数据 range 内的只读回调保持来源（2026-10-27）
+
+**根因（三处静默降级/误展开）**：
+1. `seqRangeElems` 只检查值是否为 list：`for _, step := range steps`
+   （`steps []int` 来自调用点字面量）被当成**函数列表**逐项展开 → 循环体画了
+   两遍（重试间隔被画成必然执行两次）。
+2. `seqEnv.mergePossible`（循环"可能不执行"）无条件把值降级为多候选 → 只读
+   回调也被打上"多值未消歧"。
+3. `Replace(&f)` / `for _, f = range others` 既不失效也不诊断 → 循环内仍沿用
+   循环前的 `f`，继续执行原 Sink。
+
+**改法**：
+- `seqRangeElems` 增加 `seqListHoldsFuncValues`：元素必须都是函数值；空列表
+  必须由声明类型证明是函数列表（`seqExprFuncTypedIn`）。普通数据列表退回
+  普通循环（循环体只分析一次）。
+- `mergePossible` 仅在值真的变化时降级：新增 `sameSeqValue`
+  （kind + 字面量指针 / 符号 ID / 未知原因 / 列表逐项）。
+- 新增 `seqInvalidateAddrTaken`（调用实参 `&f` → 函数槽降级未知）与
+  `seqInvalidateRangeFuncSlots`（range 赋值目标是已绑定函数值 → 失效），
+  在 `walkStmts`/`newSeqCallNode` 调用点应用。
+
+**测试**：`action_seq_range_source_test.go`（只读保持、取址失效、range 赋值
+失效、数据列表不按函数列表展开）；`integration/todo24_range_callback_test.go`
+（真实 init → CLI：`f` 回调 corroborated + 准确 Sink + range/err==nil 条件 +
+Sink 一次；去掉 defer 仍通过；三个反例 loop-overwrite / addr-escape /
+range-assign-unknown-list 都不执行原 Sink）。

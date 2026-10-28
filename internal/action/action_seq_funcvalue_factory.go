@@ -200,7 +200,44 @@ func seqRangeElems(a *Actions, req CodeSequenceRequest, x ast.Expr) (seqValue, b
 	if req.env == nil {
 		return seqValue{}, false
 	}
-	return captureSeqCallbackLists(a, req, req.curCtx, x)
+	v, ok := captureSeqCallbackLists(a, req, req.curCtx, x)
+	if !ok {
+		return seqValue{}, false
+	}
+	// todo24 §11.5：只有**函数值列表**才按元素迭代展开。`for _, step := range
+	// steps`（普通数据列表）不得当成函数列表逐项展开——否则会把重试间隔画成
+	// 必然执行的多次调用，还会清掉循环内只读回调的既有来源。
+	if !seqListHoldsFuncValues(a, req, x, v) {
+		return seqValue{}, false
+	}
+	return v, true
+}
+
+// seqListHoldsFuncValues 列元素是否函数值（空列表必须由声明类型证明）。
+func seqListHoldsFuncValues(a *Actions, req CodeSequenceRequest, x ast.Expr, v seqValue) bool {
+	for _, e := range v.elems {
+		switch e.kind {
+		case seqValueLit, seqValueNamed, seqValueMulti, seqValueList:
+		default:
+			return false
+		}
+	}
+	if len(v.elems) == 0 {
+		// 空列表：声明类型是函数类型或 []func(...)（nil slice = 确定空列表）
+		if seqExprFuncTypedIn(a, req, req.curCtx, x) {
+			return true
+		}
+		if id, ok := x.(*ast.Ident); ok && id.Obj != nil {
+			switch d := id.Obj.Decl.(type) {
+			case *ast.ValueSpec:
+				return d.Type != nil && seqEmptyFuncSliceTypeIn(a, req, req.curCtx, d.Type)
+			case *ast.Field:
+				return seqEmptyFuncSliceTypeIn(a, req, req.curCtx, d.Type)
+			}
+		}
+		return false
+	}
+	return true
 }
 
 // seqRangeOverFuncList 按列表元素顺序展开循环体（每次迭代绑定元素值；

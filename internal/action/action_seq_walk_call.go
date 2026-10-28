@@ -44,6 +44,9 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		// todo22 §2：本次调用的实参值（按位置）——被展开函数绑定形参后，
 		// 形参调用处才能证明执行的是哪个回调。
 		req.paramValues = captureSeqClosureArgs(a, req, req.curCtx, call)
+		// todo24 §11.5：`Replace(&f)` 这类取址实参可能改写回调槽——先降级为
+		// 未知，后续同作用域使用不得沿用旧绑定。
+		seqInvalidateAddrTaken(req, call)
 
 		// todo20-9：索引 calls 边按 (caller,target,kind) 汇总，重复调用
 		// 只有首个位置的 metadata——按本函数目标集合 + 调用名回退。
@@ -243,45 +246,8 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 			req.incomingArgs, req.incomingSrc, req.sceneConsts, maxSceneFlowDepth)
 		req.callArgLits, req.callArgSrcs, req.callArgWhy = sceneArgValues(args)
 		req.callArgFields = a.resolveSceneArgFields(req, fset, src, call, req.curBody, req.curParams)
-		if a.isIfaceMethodID(tid) {
-			dispStart := time.Now()
-			impl, cands, ok := a.seqIfaceMethodImpl(req, tid)
-			req.acc.dispatch++
-			req.acc.sqlQueries += 2 // InterfaceMethodImpl + InterfaceImplsExact（精确查询）
-			req.acc.dispatchDur += time.Since(dispStart)
-			if ok {
-				// todo22 §3.2：多个未验证候选 → 保留完整候选集合，**不选第一个**
-				// 展开（不制造具体实现）；候选数上限 12，超出明确标注截断。
-				cands, truncated := capSeqCandidates(cands)
-				if len(cands) > 1 {
-					ev := seqIfaceEvidence(curFile, pos.Line, "", cands, tg.confidence)
-					ev.CandidateBudget = seqIfaceBudget(len(cands), truncated)
-					node.Evidence = ev
-					node.Stop = &SeqStop{Code: SeqStopIfaceAmbiguous,
-						Detail: "接口方法 " + tid + " 有 " + itoaSeq(len(cands)) + " 个未验证实现候选（无消歧证据，未展开）"}
-					return node
-				}
-				node.ImplType = implTypeShort(impl)
-				node.Evidence = seqIfaceEvidence(curFile, pos.Line, impl, cands, tg.confidence)
-				node.Evidence.CandidateBudget = seqIfaceBudget(len(cands), truncated)
-				// todo22 §4.1：接口消歧命中的实现是 go-micro 客户端桩 → 续接
-				// 服务端子树（不展开桩源码）。
-				if seqExpandRPC(a, req, node, impl, depth, curFile, pos.Line) {
-					return node
-				}
-				if child, stop := codeSeqForSymbol(a, req, impl, depth-1); child != nil {
-					node.Nodes = child.Nodes
-					return node
-				} else if stop != nil {
-					node.Stop = stop
-				}
-			} else {
-				// todo13-13：接口身份与调用位置已知，但无可证明实现——
-				// 不得把“调用边已知”当作“实现已验证”，也不冒充索引缺失。
-				node.Stop = &SeqStop{Code: SeqStopUnknownImpl,
-					Detail: "接口方法 " + tid + " 无可证明实现（调用边/接口身份已知，实现未验证）"}
-				return node
-			}
+		if seqExpandIfaceTarget(a, req, node, tid, tg.confidence, curFile, pos, depth) {
+			return node
 		}
 
 		// 4) grpc 服务的实现方法（服务节点 → (Impl).Method；见 walk_impl.go）

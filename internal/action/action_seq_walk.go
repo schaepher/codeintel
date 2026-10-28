@@ -138,6 +138,9 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 				Stop: &SeqStop{Code: SeqStopFuncValueUnbound, Detail: why}}}
 		}
 		pre := req.env.clone()
+		// todo24 §11.5：range 赋值目标若是已绑定函数值，循环内不得沿用循环前
+		// 的来源（未知元素列表）。
+		seqInvalidateRangeFuncSlots(req, s)
 		nodes := walkStmts(a, req, fset, src, s.Body.List, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
 		if req.env != nil {
 			req.env.mergePossible(pre)
