@@ -19,10 +19,11 @@ type PrecomputeResult struct {
 
 // PrecomputeRelations 全量 relations 预计算编排（Q228）：
 //  1. 已完成（progress done）→ already-done（不重复计算）
-//  2. 未完成 → PrecomputeAllRelations（progressFn 由 cli 提供——进度
-//     打印是 UI 行为）
+//  2. 未完成 → PrecomputeAllRelations（P3-10：进度渲染由调用方通过
+//     domain.Progress 注入——CLI 用 internal/progress，serve 传 nil
+//     静默）
 //  3. 完成后再查进度：done → 摘要数据；非 done（抢占失败）→ running
-func (a *Actions) PrecomputeRelations(progressFn func(done, total int)) (*PrecomputeResult, error) {
+func (a *Actions) PrecomputeRelations(progress domain.Progress) (*PrecomputeResult, error) {
 	logger := zap.L()
 	logger.Info("enter (Actions).PrecomputeRelations")
 	defer logger.Info("exit (Actions).PrecomputeRelations")
@@ -33,7 +34,7 @@ func (a *Actions) PrecomputeRelations(progressFn func(done, total int)) (*Precom
 	if p.Status == "done" {
 		return &PrecomputeResult{Status: "already-done", Total: p.Total}, nil
 	}
-	if err := a.repo.PrecomputeAllRelations(progressFn); err != nil {
+	if err := a.repo.PrecomputeAllRelations(progress); err != nil {
 		return nil, err
 	}
 	p, err = a.repo.RelationProgress()

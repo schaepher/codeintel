@@ -130,14 +130,25 @@ func (r *Repo) finishRelationCompute(total int) error {
 	return err
 }
 
+// relationProgressStep 进度步骤名（domain.Progress 按 name 定位）。
+const relationProgressStep = "relations"
+
 // PrecomputeAllRelations 全量计算并写入缓存（Q228）：加载关系图 →
-// 逐表 relationsFor → 每批写进度（progressFn(done, total)）→ 完成写
-// relation_candidates + status=done。CLI precompute 命令（前台同步）
-// 与 serve 后台任务（goroutine）共用。
-func (r *Repo) PrecomputeAllRelations(progressFn func(done, total int)) error {
+// 逐表 relationsFor → 每批写库内进度 → 完成写 relation_candidates +
+// status=done。CLI precompute 命令（前台同步）与 serve 后台任务
+// （goroutine）共用。
+//
+// P3-10：渲染统一走 domain.Progress（Q253 契约）——进度只写 stderr，
+// 由调用方选实现（TTY/逐行/静默）；本层不知道输出形态。total 在加载
+// 关系图后才知道，所以 Begin 放在 cachedRelationGraph 之后（不编假
+// 分母）。
+func (r *Repo) PrecomputeAllRelations(progress domain.Progress) (err error) {
 	logger := zap.L()
 	logger.Info("enter (Repo).PrecomputeAllRelations")
 	start := time.Now()
+	if progress == nil {
+		progress = domain.NopProgress{}
+	}
 	defer func() {
 		logger.Info("exit (Repo).PrecomputeAllRelations", zap.Duration("elapsed", time.Since(start)))
 	}()
@@ -147,6 +158,10 @@ func (r *Repo) PrecomputeAllRelations(progressFn func(done, total int)) error {
 	}
 	tables := g.tables()
 	total := len(tables)
+	progress.Begin(relationProgressStep, 0, total)
+	defer func() {
+		progress.End(relationProgressStep, time.Since(start), err)
+	}()
 	if ok, err := r.beginRelationCompute(total); err != nil {
 		return err
 	} else if !ok {
@@ -171,9 +186,7 @@ func (r *Repo) PrecomputeAllRelations(progressFn func(done, total int)) error {
 				return err
 			}
 		}
-		if progressFn != nil {
-			progressFn(i+1, total)
-		}
+		progress.Advance(relationProgressStep, i+1)
 	}
 	out := make([]*domain.TableRelation, 0, len(seen))
 	for _, rel := range seen {

@@ -7,6 +7,7 @@ package action
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
@@ -150,23 +151,26 @@ func seedPrecomputeRepo(t *testing.T) (*Actions, string) {
 }
 
 // TestActionsPrecomputeRelations：编排——未完成 → 计算 → done + 摘要
-// 数据（进度回调触发）；已完成再调 → already-done（不重复计算）。
+// 数据（domain.Progress Begin/Advance/End 触发）；已完成再调 →
+// already-done（不重复计算）。
 func TestActionsPrecomputeRelations(t *testing.T) {
 	a, _ := seedPrecomputeRepo(t)
-	called := false
-	res, err := a.PrecomputeRelations(func(done, total int) {
-		if total > 0 {
-			called = true
-		}
-	})
+	rec := &progressRecorder{}
+	res, err := a.PrecomputeRelations(rec)
 	if err != nil {
 		t.Fatalf("PrecomputeRelations: %v", err)
 	}
 	if res.Status != "done" {
 		t.Fatalf("status = %q; want done", res.Status)
 	}
-	if !called {
-		t.Error("进度回调应触发")
+	if len(rec.begins) != 1 || rec.begins[0].total == 0 {
+		t.Errorf("进度 Begin 应带真实分母，got %+v", rec.begins)
+	}
+	if len(rec.advances) == 0 {
+		t.Error("进度 Advance 应触发")
+	}
+	if len(rec.ends) != 1 || rec.endErrs[0] != nil {
+		t.Errorf("进度 End 应成功调用一次，got ends=%v errs=%v", rec.ends, rec.endErrs)
 	}
 	if len(res.Rels) == 0 {
 		t.Error("done 时应带全量关联（cli 摘要统计用）")
@@ -180,3 +184,33 @@ func TestActionsPrecomputeRelations(t *testing.T) {
 		t.Errorf("二次调用 status = %q; want already-done", res2.Status)
 	}
 }
+
+// progressRecorder 记录 domain.Progress 调用（P3-10：precompute 进度
+// 渲染统一走 Progress 契约，action 层不认识输出形态）。
+type progressRecorder struct {
+	begins   []progressBegin
+	advances []int
+	ends     []time.Duration
+	endErrs  []error
+}
+
+type progressBegin struct {
+	name  string
+	depth int
+	total int
+}
+
+func (p *progressRecorder) Begin(name string, depth, total int) {
+	p.begins = append(p.begins, progressBegin{name, depth, total})
+}
+
+func (p *progressRecorder) Advance(name string, done int) {
+	p.advances = append(p.advances, done)
+}
+
+func (p *progressRecorder) End(name string, elapsed time.Duration, err error) {
+	p.ends = append(p.ends, elapsed)
+	p.endErrs = append(p.endErrs, err)
+}
+
+func (p *progressRecorder) Finish() {}

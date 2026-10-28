@@ -122,10 +122,11 @@ type Reader interface {
 	ExtChainCacheGet(symbol, build string) (string, bool)
 	ExtChainCacheSet(symbol, build, result string) error
 
-	// Q228：全量 relations 计算进度（precompute 命令 / serve 后台任务）
+	// Q228：全量 relations 计算进度（precompute / serve 后台任务；P3-10：
+	// 进度渲染由调用方注入 domain.Progress，serve 传 nil 静默）。
 	RelationProgress() (domain.RelationProgress, error)
 	StartRelationComputeIfNeeded() (bool, error)
-	PrecomputeAllRelations(progressFn func(done, total int)) error
+	PrecomputeAllRelations(progress domain.Progress) error
 	AllSymbolNames(limit int) ([]string, error) // Q244 相似名候选池
 }
 
@@ -184,12 +185,12 @@ func (a *Actions) StartRelationComputeIfNeeded() (bool, error) {
 	return a.repo.StartRelationComputeIfNeeded()
 }
 
-// PrecomputeAllRelations 全量计算并写缓存（Q228，薄封装）。
-func (a *Actions) PrecomputeAllRelations(progressFn func(done, total int)) error {
+// PrecomputeAllRelations 全量计算并写缓存（Q228，薄封装；P3-10 进度注入）。
+func (a *Actions) PrecomputeAllRelations(progress domain.Progress) error {
 	logger := zap.L()
 	logger.Info("enter (Actions).PrecomputeAllRelations")
 	defer logger.Info("exit (Actions).PrecomputeAllRelations")
-	return a.repo.PrecomputeAllRelations(progressFn)
+	return a.repo.PrecomputeAllRelations(progress)
 }
 
 // New 创建 Actions。

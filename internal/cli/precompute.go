@@ -3,10 +3,12 @@ package cli
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/schaepher/codeintel/internal/action"
 	"github.com/schaepher/codeintel/internal/domain"
 	"github.com/schaepher/codeintel/internal/infrastructure/sqlite"
+	"github.com/schaepher/codeintel/internal/progress"
 	"go.uber.org/zap"
 )
 
@@ -29,12 +31,23 @@ func cmdPrecompute(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
+	// P3-10：进度渲染统一走 domain.Progress（Q253）——只写 stderr，
+	// stdout 只承载结果；--progress auto|plain|none 与 init/update 同口径。
+	// 参数解析：位置参数才是子命令，--progress 的取值不能当子命令。
 	sub := "relations"
-	for _, a := range rest {
-		if a == "--json" {
-			continue
+	mode := progress.ModeAuto
+	for i := 0; i < len(rest); i++ {
+		a := rest[i]
+		switch {
+		case a == "--progress" && i+1 < len(rest):
+			mode = rest[i+1]
+			i++
+		case strings.HasPrefix(a, "--progress="):
+			mode = strings.TrimPrefix(a, "--progress=")
+		case a == "--json":
+		default:
+			sub = a
 		}
-		sub = a
 	}
 	if sub != "relations" {
 		fmt.Fprintf(os.Stderr, "unknown precompute target: %s（当前支持 relations）\n", sub)
@@ -46,26 +59,14 @@ func cmdPrecompute(args []string) int {
 		return 1
 	}
 	defer db.Close()
+	rep := progress.New(os.Stderr, progress.Config{Mode: mode, Prefix: "[relations] 步骤", Title: "计算全量 relations"})
 	// R100：编排逻辑迁 action（PrecomputeRelations）——cli 只提供进度
-	// 回调（UI 行为）与结果渲染
+	// 实现（UI 行为）与结果渲染
 	acts := action.New(sqlite.NewRepo(db))
 
 	fmt.Printf("开始计算全量 relations……\n")
-	last := -1
-	res, err := acts.PrecomputeRelations(func(done, total int) {
-		// 每 10% 打印一行进度（小仓库瞬间完成时只打印最终行）
-		step := total / 10
-		if step < 1 {
-			step = 1
-		}
-		if done-last >= step || done == total {
-			last = done
-			fmt.Printf("\r计算关联中 %d/%d 表", done, total)
-			if done == total {
-				fmt.Println()
-			}
-		}
-	})
+	res, err := acts.PrecomputeRelations(rep)
+	rep.Finish()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
