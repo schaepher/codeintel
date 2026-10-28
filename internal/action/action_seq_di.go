@@ -40,6 +40,9 @@ type seqDIReg struct {
 	file     string // 注册点所在文件（仓库相对）
 	line     int    // 注册点行号
 	wrapper  bool   // impl 是包装调用（AOP）
+	// T06：反射容器注册（RegisterBeanByType(key, reflect.TypeOf(...))）——
+	// 必须另有容器自身 GetBean/FieldByName/Set 的注入代码证明。
+	reflectContainer bool
 	kind     string // register|bind|set|provide|apply|put|bean（契约来源）
 	invalid  bool   // 未知容器方法可能改写该注册（todo25 §3.3）
 }
@@ -58,8 +61,9 @@ func (r seqDIReg) extended() bool {
 type seqDIImpl struct {
 	symID  string // (Type).Method
 	reason string
-	reg    seqDIReg
-	why    string // 无法解析时的原因（调用方写成 unknown）
+	reg      seqDIReg
+	contract *seqDIContract // T06：容器注入机制证明（反射容器必填）
+	why      string         // 无法解析时的原因（调用方写成 unknown）
 }
 
 // diFieldImpl 按字段注解/注册证据解析注入的实现方法。
@@ -97,7 +101,9 @@ func (a *Actions) diFieldImpl(req CodeSequenceRequest, f *ast.File, recvType, fi
 			reason: seqReasonDIRegistration}, true
 	}
 	reason := seqReasonDIRegistration
-	if annReason != "" {
+	if annReason != "" && !reg.reflectContainer {
+		// T06：注解只是 key 来源；反射容器**必须**同时有注册 + 容器注入代码
+		// 证明，依据统一标 di-field-registration（不含 di-field-annotation）。
 		reason = annReason
 	}
 	if reg.kind == "bean" {
@@ -106,11 +112,22 @@ func (a *Actions) diFieldImpl(req CodeSequenceRequest, f *ast.File, recvType, fi
 	if reg.wrapper {
 		reason = seqReasonAOPWrapper
 	}
-	return seqDIImpl{
+	out := seqDIImpl{
 		symID:  "symbol:go:" + reg.pkgPath + ":(" + reg.typeName + ")." + method,
 		reason: reason,
 		reg:    reg,
-	}, true
+	}
+	if reg.reflectContainer {
+		// T06：反射容器的注册证据只证明 key→类型；字段真正被写入还必须由
+		// 容器自身的 GetBean/FieldByName/Set 代码证明。
+		if c, ok := seqDIContainerContract(a, req); ok {
+			out.contract = &c
+		} else {
+			return seqDIImpl{why: "反射容器注册已找到，但容器自身的字段注入代码未证明" +
+				"（缺 GetBean/FieldByName/Set 同函数）", reason: seqReasonDIRegistration}, true
+		}
+	}
+	return out, true
 }
 
 // seqDIRegistrations 当前包（同目录 .go）里 init()/Init()/Setup() 中的
@@ -176,10 +193,16 @@ func seqCollectRegCalls(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx,
 		name = fn.Name
 	}
 	kind := ""
-	switch name {
-	case "Register", "Bind":
+	reflectForm := false
+	switch {
+	case name == "Register" || name == "Bind":
 		kind = strings.ToLower(name)
-	case "Set", "Provide", "Apply", "Put":
+	case name == "RegisterBeanByType" || name == "RegisterBean" || name == "BindBean":
+		// T06：反射容器注册（离线契约识别，不按名字猜实现——impl 仍必须
+		// 来自 reflect.TypeOf 的类型参数）。
+		kind = "register"
+		reflectForm = true
+	case name == "Set" || name == "Provide" || name == "Apply" || name == "Put":
 		// todo22 P1：其它容器的注册形态（gof/自研容器）——需显式字段注解
 		kind = strings.ToLower(name)
 	}
@@ -210,8 +233,10 @@ func seqCollectRegCalls(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx,
 	key := strings.Trim(keyLit.Value, "\"`")
 	implExpr := call.Args[1]
 	wrapper := false
-	if inner, ok := implExpr.(*ast.CallExpr); ok {
-		// AOP：Wrap(&T{})——实现类型取包装器的返回类型
+	typeOfForm := isReflectTypeOfArg(implExpr)
+	if inner, ok := implExpr.(*ast.CallExpr); ok && !typeOfForm {
+		// AOP：Wrap(&T{})——实现类型取包装器的返回类型（reflect.TypeOf 不是
+		// 包装器，不能标成 AOP）。
 		wrapper = true
 		implExpr = inner
 	}
@@ -224,7 +249,8 @@ func seqCollectRegCalls(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx,
 		line = ctx.fset.Position(call.Lparen).Line
 	}
 	out[key] = append(out[key], seqDIReg{key: key, typeName: ref.typeName, pkgPath: ref.pkgPath,
-		file: ctx.rel, line: line, wrapper: wrapper, kind: kind})
+		file: ctx.rel, line: line, wrapper: wrapper, kind: kind,
+		reflectContainer: reflectForm || typeOfForm})
 }
 
 // seqDIPick 字段注入的选取结果。
@@ -253,4 +279,18 @@ func diPickRegistration(regs map[string][]seqDIReg, key, field string) (seqDIPic
 		}
 	}
 	return seqDIPick{}, false
+}
+
+// isReflectTypeOfArg 注册实参是否为 reflect.TypeOf(...)（T06 反射容器形态）。
+func isReflectTypeOfArg(e ast.Expr) bool {
+	call, ok := e.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "TypeOf" {
+		return false
+	}
+	id, ok := sel.X.(*ast.Ident)
+	return ok && id.Name == "reflect"
 }

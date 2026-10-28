@@ -90,6 +90,9 @@ type SeqEvidence struct {
 	// todo22 §3.3：DI 注册证据站点（字段注入的 key 在哪个引导函数里注册）
 	RegisterSite int    `json:"di_register_line,omitempty"`
 	RegisterFile string `json:"di_register_file,omitempty"`
+	// T06：容器字段注入代码契约（file:line + 步骤）。
+	DIInjectFile string `json:"di_inject_file,omitempty"`
+	DIInjectLine int    `json:"di_inject_line,omitempty"`
 	// todo22 §4.1：RPC 续接证据——服务节点/完整服务身份/协议/方法（远端仓库
 	// 续接时 RemoteRepo 记录目标仓库，防止"看起来连上但不是同一个服务"）。
 	ServiceID   string `json:"service_id,omitempty"`

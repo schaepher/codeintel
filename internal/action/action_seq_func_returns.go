@@ -148,6 +148,15 @@ func funcDeclReturnTypes(a *Actions, req CodeSequenceRequest, f *ast.File, impor
 	// 挑一个——只保留声明接口，由有界 switch 分析（T04）处理。
 	if iface := seqFirstResultIface(a, fd, curPkg); iface != "" {
 		body := seqTraceReturnSources(a, req, f, imports, fd, depth, curPkg)
+		if len(body) == 0 {
+			// `return <包级单例>`：沿包内写入 + init 调用实参取具体类型。
+			body = seqGlobalReturnTypes(a, req, f, fd, curPkg, depth)
+		}
+		if hasUnknownWriteSource(body) {
+			// T04：存在未知写者 → **不**把已知写者当唯一实现（即使只剩一个
+			// 已知来源也必须回退声明接口/未证明）。
+			body = nil
+		}
 		if len(body) == 1 {
 			return body
 		}

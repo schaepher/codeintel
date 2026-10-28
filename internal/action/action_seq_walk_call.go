@@ -244,6 +244,13 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 			req.incomingArgs, req.incomingSrc, req.sceneConsts, maxSceneFlowDepth)
 		req.callArgLits, req.callArgSrcs, req.callArgWhy = sceneArgValues(args)
 		req.callArgFields = a.resolveSceneArgFields(req, fset, src, call, req.curBody, req.curParams)
+		// T04：`Get().Work()` —— 先按 getter 返回来源具体化；来源未知时明确
+		// unknown_receiver（不借全库唯一实现）。
+		if a.isIfaceMethodID(tid) {
+			if seqExpandGetterIfaceCall(a, req, node, fun, f, curPkg, depth, curFile, pos) {
+				return node
+			}
+		}
 		if seqExpandIfaceTarget(a, req, node, tid, tg.confidence, curFile, pos, depth) {
 			return node
 		}

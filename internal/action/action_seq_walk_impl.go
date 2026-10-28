@@ -38,6 +38,10 @@ func seqTryDIAndLocalVar(a *Actions, req CodeSequenceRequest, f *ast.File, sel *
 					SymbolID: di.symID, Confidence: confidence, Reason: di.reason,
 					Candidates:   []string{di.symID},
 					RegisterSite: di.reg.line, RegisterFile: di.reg.file}
+				if di.contract != nil {
+					ev.DIInjectFile = di.contract.file
+					ev.DIInjectLine = di.contract.line
+				}
 				node.Evidence = ev
 				seqExpandInto(a, req, node, di.symID, depth)
 				return true

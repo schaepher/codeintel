@@ -116,6 +116,22 @@ func seqTypeOfExpr(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx, expr as
 	case *ast.ParenExpr:
 		return seqTypeOfExpr(a, req, ctx, e.X)
 	case *ast.CallExpr:
+		// T06：类型表达式调用 `(*T)(nil)` / `(T)(nil)` ——参数是 nil 时，
+		// 被调者就是类型本身（reflect.TypeOf 的常见写法）。
+		if isNilIdent(e.Args) {
+			if ref, ok := seqTypeRefOf(req, ctx, unwrapParen(e.Fun)); ok {
+				return ref, true
+			}
+		}
+		// T06：reflect.TypeOf((*T)(nil)) / TypeOf(T{}) / TypeOf(new(T)) ——
+		// 反射注册的 impl 类型（容器契约形态）直接从参数里取类型。
+		if sel, ok := e.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "TypeOf" && len(e.Args) == 1 {
+			if id, ok2 := sel.X.(*ast.Ident); ok2 && id.Obj == nil {
+				if p := seqImportPath(ctx.file, id.Name); p == "reflect" {
+					return seqTypeOfExpr(a, req, ctx, e.Args[0])
+				}
+			}
+		}
 		// 构造器：newT() / NewT() ——按返回值类型（rhsTypes 已有该能力）
 		imports := importAliases(ctx.file)
 		refs := rhsTypes(a, req, ctx.file, imports, e, 3, pkgPathOf(req.curSym))
@@ -131,6 +147,17 @@ func seqTypeOfExpr(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx, expr as
 		return seqLookupType(req.env, e.Obj)
 	}
 	return seqTypeRef{}, false
+}
+
+// unwrapParen 剥掉括号（`(*T)` → `*T`）。
+func unwrapParen(e ast.Expr) ast.Expr {
+	for {
+		p, ok := e.(*ast.ParenExpr)
+		if !ok {
+			return e
+		}
+		e = p.X
+	}
 }
 
 // seqTypeRefOf 类型表达式 → 类型引用（Ident / pkg.T / 泛型 T[P]）。

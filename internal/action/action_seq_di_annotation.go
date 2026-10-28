@@ -5,11 +5,12 @@ package action
 
 import (
 	"go/ast"
+	"go/token"
 	"strings"
 )
 
 // diFieldKey 字段 key：注解（doc/spec 注释）> struct tag > 字段名。
-func diFieldKey(f *ast.File, recvType, field string) (string, string) {
+func diFieldKey(fset *token.FileSet, f *ast.File, recvType, field string) (string, string) {
 	var (
 		key   string
 		found bool
@@ -39,7 +40,7 @@ func diFieldKey(f *ast.File, recvType, field string) (string, string) {
 			if !hit {
 				continue
 			}
-			if k, ok := diAnnotationKey(fl); ok {
+			if k, ok := diAnnotationKey(fset, f, fl); ok {
 				key, found, from = k, true, seqReasonDIAnnotation
 			}
 			return false
@@ -53,7 +54,7 @@ func diFieldKey(f *ast.File, recvType, field string) (string, string) {
 }
 
 // diAnnotationKey 从注释（doc/行内）或 struct tag 提取注入 key。
-func diAnnotationKey(fl *ast.Field) (string, bool) {
+func diAnnotationKey(fset *token.FileSet, f *ast.File, fl *ast.Field) (string, bool) {
 	// 注释形式：`// @inject store` / `//di:store` / `// inject:store`
 	for _, group := range []*ast.CommentGroup{fl.Doc, fl.Comment} {
 		if group == nil {
@@ -64,6 +65,11 @@ func diAnnotationKey(fl *ast.Field) (string, bool) {
 				return k, true
 			}
 		}
+	}
+	// T06：同一行的块注释（`/*@Inject(name=worker)*/ Worker ...`）不会被 Go
+	// parser 挂到 Field.Doc——按位置找"字段前面最近且同行/上一行"的注释。
+	if k, ok := diAnnotationNearField(fset, f, fl); ok {
+		return k, true
 	}
 	// struct tag 形式（不假设只有 tag——注释优先）
 	if fl.Tag != nil {
@@ -77,14 +83,82 @@ func diAnnotationKey(fl *ast.Field) (string, bool) {
 	return "", false
 }
 
+// diAnnotationNearField 同一行/紧邻上一行的块注释注解（parser 不挂 Doc 的
+// 形态）；只接受"最近的一条"且必须含注入注解。
+func diAnnotationNearField(fset *token.FileSet, f *ast.File, fl *ast.Field) (string, bool) {
+	if fset == nil || f == nil || fl == nil {
+		return "", false
+	}
+	fieldLine := fset.Position(fl.Pos()).Line
+	var best *ast.CommentGroup
+	bestEnd := token.NoPos
+	for _, cg := range f.Comments {
+		if cg.End() > fl.Pos() {
+			continue
+		}
+		endLine := fset.Position(cg.End()).Line
+		if endLine != fieldLine && endLine != fieldLine-1 {
+			continue
+		}
+		if cg.End() > bestEnd {
+			best, bestEnd = cg, cg.End()
+		}
+	}
+	if best == nil {
+		return "", false
+	}
+	for _, c := range best.List {
+		if k, ok := diAnnotationInText(c.Text); ok {
+			return k, true
+		}
+	}
+	return "", false
+}
+
+// diAnnotationParam 注解括号参数 → key：`name=worker` / `value=worker` /
+// `worker` / `"worker"`。
+func diAnnotationParam(inner string) (string, bool) {
+	inner = strings.TrimSpace(inner)
+	if inner == "" {
+		return "", false
+	}
+	for _, kv := range strings.Split(inner, ",") {
+		kv = strings.TrimSpace(kv)
+		if i := strings.Index(kv, "="); i > 0 {
+			k := strings.TrimSpace(kv[:i])
+			v := strings.Trim(strings.TrimSpace(kv[i+1:]), "\"'")
+			if (k == "name" || k == "value" || k == "key") && v != "" {
+				return v, true
+			}
+			continue
+		}
+		v := strings.Trim(kv, "\"'")
+		if v != "" && !strings.ContainsAny(v, " =") {
+			return v, true
+		}
+	}
+	return "", false
+}
+
 // diAnnotationInText 解析注释文本里的注入注解（key 非空）。
 func diAnnotationInText(text string) (string, bool) {
 	t := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), "//"))
 	t = strings.TrimSpace(strings.TrimPrefix(t, "/*"))
 	t = strings.TrimSpace(strings.TrimSuffix(t, "*/"))
+	low := strings.ToLower(t)
 	for _, prefix := range []string{"@inject", "inject:", "inject ", "@di", "di:", "di "} {
-		if strings.HasPrefix(t, prefix) {
-			k := strings.TrimSpace(strings.TrimPrefix(t, prefix))
+		if strings.HasPrefix(low, prefix) {
+			k := strings.TrimSpace(t[len(prefix):])
+			// T06：注解参数形式 `@Inject(name=worker)` / `@Inject("worker")`
+			// / `@Inject(worker)`——从括号里取 key，不留括号字符。
+			if strings.HasPrefix(k, "(") && strings.HasSuffix(k, ")") {
+				inner := strings.TrimSpace(k[1 : len(k)-1])
+				if v, ok := diAnnotationParam(inner); ok {
+					return v, true
+				}
+				k = inner
+			}
+			k = strings.Trim(k, "\"'")
 			if k != "" && !strings.ContainsAny(k, " \t") {
 				return k, true
 			}
@@ -111,7 +185,11 @@ func tagValue(tag, name string) (string, bool) {
 // 在包内查找（Box 嵌入 Base，Base.Store 的注解同样适用；多条提升路径
 // 给出不同 key 时保守返回未知）。
 func diFieldKeyInPackage(req CodeSequenceRequest, f *ast.File, recvType, field string) (string, string) {
-	if k, from := diFieldKey(f, recvType, field); from != "" {
+	var fset *token.FileSet
+	if req.curCtx != nil {
+		fset = req.curCtx.fset
+	}
+	if k, from := diFieldKey(fset, f, recvType, field); from != "" {
 		return k, from
 	}
 	rel := seqFileRelOf(req, f)
@@ -129,7 +207,7 @@ func diFieldKeyInPackage(req CodeSequenceRequest, f *ast.File, recvType, field s
 			return
 		}
 		for _, emb := range seqEmbeddedTypeNames(ctx, st) {
-			if k, from := diFieldKey(ctx.file, emb, field); from != "" {
+			if k, from := diFieldKey(ctx.fset, ctx.file, emb, field); from != "" {
 				keys = append(keys, k)
 				reasons = append(reasons, from)
 				continue

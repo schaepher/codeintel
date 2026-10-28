@@ -29,6 +29,13 @@ func seqEvidenceVerdict(ev *SeqEvidence) string {
 		return SeqVerdictCorroborated
 	case SeqEvidenceFieldFlow, SeqEvidenceLocalVar, SeqEvidenceGrpcImpl, SeqEvidenceIface:
 		return SeqVerdictCorroborated
+	case SeqEvidenceDI:
+		// T06：字段注入 = 注解 key + 准确注册 + 容器注入代码（三者齐备才走到
+		// 这里；缺证据时调用方已标 unverified/unknown）。
+		if ev.SymbolID == "" {
+			return SeqVerdictUnverified
+		}
+		return SeqVerdictCorroborated
 	case SeqEvidenceClosure:
 		// 语法级数据流（绑定证明）：有明确绑定 → corroborated；
 		// 未绑定/多值未消歧（Ambiguous）→ 已在前面判为 unverified。

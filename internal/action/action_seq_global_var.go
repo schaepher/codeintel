@@ -18,6 +18,33 @@ import (
 
 const seqGlobalSourceBudget = 8
 
+// seqUnknownWriteSource 未知写者哨兵（typeName 为空；调用方必须视为
+// "来源不完整"，不得只用已知写者拼出唯一结论）。
+func seqUnknownWriteSource() writeSource { return writeSource{} }
+
+// hasUnknownWriteSource 列表里是否含未知写者哨兵。
+func hasUnknownWriteSource(srcs []writeSource) bool {
+	for _, s := range srcs {
+		if s.typeName == "" && s.pkgPath == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// knownWriteSources 过滤未知写者哨兵（保留已知来源；调用方仍需先检查
+// hasUnknownWriteSource 才能判断结论是否唯一）。
+func knownWriteSources(srcs []writeSource) []writeSource {
+	out := make([]writeSource, 0, len(srcs))
+	for _, s := range srcs {
+		if s.typeName == "" && s.pkgPath == "" {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
 // seqGlobalReturnTypes 函数体 `return <pkgVar>` 的包级单例写入类型。
 func seqGlobalReturnTypes(a *Actions, req CodeSequenceRequest, f *ast.File,
 	fd *ast.FuncDecl, pkgPath string, depth int) []writeSource {
@@ -61,11 +88,18 @@ func seqGlobalVarWriteTypes(a *Actions, req CodeSequenceRequest, f *ast.File,
 			if !ok || lhs.Name != name {
 				return true
 			}
-			out = appendUnique(out, rhsTypes(a, req, ff, imports, as.Rhs[0], depth, pkgPath)...)
+			srcs := rhsTypes(a, req, ff, imports, as.Rhs[0], depth, pkgPath)
 			// RHS 是 writer 的形参：沿 init 调用实参取类型。
 			if id, ok := as.Rhs[0].(*ast.Ident); ok {
-				out = appendUnique(out, seqParamCallTypes(a, req, rel, ff, pkgPath, id, depth, budget)...)
+				srcs = appendUnique(srcs, seqParamCallTypes(a, req, rel, ff, pkgPath, id, depth, budget)...)
 			}
+			if len(srcs) == 0 {
+				// T04：存在**未知写者**——不能因为还有别的已知写者就当唯一
+				// （append 哨兵，由调用方判定"不完整"）。
+				out = appendUnique(out, seqUnknownWriteSource())
+				return true
+			}
+			out = appendUnique(out, srcs...)
 			return true
 		})
 	}
