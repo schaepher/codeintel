@@ -122,7 +122,11 @@ func seqExpandFactoryFieldCall(a *Actions, req CodeSequenceRequest, node *CodeSe
 	}
 	cands, ok := seqFactoryFieldCandidates(a, req, origin, recvType, field, curPkg)
 	if !ok || len(cands) == 0 {
-		return false
+		// T05/U06：getter 返回的字段在工厂里没有可证明的写入来源（写别的
+		// 对象/未知方法改写/无 setter）——实例来源未知，保留接口调用与
+		// 未验证边界，不回退到"唯一实现候选"。
+		markSeqUnknownReceiver(node, curFile, pos.Line, 0.8, recvType, field)
+		return true
 	}
 	method := sel.Sel.Name
 	// T05：只有**具体类型**能作为工厂字段候选——setter 实参本身是接口

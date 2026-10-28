@@ -198,6 +198,10 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		if sel, isSel := fun.(*ast.SelectorExpr); isSel && recvType != "" {
 			if field, ok2 := receiverFieldSel(sel, req.curRecvObj, req.curRecvName); ok2 {
 				impls := a.receiverFieldImpls(req, recvType, field, sel.Sel.Name)
+				// 写者来源只证明到接口本身（如工厂返回接口）→ 仍无实例来源。
+				if len(impls) == 1 && a.isIfaceMethodID(impls[0]) {
+					impls = nil
+				}
 				if len(impls) > 1 {
 					node.Evidence = &SeqEvidence{Source: SeqEvidenceFieldFlow, CallFile: curFile, CallLine: pos.Line,
 						Confidence: tg.confidence, Reason: "receiver-field-dataflow", Candidates: impls,
@@ -206,9 +210,13 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 						Detail: "字段 " + recvType + "." + field + " 有 " + itoaSeq(len(impls)) + " 个具体实现写入来源（未消歧，未展开）"}
 					return node
 				}
-				// U06：无写入证明先记下（DI 证明在下一步检查）。
-				if len(impls) == 0 && a.isIfaceMethodID(tid) {
-					unknownField = field
+				// U06：无写入证明先记下（DI 证明在下一步检查）。字段声明类型
+				// 是接口时，即使调用边/唯一实现指向具体类型也不得借用——
+				// 实例来源未知就保留接口调用与未验证边界。
+				if len(impls) == 0 {
+					if a.isIfaceMethodID(tid) || seqDeclaredTypeIsIface(a, req, recvDecl[field]) {
+						unknownField = field
+					}
 				}
 				if len(impls) == 1 {
 					implMethod := impls[0]
