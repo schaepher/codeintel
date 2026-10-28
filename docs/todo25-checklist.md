@@ -85,3 +85,15 @@ bash scripts/verify.sh --quick
 | 任务 | 状态 | 证据 |
 | --- | --- | --- |
 | §8 第 8 节夹具逐项断言 | **完成（核心表）** | `TestTodo25CoreFixtureAssertions`：真实 init；Source=7 Check1–4=1/Check5–7=0，Source=19 Check1–7=1；Setup 一次；MakeFirst/First/Second 装饰链；Store.Insert→ExecContext；ApproveTrace；BeforeSecond/AfterSecond 两条 bypass 分支均保留。 |
+
+## 第八批（§10.3-A…G 保真/生命周期回归）
+
+| 项 | 状态 | 证据 |
+| --- | --- | --- |
+| A 包缓存分块 round-trip | 完成（复验） | `TestPkgCacheChunkSizeLimit`、`TestPkgCacheChunkedMultiBlock`、`TestPkgCacheChunkIntegrity` PASS |
+| B 截断/缺结束标记/旧格式未命中 | 完成（复验） | `TestPkgCacheTruncatedMidStreamRejected`、`TestArtifactCacheRejectsTruncatedAndMissingEnd` PASS |
+| C 写缓存事务/回滚/容量/并发隔离 | 完成（复验） | `TestBuildWriteCache*`（Partition/SegmentedEviction/RebuildIsolation/Concurrent）PASS |
+| D 路径/投影缓存失效与并发 | 完成（复验） | `TestCallFactsProjectionCacheHitAndInvalidation`、`TestProjectionConcurrentSingleLoad` PASS |
+| E 嵌套/元素字段来源 | 完成（既有） | 既有 `fe_nested`/`fe_element` 用例保持通过 |
+| F CPU profile 二次启动 | 完成（复验） | `TestStartCPUProfileFailureKeepsExisting` PASS |
+| G 路由点查窄索引/幂等迁移 | 完成（复验） | `TestRouteProjectionPlanUsesIndex` PASS |
