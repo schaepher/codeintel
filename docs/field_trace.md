@@ -7521,3 +7521,20 @@ init → CLI：正例/浅查询/跨仓续查/workspace 外/动态 URL/两条注�
 
 **保留边界**：闭包捕获后修改、未知方法改写字段、嵌入提升方法真实 owner、
 子类型未索引覆盖方法/多条提升路径、完整反例矩阵（todo25 §3.4 剩余项）。
+
+## §156 todo25 §12：async 候选预算按关系强度分配（2026-10-28）
+
+**问题**：`query async` 把 candidates 放进 map 后按 canonical ID 排序截前 200，
+字母序靠后的真实调用邻居/同字段候选被通用 `A000...` 类型挤出；值来源摘要
+仍对截断前集合逐函数查询（220 弱候选时 GetSymbol 约 600 次）。
+
+**改法**（`action_async.go`）：候选带优先级（direct_call → field_identity →
+type_scope → call_path → id_name），同级按 canonical ID 排序后截断；`selected`
+集合供 `funcsForOrigins`/值来源摘要使用；`AsyncNode.candidate_reason` 记录
+依据（不升级 verdict）；查询内 `asyncSymbolCache` 复用 GetSymbol（含失败，
+不跨请求）。
+
+**验证**：`integration/todo25_async_budget_test.go`（真实 init，210 个异类型
+Id 候选 + ZCaller/ZConsume）、`internal/action/action_async_budget_test.go`
+（GetFunctionFields≤201、GetSymbol≤404）。顺带修复 integration 大输出测试
+helper 的 pipe 死锁（运行期间并发排空 stdout/stderr）。

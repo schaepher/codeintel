@@ -47,3 +47,11 @@ bash scripts/verify.sh --quick
 ## 其余 §1–§13
 
 尚未开始，按 todo25.txt 原编号保留（不将新增诊断视为完成）。
+
+## 本轮续做
+
+| 编号 | 状态 | 实现 / 证据 |
+| --- | --- | --- |
+| §12 async 候选预算按关系强度分配 | **已完成（本轮）** | 候选优先级 `direct_call > field_identity > type_scope > call_path > id_name`，同级 canonical ID 排序；`candidate_total` 保留截断前总数，`candidate_budget=200`，`partial`/截断诊断；`AsyncNode.candidate_reason`；值来源摘要只查 seed + 预算内候选；查询内符号缓存（含失败，每函数最多一次），不跨请求。 |
+| §12 大输出 CLI 管道 | **已完成（本轮）** | `runCLIOut`/`runCLIOutErr` 运行期间并发排空 stdout/stderr，避免 200 候选大 JSON 与 pipe 缓冲区互等死锁（实测修复前 200s 超时）。 |
+| §12 计数/正例 | **已完成（本轮）** | `integration/todo25_async_budget_test.go`：真实 init，`total>=212`、`budget=200`、`partial=true`、`nodes=201`、ZCaller=`direct_call`、ZConsume=`field_identity`、links 端点闭合、重复查询集合一致。`internal/action/action_async_budget_test.go`：220 弱候选夹具，`GetFunctionFields<=201`、`GetSymbol<=404`（缓存后实测远低于上限），候选 reason 齐全。 |

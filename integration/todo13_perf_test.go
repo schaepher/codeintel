@@ -9,8 +9,8 @@ package integration
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -146,12 +146,22 @@ func runCLIOutErr(t *testing.T, args ...string) (int, string, string) {
 	ro, wo, _ := os.Pipe()
 	re, we, _ := os.Pipe()
 	os.Stdout, os.Stderr = wo, we
+	// todo25 §12：运行期间并发排空 stdout/stderr（大输出不会与 pipe 缓冲互等）。
+	var outBuf, errBuf strings.Builder
+	done := make(chan struct{}, 2)
+	go func() {
+		_, _ = io.Copy(&outBuf, ro)
+		done <- struct{}{}
+	}()
+	go func() {
+		_, _ = io.Copy(&errBuf, re)
+		done <- struct{}{}
+	}()
 	code := cli.Main(context.Background(), args)
 	wo.Close()
 	we.Close()
 	os.Stdout, os.Stderr = oldOut, oldErr
-	var outBuf, errBuf strings.Builder
-	_, _ = io.Copy(&outBuf, ro)
-	_, _ = io.Copy(&errBuf, re)
+	<-done
+	<-done
 	return code, outBuf.String(), errBuf.String()
 }

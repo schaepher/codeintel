@@ -14,6 +14,9 @@ type AsyncNode struct {
 	File         string `json:"file,omitempty"`
 	Line         int    `json:"line,omitempty"`
 	Verdict      string `json:"verdict"` // 角色判定的支持程度
+	// todo25 §12：候选选入依据（direct_call|field_identity|type_scope|
+	// call_path|id_name）——只解释预算分配，不升级 verdict。
+	CandidateReason string `json:"candidate_reason,omitempty"`
 }
 
 // AsyncLink 两个入口之间的关联（带因果证据）。

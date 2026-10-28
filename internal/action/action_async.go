@@ -50,6 +50,9 @@ func (a *Actions) AsyncLifecycle(req AsyncLifecycleRequest) (*AsyncLifecycleResu
 	logger.Info("enter (Actions).AsyncLifecycle", zap.String("seed", req.Seed))
 	defer logger.Info("exit (Actions).AsyncLifecycle")
 
+	// todo25 §12：本次查询内符号读取复用（含失败；每个函数最多解析一次）。
+	// 不跨请求保留——索引/源码变化不能沿用旧证明。
+	a = &Actions{repo: &asyncSymbolCache{Reader: a.repo, cache: map[string]asyncSymEntry{}}}
 	seed, err := a.ResolveSymbol(req.Seed)
 	if err != nil {
 		// 表/类型名搜索保留；canonical ID 不存在必须明确报错（todo12-5 R2）
@@ -130,57 +133,16 @@ func (a *Actions) AsyncLifecycle(req AsyncLifecycleRequest) (*AsyncLifecycleResu
 		}
 	}
 	idColumns := asyncIDColumns(seedFields)
-	candidates := map[string]bool{}
-	for id, f := range facts {
-		if seed != nil && id == string(seed.ID) {
-			continue
-		}
-		if !seedHasFields {
-			continue // 下方按调用/值身份收集
-		}
-		fields := map[string]bool{}
-		for p := range f.writes {
-			fields[p] = true
-		}
-		for p := range f.reads {
-			fields[p] = true
-		}
-		for p := range fields {
-			if seedFields[p] || asyncSharesType(p, seedTypePrefixes) || asyncSharesIDColumn(p, idColumns) {
-				candidates[id] = true
-				break
-			}
-		}
-	}
-	// 调用链上的函数也算候选（人工动作 → 内部审核这类同步段）
-	chain := map[string]bool{}
-	if seed != nil {
-		chain = chainSymbols(a, string(seed.ID))
-		for id := range chain {
-			if id != string(seed.ID) {
-				candidates[id] = true
-			}
-		}
-		// todo13-5：反向直接调用者同样属于“调用身份”（谁触发 seed）
-		for id := range a.directCallersOf(string(seed.ID)) {
-			candidates[id] = true
-		}
-	}
-	// todo12-5 R3：候选预算 + 稳定排序（seed 必保留；实际数量/预算可审计）
-	candIDs := make([]string, 0, len(candidates))
-	for id := range candidates {
-		candIDs = append(candIDs, id)
-	}
-	sortStrings(candIDs)
-	total := len(candIDs)
-	if total > asyncCandidateBudget {
-		candIDs = candIDs[:asyncCandidateBudget]
+	candIDs, candWhy, total := asyncSelectCandidates(a, seed, facts, seedFields, seedTypePrefixes, idColumns)
+	selected := make(map[string]bool, len(candIDs))
+	for _, id := range candIDs {
+		selected[id] = true
 	}
 	// todo11-3：真实可达索引（calls 边）——"双方都在展开集合"不再算可达
 	reach := a.callsReachIndex()
 	// todo11-3：值来源指纹（summary_origins：callee + 调用行）。AllSummaries
 	// 不带 origins，故按候选函数逐个取（节点数 ≤20，成本可控）。
-	origins := a.asyncOriginIndex(funcsForOrigins(seed, candidates))
+	origins := a.asyncOriginIndex(funcsForOrigins(seed, selected))
 
 	res := &AsyncLifecycleResult{Seed: req.Seed, Nodes: []AsyncNode{}, Links: []AsyncLink{},
 		CandidateTotal: total, CandidateBudget: asyncCandidateBudget}
@@ -232,7 +194,8 @@ func (a *Actions) AsyncLifecycle(req AsyncLifecycleRequest) (*AsyncLifecycleResu
 			verdict, evidence = SeqVerdictCorroborated, ev.evidence
 		}
 		nd := AsyncNode{ID: id, Name: n.Name, Role: role, RoleRule: rule,
-			RoleEvidence: evidence, File: n.FilePath, Line: n.LineStart, Verdict: verdict}
+			RoleEvidence: evidence, File: n.FilePath, Line: n.LineStart, Verdict: verdict,
+			CandidateReason: candWhy[id]}
 		res.Nodes = append(res.Nodes, nd)
 		return &res.Nodes[len(res.Nodes)-1]
 	}

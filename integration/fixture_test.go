@@ -247,13 +247,18 @@ func runCLIOut(t *testing.T, args ...string) (int, string) {
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
+	// todo25 §12：大输出必须在 CLI 运行期间排空 pipe（等 Main 返回再读会
+	// 在缓冲区满时与写端互等死锁）。
+	var buf strings.Builder
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(&buf, r)
+		close(done)
+	}()
 	code := cli.Main(context.Background(), args)
 	w.Close()
 	os.Stdout = old
-	var buf strings.Builder
-	if _, err := io.Copy(&buf, r); err != nil {
-		return code, ""
-	}
+	<-done
 	return code, buf.String()
 }
 
