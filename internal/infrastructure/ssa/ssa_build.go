@@ -96,6 +96,12 @@ func runBounded(workers, n int, fn func(i int)) {
 //
 // 返回 true 时调用方必须 `<-sem` 释放。
 func acquireWorker(ctx context.Context, sem chan struct{}) bool {
+	// T17：抢槽前先检查取消——空槽立即可写时 select 可能直接选中 sem
+	// 分支，仅靠拿令牌后的二次检查虽能回滚，但会白白获取/释放一次令牌，
+	// 且与"已取消不启动工作"的口径不一致。
+	if ctx.Err() != nil {
+		return false
+	}
 	select {
 	case sem <- struct{}{}:
 		if ctx.Err() != nil {
