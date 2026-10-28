@@ -125,10 +125,23 @@ func seqExpandFactoryFieldCall(a *Actions, req CodeSequenceRequest, node *CodeSe
 		return false
 	}
 	method := sel.Sel.Name
+	// T05：只有**具体类型**能作为工厂字段候选——setter 实参本身是接口
+	// （`Set(NewPick())` 返回 API）时无法证明实际实例，不能把接口方法当
+	// 具体实现展开。
+	concrete := make([]seqFieldCandidate, 0, len(cands))
 	impls := make([]string, 0, len(cands))
 	for _, c := range cands {
-		impls = append(impls, "symbol:go:"+c.pkgPath+":("+c.typeName+")."+method)
+		impl := "symbol:go:" + c.pkgPath + ":(" + c.typeName + ")." + method
+		if a.isIfaceMethodID(impl) {
+			continue
+		}
+		concrete = append(concrete, c)
+		impls = append(impls, impl)
 	}
+	if len(concrete) == 0 {
+		return false
+	}
+	cands = concrete
 	ev := &SeqEvidence{Source: SeqEvidenceFieldFlow, CallFile: curFile, CallLine: pos.Line,
 		Reason: "factory-field-dataflow", Candidates: impls, Ambiguous: len(cands) > 1,
 		CandidateBudget: seqIfaceBudget(len(cands), false)}
@@ -145,9 +158,13 @@ func seqExpandFactoryFieldCall(a *Actions, req CodeSequenceRequest, node *CodeSe
 		if _, err := a.repo.GetSymbol(domain.CanonicalID(impl)); err != nil {
 			continue
 		}
-		child := &CodeSeqNode{Kind: "call", Label: "(" + c.typeName + ")." + method, Line: node.Line,
+		// T05/U07：候选实现调用要有稳定参与者（receiver 具体类型）——否则
+		// 渲染出空发送方（`->>P6`），证据也缺左端。
+		child := &CodeSeqNode{Kind: "call", Label: method, Actor: c.typeName,
+			Type: implTypeShort(impl), Line: node.Line,
 			Evidence: &SeqEvidence{Source: SeqEvidenceFieldFlow, CallFile: curFile,
-				CallLine: pos.Line, SymbolID: impl, Reason: "factory-field-dataflow"}}
+				CallLine: pos.Line, SymbolID: impl, Confidence: 1.0,
+				Reason: "factory-field-dataflow", Verdict: SeqVerdictCorroborated}}
 		if child2, stop := codeSeqForSymbol(a, req, impl, depth-1); child2 != nil {
 			child.Nodes, child.Stop = child2.Nodes, child2.Stop
 		} else if stop != nil {

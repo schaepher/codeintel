@@ -10,6 +10,20 @@ import (
 	"github.com/schaepher/codeintel/internal/domain"
 )
 
+// seqSwitchHasDefault switch 是否有 default 分支（无 default = 存在未覆盖路径）。
+func seqSwitchHasDefault(body *ast.BlockStmt) bool {
+	if body == nil {
+		return false
+	}
+	for _, st := range body.List {
+		cc, ok := st.(*ast.CaseClause)
+		if ok && cc.List == nil {
+			return true
+		}
+	}
+	return false
+}
+
 // seqMethodReturnField 方法体 return <receiver>.<field>（唯一字段）。
 func seqMethodReturnField(a *Actions, req CodeSequenceRequest, symID, recvType string) (string, bool) {
 	n, err := a.repo.GetSymbol(domain.CanonicalID(symID))
@@ -232,6 +246,16 @@ func seqFactoryFallthrough(fn *ast.FuncDecl, returned map[*ast.Object]bool) bool
 	bad := false
 	ast.Inspect(fn.Body, func(nd ast.Node) bool {
 		switch x := nd.(type) {
+		case *ast.SwitchStmt:
+			// T05：switch 没有 default → 存在"没走任何 setter"的路径，
+			// 字段写入证明不完整（不能假设 return 前一定被赋值）。
+			if !seqSwitchHasDefault(x.Body) {
+				bad = true
+			}
+		case *ast.TypeSwitchStmt:
+			if !seqSwitchHasDefault(x.Body) {
+				bad = true
+			}
 		case *ast.BranchStmt:
 			if x.Tok == token.FALLTHROUGH {
 				bad = true

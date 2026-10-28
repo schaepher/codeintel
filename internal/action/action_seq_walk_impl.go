@@ -56,7 +56,14 @@ func seqTryDIAndLocalVar(a *Actions, req CodeSequenceRequest, f *ast.File, sel *
 	node.ImplType = implTypeShort(implMethod)
 	node.Evidence = &SeqEvidence{Source: SeqEvidenceLocalVar, CallFile: curFile, CallLine: pos.Line,
 		SymbolID: implMethod, Confidence: confidence, Reason: "localvar-init-dataflow"}
-	seqExpandInto(a, req, node, implMethod, depth)
+	// T05：局部变量携带的实例来源（工厂调用）要传给子方法——否则
+	// `box.Run → b.Step → b.Get().Work` 在 Step 里丢失工厂身份，字段续接
+	// 直接放弃。
+	sub := req
+	if origin := seqCallReceiverOrigin(a, req, sel, implMethod, f, pkgPathOf(req.curSym)); origin != "" {
+		sub.curRecvOrigin = origin
+	}
+	seqExpandInto(a, sub, node, implMethod, depth)
 	return true
 }
 

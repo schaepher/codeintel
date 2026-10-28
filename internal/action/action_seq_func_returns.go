@@ -9,6 +9,8 @@ package action
 import (
 	"go/ast"
 	"strings"
+
+	"github.com/schaepher/codeintel/internal/domain"
 )
 
 // funcReturnTypes 同包函数声明 → 返回类型来源。当前文件有同名声明时**只**
@@ -53,6 +55,55 @@ func funcReturnTypes(a *Actions, req CodeSequenceRequest, f *ast.File, imports m
 	return funcDeclReturnTypes(a, req, hitCtx.file, importAliases(hitCtx.file), hitDecl, depth, curPkg)
 }
 
+// seqTraceReturnSources 顶层 return 语句的具体返回值来源（不处理接口声明
+// 回退——调用方判断候选数）。
+func seqTraceReturnSources(a *Actions, req CodeSequenceRequest, f *ast.File,
+	imports map[string]string, fd *ast.FuncDecl, depth int, curPkg string) []writeSource {
+	var out []writeSource
+	if fd == nil || fd.Body == nil {
+		return nil
+	}
+	// 递归遍历全部 return（含 if/switch 分支内的）——声明的接口返回只有在
+	// "唯一具体来源"时才采纳；多来源必须回退到声明接口。
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		ret, ok := n.(*ast.ReturnStmt)
+		if !ok {
+			return true
+		}
+		for _, r := range ret.Results {
+			out = appendUnique(out, rhsTypes(a, req, f, imports, r, depth, curPkg)...)
+		}
+		return true
+	})
+	return out
+}
+
+// seqFirstResultIface 函数第一个返回类型若是本仓已索引的接口 → 返回类型名
+// （否则空串）。
+func seqFirstResultIface(a *Actions, fd *ast.FuncDecl, curPkg string) string {
+	if a == nil || a.repo == nil || fd.Type.Results == nil || len(fd.Type.Results.List) == 0 {
+		return ""
+	}
+	t := fd.Type.Results.List[0].Type
+	if star, ok := t.(*ast.StarExpr); ok {
+		t = star.X
+	}
+	name := ""
+	switch x := t.(type) {
+	case *ast.Ident:
+		name = x.Name
+	case *ast.SelectorExpr:
+		name = x.Sel.Name
+	default:
+		return ""
+	}
+	n, err := a.repo.GetSymbol(domain.CanonicalID("symbol:go:" + curPkg + ":" + name))
+	if err != nil || n == nil || n.Kind != domain.KindInterface {
+		return ""
+	}
+	return name
+}
+
 // findFuncDeclInFile 文件里的顶层函数声明（方法不算裸函数名；>1 即非法/冲突）。
 func findFuncDeclInFile(f *ast.File, name string) (*ast.FuncDecl, int) {
 	if f == nil {
@@ -90,6 +141,25 @@ func seqFileRelOf(req CodeSequenceRequest, f *ast.File) string {
 // 具体实现"比返回类型声明更具体）；无 return 再退回返回类型声明。
 func funcDeclReturnTypes(a *Actions, req CodeSequenceRequest, f *ast.File, imports map[string]string, fd *ast.FuncDecl, depth int, curPkg string) []writeSource {
 	if fd == nil || fd.Body == nil {
+		return nil
+	}
+	// T05：**声明返回接口**时只在"单一具体来源"下采纳具体类型（构造器
+	// 实际 return &Impl{}）；多个互斥来源（switch/条件返回不同实现）不得
+	// 挑一个——只保留声明接口，由有界 switch 分析（T04）处理。
+	if iface := seqFirstResultIface(a, fd, curPkg); iface != "" {
+		body := seqTraceReturnSources(a, req, f, imports, fd, depth, curPkg)
+		if len(body) == 1 {
+			return body
+		}
+		if fd.Type.Results != nil {
+			var decl []writeSource
+			for _, r := range fd.Type.Results.List {
+				decl = appendUnique(decl, typeSources(r.Type, imports, curPkg)...)
+			}
+			if len(decl) > 0 {
+				return decl
+			}
+		}
 		return nil
 	}
 	var out []writeSource
