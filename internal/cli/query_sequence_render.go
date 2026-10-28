@@ -42,6 +42,8 @@ func renderCodeSeqMermaid(root *action.CodeSeqNode) string {
 		label := p
 		if t := typeOf[p]; t == seqUnresolvedImplMark {
 			label = p + "（实现未消歧）"
+		} else if t == seqUnknownReceiverMark {
+			label = p + "（实例来源未知）"
 		} else if t != "" {
 			label = p + "<br/>" + t
 		}
@@ -63,7 +65,9 @@ func seqCommentText(s string) string {
 func collectTypes(nodes []*action.CodeSeqNode, out map[string]string) {
 	for _, n := range nodes {
 		if n.Kind == "call" && n.Actor != "" && out[n.Actor] == "" {
-			if n.Evidence != nil && n.Evidence.Ambiguous && len(n.Evidence.Candidates) > 0 {
+			if n.Evidence != nil && n.Evidence.Reason == "unknown_receiver" {
+				out[n.Actor] = seqUnknownReceiverMark
+			} else if n.Evidence != nil && n.Evidence.Ambiguous && len(n.Evidence.Candidates) > 0 {
 				out[n.Actor] = seqUnresolvedImplMark
 			} else if n.Type != "" {
 				t := n.Type
@@ -83,6 +87,10 @@ func collectTypes(nodes []*action.CodeSeqNode, out map[string]string) {
 
 // seqUnresolvedImplMark 接口实现未消歧的参与者标记（Mermaid 参与者标签）。
 const seqUnresolvedImplMark = "\x00unresolved-impl"
+
+// seqUnknownReceiverMark U06：接口字段/接收者无实例来源证明（唯一实现不等于
+// 实际实例）——参与者标签明确标"实例来源未知"。
+const seqUnknownReceiverMark = "\x00unknown-receiver"
 
 // seqCandidateShort canonical 候选 ID → 简短身份（(ImplCN).Do → ImplCN.Do）。
 func seqCandidateShort(id string) string {

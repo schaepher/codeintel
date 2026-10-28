@@ -14,6 +14,8 @@ import (
 	"go/token"
 	"strings"
 	"time"
+
+	"github.com/schaepher/codeintel/internal/domain"
 )
 
 // seqTryDIAndLocalVar 尝试 DI 字段注入与局部变量具体化；命中时已填好 node。
@@ -140,6 +142,62 @@ func seqExpandIfaceTarget(a *Actions, req CodeSequenceRequest, node *CodeSeqNode
 		node.Stop = &SeqStop{Code: SeqStopUnknownImpl,
 			Detail: "接口方法 " + tid + " 无可证明实现（调用边/接口身份已知，实现未验证）"}
 		return true
+	}
+	return false
+}
+
+// seqExpandSceneIfaceChoice todo11-2：接口方法调用的实现选择（场景守卫优先；
+// 未唯一确定时保留完整候选、不展开单一实现）。返回 true = 已处理该节点。
+func seqExpandSceneIfaceChoice(a *Actions, req CodeSequenceRequest, node *CodeSeqNode,
+	fun ast.Expr, fset *token.FileSet, pos token.Position, tid string, confidence float64,
+	curFile string, depth int) bool {
+	if !strings.Contains(tid, ":(") {
+		return false
+	}
+	sel, isSel := fun.(*ast.SelectorExpr)
+	if !isSel {
+		return false
+	}
+	recv, isID := sel.X.(*ast.Ident)
+	if !isID {
+		return false
+	}
+	dispStart := time.Now()
+	f, okF := req.curCtx.file, req.curCtx != nil
+	if !okF {
+		return false
+	}
+	impl, reason, cands, guard, ok := a.sceneImplChoice(req, fset, pos.Offset, f, recv.Obj, recv.Name,
+		sel.Sel.Name, pkgOfID(domain.CanonicalID(tid)))
+	req.acc.dispatch++
+	req.acc.dispatchDur += time.Since(dispStart)
+	if !ok {
+		return false
+	}
+	ev := seqIfaceEvidence(curFile, pos.Line, impl, cands, confidence)
+	if !guard {
+		// 到达定义存在但场景未唯一确定——保留完整候选集合，不展开单一实现。
+		ev.Reason = "reaching-guard-unknown"
+		ev.Ambiguous = true
+		ev.Candidates = cands
+		ev.SymbolID = ""
+		ev.CandidateBudget = seqIfaceBudget(len(cands), false)
+		node.Evidence = ev
+		return true
+	}
+	node.ImplType = implTypeShort(impl)
+	ev.Reason = reason
+	ev.Ambiguous = false
+	ev.Candidates = []string{impl}
+	node.Evidence = ev
+	if seqExpandRPC(a, req, node, impl, depth, curFile, pos.Line) {
+		return true
+	}
+	if child, stop := codeSeqForSymbol(a, req, impl, depth-1); child != nil {
+		node.Nodes, node.Stop = child.Nodes, child.Stop
+		return true
+	} else if stop != nil {
+		node.Stop = stop
 	}
 	return false
 }

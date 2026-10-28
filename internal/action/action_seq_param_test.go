@@ -98,7 +98,15 @@ func (s *orderServiceImpl) SubmitOrder() error {
 	if child.Type != "m.IOrderManager" {
 		t.Errorf("Type = %q; want m.IOrderManager（声明接口）", child.Type)
 	}
-	if child.ImplType != "m.orderManagerImpl" {
-		t.Errorf("ImplType = %q; want m.orderManagerImpl（接口具体化实现——外部 DI 注入）", child.ImplType)
+	// U06：字段写入来源是**参数**（无实际实例证明）→ 唯一实现也不等于实际
+	// 实例来源；保留接口调用与未验证边界，不接成确定调用。
+	if child.ImplType != "" {
+		t.Errorf("ImplType = %q; want 空（未知实例来源不得借唯一实现）", child.ImplType)
+	}
+	if child.Evidence == nil || child.Evidence.Reason != "unknown_receiver" || !child.Evidence.Ambiguous {
+		t.Errorf("证据应标 unknown_receiver/unverified: %+v", child.Evidence)
+	}
+	if child.Stop == nil || child.Stop.Code != SeqStopUnknownReceiver {
+		t.Errorf("应停在 unknown_receiver: %+v", child.Stop)
 	}
 }

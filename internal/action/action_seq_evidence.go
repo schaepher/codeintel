@@ -34,6 +34,9 @@ const (
 	SeqStopUnknownImpl    = "unknown_implementation" // 接口方法无可证明实现
 	// todo22 §3.2：有多个未验证候选——保留候选集合，不选第一个展开
 	SeqStopIfaceAmbiguous = "iface_ambiguous"
+	// U06：接口字段/接收者实例来源未知（无写入/注入证明）——唯一实现
+	// 不等于实际实例来源。
+	SeqStopUnknownReceiver = "unknown_receiver"
 	// todo22 §4.1：RPC 续接的停止码见 action_seq_rpc_evidence.go（§4.1 专用）
 	SeqDegradedPackage = "degraded_package" // 构建期失败的具体包（含错误位置）
 	SeqTargetCoverage  = "target_coverage"  // 目标与失败包的隔离判断
@@ -260,4 +263,3 @@ const (
 	SeqVerdictCorroborated = "corroborated"
 	SeqVerdictUnverified   = "unverified"
 )
-

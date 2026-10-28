@@ -12,8 +12,6 @@ import (
 	"go/token"
 	"strings"
 	"time"
-
-	"github.com/schaepher/codeintel/internal/domain"
 )
 
 // newSeqCallNode 返回"位置 → 调用节点"的构造函数（闭包捕获遍历上下文，
@@ -186,51 +184,14 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 			return node
 		}
 
-		// 0) todo11-2：接口方法调用的实现选择——场景守卫优先；多候选标 ambiguous
-		if strings.Contains(tid, ":(") {
-			if sel, isSel := fun.(*ast.SelectorExpr); isSel {
-				if recv, isID := sel.X.(*ast.Ident); isID {
-					dispStart := time.Now()
-					impl, reason, cands, guard, ok := a.sceneImplChoice(req, fset, pos.Offset, f, recv.Obj, recv.Name,
-						sel.Sel.Name, pkgOfID(domain.CanonicalID(tid)))
-					req.acc.dispatch++
-					req.acc.dispatchDur += time.Since(dispStart)
-					if ok {
-						ev := seqIfaceEvidence(curFile, pos.Line, impl, cands, tg.confidence)
-						if !guard {
-							// todo13-4：到达定义存在但场景未唯一确定——**不把首个实现
-							// 当结论、不展开单一实现**；保留完整候选集合供 JSON/文本/
-							// 图共用（未知候选不得绘成已确定调用）。
-							ev.Reason = "reaching-guard-unknown"
-							ev.Ambiguous = true
-							ev.Candidates = cands
-							ev.SymbolID = ""
-							ev.CandidateBudget = seqIfaceBudget(len(cands), false)
-							node.Evidence = ev
-							return node
-						}
-						node.ImplType = implTypeShort(impl)
-						ev.Reason = reason
-						ev.Ambiguous = false
-						ev.Candidates = []string{impl}
-						node.Evidence = ev
-						// todo22 §4.1：场景消歧后命中的实现若是 RPC 客户端桩，
-						// 续接服务端子树（桩源码不是业务流程）。
-						if seqExpandRPC(a, req, node, impl, depth, curFile, pos.Line) {
-							return node
-						}
-						if child, stop := codeSeqForSymbol(a, req, impl, depth-1); child != nil {
-							node.Nodes, node.Stop = child.Nodes, child.Stop
-							return node
-						} else if stop != nil {
-							node.Stop = stop
-						}
-					}
-				}
-			}
+		// 0) 场景/守卫优先的接口实现选择（todo11-2；见 walk_impl.go）
+		if seqExpandSceneIfaceChoice(a, req, node, fun, fset, pos, tid, tg.confidence,
+			curFile, depth) {
+			return node
 		}
 
-		// 1) receiver 字段数据流具体化（R97-2）
+		// 1) receiver 字段数据流具体化（R97-2 / U06 边界）
+		unknownField := ""
 		if sel, isSel := fun.(*ast.SelectorExpr); isSel && recvType != "" {
 			if field, ok2 := receiverFieldSel(sel, req.curRecvObj, req.curRecvName); ok2 {
 				impls := a.receiverFieldImpls(req, recvType, field, sel.Sel.Name)
@@ -241,6 +202,10 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 					node.Stop = &SeqStop{Code: SeqStopIfaceAmbiguous,
 						Detail: "字段 " + recvType + "." + field + " 有 " + itoaSeq(len(impls)) + " 个具体实现写入来源（未消歧，未展开）"}
 					return node
+				}
+				// U06：无写入证明先记下（DI 证明在下一步检查）。
+				if len(impls) == 0 && a.isIfaceMethodID(tid) {
+					unknownField = field
 				}
 				if len(impls) == 1 {
 					implMethod := impls[0]
@@ -267,10 +232,14 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 				return node
 			}
 		}
-
-		// 3) 接口方法 → 实现方法（implements 边 + 方法名；候选可多个）
-		// todo11-2：实参字面量走有界值流解析（变量链 + 形参向上，深度 ≤2）——
-		// 一层字面量只是它的特例；解析不到保持空串（不猜）
+		// U06：接口字段既无字段写入、也无 DI/局部变量证明——唯一实现不等于
+		// 实际实例来源；保留接口调用与未验证边界，不接成确定调用。
+		if unknownField != "" {
+			markSeqUnknownReceiver(node, curFile, pos.Line, tg.confidence, recvType, unknownField)
+			return node
+		}
+		// 3) 接口方法 → 实现方法（implements 边 + 方法名；候选可多个）。
+		// todo11-2：实参字面量走有界值流解析（≤2 层），解析不到保持空串。
 		args := a.resolveSceneArgLiterals(fset, src, call, req.curBody, req.curParams,
 			req.incomingArgs, req.incomingSrc, req.sceneConsts, maxSceneFlowDepth)
 		req.callArgLits, req.callArgSrcs, req.callArgWhy = sceneArgValues(args)
@@ -284,8 +253,7 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 			return node
 		}
 
-		// 5) 直接展开（索引 calls 边的目标）——todo25 §3.4：把"接收者实例
-		// 来自哪个工厂"沿 b.Run→b.Step 传给子方法，字段续接才能区分实例。
+		// 5) 直接展开（todo25 §3.4：把接收者实例来源传给子方法）。
 		subReq := req
 		if origin := seqCallReceiverOrigin(a, req, fun, tid, f, curPkg); origin != "" {
 			subReq.curRecvOrigin = origin
