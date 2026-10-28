@@ -95,20 +95,31 @@ func seqExpandHTTPAt(a *Actions, req CodeSequenceRequest, node *CodeSeqNode,
 		return true
 	}
 	t := targets[0]
-	base.SymbolID = t.handler
-	base.File, base.Line = t.file, t.line
-	base.RemoteRepo = ""
+	// T11：传输调用与服务端 handler 分开——调用点节点保留 net/http 传输身份
+	// （http.Post），服务端 handler 作为其子节点（"HTTP POST <url>"），
+	// handler 内部调用从该子节点发出（不出现空发送方）。
+	transportID := "symbol:go:net/http:" + seqHTTPTransportFunc(ep.method)
+	if transportID != "symbol:go:net/http:" {
+		node.Evidence = &SeqEvidence{Source: SeqEvidenceAST, CallFile: curFile,
+			CallLine: pos.Line, SymbolID: transportID, Confidence: 1.0,
+			Reason: "net-http-transport"}
+		// 传输参与者标为 net/http（库身份；不是 handler 的实现类型）。
+		node.Type = "net/http"
+	}
+	handlerEv := &SeqEvidence{Source: SeqEvidenceHTTPServer, CallFile: curFile, CallLine: pos.Line,
+		SymbolID: t.handler, File: t.file, Line: t.line, Confidence: 1.0,
+		Verdict: SeqVerdictCorroborated, Reason: SeqReasonHTTPOrigin}
 	if t.repo != req.RepoAbs {
-		base.RemoteRepo = t.repo
+		handlerEv.RemoteRepo = t.repo
 	}
-	base.Confidence = 1.0
-	base.Verdict = SeqVerdictCorroborated
-	base.Reason = SeqReasonHTTPOrigin
 	if incomplete {
-		base.Verdict = SeqVerdictCorroborated
+		handlerEv.Verdict = SeqVerdictCorroborated
 	}
-	node.ImplType = implTypeShort(t.handler)
-	seqExpandHTTPTarget(a, req, node, t, depth, curFile, pos.Line)
+	child := &CodeSeqNode{Kind: "call", Actor: seqHTTPHandlerActor(t.handler),
+		Label: "HTTP " + ep.method + " " + ep.raw, Line: t.line,
+		Type: implTypeShort(t.handler), Evidence: handlerEv}
+	seqExpandHTTPTarget(a, req, child, t, depth, curFile, pos.Line)
+	node.Nodes = append(node.Nodes, child)
 	return true
 }
 
