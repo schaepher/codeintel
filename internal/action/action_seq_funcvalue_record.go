@@ -65,7 +65,7 @@ func recordSeqDecl(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx, gd *ast
 			}
 			// todo22 §2.4：`var list []func()` 是**确定的空列表**（nil slice
 			// range 零次）；只有元素类型明确是 func 时才这么判。
-			if seqEmptyFuncSliceType(vs.Type) {
+			if seqEmptyFuncSliceTypeIn(a, req, ctx, vs.Type) {
 				req.env.set(name.Obj, listSeqValue(nil))
 				continue
 			}
@@ -113,40 +113,6 @@ func seqLitKey(v seqValue) string {
 	return v.ctx.rel + ":" + strconv.Itoa(pos.Offset)
 }
 
-// seqExprFuncTyped 表达式是否**声明为**函数类型（纯语法：FuncLit 或形参/
-// 局部变量的 type 是 func(...)）。用于逃逸判定——未知值也要能识别"它确实
-// 是函数值，只是不知道是哪一个"。
-func seqExprFuncTyped(expr ast.Expr) bool {
-	switch e := expr.(type) {
-	case *ast.FuncLit:
-		return true
-	case *ast.Ident:
-		if e.Obj == nil {
-			return false
-		}
-		switch d := e.Obj.Decl.(type) {
-		case *ast.Field:
-			return seqIsFuncType(d.Type)
-		case *ast.ValueSpec:
-			return seqIsFuncType(d.Type)
-		case *ast.AssignStmt:
-			return false
-		}
-	}
-	return false
-}
-
-// seqIsFuncType AST 类型表达式是否 func(...)。
-func seqIsFuncType(t ast.Expr) bool {
-	if t == nil {
-		return false
-	}
-	if ft, ok := t.(*ast.FuncType); ok {
-		return ft != nil
-	}
-	return false
-}
-
 // seqTargetIndexed 目标所在包是否已索引——外部库（不在 pkgSet）不得用
 // AST 身份恢复冒充"可展开目标"，否则 external_target 会被误报成 index_gap。
 // pkgSet 为空（包清单不可用的降级态）时放行，由 codeSeqForSymbol 给出
@@ -160,16 +126,6 @@ func seqTargetIndexed(req CodeSequenceRequest, curPkg, symID string) bool {
 		return false // 包清单不可用（降级态）：只信同包身份，其余保持未解析
 	}
 	return req.pkgSet[pkg]
-}
-
-// seqEmptyFuncSliceType 声明类型是否是 []func(...)（nil slice = 确定空列表）。
-func seqEmptyFuncSliceType(t ast.Expr) bool {
-	at, ok := t.(*ast.ArrayType)
-	if !ok || at.Elt == nil {
-		return false
-	}
-	_, isFunc := at.Elt.(*ast.FuncType)
-	return isFunc
 }
 
 // seqStampBinding 给值盖上绑定元数据（声明对象/调用上下文/条件），供证据与

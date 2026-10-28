@@ -205,7 +205,7 @@ func seqFuncArgEscape(a *Actions, req CodeSequenceRequest, call *ast.CallExpr) s
 		}
 		// 值未知但**声明为**函数类型：同样是函数值逃逸（不能因为不知道是
 		// 哪个回调就当作普通参数）。
-		if seqExprFuncTyped(arg) {
+		if seqExprFuncTypedIn(a, req, req.curCtx, arg) {
 			name := seqExprText(req.curCtx.fset, req.curCtx.src, arg)
 			return "函数值参数 " + name + " 在未解析调用中逃逸（无法确定是否/何时被调用）"
 		}

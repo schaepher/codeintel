@@ -7202,3 +7202,16 @@ exit_code=0；取消契约 26.7ms + 复用边 3。**边界**：子进程 250µs 
 
 **剩余**：跨文件同包兄弟文件的包级变量/导入全局单例、守卫单例与 DI 契约
 的复用仍是待办（清单 §7.3）。
+
+## §142 todo23 §2.4（第一步）：命名函数类型/别名/跨包识别（2026-10-27）
+
+- 新增 `seqIsFuncTypeIn`/`seqEmptyFuncSliceTypeIn`/`seqExprFuncTypedIn`：
+  `type Check func()`、`type Alias = Check`、`var checks []dep.Check` 都识别为
+  函数（列表）；TypeSpec 递归解析别名链，**环**（`type C1 C2; type C2 C1`）
+  与超深（>4）保守按非函数处理；跨包用离线包源码（`seqExternalPackage`），
+  源码缺失/标准库不猜；同包兄弟文件按包目录扫描（外部包同包兄弟文件为
+  已知边界）。
+- 空列表判定（`var checks []NamedFunc` → 确定空列表）与"声明为函数类型"
+  的逃逸判定改走新入口；旧的无上下文 `seqIsFuncType`/`seqExprFuncTyped`/
+  `seqEmptyFuncSliceType` 删除（避免死代码）。
+- 测试：`action_seq_functype_test.go`（命名/别名/环/非函数、跨包 dep.Check）。
