@@ -3,6 +3,7 @@ package action
 // todo25 §13：运行时状态赋值/克隆/类型记录（从 runtime_eval.go 拆出）。
 
 import (
+	"fmt"
 	"go/ast"
 )
 
@@ -57,11 +58,13 @@ func (e *rtEval) capStates(in []*rtState) []*rtState {
 	if e.maxStates <= 0 || len(in) <= e.maxStates {
 		return in
 	}
-	out := in[:e.maxStates]
-	for i := range out {
-		out[i] = cloneRuntimeState(out[i])
+	// U02：超过预算不能静默截断——丢掉尾部状态会把本可达的分支判成
+	// excluded（7 个未知 bool → 128 状态，被截到 64 后 n==0 永不可达）。
+	// 明确拒绝整次查询（stdout 为空、非零退出）。
+	if e.err == nil {
+		e.err = fmt.Errorf("runtime-data: analysis state budget exhausted (%d)", e.maxStates)
 	}
-	return out
+	return in
 }
 
 // rowsNextLoop 识别 `for rows.Next() { ... }` 并返回查询结果（rtRows）。

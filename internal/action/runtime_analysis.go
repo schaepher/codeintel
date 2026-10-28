@@ -52,7 +52,7 @@ func (a *Actions) runRuntimeAnalysis(req CodeSequenceRequest, entryID string) (*
 		an.collectPackageVars(req, ctx.file)
 		_ = fn
 	}
-	e := &rtEval{a: a, an: an, req: req, maxDepth: 8, maxStates: 64}
+	e := &rtEval{a: a, an: an, req: req, ctx: req.Ctx, maxDepth: 8, maxStates: 64}
 	if _, err := e.evalFunc(domain.CanonicalID(entryID), nil, 0); err != nil {
 		return nil, err
 	}

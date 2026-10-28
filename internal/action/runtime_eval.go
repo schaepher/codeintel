@@ -3,6 +3,7 @@ package action
 // todo25 §13：运行时快照的符号执行（语句层）。
 
 import (
+	"context"
 	"go/ast"
 	"go/token"
 
@@ -38,7 +39,24 @@ type rtEval struct {
 	depth     int
 	maxDepth  int
 	maxStates int
-	stack     map[string]bool
+	// err U02：状态预算耗尽等不可继续的符号执行错误（首个错误即失败，
+	// 不得静默丢尾部状态后继续判定分支）。
+	err error
+	// ctx 取消信号（U02：已开始执行后的取消必须停下，不产出半棵确定树）。
+	ctx   context.Context
+	stack map[string]bool
+}
+
+// canceled 检查 ctx 取消（每个语句块检查一次；取消记 ErrSeqCanceled）。
+func (e *rtEval) canceled() bool {
+	if e.err != nil {
+		return true
+	}
+	if e.ctx != nil && e.ctx.Err() != nil {
+		e.err = ErrSeqCanceled
+		return true
+	}
+	return false
 }
 
 func (e *rtEval) evalFunc(symID domain.CanonicalID, args []rtValue, depth int) ([]rtReturn, error) {
@@ -46,6 +64,9 @@ func (e *rtEval) evalFunc(symID domain.CanonicalID, args []rtValue, depth int) (
 }
 
 func (e *rtEval) evalFuncWithReceiver(symID domain.CanonicalID, recv *rtValue, args []rtValue, depth int) ([]rtReturn, error) {
+	if e.canceled() {
+		return nil, e.err
+	}
 	if depth >= e.maxDepth || e.stack[string(symID)] {
 		return []rtReturn{{vals: []rtValue{rtUnknownValue()}}}, nil
 	}
@@ -82,6 +103,9 @@ func (e *rtEval) evalFuncWithReceiver(symID domain.CanonicalID, recv *rtValue, a
 	if len(out) == 0 {
 		out = append(out, rtReturn{})
 	}
+	if e.err != nil {
+		return nil, e.err
+	}
 	return out, nil
 }
 
@@ -107,6 +131,12 @@ func bindRuntimeParams(env map[*ast.Object]rtValue, params *ast.FieldList, args 
 }
 
 func (e *rtEval) execBlock(frame *rtFrame, stmts []ast.Stmt, states []*rtState, depth int) []*rtState {
+	if e.err != nil {
+		return nil
+	}
+	if e.canceled() {
+		return nil
+	}
 	for _, st := range stmts {
 		var next []*rtState
 		for _, s := range states {
