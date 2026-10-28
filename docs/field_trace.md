@@ -7190,3 +7190,15 @@ exit_code=0；取消契约 26.7ms + 复用边 3。**边界**：子进程 250µs 
   `excluded && x` 仍按 Go 短路语义。
 - 测试：`action_scene_num_test.go`（范围/合法边界/遮蔽函数与局部变量/
   `mutate() || ...` 顺序）。
+
+## §141 todo23 §7.3（第一步）：变量链按声明对象隔离（2026-10-27）
+
+`varChainTypes` 原先在整个文件里按**变量名**扫赋值：同文件两个函数的同名
+局部变量会互相借用（`F.worker:=&A{}` 会拿到 `G.worker:=&B{}`）。现在：
+- `rhsTypes` 的 Ident 分支传 `e.Obj`，`varChainTypes` 只接受 `id.Obj == obj`
+  的赋值；无对象（极少见）才回退按名匹配。
+- 缓存键加入对象身份（`%p`），同名不同变量不命中同一缓存。
+- 测试 `TestVarChainRespectsObjectIdentity`（F 只拿 A、G 只拿 B）。
+
+**剩余**：跨文件同包兄弟文件的包级变量/导入全局单例、守卫单例与 DI 契约
+的复用仍是待办（清单 §7.3）。

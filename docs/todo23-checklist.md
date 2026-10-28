@@ -34,7 +34,7 @@
 | §5 | 整数转换范围校验/内建遮蔽/短路求值顺序 | **已完成（核心）**：内建整数转换按 big.Int 范围校验（int8(256)/uint8(-1)/int64 溢出 → unknown）；仅 `Ident.Obj==nil` 的未遮蔽内建名才当转换/解包；导入别名被局部变量遮蔽时不当包常量；`unknown || taken` 保持 unknown（未知调用可能改写变量）。跨包常量/字段传播沿用。测试 `action_scene_num_test.go`。**剩余**：枚举类型/字符字面量组合的真实 init→CLI 全覆盖（既有 §8 用例仍通过） |
 | §6 | struct/interface/alias/const/var 源码 + 依赖 location | **已完成（核心）**：`matchAnySymbolSourceDecl` 支持函数/方法/struct/interface/type alias/const/var；const/var 输出整块 + `selection_line_*`；type 单 spec 带 `type` 关键字；无图节点 → AST kind + `index_status=not_indexed`；依赖虚拟符号离线 `go list` 定位（location=dependency、绝对 file、不改 go.mod）；CLI 文本/help 同步；旧函数/方法契约与失败矩阵保持（struct 反例已改为正例）。测试：`action_symbol_source_ext_test.go`、`TestSymbolSource*`、`TestTodo22SymbolSourceRealCLI`。**剩余**：多模块包身份错配/标准库/不唯一边界反例矩阵、真实 init→CLI 的 const/var/alias/dependency 全链路（单元+依赖定位已覆盖） |
 | §7.2 | context 贯穿 SQL/源码/递归、资源释放 | todo21 已有取消；本轮无新增 |
-| §7.3 | 跨文件全局变量/守卫单例/DI 契约缓存、跨仓隔离 | 现有请求级缓存（字段/工厂/变量链）；新增对象身份/守卫单例/跨仓反例待补 |
+| §7.3 | 跨文件全局变量/守卫单例/DI 契约缓存、跨仓隔离 | **部分完成**：变量链回溯按 AST 声明对象过滤（同名局部变量不互相借用；缓存键含对象身份），修掉"文件内不同函数同名 worker 互相污染"的缺陷（`TestVarChainRespectsObjectIdentity`）。**剩余**：同包兄弟文件写者/导入全局单例/守卫单例/DI 契约复用与跨仓反例 |
 | §8 | 完整脱敏核心夹具独立断言表 | todo22 夹具已有；本轮新增 §2.5/§4.1 等输入需并入 |
 | §9.1/§9.2 | 八流程/二十流程包装链补齐 | todo22 已有验收；本轮要求“非空装饰器确定执行证明/包装链无 func_value_unbound”仍待补 |
 | §9.3 | 最终输出与回归 | 待 §9.1/§9.2 补齐后重跑 |

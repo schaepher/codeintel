@@ -5,6 +5,7 @@ package action
 // 结论不变（每处仍具体化到同一实现）。
 
 import (
+	"go/ast"
 	"os"
 	"path/filepath"
 	"strings"
@@ -220,12 +221,64 @@ func G() {
 }
 `)
 	_ = fset1
-	out1 := varChainTypes(acts, req, f1, importAliases(f1), "v", 3, "example.com/m")
-	out2 := varChainTypes(acts, req, f2, importAliases(f2), "v", 3, "example.com/m")
+	out1 := varChainTypes(acts, req, f1, importAliases(f1), "v", nil, 3, "example.com/m")
+	out2 := varChainTypes(acts, req, f2, importAliases(f2), "v", nil, 3, "example.com/m")
 	if len(out1) != 1 || out1[0].typeName != "A" {
 		t.Errorf("文件 1 的 v 应为 A，got %+v", out1)
 	}
 	if len(out2) != 1 || out2[0].typeName != "B" {
 		t.Errorf("文件 2 的 v 应为 B，got %+v", out2)
+	}
+}
+
+// TestVarChainRespectsObjectIdentity：同一文件不同函数的同名局部变量不能
+// 互相借用（todo23 §7.3：局部声明先按 AST 对象排除）。
+func TestVarChainRespectsObjectIdentity(t *testing.T) {
+	src := `package m
+
+type A struct{}
+type B struct{}
+
+func F() {
+	worker := &A{}
+	_ = worker
+}
+
+func G() {
+	worker := &B{}
+	_ = worker
+}
+`
+	fset, f := parseSeqFile(t, src)
+	var objF, objG *ast.Object
+	ast.Inspect(f, func(n ast.Node) bool {
+		as, ok := n.(*ast.AssignStmt)
+		if !ok || len(as.Lhs) != 1 {
+			return true
+		}
+		id, ok := as.Lhs[0].(*ast.Ident)
+		if !ok || id.Name != "worker" {
+			return true
+		}
+		switch fset.Position(as.Pos()).Line {
+		case 7:
+			objF = id.Obj
+		case 12:
+			objG = id.Obj
+		}
+		return true
+	})
+	if objF == nil || objG == nil || objF == objG {
+		t.Fatalf("夹具对象解析失败: %p %p", objF, objG)
+	}
+	acts := New(nil)
+	req := CodeSequenceRequest{varChains: map[string][]writeSource{}}
+	outF := varChainTypes(acts, req, f, importAliases(f), "worker", objF, 3, "example.com/m")
+	outG := varChainTypes(acts, req, f, importAliases(f), "worker", objG, 3, "example.com/m")
+	if len(outF) != 1 || outF[0].typeName != "A" {
+		t.Errorf("F 的 worker 应为 A，got %+v", outF)
+	}
+	if len(outG) != 1 || outG[0].typeName != "B" {
+		t.Errorf("G 的 worker 应为 B，got %+v", outG)
 	}
 }

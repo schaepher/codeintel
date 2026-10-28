@@ -163,7 +163,7 @@ func rhsTypes(a *Actions, req CodeSequenceRequest, f *ast.File, imports map[stri
 		if depth <= 0 {
 			return nil
 		}
-		return varChainTypes(a, req, f, imports, e.Name, depth-1, curPkg)
+		return varChainTypes(a, req, f, imports, e.Name, e.Obj, depth-1, curPkg)
 	}
 	return nil
 }

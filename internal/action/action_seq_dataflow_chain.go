@@ -10,8 +10,15 @@ import (
 
 // varChainTypes 变量链回溯：找 "v := RHS" / "v = RHS" 赋值 → 递归解析
 // RHS（多赋值处都收集——条件分支形态）。
-func varChainTypes(a *Actions, req CodeSequenceRequest, f *ast.File, imports map[string]string, name string, depth int, curPkg string) []writeSource {
-	cacheKey := curPkg + "\x00" + varChainFileKey(req, f) + "\x00" + name + "\x00" + itoaSeq(depth)
+func varChainTypes(a *Actions, req CodeSequenceRequest, f *ast.File, imports map[string]string,
+	name string, obj *ast.Object, depth int, curPkg string) []writeSource {
+	// todo23 §7.3：声明对象身份进缓存键（同名不同变量/不同文件不串）
+	objKey := ""
+	if obj != nil {
+		objKey = fmt.Sprintf("%p", obj)
+	}
+	cacheKey := curPkg + "\x00" + varChainFileKey(req, f) + "\x00" + name + "\x00" +
+		objKey + "\x00" + itoaSeq(depth)
 	if v, ok := req.varChains[cacheKey]; ok {
 		return v
 	}
@@ -22,7 +29,16 @@ func varChainTypes(a *Actions, req CodeSequenceRequest, f *ast.File, imports map
 			return true
 		}
 		id, ok := as.Lhs[0].(*ast.Ident)
-		if !ok || id.Name != name {
+		if !ok {
+			return true
+		}
+		// 有声明对象时只认同一对象（同名阴影/其它函数的同名变量不借用）；
+		// 没有对象（极少见）回退按名字。
+		if obj != nil {
+			if id.Obj != obj {
+				return true
+			}
+		} else if id.Name != name {
 			return true
 		}
 		out = appendUnique(out, rhsTypes(a, req, f, imports, as.Rhs[0], depth, curPkg)...)
