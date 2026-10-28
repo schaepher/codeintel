@@ -97,3 +97,13 @@ bash scripts/verify.sh --quick
 | E 嵌套/元素字段来源 | 完成（既有） | 既有 `fe_nested`/`fe_element` 用例保持通过 |
 | F CPU profile 二次启动 | 完成（复验） | `TestStartCPUProfileFailureKeepsExisting` PASS |
 | G 路由点查窄索引/幂等迁移 | 完成（复验） | `TestRouteProjectionPlanUsesIndex` PASS |
+
+## 第九批（§7.1–§7.4 既有回归复验）
+
+| 项 | 状态 | 证据 |
+| --- | --- | --- |
+| §7.1 接口候选缓存按方法身份 | 完成（既有复验） | `TestSeqIfaceImplCachePerRequest`、`TestSeqIfaceCacheMethodIdentity` PASS |
+| §7.1 精确邻接查询/拒绝全扫 | 完成（既有） | `TestSeqIfaceExact*` PASS |
+| §7.2 投影缓存/查询次数 | 完成（既有复验） | `TestCallFactsProjectionCacheHitAndInvalidation` PASS |
+| §7.4 递归 SQL 取消 | 完成（既有复验） | `TestCalleesContextInterruptsRecursiveSQL` PASS |
+| §7.3 跨仓同名接口方法/冷暖对照 | **未完成** | 仍待补：两仓同名 `API.Insert/SaveService` 的外层 workspace 请求、缓存键含仓库身份、Missing 不借用 Insert。 |
