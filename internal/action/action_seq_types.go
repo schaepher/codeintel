@@ -111,6 +111,8 @@ type CodeSequenceRequest struct {
 	callbackCtx string
 	// 内部（T12）：兼容续查入口（{MaxSegments}）标记——进入请求身份/元数据。
 	continuationCompat bool
+	// 内部（T07）：当前在"未验证实现候选"分支内——后代不计确定执行、不登记续查前沿。
+	inCandidate bool
 	// 内部：阶段耗时累加（todo10-9）
 	acc *seqTimingAcc
 	// 内部（todo25 §13）：运行时快照分析结果（分支裁剪 + 调用值证据）

@@ -248,6 +248,17 @@ func capSeqCandidates(cands []string) ([]string, bool) {
 	return cands[:seqMaxIfaceCandidates], true
 }
 
+// seqIfaceExpandBudget 候选**分支展开**的预算说明（T07：父列表保留全部
+// 候选，展开前 N 个；每个候选最多 2 层）。
+func seqIfaceExpandBudget(total int, expanded int, truncated bool) string {
+	txt := "impls=" + itoaSeq(total) + "（展开前 " + itoaSeq(expanded) + " 个候选，候选深度 2）"
+	if truncated {
+		txt = "impls>" + itoaSeq(seqMaxIfaceCandidates) + "（已截断为 " + itoaSeq(expanded) +
+			"，展开前 " + itoaSeq(expanded) + " 个候选，候选深度 2）"
+	}
+	return txt
+}
+
 // seqIfaceBudget 候选预算的说明文本（截断/未展开原因，消费者可核对）。
 func seqIfaceBudget(n int, truncated bool) string {
 	if truncated {

@@ -68,6 +68,10 @@ func seqRegisterFrontier(req CodeSequenceRequest, node *CodeSeqNode, target stri
 	if req.ContinueSegments <= 0 || acc == nil || node == nil || resume == nil {
 		return
 	}
+	// T07：未验证实现候选的后代禁止自动续查（候选不是确定执行）。
+	if req.inCandidate {
+		return
+	}
 	if acc.frontierSeen == nil {
 		acc.frontierSeen = map[*CodeSeqNode]bool{}
 	}

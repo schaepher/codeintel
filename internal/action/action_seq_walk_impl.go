@@ -111,15 +111,18 @@ func seqExpandIfaceTarget(a *Actions, req CodeSequenceRequest, node *CodeSeqNode
 	req.acc.sqlQueries += 2 // InterfaceMethodImpl + InterfaceImplsExact（精确查询）
 	req.acc.dispatchDur += time.Since(dispStart)
 	if ok {
-		// todo22 §3.2：多个未验证候选 → 保留完整候选集合，**不选第一个**
-		// 展开（不制造具体实现）；候选数上限 12，超出明确标注截断。
-		cands, truncated := capSeqCandidates(cands)
-		if len(cands) > 1 {
-			ev := seqIfaceEvidence(curFile, pos.Line, "", cands, confidence)
-			ev.CandidateBudget = seqIfaceBudget(len(cands), truncated)
+		// T07：多个未验证候选 → 互斥候选分支（每个候选最多展开 2 层、
+		// 最多 12 个实现）；不把任一候选当确定执行顺序。
+		all := cands
+		expandCands, truncated := capSeqCandidates(all)
+		if len(all) > 1 {
+			ev := seqIfaceEvidence(curFile, pos.Line, "", all, confidence)
+			ev.Reason = "implementation-alternatives"
+			ev.CandidateBudget = seqIfaceExpandBudget(len(all), len(expandCands), truncated)
 			node.Evidence = ev
 			node.Stop = &SeqStop{Code: SeqStopIfaceAmbiguous,
-				Detail: "接口方法 " + tid + " 有 " + itoaSeq(len(cands)) + " 个未验证实现候选（无消歧证据，未展开）"}
+				Detail: "接口实现未消歧；候选分支不是已确定执行顺序"}
+			seqExpandCandidateBranches(a, req, node, expandCands, depth, pos)
 			return true
 		}
 		node.ImplType = implTypeShort(impl)
@@ -200,4 +203,52 @@ func seqExpandSceneIfaceChoice(a *Actions, req CodeSequenceRequest, node *CodeSe
 		node.Stop = stop
 	}
 	return false
+}
+
+// T07：未验证实现候选的互斥分支展开（每个候选 ≤2 层、≤12 个；后代标
+// Candidate=true——不计确定执行、不登记续查前沿）。
+func seqExpandCandidateBranches(a *Actions, req CodeSequenceRequest, node *CodeSeqNode,
+	cands []string, depth int, pos token.Position) {
+	const candDepth = 2
+	candReq := req
+	candReq.inCandidate = true
+	cd := depth - 1
+	if cd > candDepth {
+		cd = candDepth
+	}
+	var build func(i int) []*CodeSeqNode
+	build = func(i int) []*CodeSeqNode {
+		if i >= len(cands) {
+			return nil
+		}
+		b := &CodeSeqNode{Kind: "branch", Label: "unverified implementation: " + cands[i],
+			Line: pos.Line, Candidate: true}
+		if child, stop := codeSeqForSymbol(a, candReq, cands[i], cd); child != nil {
+			b.Nodes = child.Nodes
+			markSeqCandidateSubtree(b.Nodes)
+		} else if stop != nil {
+			b.Stop = stop
+		}
+		if i+1 < len(cands) {
+			b.Else = build(i + 1)
+		}
+		return []*CodeSeqNode{b}
+	}
+	if len(cands) > 0 {
+		node.Evidence.CandidateDepth = candDepth
+	}
+	node.Nodes = build(0)
+}
+
+// markSeqCandidateSubtree 把候选分支内全部节点标为 Candidate（后代统计口径：
+// 不计确定执行）。
+func markSeqCandidateSubtree(nodes []*CodeSeqNode) {
+	for _, n := range nodes {
+		if n == nil {
+			continue
+		}
+		n.Candidate = true
+		markSeqCandidateSubtree(n.Nodes)
+		markSeqCandidateSubtree(n.Else)
+	}
 }

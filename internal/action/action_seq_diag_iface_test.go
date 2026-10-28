@@ -6,7 +6,6 @@ package action
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/schaepher/codeintel/internal/domain"
@@ -93,7 +92,12 @@ func Run(d Doer) { d.Do() }
 	if !ev.Ambiguous {
 		t.Error("多候选必须标 ambiguous（不得静默选择一个实现）")
 	}
-	if !strings.HasPrefix(ev.Reason, "first-of-") {
-		t.Errorf("依据应说明选中规则: %+v", ev)
+	// T07：候选以互斥分支展开，依据改为 implementation-alternatives
+	// （不再"选第一个"，也不再是 first-of-N）。
+	if ev.Reason != "implementation-alternatives" {
+		t.Errorf("依据应说明候选分支口径: %+v", ev)
+	}
+	if ev.CandidateDepth == 0 {
+		t.Errorf("候选分支应有展开深度: %+v", ev)
 	}
 }

@@ -241,6 +241,9 @@ type CodeSeqNode struct {
 	Stop     *SeqStop     `json:"stop,omitempty"`
 	// todo10-5：场景条件对分支的判定（taken/excluded/unknown + 依据）
 	Scene *SceneFit `json:"scene,omitempty"`
+	// T07：位于"未验证实现候选"分支内（互斥候选，其全部后代不计确定执行，
+	// 也不参与自动续查）。
+	Candidate bool `json:"candidate,omitempty"`
 }
 
 // exprTypeName 类型表达式 → 短名（Ident → 名；SelectorExpr pkg.T → T）

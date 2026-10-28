@@ -128,18 +128,28 @@ func Run(d Doer) { d.Do() }
 	if n.Evidence == nil || !n.Evidence.Ambiguous || len(n.Evidence.Candidates) != 2 {
 		t.Fatalf("应保留完整候选集合（2 个）+ ambiguous，got %+v", n.Evidence)
 	}
+	if n.Evidence.CandidateDepth == 0 || n.Evidence.Reason != "implementation-alternatives" {
+		t.Errorf("T07：候选应以互斥分支展开（candidate_depth>0），got %+v", n.Evidence)
+	}
 	if n.ImplType != "" || n.Evidence.SymbolID != "" {
 		t.Errorf("未消歧时不得制造具体实现（ImplType=%q SymbolID=%q）", n.ImplType, n.Evidence.SymbolID)
 	}
-	if !strings.Contains(n.Evidence.CandidateBudget, "候选深度 0") {
-		t.Errorf("应输出候选预算/截断原因，got %q", n.Evidence.CandidateBudget)
+	if !strings.Contains(n.Evidence.CandidateBudget, "候选深度 2") {
+		t.Errorf("应输出候选展开预算，got %q", n.Evidence.CandidateBudget)
 	}
-	// 两个实现的函数体都不得被展开
-	if got := seqCallNodesNamed(n, "OnlyA"); len(got) != 0 {
-		t.Errorf("未消歧不得展开候选实现内部调用，got %d 个 OnlyA", len(got))
+	// T07：两个候选各自成互斥分支（其节点标 Candidate，不计确定执行）。
+	onlyA := seqCallNodesNamed(n, "OnlyA")
+	onlyB := seqCallNodesNamed(n, "OnlyB")
+	if len(onlyA) != 1 || len(onlyB) != 1 {
+		t.Fatalf("两个候选分支应各展开一次：OnlyA=%d OnlyB=%d", len(onlyA), len(onlyB))
 	}
-	if got := seqCallNodesNamed(n, "OnlyB"); len(got) != 0 {
-		t.Errorf("未消歧不得展开候选实现内部调用，got %d 个 OnlyB", len(got))
+	for _, c := range append(onlyA, onlyB...) {
+		if !c.Candidate {
+			t.Errorf("候选分支后代应标 Candidate=true: %+v", c)
+		}
+	}
+	if len(n.Nodes) != 1 || n.Nodes[0].Kind != "branch" || !n.Nodes[0].Candidate {
+		t.Errorf("候选应以 branch 节点展开: %+v", n.Nodes)
 	}
 }
 
@@ -162,11 +172,27 @@ func TestSeqIfaceCandidateBudgetTruncation(t *testing.T) {
 		t.Fatalf("应有 d.Do 候选证据，got %+v", calls)
 	}
 	ev := calls[0].Evidence
-	if len(ev.Candidates) != seqMaxIfaceCandidates {
-		t.Errorf("候选应截断为 %d，got %d", seqMaxIfaceCandidates, len(ev.Candidates))
+	// T07：父列表保留全部候选（14），只展开前 12 个分支。
+	if len(ev.Candidates) != len(impls) {
+		t.Errorf("父候选列表应保留全部 %d 个，got %d", len(impls), len(ev.Candidates))
 	}
 	if !strings.Contains(ev.CandidateBudget, "已截断") {
 		t.Errorf("截断应明确标注，got %q", ev.CandidateBudget)
+	}
+	branch := 0
+	var countBranches func(nodes []*CodeSeqNode)
+	countBranches = func(nodes []*CodeSeqNode) {
+		for _, n := range nodes {
+			if n.Kind == "branch" && n.Candidate {
+				branch++
+			}
+			countBranches(n.Nodes)
+			countBranches(n.Else)
+		}
+	}
+	countBranches(calls[0].Nodes)
+	if branch != seqMaxIfaceCandidates {
+		t.Errorf("最多展开 %d 个候选分支，got %d", seqMaxIfaceCandidates, branch)
 	}
 }
 
