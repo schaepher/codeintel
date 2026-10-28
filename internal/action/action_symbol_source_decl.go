@@ -5,8 +5,8 @@ package action
 //
 // 文本规则：
 //   - 函数/方法：声明全文；
-//   - const/var：整个 GenDecl（保留 iota/多值语境），selection 指所选项；
-//   - type：单 spec 取整个 GenDecl（含 `type` 关键字），分组取 TypeSpec。
+//   - const/var/type：整个 GenDecl（保留 iota/多值/分组语境），selection
+//     指向所选项（T13：分组声明要给出整组正文）。
 
 import (
 	"fmt"
@@ -89,10 +89,9 @@ func matchAnySymbolSourceDecl(fset *token.FileSet, f *ast.File, name, relFile st
 				case *ast.InterfaceType:
 					kind = "interface"
 				}
-				text := ast.Node(spec)
-				if len(gd.Specs) == 1 {
-					text = gd // 单 spec：带 `type` 关键字
-				}
+				// T13：统一输出整个 GenDecl（单 spec 也带 `type` 关键字；
+				// 分组保留 `type ( ... )` 语境，selection 指向所选项）。
+				text := ast.Node(gd)
 				typeHits = append(typeHits, &symbolSourceDecl{kind: kind, textNode: text,
 					selNode: spec, fset: fset, fileLabel: relFile, imports: imports})
 			case *ast.ValueSpec:

@@ -86,7 +86,7 @@ func (a *Actions) symbolSourceFromPackage(req SymbolSourceRequest, importPath, n
 		}
 		return nil, fmt.Errorf("包内找不到匹配的声明: %s（%s）", name, importPath)
 	case 1:
-		return buildSymbolSource(req.SymbolID, hits[0], hitLabel, location, indexStatus, hitSrc)
+		return buildSymbolSource(req.SymbolID, importPath, hits[0], hitLabel, location, indexStatus, hitSrc)
 	default:
 		return nil, fmt.Errorf("包内有多重声明（%d 处同名）: %s（%s）", len(hits), name, importPath)
 	}
