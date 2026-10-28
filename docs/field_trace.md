@@ -7656,3 +7656,65 @@ CLI 断言：Source=7/19 的 Check 1–7 计数、Setup 恰一次、MakeFirst/Fi
 - `TestSeqFuncValueConditionalListBudget`：公共前缀 17 → 预算诊断。
 - `integration/todo25_funcvalue_boundary_test.go` 新增真实 init 的
   `conditional-append`（A/B/C/D 均出现）与 `conditional-overwrite`（A/B 均出现）。
+
+## §166 todo25 §3.4：工厂字段的嵌入/闭包/未知方法边界（2026-10-28）
+
+**问题**：`b.Get().Work()` 的字段来源只认 `Box` 自身的方法与 setter；
+`Box struct{ *Base }`（Get/Set 提升）、工厂内 `apply := func(v){ box.Set(v) }; apply(&One{})`
+（闭包捕获后修改）、以及 `box.Rewrite()`（未知方法可能改写字段）都会丢证据
+或错误沿用。
+
+**改法**：
+- `action_seq_factory_embed.go`：`seqMethodOwnerTypes`/`seqFieldOwnerTypes` 沿
+  同包嵌入链解析方法声明与字段 writer；>1 owner（多条提升路径）保守放弃。
+- `seqFactoryCallsWithClosures`：工厂体内局部闭包被**直接调用**时递归扫描，
+  闭包形参按 `*ast.Object` 映射调用点实参类型（`seqClosureArgTypes`）。
+- `seqFactoryUnknownMethod`：返回实例上的非已知 writer 方法/作为实参逃逸 →
+  整批候选作废（不假设"没看到写入就没有写入"）。
+- getter 类型解析同样按唯一提升 owner；保守失败保留原接口候选诊断。
+
+**验证**：真实 init→CLI `TestTodo25FactoryEmbeddedPromotion`（两条 kind 守卫 +
+One/TwoEvent 各一次）、`...ClosureCapture`（闭包内 setter + 守卫）、
+`...UnknownMethodRewrite`（无字段证据、事件零次）；unit
+`TestSeqFieldOwnerTypesMultiplePromotionPaths` 锁定多 path 返回两条供调用方放弃。
+
+## §167 todo25 §3.3：DI 闭包注册/嵌入注解/未知改写（2026-10-28）
+
+- **闭包注册**：`Setup(){ reg := func(){ c.Register("store",&Store{}) }; reg() }`
+  ——`seqScanBootstrapBlock` 收集引导函数内局部闭包，顶层直接调用时递归扫描
+  闭包体（仍不允许条件/循环内的注册）。
+- **嵌入注解**：`diFieldKeyInPackage` 在自身结构体找不到注解时沿嵌入字段在包内
+  查找（`Box{*Base}` 的 `Base.Store // @inject store`）；多个嵌入 key 不一致
+  返回未知。
+- **未知改写**：`action_seq_di_rewrite.go` 按同一容器变量（`*ast.Object`）收集
+  注册 key；其它方法带字符串 key → 只失效该 key，不带 key → 失效该容器全部
+  注册。`diFieldImpl` 对 invalid 返回 `why`，调用方保持 unknown。
+
+**验证**：`TestTodo25DIClosureRegistration/DIEmbeddedFieldAnnotation/
+DIUnknownMethodRewrite`（真实 init→CLI；正例证据 `source=di` 且实现执行一次，
+未知改写后无 DI 证据、事件零次）。
+
+## §168 todo25 §4.1：同行 RPC 消歧与注册实参类型断言（2026-10-28）
+
+- `seqRPCForwardAt` 的线号回退不再"取第一条"：同行多条时按静态方法名过滤，
+  唯一才命中（标 `aggregated`）；仍多/不匹配 → 未知。
+- AST `emitMicroRegistration`：注册实参经 `expr.(I)` 时，实现类型取 `expr`
+  的静态类型（支持 `container.Get().(pb.XHandler)`），handler 短名仍按注册
+  实参静态接口类型。
+**验证**：`TestSeqRPCForwardSameLineDisambiguation`（unit：同名多服务未知、
+不同方法唯一命中）；`TestTodo25MicroRegisterTypeAssertion`（真实 init→CLI
+续到 `(AccountServer).Apply`）。
+
+## §169 todo25 §6：多模块包身份/标准库失败矩阵（2026-10-28）
+
+`TestTodo25SourceMultiModuleIdentity`：根 module + `a`/`b` 两个嵌套 module，
+`a/pkg` 与 `b/pkg` 同名 package 的声明分别定位到 `a/pkg/x.go`/`b/pkg/x.go`；
+用 `example.com/a/pkg` 查只存在于 b 的符号必须失败且 stdout 为空。
+`TestTodo25SourceStdlibFailure`：`symbol:go:fmt:Println` 明确报"标准库不提供
+源码输出"、非零退出、stdout 空。symlink 逃逸/路径穿越沿用既有单测。
+
+## §170 todo25 §8：Insert 错误路径后继精确断言（2026-10-28）
+
+`TestTodo25CoreFixtureAssertions` 不再只数 `ApproveTrace` 出现次数：在 Entry
+顶层步骤中定位 `err != nil` 分支，断言其子树不含 `ApproveTrace`；`ApproveTrace`
+位于该分支之后，且其后的顶层步骤只能是 `return`（错误路径已提前返回）。

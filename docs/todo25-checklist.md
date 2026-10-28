@@ -44,9 +44,10 @@ bash scripts/verify.sh --quick
 
 结果：以上均 PASS（unit 1.8s；ast 1.6s；todo25 集成 1.46s）。
 
-## 其余 §1–§13
+## 其余 §1–§13（历史说明）
 
-尚未开始，按 todo25.txt 原编号保留（不将新增诊断视为完成）。
+早期"尚未开始"的占位说明已被后续批次覆盖；逐项状态以本文件下方各批与
+`docs/field_trace.md` 为准。§13 见文末"未完成项"。
 
 ## 本轮续做
 
@@ -120,3 +121,19 @@ bash scripts/verify.sh --quick
 | --- | --- | --- |
 | 全量 `make it`（真实 init/CLI/serve + todo22/24/25 集成套件） | 完成（本轮） | PASS，`integration` 62.677s，exit=0。 |
 | §4.2 外部函数列表/ellipsis/参数重写 | **已完成（回归验证 + 固化）** | `TestSeqExternalFuncListBoundary`：外部 `RunAll(fs ...func())`（直接变参）、`RunList([]func())`、调用点 `list...` 展开、本包 `Forward(fs ...func())` 转发到外部变参四条路径元素内部调用各一次；外部实现 `f = func(){Wrong()}` 重写后传入回调 `Sink` 零执行、重写后的 `Wrong` 一次。前置缺口实测为夹具元素函数体为空（无可观察调用），分析路径本身已按外部形参绑定→普通 range 展开。 |
+
+## 第十三批（§3.1/§3.3/§3.4/§4.1/§6/§8 剩余边界，2026-10-28）
+
+| 任务 | 状态 | 证据 |
+| --- | --- | --- |
+| §3.4 工厂字段嵌入提升/闭包捕获/未知方法 | **完成** | `action_seq_factory_embed.go`：沿嵌入链解析 getter 与字段 writer（多条提升路径 >1 保守放弃）；`seqFactoryCallsWithClosures` 展开工厂内局部闭包（实参类型按形参对象映射）；非已知 writer 的 receiver 方法/实例逃逸 → 不采用字段证据。`TestTodo25FactoryEmbeddedPromotion/ClosureCapture/UnknownMethodRewrite`；`TestSeqFieldOwnerTypesMultiplePromotionPaths`（unit）。 |
+| §3.1/§3.3 DI/AOP 剩余边界 | **完成（列出的边界）** | DI 注册扫描支持引导函数内局部闭包被顶层直接调用时递归扫描；字段注解沿嵌入字段在包内查找（多 key 冲突保守未知）；同一容器上的未知方法（带/不带 key 字面量）使注册失效并给 `why`。`TestTodo25DIClosureRegistration/DIEmbeddedFieldAnnotation/DIUnknownMethodRewrite`。AOP bypass（`ctx.Value`）沿用 §130 既有实现。 |
+| §4.1 RPC 同行两服务 + 注册实参 DI/类型断言 | **完成** | 线号回退先按静态方法名唯一消歧，多同名仍未知（`TestSeqRPCForwardSameLineDisambiguation`）；AST 注册实参类型断言取来源表达式具体类型（`container.Get().(pb.XHandler)`），`TestTodo25MicroRegisterTypeAssertion`。 |
+| §6 多模块包身份/标准库/失败矩阵 | **完成（本轮补齐）** | `TestTodo25SourceMultiModuleIdentity`（两个嵌套 module 同名 package 各自定位；用 A 的 import path 查 B 符号失败）、`TestTodo25SourceStdlibFailure`（标准库明确失败、stdout 空）；symlink 逃逸/路径穿越/缺文件由既有 `action_symbol_source_test.go` 覆盖。 |
+| §8 Insert 错误路径后继精确断言 | **完成** | `TestTodo25CoreFixtureAssertions` 新增：`err != nil` 分支内无 `ApproveTrace`；`ApproveTrace` 位于该分支之后且其后仅 return（不是"全树出现一次"）。 |
+
+## 未完成项
+
+| 编号 | 状态 | 原因 / 下一步 |
+| --- | --- | --- |
+| §13 runtime snapshot（v1/v2、database 读取点、集合/分组） | **未开始（阻塞）** | 本会话交接文档只给出标题与三个短语；`todo25.txt` 不在仓库/临时目录，缺少输入/输出、读取点与分组规则的可断言定义。无法用猜测定义验收（按 DoD 不用"主要功能"替代）。接手方需拿到 §13 原文后按四段落地：① v1/v2 schema 与版本选择 ② database 读取点枚举 ③ 集合/分组规则 ④ 真实 init→CLI/服务化验收。 |
