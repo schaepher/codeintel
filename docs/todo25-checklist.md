@@ -47,7 +47,7 @@ bash scripts/verify.sh --quick
 ## 其余 §1–§13（历史说明）
 
 早期"尚未开始"的占位说明已被后续批次覆盖；逐项状态以本文件下方各批与
-`docs/field_trace.md` 为准。§13 见文末"未完成项"。
+`docs/field_trace.md` 为准。§13 见"第十四批"。
 
 ## 本轮续做
 
