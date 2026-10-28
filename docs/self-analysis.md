@@ -2606,24 +2606,23 @@ P1-05（全局注册表 schema 作为仓库外事实源，repos 表 10 列补类
 | §2 `--continue-segments` 分段续查 | **完成**：前沿登记（请求值快照 + 祖先集合副本）、逐段展开原 depth 层、节点去重、跨段防环、`meta.continuation` 记账、预算耗尽保留 depth 诊断；CLI 严格校验在开库前；证据 argv/config_hash 纳入；公开夹具 9 类正反例 + flowmatrix 联合夹具通过 | §152 |
 | §11.5 普通数据 range 只读回调 | **完成**：数据列表不再按函数列表逐项展开；`mergePossible` 同值保持；`&f` 取址与 `for _, f = range others` 失效（真实 init 正例 + 3 反例） | §153 |
 
-**本轮未交付（保留，不得当作已完成）**：
+**todo24 收口（2026-10-28 复核）：上表"未交付"项已全部由 todo25 交付**
 
-- **§4.3 HTTP 跨仓续接**：尚无 `http_server` 证据链（origin 证明/`HandleFunc`+
-  `ListenAndServe` 同函数直语句/method+path 契约/跨仓 handler 身份/歧义与
-  unproven 分类）；因此 §2 中"HTTP 夹具跨仓续查"也一并保留。HTTP 调用点当前
-  仍停在外部/未解析诊断，不猜测目标。
-- **§3.3 DI 字段注解与容器 key 身份**、**§3.4 工厂返回实例的字段/方法续接**
-  的剩余分支（跨文件工厂/setter 构造器实参/只读方法后继续）与 **§4.1 同行双
-  服务 RPC**、**§5 枚举/字符常量**、**§6 失败矩阵**剩余项：本仓已有前几轮实现
-  与部分回归，但本轮未逐条重跑验收矩阵——按原编号保留。
-- **§10.1 worktree/submodule 真实构建回归**：BuildID 回填/无 `.git` 不继承父
-  HEAD 已实现（§137），缺少"文件型 submodule + 连续 init/update"集成用例。
-- **§10.3-A/E/F/G**：包缓存分块（已有 `pkg_cache_chunk_limits_test.go`）、
-  嵌套匿名结构体字段路径、CPU profile 二次启动、路由点查计划/加法索引幂等
-  已有部分测试，未按 todo24 的脱敏矩阵逐项补齐（B/C/D 已有专项测试）。
-- **14.4-B 全量基准复跑**：本轮代码变更后已重跑并更新
-  `docs/benchmarks/walk-resource/`（见该目录 `summary.md`）；后续再改采集逻辑
-  需重跑。
+| todo24 原保留项 | 结论 | 证据（测试/实测） |
+|---|---|---|
+| §4.3 HTTP 跨仓续接 | **完成** | `integration/todo25_http_test.go`（`TestTodo25HTTPContinuationRealCLI`/`HTTPEndpointAndWorkspaceBoundaries`）：`http_server` 证据链（origin 证明 + method/path 契约 + 注册函数 direct-statement）、跨仓 handler 身份、动态 URL/端口不符/workspace 外分别 `http_endpoint_unknown`/`http_target_unproven`；§2 的 HTTP 夹具跨仓续查同套例 |
+| §3.3 DI 字段注解/容器 key、§3.4 工厂剩余分支 | **完成（列出的边界）** | `TestTodo25DIClosureRegistration/DIEmbeddedFieldAnnotation/DIUnknownMethodRewrite`、`TestTodo25FactoryEmbeddedPromotion/ClosureCapture/UnknownMethodRewrite/FactoryFieldContinuation/FactoryFieldNegative`；未知方法/逃逸/多提升路径 fail-closed |
+| §4.1 同行双服务 RPC | **完成** | `TestSeqRPCForwardSameLineDisambiguation`（静态方法名唯一消歧，多同名保持未知）、`TestTodo25MicroRegisterTypeAssertion` |
+| §5 枚举/字符常量 | **完成** | `TestTodo25SceneEnumCrossPackageConst`（本包/跨包常量 + 类型转换，真实 init） |
+| §6 失败矩阵 | **完成（核心 + 依赖 + 失败）** | `integration/todo25_source_decl_test.go` + `TestTodo25SourceMultiModuleIdentity`/`SourceStdlibFailure`；未索引声明 `index_status=not_indexed`、多 module 同名包身份、标准库失败 stdout 空 |
+| §10.1 worktree/submodule 真实构建回归 | **完成** | `TestTodo25BuildIdentityWorktreeSubmodule`：真实 `git worktree` + 文件型 submodule + 无 `.git` 相邻模块，连续 init 两次 + update，BuildID/HeadCommit/RegisteredAt 逐项断言 |
+| §10.3-A/E/F/G | **完成（复验）** | A `TestPkgCacheChunkSizeLimit/ChunkedMultiBlock/ChunkIntegrity`；E `TestFieldNestedReadPropagates/FieldShadowingDisambiguated/Element*`；F `TestStartCPUProfileFailureKeepsExisting`；G `TestRouteProjectionPlanUsesIndex` |
+| 14.4-B 全量基准复跑 | **完成** | `3be86a3` 已重跑并更新 `docs/benchmarks/walk-resource/`；P1-11 不触碰 walk 查询/采集逻辑，无需再跑 |
+
+本轮复核实跑（2026-10-28）：`go test ./...`（含 `-race`）、`make it`
+（integration 全量）、上述定向 integration/unit 用例全部 PASS。todo24 的
+`§3.3/§3.4/§5/§6` 仍有**声明过的 fail-closed 边界**（常量算术/dot-import、
+跨文件/跨包结构体字段声明、动态 SQL 未知拼接等）——那是能力边界而非未交付项。
 
 **编号说明（2026-11-01）**：自本次起按优先级重排为 `P0-01…`/`P1-01…`；
 原 `#N`/`RN`/`todoNN-M` 保留在「原 ID/来源」列（历史文档/commit/checklist
