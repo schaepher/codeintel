@@ -124,24 +124,14 @@ func (s *RuntimeSnapshot) validate() error {
 	for _, obs := range s.Observations {
 		key := obs.identityKey()
 		if seen[key] {
-			return fmt.Errorf("运行时快照有重复 observation（%s/%s 相同 scope）", obs.SourceID, obs.Table)
+			// U01：scope 归一化（IN 去重 + 稳定排序）后相同即视为重复——两份
+			// 冲突/重复 observation 不得拼成一份结果。
+			return fmt.Errorf("runtime-data: duplicate normalized scope (source=%s, table=%s, %s)",
+				obs.SourceID, obs.Table, obs.scopeDisplay())
 		}
 		seen[key] = true
 	}
 	return nil
-}
-
-func (o *runtimeObservation) identityKey() string {
-	return o.SourceID + "\x00" + o.Table + "\x00" + runtimeScopeKey(o.Scope)
-}
-
-func runtimeScopeKey(scope []runtimePredicate) string {
-	parts := make([]string, 0, len(scope))
-	for _, p := range scope {
-		parts = append(parts, p.Field+"\x00"+p.Op+"\x00"+p.Value.rtDisplay())
-	}
-	sort.Strings(parts)
-	return strings.Join(parts, "\x01")
 }
 
 // decodeStrictJSON 拒绝未知结构字段（rows/context 内部键由各自校验处理）。

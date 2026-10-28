@@ -126,6 +126,8 @@ func parseRuntimeV2Observation(o runtimeV2Observation) (*runtimeObservation, err
 	if err != nil {
 		return nil, err
 	}
+	// U01：IN 值去重 + 稳定排序（同一 scope 的两种写法归一化后判重）。
+	normalizeRuntimeScope(scope)
 	for _, p := range scope {
 		if !cols[p.Field] {
 			return nil, fmt.Errorf("scope 字段 %q 未在 coverage.columns 声明", p.Field)
