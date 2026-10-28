@@ -7,6 +7,7 @@ package integration
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/schaepher/codeintel/internal/action"
@@ -148,5 +149,114 @@ func TestTodo25OverwriteAndBudgetRegression(t *testing.T) {
 	}
 	if len(execs) != 2 || execs[0] != "defer" || execs[1] != "async" {
 		t.Errorf("defer/async 标记应保留: %v", execs)
+	}
+}
+
+const todo25FactoryFlow = `package continuation
+
+type API interface{ Work() }
+type One struct{}
+type Two struct{}
+func (*One) Work(){ OneEvent() }
+func (*Two) Work(){ TwoEvent() }
+func OneEvent(){}
+func TwoEvent(){}
+type Box struct{ worker API }
+func (b *Box) Set(v API){ b.worker = v }
+func (b *Box) Get() API { return b.worker }
+func (b *Box) Run(){ b.Step() }
+func (b *Box) Step(){ b.Get().Work() }
+func Build(kind int) (*Box, error) {
+	box := &Box{}
+	switch kind {
+	case 1:
+		box.Set(&One{})
+	case 2:
+		box.Set(&Two{})
+	default:
+		return nil, nil
+	}
+	return box, nil
+}
+func Entry(){ b, err := Build(1); if err == nil { b.Run() } }
+`
+
+// TestTodo25FactoryFieldContinuation 验收 §3.4 公开输入：保留两条 kind 守卫及
+// 各自 (One).Work/(Two).Work 准确 ID；字段来源证据；不串行宣称同时执行。
+func TestTodo25FactoryFieldContinuation(t *testing.T) {
+	if !scipGoAvailable() {
+		t.Skip("scip-go not found")
+	}
+	dir := todo25ContinuationRepo(t, todo25FactoryFlow)
+	root := seqTreeJSON(t, dir, "symbol:go:example.com/continuation:Entry", 24)
+	var parent *action.CodeSeqNode
+	walkSeq(root, func(n *action.CodeSeqNode) {
+		if n.Label == "b.Get().Work" {
+			parent = n
+		}
+	})
+	if parent == nil {
+		t.Fatalf("缺少 b.Get().Work 节点: %+v", root)
+	}
+	if parent.Evidence == nil || parent.Evidence.Source != action.SeqEvidenceFieldFlow {
+		t.Fatalf("字段来源证据缺失: %+v", parent.Evidence)
+	}
+	if !parent.Evidence.Ambiguous || len(parent.Evidence.Candidates) != 2 {
+		t.Errorf("两条条件实现应保留候选且不唯一: %+v", parent.Evidence)
+	}
+	wantCands := map[string]bool{
+		"symbol:go:example.com/continuation:(One).Work": true,
+		"symbol:go:example.com/continuation:(Two).Work": true,
+	}
+	for _, c := range parent.Evidence.Candidates {
+		if !wantCands[c] {
+			t.Errorf("候选 ID 不准确: %s", c)
+		}
+		delete(wantCands, c)
+	}
+	if len(wantCands) != 0 {
+		t.Errorf("缺候选: %v", wantCands)
+	}
+	guards := map[string]bool{}
+	for _, br := range parent.Nodes {
+		if br.Kind != "branch" || len(br.Nodes) != 1 {
+			t.Errorf("条件实现应为互斥分支: %+v", br)
+			continue
+		}
+		guards[br.Label] = true
+	}
+	if !guards["kind == 1"] || !guards["kind == 2"] {
+		t.Errorf("应保留两条 kind 守卫，got %v", guards)
+	}
+	if countSeqSym(root, ":OneEvent") != 1 || countSeqSym(root, ":TwoEvent") != 1 {
+		t.Errorf("各自实现的事件应各一次: One=%d Two=%d",
+			countSeqSym(root, ":OneEvent"), countSeqSym(root, ":TwoEvent"))
+	}
+}
+
+// TestTodo25FactoryFieldNegative：getter 返回其他字段时不得借用 worker 证据。
+func TestTodo25FactoryFieldNegative(t *testing.T) {
+	if !scipGoAvailable() {
+		t.Skip("scip-go not found")
+	}
+	flow := strings.Replace(todo25FactoryFlow,
+		"func (b *Box) Get() API { return b.worker }",
+		"func (b *Box) Get() API { return b.other }", 1)
+	flow = strings.Replace(flow, "type Box struct{ worker API }",
+		"type Box struct{ worker API; other API }", 1)
+	if flow == todo25FactoryFlow {
+		t.Fatal("fixture 替换失效")
+	}
+	dir := todo25ContinuationRepo(t, flow)
+	root := seqTreeJSON(t, dir, "symbol:go:example.com/continuation:Entry", 24)
+	walkSeq(root, func(n *action.CodeSeqNode) {
+		if n.Evidence != nil && n.Evidence.Source == action.SeqEvidenceFieldFlow &&
+			len(n.Evidence.Candidates) > 0 {
+			t.Errorf("getter 返回其他字段不得借用 worker 证据: %+v", n.Evidence)
+		}
+	})
+	if countSeqSym(root, ":OneEvent") != 0 || countSeqSym(root, ":TwoEvent") != 0 {
+		t.Errorf("未知字段不应执行具体实现: One=%d Two=%d",
+			countSeqSym(root, ":OneEvent"), countSeqSym(root, ":TwoEvent"))
 	}
 }

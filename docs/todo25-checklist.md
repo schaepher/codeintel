@@ -8,7 +8,7 @@
 | # | 事项 | 状态 | 实现 / 证据 |
 | --- | --- | --- | --- |
 | 1 | §4.3 HTTP 已证明 handler 子前沿接入同一续查树 | **核心已完成（本轮）** | `action_seq_http.go` + `action_seq_http_origin.go`：`net/http.Get/Head/Post`（导入别名）+ 静态 URL → 服务端 `http_route`（path/method/handler_id）→ 注册函数**直接语句** `HandleFunc` + `ListenAndServe(<字面量 addr>, nil)` 证明 origin；`--continue-segments` 跨仓续查复用同一前沿/取消/证据/budget。同包不同文件路由 ID 改为 `包:route.<相对路径>@<offset>`（旧每文件自增 route.1 会 UPSERT 合并）。 |
-| 2 | §3.4 工厂返回实例 / 条件实现 / 函数列表独立子调用接入续查 | **未开始** | 需在工厂返回值 → setter/getter 字段来源上补到达定义（当前 `b.Get().Work` 仍为两个接口候选，未串到 One/Two 字段来源）。 |
+| 2 | §3.4 工厂返回实例 / 条件实现 / 函数列表独立子调用接入续查 | **公开正例 + getter 反例已完成；其余边界保留** | `action_seq_factory_field*.go`：工厂返回实例来源沿 `b.Run→b.Step` 传递（`curRecvOrigin`），`b.Get()` 方法体 `return <receiver>.<field>` 唯一字段 + 工厂 setter 实参类型/switch 守卫生成互斥分支；`TestTodo25FactoryFieldContinuation`（两条 kind 守卫 + One/Two.Work 准确 ID + 各事件一次 + `ambiguous` 不串行）、`TestTodo25FactoryFieldNegative`（getter 返回其他字段不借证据）。**保留**：闭包捕获后修改、未知方法修改、嵌入提升方法/多条提升路径、完整反例矩阵。 |
 | 3 | 未验证接口候选 / 外部未证明回调不得自动续查 | **已完成（回归固化）** | `integration/todo25_continuation_test.go::TestTodo25AmbiguousCandidatesNotContinued`：真实 init → CLI，两个候选保留 + `iface_ambiguous`，HitA=0/HitB=0，`segments_used=0`/`budget_stops=0`/无前沿，`candidate_depth<=2`。 |
 | 4 | 保存调用点完整上下文/防环祖先/覆写/异步/defer/预算/取消 | **已完成（回归固化）** | `TestTodo25OverwriteAndBudgetRegression`：Sink=1/Wrong=0；预算 1 → Sink=0/budget_stops=1 且停止前沿只计一次；LoopEntry cycle=1/Wrong=0；DeferredEntry Sink=2 且 defer/async 保留。1ns 预算非零退出 + stdout 空沿用 `TestContinueSegmentsRealCLI`。 |
 

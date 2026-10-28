@@ -7494,3 +7494,30 @@ range-assign-unknown-list 都不执行原 Sink）。
 非直接 Listen、歧义候选）、`internal/infrastructure/ast/adapter_http_routes_test.go`
 （同包两文件 ID 唯一）、`integration/todo25_http_test.go`（双模块 workspace 真实
 init → CLI：正例/浅查询/跨仓续查/workspace 外/动态 URL/两条注册均存在）。
+
+
+## §155 todo25 §3.4：工厂返回实例的字段/方法续接（2026-10-28）
+
+**问题**：`b, _ := Build(kind)` → `b.Run()→b.Step()→b.Get().Work()` 中
+`b.Get()` 返回 `b.worker`，但时序展开只看到接口方法 `(API).Work` 的两个
+候选（`first-of-2`），字段 setter 的具体实现与 `kind` 守卫全部丢失。
+
+**改法**（`action_seq_factory_field*.go`）：
+- `curRecvOrigin`：`b.Run→b.Step` 等直接调用展开时，按变量声明对象的赋值
+  RHS 工厂调用 + 返回类型匹配记录"实例来自哪个工厂"，沿同 receiver 传递
+  （不用同名变量/同类型全局借用）。
+- `b.Get().Work`：解析 `Get` 方法体 `return <receiver>.<field>`（唯一字段），
+  在工厂函数里扫描该字段 setter 的调用实参：类型来自 `rhsTypes`（`&One{}`/
+  构造器），守卫来自所在 `switch case`/`if` 条件；每个候选生成互斥 `branch`
+  子节点（`kind == 1` / `kind == 2`），父节点证据
+  `source=field_dataflow` + `candidates=[(One).Work,(Two).Work]` + `ambiguous`。
+- 保守失败：getter 非唯一字段返回、无工厂来源、fallthrough、返回实例被
+  别名/取址逃逸 → 不使用字段证据（保留原接口候选诊断）；返回实例按
+  `*ast.Object` 身份匹配，同名阴影/其他实例不借用。
+
+**验证**：`integration/todo25_continuation_test.go` 的
+`TestTodo25FactoryFieldContinuation` / `TestTodo25FactoryFieldNegative`
+（真实 init → CLI，depth=24）。
+
+**保留边界**：闭包捕获后修改、未知方法改写字段、嵌入提升方法真实 owner、
+子类型未索引覆盖方法/多条提升路径、完整反例矩阵（todo25 §3.4 剩余项）。

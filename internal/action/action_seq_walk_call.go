@@ -173,6 +173,12 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 			return node
 		}
 
+		// todo25 §3.4：`b.Get().Work()`——被调者来自方法返回的字段时，沿
+		// 工厂 setter 的实参证明具体实现（守卫保留为互斥分支）。
+		if seqExpandFactoryFieldCall(a, req, node, fun, f, curPkg, depth, curFile, pos) {
+			return node
+		}
+
 		// 0) todo11-2：接口方法调用的实现选择——场景守卫优先；多候选标 ambiguous
 		if strings.Contains(tid, ":(") {
 			if sel, isSel := fun.(*ast.SelectorExpr); isSel {
@@ -261,8 +267,13 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 			return node
 		}
 
-		// 5) 直接展开（索引 calls 边的目标）
-		if child, stop := codeSeqForSymbol(a, req, tid, depth-1); child != nil {
+		// 5) 直接展开（索引 calls 边的目标）——todo25 §3.4：把"接收者实例
+		// 来自哪个工厂"沿 b.Run→b.Step 传给子方法，字段续接才能区分实例。
+		subReq := req
+		if origin := seqCallReceiverOrigin(a, req, fun, tid, f, curPkg); origin != "" {
+			subReq.curRecvOrigin = origin
+		}
+		if child, stop := codeSeqForSymbol(a, subReq, tid, depth-1); child != nil {
 			node.Nodes, node.Stop = child.Nodes, child.Stop
 		} else if stop != nil && node.Stop == nil {
 			node.Stop = stop

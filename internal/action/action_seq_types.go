@@ -145,10 +145,14 @@ type CodeSequenceRequest struct {
 	curRecvName string
 	curRecvObj  *ast.Object
 	curRecvDecl map[string]string
-	env         *seqEnv
-	paramValues []seqValue
-	litVisited  map[string]bool
-	tgtsCache   map[string]*seqTargets
+	// curRecvOrigin todo25 §3.4：当前 receiver 实例的工厂来源（构造它的
+	// 函数 canonical ID；空 = 未知）。用于沿 Run→Step→Get 传递"同一个
+	// 返回实例"，不按同名变量/类型全局借用别的实例。
+	curRecvOrigin string
+	env           *seqEnv
+	paramValues   []seqValue
+	litVisited    map[string]bool
+	tgtsCache     map[string]*seqTargets
 	// 内部（todo10-5）：场景统计（meta 汇总；req 按值传递——用指针共享）
 	sceneCount *sceneSummary
 }
