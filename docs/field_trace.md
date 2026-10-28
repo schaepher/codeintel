@@ -7548,3 +7548,21 @@ helper 的 pipe 死锁（运行期间并发排空 stdout/stderr）。
 分别取自身 HEAD / 子模块 HEAD / 空；RegisteredAt 保持首次值。§10.2 的
 adapter timeout/late emit 与 §10.3-F 的 CPU profile 二次启动由既有测试覆盖
 （本轮复跑通过）。
+
+## §158 todo25 §11.1：包级单例字段来源（2026-10-28）
+
+**问题**：`NewService(){ return &Service{Biz: api.Get()} }` 中 `api.Get()` 返回
+包级 `current`；真实 init 下 `s.Biz.Run` 在 depth=1 只到 `(API).Run`，
+depth=8 退化为 `iface_ambiguous`——`funcDeclReturnTypes` 对 `return current`
+只能看到 `api` 包内 `current = v`，无法把 writer 形参连到 `impl.init()` 的
+`api.Inject(&Impl{})`。
+
+**改法**：`action_seq_global_var.go` 在 `funcDeclReturnTypes` 的 RHS 为空时，
+沿包内所有对包级变量的赋值取 RHS 类型；RHS 是 writer 形参时按形参下标找
+writer 调用者，只接受 `init` 中的实参并取具体类型（独立 `seqGlobalSourceBudget=8`
+层，不受展示 depth 影响）。`receiverFieldImpls` 返回全部具体实现；调用点
+多个实现 → 保留候选 + `iface_ambiguous`，不选第一个。
+
+**验证**：`integration/todo25_field_budget_test.go`（真实 init：depth=1/8
+均 `(Impl).Run`、depth=8 展开 Sink；另一实现写者/无 init 写入不保留唯一
+Impl）。

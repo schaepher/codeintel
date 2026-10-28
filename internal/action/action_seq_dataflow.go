@@ -62,6 +62,15 @@ type writeSource struct {
 // 链/条件分支多候选）→ 构造 (Impl).Method。找不到（无写入摘要/形态
 // 不支持）返回空——调用方 fallback 接口类型匹配（InterfaceMethodImpl）。
 func (a *Actions) receiverFieldImpl(req CodeSequenceRequest, recvType, field, method string) string {
+	if impls := a.receiverFieldImpls(req, recvType, field, method); len(impls) > 0 {
+		return impls[0]
+	}
+	return ""
+}
+
+// receiverFieldImpls 字段写入来源的**全部**实现方法（多个写者/多个
+// 具体类型 → 调用方必须保留候选，不能取第一个当唯一证据）。
+func (a *Actions) receiverFieldImpls(req CodeSequenceRequest, recvType, field, method string) []string {
 	key := "." + recvType + "." + field
 	writers, cached := req.fieldWriters[key]
 	if !cached {
@@ -82,15 +91,28 @@ func (a *Actions) receiverFieldImpl(req CodeSequenceRequest, recvType, field, me
 		}
 	}
 	if len(writers) == 0 {
-		return ""
+		return nil
 	}
-
+	var out []string
 	for _, w := range writers {
 		for _, c := range a.fieldWriteTypes(req, w, field) {
-			return GrpcMethodEntryID("symbol:go:"+c.pkgPath+":"+c.typeName, method)
+			id := GrpcMethodEntryID("symbol:go:"+c.pkgPath+":"+c.typeName, method)
+			if id == "" {
+				continue
+			}
+			dup := false
+			for _, e := range out {
+				if e == id {
+					dup = true
+					break
+				}
+			}
+			if !dup {
+				out = append(out, id)
+			}
 		}
 	}
-	return ""
+	return out
 }
 
 // fieldWriteTypes 读写入函数源码，找 "x.<field> = <X>" 赋值中 X 的类型

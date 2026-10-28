@@ -103,6 +103,11 @@ func funcDeclReturnTypes(a *Actions, req CodeSequenceRequest, f *ast.File, impor
 	if len(out) > 0 {
 		return out
 	}
+	// todo25 §11.1：return 包级单例时沿包内写入 + init 调用实参取具体类型。
+	out = appendUnique(out, seqGlobalReturnTypes(a, req, f, fd, curPkg, depth)...)
+	if len(out) > 0 {
+		return out
+	}
 	if fd.Type.Results != nil {
 		for _, r := range fd.Type.Results.List {
 			out = appendUnique(out, typeSources(r.Type, imports, curPkg)...)

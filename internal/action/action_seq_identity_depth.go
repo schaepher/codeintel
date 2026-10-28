@@ -48,7 +48,15 @@ func seqIdentityBeforeDepth(a *Actions, req CodeSequenceRequest, f *ast.File, fs
 	// 1) receiver 字段数据流（工厂/构造器返回实例的字段方法调用）
 	if recvType != "" {
 		if field, ok2 := receiverFieldSel(sel, req.curRecvObj, recvName); ok2 {
-			if impl := a.receiverFieldImpl(req, recvType, field, sel.Sel.Name); impl != "" {
+			impls := a.receiverFieldImpls(req, recvType, field, sel.Sel.Name)
+			if len(impls) > 1 {
+				node.Evidence = &SeqEvidence{Source: SeqEvidenceFieldFlow, CallFile: curFile,
+					CallLine: pos.Line, Confidence: confidence, Reason: "receiver-field-dataflow",
+					Candidates: impls, Ambiguous: true, CandidateBudget: seqIfaceBudget(len(impls), false)}
+				return true
+			}
+			if len(impls) == 1 {
+				impl := impls[0]
 				node.ImplType = implTypeShort(impl)
 				node.DeclType = recvDecl[field]
 				node.Evidence = &SeqEvidence{Source: SeqEvidenceFieldFlow, CallFile: curFile,

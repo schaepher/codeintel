@@ -226,7 +226,17 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		// 1) receiver 字段数据流具体化（R97-2）
 		if sel, isSel := fun.(*ast.SelectorExpr); isSel && recvType != "" {
 			if field, ok2 := receiverFieldSel(sel, req.curRecvObj, req.curRecvName); ok2 {
-				if implMethod := a.receiverFieldImpl(req, recvType, field, sel.Sel.Name); implMethod != "" {
+				impls := a.receiverFieldImpls(req, recvType, field, sel.Sel.Name)
+				if len(impls) > 1 {
+					node.Evidence = &SeqEvidence{Source: SeqEvidenceFieldFlow, CallFile: curFile, CallLine: pos.Line,
+						Confidence: tg.confidence, Reason: "receiver-field-dataflow", Candidates: impls,
+						Ambiguous: true, CandidateBudget: seqIfaceBudget(len(impls), false)}
+					node.Stop = &SeqStop{Code: SeqStopIfaceAmbiguous,
+						Detail: "字段 " + recvType + "." + field + " 有 " + itoaSeq(len(impls)) + " 个具体实现写入来源（未消歧，未展开）"}
+					return node
+				}
+				if len(impls) == 1 {
+					implMethod := impls[0]
 					node.ImplType = implTypeShort(implMethod)
 					if decl, ok := recvDecl[field]; ok {
 						node.DeclType = decl
