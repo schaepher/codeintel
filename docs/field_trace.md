@@ -7595,3 +7595,10 @@ Impl）。
    条件结构一致）。
 4. §9.1：复跑 `TestTodo22SyncFlows` 16/16 PASS。
 5. §9.2：复跑 `TestTodo22FlowForms` / `TestTodo22SegmentedFlow` PASS。
+
+## §162 todo25 第六批：函数值装饰/列表核心边界（2026-10-28）
+
+`integration/todo25_funcvalue_boundary_test.go`：`f = Wrap(f)` 工厂副作用恰一次、
+返回回调在实际调用点执行、未调用函数零执行；`[]func{A,B}` + `append(C)` +
+range 顺序执行 A/B/C；确定空列表跨函数 `Forward` 转发后 range 不执行元素。
+分支内 append/覆盖的完整反例矩阵仍未覆盖。

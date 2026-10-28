@@ -71,3 +71,11 @@ bash scripts/verify.sh --quick
 | 3 | §7.5 JSON/Mermaid 同一分析树 | **完成（复验）** | `TestTodo22FlowMatrixJSONMermaid` PASS：调用顺序逐项相等、条件结构存在。 |
 | 4 | §9.1 八个同步流程 | **完成（复验）** | `TestTodo22SyncFlows` 16/16 子测试 PASS（Source=7/19 × 8 流程）。 |
 | 5 | §9.2 二十个流程形态 | **完成（复验）** | `TestTodo22FlowForms` PASS；`TestTodo22SegmentedFlow` PASS。 |
+
+## 第六批（§2.2–§2.4 核心边界）
+
+| 任务 | 状态 | 证据 |
+| --- | --- | --- |
+| §2.2 多层装饰 `f = Wrap(f)` 与工厂副作用 | **完成（核心）** | `TestTodo25FuncValueBoundaries/decorate`：Wrap 的 Side 恰执行、Sink 执行、Never 不执行。 |
+| §2.3 工厂/列表函数值在调用点展开 | **完成（核心）** | 同一用例：`Wrap` 返回原回调后在 `Use` 调用点展开；未调用函数体不执行。 |
+| §2.4 `[]func` + append + range 顺序 / 空列表跨函数转发 | **完成（核心）** | `list`：A/B/C 均执行；`empty-list`：空列表经 `Forward` 转发 + range 后 Never 零执行。分支 append/完整反例矩阵仍保留。 |
