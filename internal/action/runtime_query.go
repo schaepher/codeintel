@@ -42,6 +42,20 @@ func parseRuntimeSelect(sql string, args []rtValue) (*runtimeQuery, error) {
 	if !ok {
 		return nil, errors.New("只支持 SELECT")
 	}
+	// T14：语义未证明的 SQL 形态一律拒绝套值（不猜测等价的列/表）。
+	if strings.Contains(sql, "/*+") {
+		return nil, errors.New("不支持 SQL hint（优化器注释）套用快照值")
+	}
+	switch {
+	case sel.Distinct:
+		return nil, errors.New("不支持 DISTINCT 套用快照值（行集语义不同）")
+	case len(sel.Windows) > 0:
+		return nil, errors.New("不支持 window 函数套用快照值")
+	case sel.Into != nil:
+		return nil, errors.New("不支持 SELECT ... INTO 套用快照值")
+	case sel.GroupBy != nil, sel.Having != nil, sel.OrderBy != nil, sel.Limit != nil:
+		return nil, errors.New("不支持 GROUP/HAVING/ORDER/LIMIT")
+	}
 	if sel.With != nil || len(sel.From) != 1 {
 		return nil, errors.New("不支持 CTE/JOIN/多表")
 	}
@@ -49,12 +63,12 @@ func parseRuntimeSelect(sql string, args []rtValue) (*runtimeQuery, error) {
 	if !ok {
 		return nil, errors.New("不支持派生表/子查询")
 	}
+	if ate.As.String() != "" {
+		return nil, errors.New("不支持表别名套用快照值（别名/真实表映射未证明）")
+	}
 	tn, ok := ate.Expr.(sqlparser.TableName)
 	if !ok || tn.Name.String() == "" || strings.EqualFold(tn.Name.String(), "dual") {
 		return nil, errors.New("无法确定真实表")
-	}
-	if sel.GroupBy != nil || sel.Having != nil || sel.OrderBy != nil || sel.Limit != nil {
-		return nil, errors.New("不支持 GROUP/HAVING/ORDER/LIMIT")
 	}
 	var cols []string
 	for _, e := range sel.SelectExprs.Exprs {
@@ -62,9 +76,15 @@ func parseRuntimeSelect(sql string, args []rtValue) (*runtimeQuery, error) {
 		if !ok {
 			return nil, errors.New("SELECT * 或表达式列不支持")
 		}
+		if ae.As.String() != "" {
+			return nil, errors.New("不支持列别名套用快照值（列身份未证明）")
+		}
 		cn, ok := ae.Expr.(*sqlparser.ColName)
 		if !ok {
 			return nil, errors.New("SELECT 列不是普通列")
+		}
+		if cn.Qualifier.Name.String() != "" {
+			return nil, errors.New("不支持表/列限定名套用快照值（限定名映射未证明）")
 		}
 		cols = append(cols, cn.Name.String())
 	}

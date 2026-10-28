@@ -2,6 +2,7 @@ package action
 
 // todo25 §13：SQL 读取点的运行时求值（从 runtime_eval_call.go 拆出）。
 import (
+	"fmt"
 	"go/ast"
 	"strings"
 )
@@ -23,6 +24,14 @@ func (e *rtEval) evalQueryCall(frame *rtFrame, call *ast.CallExpr, s *rtState, d
 				e.an.facts[call] = ev
 				return rtUnknownValue(), []*rtState{s}, true
 			}
+		}
+		// T14：只有**准确声明为 *sql.DB** 的包级/局部变量才绑定数据库身份
+		// （局部同名、自定义类型、未证明类型不借用绑定）。
+		if !runtimeIsSQLDBDecl(recv, frame.ctx.file) {
+			ev := &SeqRuntimeEvidence{SnapshotPath: e.an.snap.Path, SnapshotHash: e.an.snap.Hash,
+				Version: e.an.snap.Version, Reason: "binding-type-unproven", Result: "unknown"}
+			e.an.facts[call] = ev
+			return rtUnknownValue(), []*rtState{s}, true
 		}
 		sym = "symbol:go:" + frame.pkgPath + ":" + recv.Name
 	} else {
@@ -103,7 +112,14 @@ func (e *rtEval) evalQueryCall(frame *rtFrame, call *ast.CallExpr, s *rtState, d
 			ev.Result = "empty"
 			return rtValue{kind: rtRows, elems: nil}, []*rtState{s}, true
 		}
-		ev.Reason = "query-row-multiple-rows"
+		// T14：标量查询多行——相同重复行保持 unknown（幂等行集）；值冲突
+		// 直接失败（stdout 为空、非零退出），不挑第一行。
+		if runtimeRowsIdentical(rows) {
+			ev.Reason = "query-row-duplicate-rows"
+			return rtUnknownValue(), []*rtState{s}, true
+		}
+		e.err = fmt.Errorf("runtime-data: scalar query returned %d conflicting rows（标量查询多行冲突，无法确定值）", len(rows))
+		ev.Reason = "query-row-conflict"
 		return rtUnknownValue(), []*rtState{s}, true
 	}
 	ev.Result = "rows"
@@ -116,86 +132,6 @@ func isRuntimeQueryMethod(name string) bool {
 		return true
 	}
 	return false
-}
-
-// evalScanOutcomes Scan → 成功/失败两个变体（错误边界保留；目标变量按
-// 成功行值或未知赋值）。
-func (e *rtEval) evalScanOutcomes(frame *rtFrame, scan *ast.CallExpr, inner *ast.CallExpr,
-	s *rtState, depth int) []rtOutcome {
-	ev := &SeqRuntimeEvidence{SnapshotPath: e.an.snap.Path, SnapshotHash: e.an.snap.Hash,
-		Version: e.an.snap.Version, Reason: "runtime-scan", Result: "unknown"}
-	e.an.facts[scan] = ev
-	val, variants, _ := e.evalQueryCall(frame, inner, s, depth)
-	if len(variants) > 0 {
-		s = variants[0]
-	}
-	q := e.an.queries[inner]
-	if qe := e.an.facts[inner]; qe != nil {
-		copyRuntimeEvidence(ev, qe)
-	}
-	if q != nil {
-		ev.Table = q.Table
-		ev.Columns = append([]string(nil), q.Columns...)
-	}
-	var targets []string
-	for _, arg := range scan.Args {
-		targets = append(targets, runtimeScanTargetName(arg))
-	}
-	ev.ScanTarget = strings.Join(targets, ",")
-	ev.ReturnSlot = ev.ScanTarget
-	if val.kind != rtRows || len(scan.Args) == 0 || q == nil {
-		if ev.Reason == "" {
-			ev.Reason = "scan-unknown"
-		}
-		for _, arg := range scan.Args {
-			e.assignScanTarget(arg, rtUnknownValue(), s)
-		}
-		return []rtOutcome{{state: s, val: rtUnknownValue()}}
-	}
-	if len(val.elems) == 0 {
-		ev.Reason = "query-row-no-rows"
-		ev.Result = "empty"
-		for _, arg := range scan.Args {
-			e.assignScanTarget(arg, rtUnknownValue(), s)
-		}
-		return []rtOutcome{{state: s, val: rtErrorValue()}}
-	}
-	if len(val.elems) != 1 {
-		ev.Reason = "query-row-multiple-rows"
-		for _, arg := range scan.Args {
-			e.assignScanTarget(arg, rtUnknownValue(), s)
-		}
-		return []rtOutcome{{state: s, val: rtUnknownValue()}}
-	}
-	row := val.elems[0]
-	colVal, ok := row.cols[q.Columns[0]]
-	if !ok {
-		ev.Reason = "scan-column-missing"
-		for _, arg := range scan.Args {
-			e.assignScanTarget(arg, rtUnknownValue(), s)
-		}
-		return []rtOutcome{{state: s, val: rtUnknownValue()}}
-	}
-	_ = colVal
-	success := cloneRuntimeState(s)
-	failure := cloneRuntimeState(s)
-	for i, arg := range scan.Args {
-		if i >= len(q.Columns) {
-			break
-		}
-		v, ok := row.cols[q.Columns[i]]
-		if !ok {
-			v = rtUnknownValue()
-		}
-		if !runtimeScanTargetAccepts(arg, v) {
-			ev.Reason = "scan-type-incompatible"
-			v = rtUnknownValue()
-		}
-		e.assignScanTarget(arg, v, success)
-		e.assignScanTarget(arg, rtUnknownValue(), failure)
-	}
-	ev.Result = "row"
-	return []rtOutcome{{state: success, val: rtNullValue()}, {state: failure, val: rtErrorValue()}}
 }
 
 // assignScanTarget &x / x（扫描目标只支持局部变量指针）。
@@ -279,4 +215,61 @@ func (e *rtEval) evalRowsScanOutcomes(frame *rtFrame, scan *ast.CallExpr, rowsID
 	ev.ScanTarget = strings.Join(targets, ",")
 	ev.ReturnSlot = ev.ScanTarget
 	return []rtOutcome{{state: s, val: rtNullValue()}}
+}
+
+// runtimeRowsIdentical 多行是否完全相同（同一行重复出现 = 幂等行集）。
+func runtimeRowsIdentical(rows []rtValue) bool {
+	if len(rows) < 2 {
+		return true
+	}
+	first := rows[0]
+	for _, r := range rows[1:] {
+		if r.kind != first.kind || len(r.cols) != len(first.cols) {
+			return false
+		}
+		for k, v := range first.cols {
+			ov, ok := r.cols[k]
+			if !ok {
+				return false
+			}
+			eq, known := rtEqual(v, ov)
+			if !known || !eq {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// runtimeIsSQLDBDecl 变量声明类型是否为 *sql.DB（源码精确声明；未知类型不算）。
+func runtimeIsSQLDBDecl(id *ast.Ident, file *ast.File) bool {
+	if id == nil || id.Obj == nil || file == nil {
+		return false
+	}
+	var typ ast.Expr
+	switch d := id.Obj.Decl.(type) {
+	case *ast.ValueSpec:
+		typ = d.Type
+	case *ast.Field:
+		typ = d.Type
+	case *ast.AssignStmt:
+		// `db := ...`：类型未显式声明 → 不证明（不猜）。
+		return false
+	}
+	return runtimeIsSQLDBTypeExpr(typ, file)
+}
+
+func runtimeIsSQLDBTypeExpr(t ast.Expr, file *ast.File) bool {
+	if star, ok := t.(*ast.StarExpr); ok {
+		t = star.X
+	}
+	sel, ok := t.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "DB" {
+		return false
+	}
+	id, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	return seqImportPath(file, id.Name) == "database/sql"
 }
