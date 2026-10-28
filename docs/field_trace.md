@@ -7538,3 +7538,13 @@ type_scope → call_path → id_name），同级按 canonical ID 排序后截断
 Id 候选 + ZCaller/ZConsume）、`internal/action/action_async_budget_test.go`
 （GetFunctionFields≤201、GetSymbol≤404）。顺带修复 integration 大输出测试
 helper 的 pipe 死锁（运行期间并发排空 stdout/stderr）。
+
+## §157 todo25 §10.1：真实 worktree/submodule 构建身份（2026-10-28）
+
+新增 `integration/todo25_build_identity_test.go`：父仓库提交公开模块后，创建
+真实 `git worktree`（独立提交 HEAD）、本地文件型 submodule（HEAD 与父仓库
+不同）、以及父仓库内无自身 `.git` 的相邻模块。连续 init 两次 + update 后，
+注册表与 `build_metadata` 的 BuildID 相等且非空、两次 init 不同；HeadCommit
+分别取自身 HEAD / 子模块 HEAD / 空；RegisteredAt 保持首次值。§10.2 的
+adapter timeout/late emit 与 §10.3-F 的 CPU profile 二次启动由既有测试覆盖
+（本轮复跑通过）。
