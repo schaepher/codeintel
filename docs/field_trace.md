@@ -7631,3 +7631,28 @@ CLI 断言：Source=7/19 的 Check 1–7 计数、Setup 恰一次、MakeFirst/Fi
   与 `Store`，真实 init + workspace 外层请求；主仓路径与 workspace worktree
   路径都落到本仓 `(Store).Insert`、`HitInsert` 一次、`HitSave` 零次，
   且两次查询的控制流（kind/label/actor/证据 ID+reason）完全相同。
+
+## §165 todo25 §2.4：分支内 append/覆盖的函数列表（2026-10-28）
+
+**问题**：`list := []func(){A,B}; if cond { list = append(list,C) }` 分支合并后
+得到 `seqValueMulti`（两个列表候选）；`seqRangeElems` 只认单个列表 →
+`seqRangeAmbiguous` 把整段 range 标为未消歧，**公共的 A/B 也被丢掉**（C 同样
+不展开）。
+
+**改法**（`action_seq_funcvalue_multilist.go`）：
+- `seqRangeMultiListsValue`：只有全部候选都是确定函数列表（无 `why`、元素类型
+  可证明）时才走新路径，否则保持原诊断。
+- `seqRangeCommonPrefix`：按位置用 `sameSeqValue` 求公共前缀 → 按确定路径
+  展开一次（顺序一致）。
+- 差异尾部：每个候选一条 `branch` 节点（`Evidence.Ambiguous=true` +
+  `candidates=[列表标签]`），分支内按该候选顺序展开；空尾部（条件未追加）
+  不产生分支。分支环境走 clone 后 `mergeBranches` 合流。
+- 预算：任一候选 >32 元素或公共前缀 >16 迭代 → 明确诊断，不截断。
+
+**验证**：
+- `TestSeqFuncValueConditionalAppend`：A/B 各一次，C/D 各恰一次且祖先链含
+  ambiguous 分支；range 节点 = 2 公共前缀 + 2 互斥分支。
+- `TestSeqFuncValueConditionalOverwrite`：无公共前缀 → A/B 各在一条歧义分支。
+- `TestSeqFuncValueConditionalListBudget`：公共前缀 17 → 预算诊断。
+- `integration/todo25_funcvalue_boundary_test.go` 新增真实 init 的
+  `conditional-append`（A/B/C/D 均出现）与 `conditional-overwrite`（A/B 均出现）。

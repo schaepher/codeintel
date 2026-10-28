@@ -130,6 +130,12 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 			return []*CodeSeqNode{seqRangeOverFuncList(a, req, fset, src, s, list,
 				tgts, depth, recvType, recvDecl, f, curPkg, curFile)}
 		}
+		// todo25 §2.4：条件分支下 append/覆盖得到多候选列表——公共前缀确定
+		// 执行，差异尾部按互斥候选分支展开（不退回"整段不展开"）。
+		if lists, ok := seqRangeMultiListsValue(a, req, s.X); ok {
+			return []*CodeSeqNode{seqRangeOverMultiFuncList(a, req, fset, src, s, lists,
+				tgts, depth, recvType, recvDecl, f, curPkg, curFile)}
+		}
 		// todo22 §2.4：range 对象是未消歧的多候选（条件覆盖下多个列表）——
 		// 不按顺序展开（那会把互斥候选当顺序执行），给出明确诊断。
 		if why := seqRangeAmbiguous(req, s.X); why != "" {

@@ -78,7 +78,7 @@ bash scripts/verify.sh --quick
 | --- | --- | --- |
 | §2.2 多层装饰 `f = Wrap(f)` 与工厂副作用 | **完成（核心）** | `TestTodo25FuncValueBoundaries/decorate`：Wrap 的 Side 恰执行、Sink 执行、Never 不执行。 |
 | §2.3 工厂/列表函数值在调用点展开 | **完成（核心）** | 同一用例：`Wrap` 返回原回调后在 `Use` 调用点展开；未调用函数体不执行。 |
-| §2.4 `[]func` + append + range 顺序 / 空列表跨函数转发 | **完成（核心）** | `list`：A/B/C 均执行；`empty-list`：空列表经 `Forward` 转发 + range 后 Never 零执行。分支 append/完整反例矩阵仍保留。 |
+| §2.4 `[]func` + append + range 顺序 / 空列表跨函数转发 | **已完成（本轮补齐分支矩阵）** | 单列表/append/空列表既有用例保持；新增 `seqRangeMultiListsValue`：条件分支 append/覆盖得到多候选列表时，**公共前缀**按确定执行、差异尾部按互斥候选分支展开（分支标 ambiguous），不再整段不展开。`TestSeqFuncValueConditionalAppend`（A/B 一次 + C/D 各一条歧义分支）、`ConditionalOverwrite`（无公共前缀 → A/B 各一条歧义分支）、`ConditionalListBudget`（公共前缀 >16 → 预算诊断）；真实 init 集成 `conditional-append`/`conditional-overwrite` 两例加入 `TestTodo25FuncValueBoundaries`。 |
 
 ## 第七批（§8 核心夹具断言）
 

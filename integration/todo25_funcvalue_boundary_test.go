@@ -34,6 +34,34 @@ func B() {}
 func C() {}
 `
 
+const todo25ConditionalListFlow = `package continuation
+
+func Entry(cond bool) {
+	list := []func(){A, B}
+	if cond {
+		list = append(list, C)
+	} else {
+		list = append(list, D)
+	}
+	for _, f := range list { f() }
+}
+func A() {}
+func B() {}
+func C() {}
+func D() {}
+`
+
+const todo25OverwriteListFlow = `package continuation
+
+func Entry(cond bool) {
+	list := []func(){A}
+	if cond { list = []func(){B} }
+	for _, f := range list { f() }
+}
+func A() {}
+func B() {}
+`
+
 const todo25EmptyListFlow = `package continuation
 
 func Entry() {
@@ -60,6 +88,8 @@ func TestTodo25FuncValueBoundaries(t *testing.T) {
 		{"decorate", todo25DecorateFlow, []string{":Sink", ":Side"},
 			[]string{":Never"}},
 		{"list", todo25ListFlow, []string{":A", ":B", ":C"}, nil},
+		{"conditional-append", todo25ConditionalListFlow, []string{":A", ":B", ":C", ":D"}, nil},
+		{"conditional-overwrite", todo25OverwriteListFlow, []string{":A", ":B"}, nil},
 		{"empty-list", todo25EmptyListFlow, nil, []string{":Never"}},
 	}
 	for _, tc := range cases {
