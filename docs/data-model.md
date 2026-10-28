@@ -96,10 +96,14 @@
 
 ## 5. 表结构（SQLite，user_version=4——v3 增 summary_origins；v4 增 relation_candidates + 边复合索引 + build_metadata 计数列）
 
-- `nodes(id PRIMARY KEY, kind, name, file_path, line_start, line_end, properties JSON)`
-- `edges(source_id, target_id, kind, tool_source, confidence, metadata JSON, UNIQUE(source_id,target_id,kind))`
+- `nodes(id_int INTEGER PRIMARY KEY, id TEXT UNIQUE, kind, name, file_path, line_start, line_end, properties JSON)`
+  - `id_int` 是 rowid 别名（整数代理键，Q254c）；canonical `id` 只在唯一索引里存一份
+- `edges(id, source_ref, target_ref, kind, edge_key, tool_source, confidence, metadata JSON, count, UNIQUE(source_ref,target_ref,kind,edge_key))`
+  - `source_ref`/`target_ref` = `nodes.id_int`（整数代理键，Q254c）；冷路径读 `edges_v` 视图拿 canonical ID
   - FK：端点节点必须存在（不存在则跳过并计数 SkippedEdges）
-- `function_field_summary(function_id, access_kind, field_path, instance_path, line_start, code_snippet, FK→nodes, UNIQUE(function_id,access_kind,field_path))` —— S1 预计算摘要（field_trace.md §5.2）
+- `function_field_summary(function_ref, access_kind, field_path, instance_path, line_start, code_snippet, FK→nodes(id_int), UNIQUE(function_ref,access_kind,field_path))` —— S1 预计算摘要（field_trace.md §5.2；P1-11 起 function_id 改整数代理键 `function_ref`，读端在边界 join/解析回 canonical）
+- `summary_origins(function_ref, access_kind, field_path, call_line, callee_id, FK→nodes(id_int), UNIQUE(function_ref,access_kind,field_path,call_line,callee_id))` —— 间接写多来源（Q161/P1-11）
+- `build_metadata` / `relation_candidates` / `relation_progress` / `relation_rules` / `qa_history`（配置与人工数据，reindex 保留后两者）
 - `build_metadata` —— 构建记录（tool_name/timestamp/status/commit_sha/
   dispatch_pkgs——P0-2 dispatch 相关包 JSON 数组，增量构建补 Load 用）
 - schema 无自动迁移：改动表结构后验证仓库须 `codeintel clean` + `init` 重建
@@ -110,4 +114,8 @@
 - 文件：`file:<relpath>`；提交：`commit:<sha>`；包：`symbol:go:<path>:<basename>`
 - SCIP 引用：`scip-go gomod <module> . \`<pkg>\`/Symbol#` 格式（FromScipSymbol 解析）
 - 节点后缀：field_access `#<instance>.<read|write>@<line>`、ssa_value `#<slot>`、参数 `#param.<name>`、全局 `:var.<name>`
+  - **前缀不变量（P1-11）**：函数内节点（ssa_value/parameter/field_access）的
+    `properties.func_id` 必须是 ID 的 `funcID#` 前缀（写入时校验）；函数内查询
+    用 `id >= funcID+"#" AND id < funcID+"$"` 范围扫（不再有
+    `idx_nodes_func_id` 表达式索引）。
 - 服务节点：`symbol:go:<genpkg>:svc.<Xxx>`（NewXxxClient 识别）/ `symbol:proto:<protopkg>:svc.<Xxx>`（手写 client / ServiceDesc）

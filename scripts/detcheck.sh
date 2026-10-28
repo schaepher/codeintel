@@ -56,9 +56,11 @@ for i in 1 2 3; do
   # R16（Q?）：边比较扩展到 tool_source/confidence/metadata（register_site 等
   # 元数据藏在 metadata 里，旧口径只比 source/target/kind/count 会漏差异）。
   dump "$TMP/edges$i" "select source_id||'|'||target_id||'|'||kind||'|'||coalesce(tool_source,'')||'|'||coalesce(confidence,0)||'|'||coalesce(count,0)||'|'||coalesce(metadata,'') from edges_v order by source_id,target_id,kind;"
-  dump "$TMP/summ$i" "select function_id||'|'||access_kind||'|'||field_path||'|'||coalesce(instance_path,'')||'|'||coalesce(line_start,0)||'|'||coalesce(code_snippet,'') from function_field_summary order by function_id,access_kind,field_path;"
+  # P1-11：摘要表 function_id 已改整数代理键 function_ref——dump 必须
+  # join nodes 还原 canonical ID（id_int 与插入顺序相关，直接比会假红）。
+  dump "$TMP/summ$i" "select n.id||'|'||s.access_kind||'|'||s.field_path||'|'||coalesce(s.instance_path,'')||'|'||coalesce(s.line_start,0)||'|'||coalesce(s.code_snippet,'') from function_field_summary s join nodes n on n.id_int=s.function_ref order by n.id,s.access_kind,s.field_path;"
   # R16：摘要来源（间接写传播链的 call_line/callee_id）——旧口径完全没比。
-  dump "$TMP/origins$i" "select function_id||'|'||access_kind||'|'||field_path||'|'||coalesce(call_line,0)||'|'||coalesce(callee_id,'') from summary_origins order by function_id,access_kind,field_path,call_line,callee_id;" allow_empty
+  dump "$TMP/origins$i" "select n.id||'|'||s.access_kind||'|'||s.field_path||'|'||coalesce(s.call_line,0)||'|'||coalesce(s.callee_id,'') from summary_origins s join nodes n on n.id_int=s.function_ref order by n.id,s.access_kind,s.field_path,s.call_line,s.callee_id;" allow_empty
 done
 
 python3 - "$TMP" <<'PY'

@@ -641,6 +641,31 @@ pre-commit 场景的兜底）。
   的静态类型是接口，`Repo.QueryByFilter` 在接口方法未建节点；运行时值带
   `typeName`（DAO）即可解析到具体方法。方法实参跨函数传递时同样保留该值身份。
 
+## P1-11/P3-10 教训（2026-10-28）
+
+- **"ID 是 X 的前缀"这类构造不变量，要同时写进写入口守卫**：删
+  `idx_nodes_func_id` 换 `id` 前缀范围扫，收益是 9.9MB + 每次节点插入少一次
+  `json_extract` 索引维护；代价是违反不变量的节点会**静默消失**在 trace/
+  flows 里。`validateFuncIDPrefix` 在 `SaveBatchStats` fail-closed（只对
+  ssa_value/parameter/field_access；`external_summary.func_id` 是调用方
+  语义、本就不是前缀）。改查询口径前先问："数据由谁保证这个形状？"
+- **前缀范围的边界用"下一个字符减一"构造**：`[id >= F+"#", id < F+"$")`
+  与 `id LIKE F||'#%'` 等价，但前者能走 BINARY 唯一索引（LIKE 优化对
+  表达式索引不生效）。`$`=0x24 不是合法 ID 字符，不会误纳端点。
+- **OR 会毁掉索引选择，拆 UNION 分支**：`func_id = ? OR origin_kind='global'`
+  让 `id` 范围扫退化；拆成两个 `SELECT ... UNION` 分支后两者各自可走索引
+  （UNION 去重语义与原 OR 等价）。
+- **整数代理键改造要成对处理"写解析 / 读还原"**：写侧 `resolveSummaryRefs`
+  在事务内批量解析（缺失走 Failed* 延后重试，与原 FK 冲突同语义）；读侧
+  canonical 只在边界解析（未索引函数按"无摘要"返回），全表导出才 JOIN。
+  确定性门槛的 dump 必须 join 回 canonical——`id_int` 与插入顺序相关。
+- **迁移判据先做同源码 A/B**：`git worktree add <HEAD>` 编译旧二进制，清空
+  `.codeintel` 各建一次，比 dbstat 逻辑页/文件/逐行产物/查询延迟——同一仓库
+  内容下的数字才可归因，比"改前改后各测一次"可信。
+- **长任务进度统一收 `domain.Progress` 时，参数解析也要跟着改**：
+  `--progress plain` 的取值曾被当成子命令（"unknown precompute target:
+  plain"）——位置参数解析必须先消费带值 flag。
+
 ## 常用命令
 
 ```shell

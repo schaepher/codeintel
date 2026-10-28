@@ -183,8 +183,10 @@ func main() { Run() }
 	})
 	for _, impl := range []string{"(StdCalc).Calculate", "(ExpCalc).Calculate"} {
 		var n int
+		// P1-11：摘要表 function_id 已是整数代理键 function_ref
 		if err := repo.QueryRow(`SELECT COUNT(*) FROM function_field_summary
-				WHERE function_id = ? AND access_kind = 'direct_write'
+				WHERE function_ref = (SELECT id_int FROM nodes WHERE id = ?)
+				  AND access_kind = 'direct_write'
 				  AND field_path = 'example.com/mtest.Order.FinalFee'`,
 			"symbol:go:example.com/mtest:"+impl).Scan(&n); err != nil {
 			t.Fatalf("direct_write 查询: %v", err)
@@ -196,7 +198,8 @@ func main() { Run() }
 	for _, fn := range []string{"Process", "Run"} {
 		var n int
 		if err := repo.QueryRow(`SELECT COUNT(*) FROM function_field_summary
-				WHERE function_id = ? AND access_kind = 'indirect_write'
+				WHERE function_ref = (SELECT id_int FROM nodes WHERE id = ?)
+				  AND access_kind = 'indirect_write'
 				  AND field_path = 'example.com/mtest.Order.FinalFee'`,
 			"symbol:go:example.com/mtest:"+fn).Scan(&n); err != nil {
 			t.Fatalf("indirect_write 查询: %v", err)

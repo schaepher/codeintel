@@ -30,8 +30,10 @@ func TestSummaryReplaceUpdatesStale(t *testing.T) {
 		t.Fatalf("save new summary: %v", err)
 	}
 	var line int
+	// P1-11：物理列是 function_ref（整数代理键）——canonical 在边界解析
 	if err := r.QueryRow(`SELECT line_start FROM function_field_summary
-		WHERE function_id = ? AND access_kind = 'direct_read' AND field_path = 'm.cfg.APIKey'`,
+		WHERE function_ref = (SELECT id_int FROM nodes WHERE id = ?)
+		  AND access_kind = 'direct_read' AND field_path = 'm.cfg.APIKey'`,
 		funcID).Scan(&line); err != nil {
 		t.Fatalf("query summary: %v", err)
 	}
@@ -61,7 +63,8 @@ func TestOriginsReplaceIdempotent(t *testing.T) {
 	}
 	var cnt int
 	if err := r.QueryRow(`SELECT COUNT(*) FROM summary_origins
-		WHERE function_id = ? AND field_path = 'm.cfg.APIKey'`, funcID).Scan(&cnt); err != nil {
+		WHERE function_ref = (SELECT id_int FROM nodes WHERE id = ?)
+		  AND field_path = 'm.cfg.APIKey'`, funcID).Scan(&cnt); err != nil {
 		t.Fatalf("count: %v", err)
 	}
 	if cnt != 1 {

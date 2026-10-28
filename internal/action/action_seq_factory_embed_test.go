@@ -50,8 +50,10 @@ type Box struct {
 		t.Fatal(err)
 	}
 	for _, row := range []struct{ fn, field string }{{setA, ".A.worker"}, {setB, ".B.worker"}} {
+		// P1-11：摘要表 function_id 已是整数代理键 function_ref
 		if _, err := db.Exec(`INSERT INTO function_field_summary
-			(function_id, access_kind, field_path, line_start) VALUES (?, 'direct_write', ?, 0)`,
+			(function_ref, access_kind, field_path, line_start)
+			VALUES ((SELECT id_int FROM nodes WHERE id = ?), 'direct_write', ?, 0)`,
 			row.fn, row.field); err != nil {
 			t.Fatal(err)
 		}

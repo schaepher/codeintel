@@ -60,9 +60,12 @@ func dumpFixtureDB(t *testing.T, repoDir string) *determinismDump {
 		FROM nodes ORDER BY id`, &out.nodes)
 	collect(`SELECT source_id || '|' || target_id || '|' || kind || '|' || count
 		FROM edges_v ORDER BY source_id, target_id, kind`, &out.edges)
-	collect(`SELECT function_id || '|' || access_kind || '|' || field_path || '|' ||
-		coalesce(instance_path,'') || '|' || coalesce(line_start,0) || '|' || coalesce(code_snippet,'')
-		FROM function_field_summary ORDER BY function_id, access_kind, field_path`, &out.summ)
+	// P1-11：摘要表 function_id 是整数代理键 function_ref——dump 必须 join
+	// nodes 还原 canonical ID（id_int 与插入顺序相关，不能直接比）。
+	collect(`SELECT n.id || '|' || s.access_kind || '|' || s.field_path || '|' ||
+		coalesce(s.instance_path,'') || '|' || coalesce(s.line_start,0) || '|' || coalesce(s.code_snippet,'')
+		FROM function_field_summary s JOIN nodes n ON n.id_int = s.function_ref
+		ORDER BY n.id, s.access_kind, s.field_path`, &out.summ)
 	// properties 键序归一化（sqlite json_patch 与 json v2 的序列化细节，
 	// 无查询语义——Q250 明确排除在"确定性"定义之外）
 	for i, n := range out.nodes {

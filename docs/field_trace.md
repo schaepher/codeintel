@@ -7757,3 +7757,68 @@ action；开库前先 `ValidateRuntimeData`）。
 - **验证**：`TestTodo25RuntimeGeneratedDAO`（2/1/0 元素、动态 SQL、接口传播、
   不完整范围）、`TestTodo25RuntimeFeatureCollectionDAO`（tenant/feature 二/一
   元素）、`TestTodo25RuntimeMultiRoundAudit`（node2/node3/未知 node）。
+
+## §173 P1-11 摘要/索引整数化收口 + P3-10 precompute 进度统一（2026-10-28）
+
+### P1-11a `summary`/`summary_origins.function_id` → 整数代理键
+
+- **结构**：`function_ref INTEGER NOT NULL`（FK → `nodes(id_int)`，ON DELETE
+  CASCADE）+ UNIQUE 键改 `function_ref`。canonical ID 不再在摘要表里存一份
+  （go2o：`function_field_summary` 4.80→2.99MB、其 UNIQUE 索引 3.95→2.08MB）。
+- **写路径**：`resolveSummaryRefs`（同事务批量 `SELECT id, id_int`，与 Q254c
+  边端点同一手法）先解析再插入；解析不到 = 跨批依赖 → `FailedSummaries`/
+  `FailedOrigins` 延后重试（与原 FK 冲突路径同语义，go2o 实测无残留失败）。
+- **读路径**：canonical 只在边界解析——`GetFunctionFields`/`TraceBackwardIndirect`
+  先 `nodeRef(funcID)`（未索引函数按"无摘要/无来源"返回）；全表导出
+  （`AllSummaries`/实体分组/`GetFieldWriters*`）JOIN nodes 还原 canonical。
+- **旧库**：`verifySchema` 缺 `function_ref` → 报错并提示 reindex（摘要表是
+  派生数据）；`materialize` 列清单同步（`function_ref` 随 `id_int` 原样搬）。
+- **测试**：`p1_11_summary_ref_test.go`（结构/FK/旧库提示/往返/延后重试/
+  级联删除）；`detcheck.sh` 与 integration determinism dump 改为 join nodes
+  （`id_int` 与插入顺序相关，直接比会假红）。
+
+### P1-11b 删 `idx_nodes_func_id`，改 nodes.id 前缀范围扫
+
+- **不变量**：带 `func_id` 的**函数内节点**（ssa_value/parameter/field_access）
+  ID 一律 `funcID + "#" + slot`。范围谓词 `id >= funcID+"#" AND id < funcID+"$"`
+  与"ID 以 funcID+'#' 开头"等价（BINARY 字节序：`#`=0x23 < `$`=0x24，`$` 不是
+  合法 ID 字符）。
+- **守卫**：`SaveBatchStats` 写节点时校验（`validateFuncIDPrefix`，fail-closed）
+  ——违反会让范围查静默漏节点。`external_summary` 的 `func_id` 是"算出摘要的
+  调用方"（本就可以不是 ID 前缀），不套用该不变量（go2o 实测仅 14 行此类）。
+- **改写点**（8 处谓词）：`repo_trace.go`（backward 锚点/间接写链 IN→OR 区间/
+  forward 三个锚点，其中 `func_id=? OR origin_kind='global'` 拆成独立 UNION
+  分支避免 OR 破坏索引选择）、`repo_flows.go`（锚点 + 双向递归步）、
+  `rg_sql.go`（同函数桥改 `n1.func_id||'#'` 运行时边界）。
+- **计划**：`EXPLAIN QUERY PLAN` 锁死——ssa_value 锚点与 rg_sql 桥走
+  `sqlite_autoindex_nodes_1 (id>? AND id<?)`（`TestFuncIDPrefixRangePlan`）；
+  field_access 锚点仍走 `idx_nodes_field_path`（部分索引，已断言）。
+- **删除**：DDL/bulk load 清单去掉该索引；Open 时幂等 `DROP INDEX`（旧库自动
+  释放 9.9MB，不递增 SchemaVersion——删索引不改表结构）。
+
+### 实测（go2o 同一源码 + 清空 `.codeintel`，HEAD 二进制 vs 本提交，workers=8）
+
+| 指标 | HEAD | 本提交 | 变化 |
+|---|---|---|---|
+| 逻辑页（dbstat 合计） | 113.4MB | **99.3MB** | −14.1MB（−12.4%） |
+| DB 文件（VACUUM 后） | 118.9MB | **104.1MB** | −14.8MB（−12.4%） |
+| 节点/边 | 121331/137111 | 121331/137111 | 相同（跳过边 561 相同） |
+| 产物（nodes/edges/摘要 canonical） | — | — | 逐行全等（键序归一化） |
+| `trace ad_data.ad_id` 三次 | 3.20/3.13/3.14s | 3.15/3.13/3.17s | 无回退 |
+| `scripts/detcheck.sh go2o 8` | — | 冷1/冷2/暖 四类产物全等 ✓ | — |
+| 全量构建耗时（go2o，清库） | 4.899s | 4.878s | 无回退 |
+
+集成：`go test -tags integration ./integration/` PASS（69s）；`go test ./...` 全绿。
+
+### P3-10 `precompute relations` 进度统一到 `domain.Progress`
+
+- `Repo.PrecomputeAllRelations(progress domain.Progress)`：加载关系图后
+  `Begin("relations", 0, total)`（真实分母，不编假数）、逐表 `Advance`、
+  defer `End`（带最终 err）；`nil` → `NopProgress`（serve 后台任务静默）。
+- action 签名随之改为 `PrecomputeRelations(progress domain.Progress)`；CLI
+  `precompute relations --progress auto|plain|none` 用 `internal/progress`
+  （**只写 stderr**，与 init/update 同一渲染器与 plain 格式
+  `[relations] 步骤 relations（1.1s）`），删除原 stdout 上的 `\r计算关联中 X/Y 表`。
+- 测试：`TestRelationProgressFlow`（Begin total/Advance/End/nil 不 panic）、
+  `TestActionsPrecomputeRelations`（action 编排注入 Progress）；真实 CLI
+  `--progress plain` 实测 stdout 只有结果、stderr 一行步骤；`--progress none` 静默。

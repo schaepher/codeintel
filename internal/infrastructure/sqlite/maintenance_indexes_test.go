@@ -95,10 +95,10 @@ func TestDropRedundantSummaryIndexes(t *testing.T) {
 		}
 	}
 	// 模拟旧库：建回冗余索引 → 幂等删除
-	if _, err := db.Exec(`CREATE INDEX idx_summary_func_access ON function_field_summary(function_id, access_kind)`); err != nil {
+	if _, err := db.Exec(`CREATE INDEX idx_summary_func_access ON function_field_summary(function_ref, access_kind)`); err != nil {
 		t.Fatalf("建旧索引: %v", err)
 	}
-	if _, err := db.Exec(`CREATE INDEX idx_summary_origins_func ON summary_origins(function_id, access_kind)`); err != nil {
+	if _, err := db.Exec(`CREATE INDEX idx_summary_origins_func ON summary_origins(function_ref, access_kind)`); err != nil {
 		t.Fatalf("建旧索引: %v", err)
 	}
 	dropped, err := dropRedundantSummaryIndexes(db)
@@ -113,8 +113,8 @@ func TestDropRedundantSummaryIndexes(t *testing.T) {
 		t.Errorf("迁移应幂等：dropped=%v err=%v", again, err)
 	}
 	// 查询计划仍走 UNIQUE 索引（不因删索引退化为全表扫）
-	rows, err := r.Query(`EXPLAIN QUERY PLAN SELECT function_id, access_kind, field_path
-		FROM function_field_summary WHERE function_id = ? ORDER BY access_kind, field_path`, "symbol:go:m:F")
+	rows, err := r.Query(`EXPLAIN QUERY PLAN SELECT function_ref, access_kind, field_path
+		FROM function_field_summary WHERE function_ref = ? ORDER BY access_kind, field_path`, 1)
 	if err != nil {
 		t.Fatalf("explain: %v", err)
 	}

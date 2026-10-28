@@ -46,7 +46,8 @@ PLAN_QUERIES = [
     ("dispatch(source+kind)", "SELECT target_ref FROM edges WHERE source_ref = :EDGE_REF: AND kind = 'indirect_write'"),
     ("节点主键(id=?)", "SELECT id, kind, name FROM nodes WHERE id = :NODE:"),
     ("节点按 kind", "SELECT COUNT(*) FROM nodes WHERE kind = 'function'"),
-    ("节点按 func_id(表达式索引)", "SELECT id FROM nodes WHERE json_extract(properties,'$.func_id') = :NODE:"),
+    # P1-11：idx_nodes_func_id 已删——函数内节点改走 nodes.id 前缀范围扫
+    ("函数内节点(id 前缀范围)", "SELECT id FROM nodes WHERE id >= :FUNC_PREFIX: AND id < :FUNC_PREFIX_HI:"),
     ("节点按 file+kind", "SELECT id FROM nodes WHERE file_path = 'x.go' AND kind = 'function'"),
 ]
 
@@ -55,7 +56,6 @@ CREATE TABLE nodes (
   id_int INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, name TEXT NOT NULL,
   file_path TEXT, line_start INTEGER, line_end INTEGER, properties JSON);
 CREATE INDEX idx_nodes_file_kind ON nodes(file_path, kind) WHERE file_path IS NOT NULL;
-CREATE INDEX idx_nodes_func_id ON nodes(json_extract(properties,'$.func_id'));
 CREATE TABLE edges (
   id INTEGER PRIMARY KEY, source_ref INTEGER NOT NULL, target_ref INTEGER NOT NULL,
   kind TEXT NOT NULL, tool_source TEXT NOT NULL, confidence REAL NOT NULL DEFAULT 0.5,
@@ -280,13 +280,19 @@ def mem_variant(con: sqlite3.Connection, drop: bool) -> sqlite3.Connection:
 
 
 def plans(con: sqlite3.Connection, c: sqlite3.Cursor) -> None:
-    samples = {"EDGE_REF": "1", "NODE": "symbol:go:example.com/m:main"}
+    samples = {"EDGE_REF": "1", "NODE": "symbol:go:example.com/m:main",
+               "FUNC_PREFIX": "symbol:go:example.com/m:main#",
+               "FUNC_PREFIX_HI": "symbol:go:example.com/m:main$"}
     for key, sql in (("EDGE_REF", "SELECT source_ref FROM edges LIMIT 1"),
-                     ("NODE", "SELECT id FROM nodes LIMIT 1")):
+                     ("NODE", "SELECT id FROM nodes LIMIT 1"),
+                     ("FUNC_PREFIX", "SELECT json_extract(properties,'$.func_id') FROM nodes "
+                      "WHERE json_extract(properties,'$.func_id') IS NOT NULL LIMIT 1")):
         try:
             row = c.execute(sql).fetchone()
             if row and row[0]:
-                samples[key] = str(row[0])
+                samples[key] = str(row[0]) + ("#" if key == "FUNC_PREFIX" else "")
+                if key == "FUNC_PREFIX":
+                    samples["FUNC_PREFIX_HI"] = str(row[0]) + "$"
         except sqlite3.Error:
             pass
     print(f"== 查询计划（真实库；样本 EDGE_REF={samples['EDGE_REF']} NODE={samples['NODE'][:50]}）==")

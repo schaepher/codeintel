@@ -136,9 +136,13 @@ ON CONFLICT(source_ref, target_ref, kind, edge_key) DO UPDATE SET
 // 行号，同行取 instance_path 字典序最小）——若在这里改成"取最早行号赢"
 // 会破坏 Q215（增量重建时行号下移的新分析反而被旧行挡住）。
 // 行残留（函数删除）由 FK ON DELETE CASCADE 保证。
+//
+// P1-11：function_id 改整数代理键 function_ref（写入前由 resolveSummaryRefs
+// 在事务内批量解析；解析不到的走 FailedSummaries/retry，语义与原 FK 冲突
+// 一致）。canonical ID 只在 UNIQUE 键里不再重复存一份。
 const insertSummarySQL = `
 INSERT OR REPLACE INTO function_field_summary
-    (function_id, access_kind, field_path, instance_path, line_start, code_snippet)
+    (function_ref, access_kind, field_path, instance_path, line_start, code_snippet)
 VALUES (?, ?, ?, ?, ?, ?)`
 
 // saveBatchResult 记录批次写入的统计信息。

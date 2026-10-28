@@ -57,8 +57,10 @@ func (r *Repo) MaterializeBase(basePath string) (bool, error) {
 	cols := map[string]string{
 		"nodes":                  "id_int, id, kind, name, file_path, line_start, line_end, properties",
 		"edges":                  "id, source_ref, target_ref, kind, tool_source, confidence, metadata, count",
-		"function_field_summary": "function_id, access_kind, field_path, instance_path, line_start, code_snippet",
-		"summary_origins":        "function_id, access_kind, field_path, call_line, callee_id",
+		// P1-11：function_ref 是 nodes.id_int（整数，跨库复制时与 id_int 一起
+		// 原样搬——base 与本地 nodes 的 id_int 值一致）。
+		"function_field_summary": "function_ref, access_kind, field_path, instance_path, line_start, code_snippet",
+		"summary_origins":        "function_ref, access_kind, field_path, call_line, callee_id",
 	}
 	for _, tbl := range []string{"nodes", "edges", "function_field_summary", "summary_origins"} {
 		if _, err := tx.Exec("INSERT INTO " + tbl + " (" + cols[tbl] + ") SELECT " + cols[tbl] + " FROM base." + tbl); err != nil {

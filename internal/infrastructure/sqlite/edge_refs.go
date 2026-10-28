@@ -133,3 +133,17 @@ func (r *Repo) canonicalOfRefs(refs []int64) (map[int64]domain.CanonicalID, erro
 	}
 	return out, nil
 }
+
+// resolveSummaryRefs P1-11：摘要行的 function_id（canonical）→ nodes.id_int。
+// 摘要写入是"节点先落库、摘要随后"（同事务），解析不到的属跨批依赖，
+// 由调用方计入 FailedSummaries/FailedOrigins 延后重试。
+func resolveSummaryRefs(tx *sql.Tx, summaries []*domain.FunctionFieldSummary, origins []*domain.SummaryOrigin) (map[string]int64, error) {
+	ids := make([]string, 0, len(summaries)+len(origins))
+	for _, s := range summaries {
+		ids = append(ids, string(s.FunctionID))
+	}
+	for _, o := range origins {
+		ids = append(ids, string(o.FunctionID))
+	}
+	return resolveNodeRefs(tx, ids)
+}

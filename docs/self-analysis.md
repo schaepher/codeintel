@@ -2541,10 +2541,16 @@ P1-05（全局注册表 schema 作为仓库外事实源，repos 表 10 列补类
 - **P1-07**（调用记录裁剪/暖缓存字符串）：`func data` 观测显示 calls 仅
   3491 条（<0.5% 峰值），裁剪无收益且有正确性风险 → 不做（留数据）。
 
-**P1-11 部分完成**：摘要表两个"最左前缀冗余"索引已幂等删除
-（go2o 库 114.3MB → 111.4MB，−2.5%，查询计划复核走 UNIQUE 覆盖索引）；
-`summary`/`summary_origins` 的 function_id 整数化与 `idx_nodes_func_id`
-（合计约 22% 库体量）仍待做，判据与触发条件见 `field_trace.md` §107。
+**2026-10-28 移除 P1-11 / P3-10**（证据见 `field_trace.md` §173）：
+- **P1-11**（摘要/索引整数化）完成：摘要表 `function_id` → 整数代理键
+  `function_ref`；删 `idx_nodes_func_id`（go2o 9.9MB），函数内查询改
+  nodes.id 前缀范围扫（写入守卫 fail-closed）。go2o 同一源码 A/B：
+  逻辑页 **113.4MB → 99.3MB（−12.4%）**、文件 118.9MB → 104.1MB，
+  节点/边/摘要 canonical 逐行全等，`detcheck` 冷1/冷2/暖全等，`trace`
+  延迟无回退。旧库 Open 报错并提示 reindex（摘要表是派生数据）。
+- **P3-10**（`precompute relations` 进度）完成：计算层改收
+  `domain.Progress`，CLI `--progress auto|plain|none` 与 init/update 同渲染器
+  （只写 stderr），删除 stdout 上的 `\r计算关联中 X/Y 表`。
 
 **2026-11-03 P1-03（迁移收尾）完成**：审计（`field_trace.md` §108）+ 构建
 流程收口（§109，用户定案"只迁构建流程"）：
@@ -2568,7 +2574,6 @@ P1-05（全局注册表 schema 作为仓库外事实源，repos 表 10 列补类
 | P0-04 | #9 | P0 | 术语表 24 条 / flows 5 条人工 review | 人在环 |
 | P1-03 | #16 | P1 工程 | cli → action 迁移收尾（查询侧 + 构建流程已完成，见上） | 剩余运维台账/配置/AI 子进程按 R98 保留 cli（用户 2026-11-03 定案） |
 | P1-06 | #18 | P1 工程 | go2o 表别名 AI 补缺（缺 148 表） | 需 AI/网络 |
-| P1-11 | #11 | P1 性能 | Stage 2b 余项：`summary`/`summary_origins` 的 function_id 改整数代理键 + `idx_nodes_func_id` 改 id 前缀范围扫（前缀冗余索引已删，−2.5%） | 需按 `reindex` 全量重建验证；判据与触发条件见 field_trace §107 |
 | P1-14 | #1（范围扩展） | P1 验证 | 真实业务系统端到端 / 更大仓并发与资源曲线 | 固定夹具矩阵/A-B/峰值已完成（todo15/16）；真实系统与更大规模仍需外部环境 |
 | P2-01 | #17 | P2 验证 | 新人实测演练（陌生项目 wiki onboarding） | 需外部项目 |
 | P2-02 | #19 | P2 验证 | ext-chain 跨仓库递归 | 需多仓库 |
@@ -2584,7 +2589,6 @@ P1-05（全局注册表 schema 作为仓库外事实源，repos 表 10 列补类
 | P3-07 | #29 | P3 候选 | 流程页深度：入口调用链 → 关键数据流（value-trace 串联） | |
 | P3-08 | #30 | P3 候选 | 服务归属静态兜底改进（排除服务实现包再投票） | |
 | P3-09 | #31 | P3 候选 | 外部依赖识别形态扩展（kafka 等，待真实项目） | |
-| P3-10 | #32 | P3 候选 | `precompute relations` 的 10% 打印统一到 `domain.Progress` | 现自打印 stdout |
 | P3-11 | #33 | P3 候选 | NDJSON 进度事件流（出现真实消费者再加） | 可选 |
 
 ## todo24 交付状态（2026-10-27，对照 `origin/main` 的 `775a0ec`）

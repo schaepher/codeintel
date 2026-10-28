@@ -103,30 +103,34 @@ CREATE TABLE IF NOT EXISTS build_metadata (
 CREATE INDEX IF NOT EXISTS idx_build_commit ON build_metadata(commit_sha);
 
 -- 函数字段摘要表（SSA 字段追溯，field_trace.md §5.2）
+-- P1-11：function_id 由 canonical TEXT（平均 ~100B/行）改整数代理键
+-- function_ref（nodes.id_int，rowid 别名）——canonical 只在本表与 UNIQUE
+-- 键里各存一份，go2o 实测摘要段占库 ~13%。读取端在边界把 canonical 解析
+-- 成 ref（或反解），与 Q254c 的 edges 整数化同一手法。
 CREATE TABLE IF NOT EXISTS function_field_summary (
-    function_id TEXT NOT NULL,
+    function_ref INTEGER NOT NULL,
     access_kind TEXT NOT NULL CHECK(access_kind IN ('direct_read','direct_write','indirect_write')),
     field_path TEXT NOT NULL,
     instance_path TEXT,
     line_start INTEGER,
     code_snippet TEXT,
-    FOREIGN KEY(function_id) REFERENCES nodes(id) ON DELETE CASCADE,
-    UNIQUE(function_id, access_kind, field_path)
+    FOREIGN KEY(function_ref) REFERENCES nodes(id_int) ON DELETE CASCADE,
+    UNIQUE(function_ref, access_kind, field_path)
 );
--- P1-11：idx_summary_func_access 已删（UNIQUE(function_id,access_kind,field_path) 前缀
--- 顶替；旧库由 dropRedundantSummaryIndexes 在 Open 时幂等 DROP）
+-- P1-11：idx_summary_func_access 已删（UNIQUE(function_ref,access_kind,field_path)
+-- 前缀顶替；旧库由 dropRedundantSummaryIndexes 在 Open 时幂等 DROP）
 CREATE INDEX IF NOT EXISTS idx_summary_field ON function_field_summary(field_path);
 
 -- 摘要来源表（Q161）：间接写多来源（调用点 × 被调函数），origin/confidence
 -- 查询期从 dispatch_to 边 join（callee 为候选实现时自然带出）
 CREATE TABLE IF NOT EXISTS summary_origins (
-    function_id TEXT NOT NULL,
+    function_ref INTEGER NOT NULL,
     access_kind TEXT NOT NULL CHECK(access_kind IN ('direct_read','direct_write','indirect_write')),
     field_path TEXT NOT NULL,
     call_line INTEGER,
     callee_id TEXT,
-    FOREIGN KEY(function_id) REFERENCES nodes(id) ON DELETE CASCADE,
-    UNIQUE(function_id, access_kind, field_path, call_line, callee_id)
+    FOREIGN KEY(function_ref) REFERENCES nodes(id_int) ON DELETE CASCADE,
+    UNIQUE(function_ref, access_kind, field_path, call_line, callee_id)
 );
 -- P1-11：idx_summary_origins_func 已删（UNIQUE 前缀顶替，同上）
 
@@ -135,11 +139,13 @@ CREATE TABLE IF NOT EXISTS summary_origins (
 -- repo_dispatch.go FindFieldReads）都带 kind='field_access'（SQLite 用
 -- 部分索引要求该谓词在查询 WHERE 顶层合取式中出现，已用 EXPLAIN QUERY
 -- PLAN 断言）；索引只维护 field_access 行，每次节点插入的 json_extract
--- 求值次数减半。idx_nodes_func_id 不动：repo_trace.go 的 ssa_value/
--- parameter 起点查询不带 kind 过滤（改部分索引会退化成全表扫）。
+-- 求值次数减半。
 CREATE INDEX IF NOT EXISTS idx_nodes_field_path ON nodes(json_extract(properties, '$.full_path'))
     WHERE kind = 'field_access';
-CREATE INDEX IF NOT EXISTS idx_nodes_func_id ON nodes(json_extract(properties, '$.func_id'));
+-- P1-11：idx_nodes_func_id 已删——带 func_id 的节点 ID 一律是
+-- funcID+"#"+slot（写入时校验），函数内查询改走 nodes.id 唯一索引的
+-- 前缀范围扫（funcID+"#" ≤ id < funcID+"$"，见 funcid_range.go）。
+-- 旧库由 Open 时幂等 DROP INDEX（不递增 SchemaVersion：删索引不改表结构）。
 
 -- 表关联候选缓存（P0③）：relations 结果按 build_id 持久化（--all 全量
 -- 重建 / 单表查询命中直接返回）；from_col='' 为 marker 行（标记"该表已

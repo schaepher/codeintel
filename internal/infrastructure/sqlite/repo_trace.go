@@ -37,9 +37,18 @@ func (r *Repo) TraceBackwardIndirect(field string, funcID domain.CanonicalID, ma
 	for len(frontier) > 0 && len(chain) < maxDepth*4 {
 		cur := frontier[0]
 		frontier = frontier[1:]
+		// P1-11：function_id → function_ref（按链上函数逐个解析；未索引的
+		// 函数按"无来源"跳过——与旧等值查无行等价）。
+		ref, ok, rerr := r.nodeRef(cur)
+		if rerr != nil {
+			return nil, rerr
+		}
+		if !ok {
+			continue
+		}
 		rows, err := r.Query(`SELECT DISTINCT callee_id FROM summary_origins
-			WHERE function_id = ? AND access_kind = 'indirect_write' AND field_path = ?`,
-			string(cur), field)
+			WHERE function_ref = ? AND access_kind = 'indirect_write' AND field_path = ?`,
+			ref, field)
 		if err != nil {
 			return nil, err
 		}
@@ -61,14 +70,22 @@ func (r *Repo) TraceBackwardIndirect(field string, funcID domain.CanonicalID, ma
 		rows.Close()
 	}
 
-	ids := make([]any, 0, len(chain))
+	ids := make([]string, 0, len(chain))
 	for id := range chain {
 		ids = append(ids, string(id))
 	}
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	ph := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+	// P1-11：不再用 idx_nodes_func_id（json_extract 表达式索引）——
+	// "带 func_id 的节点 ID 都是 funcID#…"是构造不变量（SSA 发射端
+	// 全部走 funcID+"#"+slot，写入时校验），故改走 nodes.id 唯一索引的
+	// 前缀范围扫（每个函数一个 [funcID# , funcID$) 区间）。
+	ranges := make([]string, 0, len(ids))
+	for range ids {
+		ranges = append(ranges, "(n.id >= ? AND n.id < ?)")
+	}
+	ph := strings.Join(ranges, " OR ")
 
 	q := fmt.Sprintf(`WITH RECURSIVE back(id, depth, name, edge_kinds, line, kind, access, func_id, full_path) AS (
     SELECT n.id, 0, n.name, '', n.line_start, n.kind,
@@ -79,7 +96,7 @@ func (r *Repo) TraceBackwardIndirect(field string, funcID domain.CanonicalID, ma
     WHERE n.kind = 'field_access'
       AND json_extract(n.properties, '$.full_path') = ?
       AND json_extract(n.properties, '$.access_kind') = 'write'
-      AND json_extract(n.properties, '$.func_id') IN (%s)
+      AND (%s)
     UNION
     SELECT e.source_id, d.depth + 1, n_prev.name,
            CASE WHEN d.edge_kinds = '' THEN e.kind ELSE d.edge_kinds || ',' || e.kind END,
@@ -94,7 +111,12 @@ func (r *Repo) TraceBackwardIndirect(field string, funcID domain.CanonicalID, ma
 )
 SELECT id, depth, name, edge_kinds, line, kind, access, func_id, full_path
 FROM back ORDER BY depth, id`, ph)
-	args := append([]any{field}, ids...)
+	args := make([]any, 0, 1+2*len(ids)+1)
+	args = append(args, field)
+	for _, id := range ids {
+		lo, hi := funcIDPrefixBounds(id)
+		args = append(args, lo, hi)
+	}
 	args = append(args, maxDepth)
 	rows, err := r.Query(q, args...)
 	if err != nil {
@@ -153,93 +175,25 @@ func (r *Repo) trace(field string, funcID domain.CanonicalID, maxDepth int, forw
 	if maxDepth <= 0 {
 		maxDepth = 8
 	}
-	var query string
-	if !forward {
-		query = `WITH RECURSIVE def_trace(id, depth, name, edge_kinds, line) AS (
-    SELECT n.id, 0, n.name, '', n.line_start
-    FROM nodes n
-    WHERE n.kind = 'field_access'
-      AND json_extract(n.properties, '$.full_path') = ?
-      AND json_extract(n.properties, '$.func_id') = ?
-    UNION
-    SELECT e.source_id, d.depth + 1, n_prev.name,
-           CASE WHEN d.edge_kinds = '' THEN e.kind
-                 ELSE d.edge_kinds || ',' || e.kind END, n_prev.line_start
-    FROM edges_v e
-    JOIN def_trace d ON e.target_id = d.id
-    JOIN nodes n_prev ON e.source_id = n_prev.id
-    WHERE e.kind IN ('data_flows_to','argument','returns','alias','phi_operand')
-      AND d.depth < ?
-)
-SELECT id, depth, name, edge_kinds, line FROM def_trace ORDER BY depth, id`
-	} else {
-		query = `WITH RECURSIVE fwd_trace(id, depth, name, edge_kinds, line, is_usage, kind) AS (
-    SELECT n.id, 0, n.name, '', n.line_start, 1, n.kind
-    FROM nodes n
-    WHERE n.kind = 'field_access'
-      AND json_extract(n.properties, '$.full_path') = ?
-      AND json_extract(n.properties, '$.func_id') = ?
-    UNION
-    -- 起点：与目标字段所属结构体同类型的 SSA 值（param/receiver/alloc/
-    -- local/phi/global——① 传参、⑩ 局部对象、⑭ DAO 返回对象→局部变量→
-    -- helper、global 溯源）。B2：类型不匹配的参数与全局变量（gitCommit
-    -- 等 string）不再是起点——此前 origin_kind IN ('param','receiver',
-    -- 'alloc','global') 无条件放行，全部参数与全局变量入链（噪音）。
-    -- Q178：参数统一为签名参数节点（kind=parameter，#param.<name>）
-    SELECT n.id, 0, n.name, '', n.line_start, 0, n.kind
-    FROM nodes n
-    WHERE n.kind IN ('ssa_value', 'parameter')
-      AND (json_extract(n.properties, '$.func_id') = ?
-           OR json_extract(n.properties, '$.origin_kind') = 'global')
-      AND (json_extract(n.properties, '$.type_string') = ?
-           OR json_extract(n.properties, '$.type_string') = ?)
-    UNION
-    -- 起点：承载目标类型对象的字段访问节点（C 形态：s.cfg → fill 写
-    -- c.Key——容器对象 Svc 自身类型不匹配，但其字段节点 s.cfg 类型
-    -- *Cfg 匹配，作起点经 argument 进入 callee）
-    SELECT n.id, 0, n.name, '', n.line_start, 0, n.kind
-    FROM nodes n
-    WHERE n.kind = 'field_access'
-      AND json_extract(n.properties, '$.func_id') = ?
-      AND (json_extract(n.properties, '$.type_string') = ?
-           OR json_extract(n.properties, '$.type_string') = ?)
-    UNION
-    SELECT e.target_id, d.depth + 1, n_next.name,
-           CASE WHEN d.edge_kinds = '' THEN e.kind
-                 ELSE d.edge_kinds || ',' || e.kind END, n_next.line_start,
-           CASE WHEN n_next.kind = 'field_access'
-                     AND json_extract(n_next.properties, '$.full_path') = ? THEN 1 ELSE 0 END,
-           n_next.kind
-    FROM edges_v e
-    JOIN fwd_trace d ON e.source_id = d.id
-    JOIN nodes n_next ON e.target_id = n_next.id
-    WHERE e.kind IN ('data_flows_to','argument','returns','phi_operand','alias')
-      -- 字段访问步：目标字段任意读写放行；参数/值 → 其他字段读 放行
-      -- 但仅限与目标字段同名的读（⑫ 跳板精确化：dest.ID = src.ID 拷贝链
-      -- 同名保留——kg.ID → t42.ID；record.Metadata/Status 等无关字段
-      -- 读拦截——噪音与超时来源）；字段访问 → 字段访问 仅限目标字段
-      AND (n_next.kind != 'field_access'
-           OR json_extract(n_next.properties, '$.full_path') = ?
-           OR (d.kind != 'field_access' AND json_extract(n_next.properties, '$.access_kind') = 'read'
-               AND (json_extract(n_next.properties, '$.full_path') LIKE ?
-                    OR json_extract(n_next.properties, '$.type_string') LIKE ?)))
-      AND d.depth < ?
-)
-SELECT id, depth, name, edge_kinds, line, is_usage FROM fwd_trace ORDER BY depth, id`
+	query := traceBackwardSQL
+	if forward {
+		query = traceForwardSQL
 	}
 	var (
 		rows *sql.Rows
 		err  error
 	)
+	lo, hi := funcIDPrefixBounds(string(funcID))
 	if forward {
 		targetType := strings.TrimSuffix(field, "."+lastSeg(field))
-		rows, err = r.Query(query, field, string(funcID), string(funcID),
+		rows, err = r.Query(query, field, lo, hi,
+			lo, hi, targetType, "*"+targetType,
 			targetType, "*"+targetType,
-			string(funcID), targetType, "*"+targetType,
+			lo, hi, targetType, "*"+targetType,
 			field, field,
 			"%."+lastSeg(field), "%"+pkgOf(field)+".%", maxDepth)
 	} else {
-		rows, err = r.Query(query, field, string(funcID), maxDepth)
+		rows, err = r.Query(query, field, lo, hi, maxDepth)
 	}
 	if err != nil {
 		return nil, err

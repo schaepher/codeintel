@@ -62,8 +62,11 @@ func TestNodeFuncIDDeterministicAcrossWriteOrder(t *testing.T) {
 	}
 }
 
-// Q250 F2b：共享 ssa_value 节点（同 id 被不同函数写 func_id）也走同一规则。
-func TestNodeFuncIDMinAlsoForSSAValue(t *testing.T) {
+// Q250 F2b：共享节点（同 id 被不同函数写 func_id）也走同一规则。
+// P1-11 起函数内节点（ssa_value/parameter/field_access）的 func_id 必须是
+// ID 前缀（前缀范围查依赖），故这里用 external_summary——它的 func_id 是
+// "算出摘要的调用方"（本就可以不是 ID 前缀），多写者合并规则仍适用。
+func TestNodeFuncIDMinAlsoForExternalSummary(t *testing.T) {
 	dir := t.TempDir()
 	db, err := Open(dir)
 	if err != nil {
@@ -73,17 +76,46 @@ func TestNodeFuncIDMinAlsoForSSAValue(t *testing.T) {
 	r := NewRepo(db)
 	for _, fid := range []string{"symbol:go:m:f1", "symbol:go:m:f2"} {
 		if _, err := r.SaveBatchStats([]*domain.CodeEntity{{
-			ID: "symbol:go:m:f#t0", Kind: domain.KindSSAValue, Name: "int",
+			ID: "symbol:go:encoding/json:Marshal", Kind: domain.KindExternalSummary, Name: "Marshal",
 			Properties: map[string]any{"func_id": fid, "type_string": "int"},
 		}}, nil, nil); err != nil {
 			t.Fatalf("save: %v", err)
 		}
 	}
 	var fid string
-	if err := db.QueryRow(`SELECT json_extract(properties,'$.func_id') FROM nodes WHERE id='symbol:go:m:f#t0'`).Scan(&fid); err != nil {
+	if err := db.QueryRow(`SELECT json_extract(properties,'$.func_id') FROM nodes WHERE id='symbol:go:encoding/json:Marshal'`).Scan(&fid); err != nil {
 		t.Fatal(err)
 	}
 	if fid != "symbol:go:m:f1" {
 		t.Errorf("func_id 应取最小，got %q", fid)
+	}
+}
+
+// TestFuncIDPrefixInvariantEnforced：P1-11 写入守卫——函数内节点的
+// func_id 不是 ID 前缀时 fail-closed（否则前缀范围查会静默漏节点）；
+// 合规形态与其它 kind 不受影响。
+func TestFuncIDPrefixInvariantEnforced(t *testing.T) {
+	r := newTestRepo(t)
+	bad := []*domain.CodeEntity{{
+		ID: "symbol:go:m:f#t0", Kind: domain.KindSSAValue, Name: "t0",
+		Properties: map[string]any{"func_id": "symbol:go:m:other"},
+	}}
+	if _, err := r.SaveBatchStats(bad, nil, nil); err == nil {
+		t.Fatal("函数内节点 func_id 非 ID 前缀时应报错（fail-closed）")
+	}
+	ok := []*domain.CodeEntity{{
+		ID: "symbol:go:m:f#t1", Kind: domain.KindSSAValue, Name: "t1",
+		Properties: map[string]any{"func_id": "symbol:go:m:f"},
+	}}
+	if _, err := r.SaveBatchStats(ok, nil, nil); err != nil {
+		t.Fatalf("合规前缀不应报错：%v", err)
+	}
+	// external_summary 的 func_id 是调用方（非前缀）——合法
+	ext := []*domain.CodeEntity{{
+		ID: "symbol:go:encoding/json:Unmarshal", Kind: domain.KindExternalSummary, Name: "Unmarshal",
+		Properties: map[string]any{"func_id": "symbol:go:m:caller"},
+	}}
+	if _, err := r.SaveBatchStats(ext, nil, nil); err != nil {
+		t.Fatalf("external_summary 不应套用前缀不变量：%v", err)
 	}
 }

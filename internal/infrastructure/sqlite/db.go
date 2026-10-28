@@ -139,10 +139,15 @@ func (db *DB) init() error {
 	if _, err := db.Exec(configSchema); err != nil {
 		return fmt.Errorf("create config schema: %w", err)
 	}
-	// Q246：删除无用索引（幂等）——CREATE INDEX 无法表达减法，旧库须显式
-	// DROP（schema.go 已不再建它；新库上为 no-op）。索引名可继续存在。
+	// Q246/P1-11：删除无用索引（幂等）——CREATE INDEX 无法表达减法，旧库
+	// 须显式 DROP（schema.go 已不再建它们；新库上为 no-op）。
+	//   idx_nodes_signature：全仓库无查询用过（Q246）
+	//   idx_nodes_func_id：函数内查询改走 nodes.id 前缀范围扫（P1-11）
 	if _, err := db.Exec(`DROP INDEX IF EXISTS idx_nodes_signature`); err != nil {
 		return fmt.Errorf("drop unused index: %w", err)
+	}
+	if _, err := db.Exec(`DROP INDEX IF EXISTS idx_nodes_func_id`); err != nil {
+		return fmt.Errorf("drop unused index idx_nodes_func_id: %w", err)
 	}
 	// Q254 Stage 1：删冗余 edges 索引（同上，幂等；不递增 SchemaVersion——
 	// 删索引不改表结构，不该逼用户重建 13GB 库）
@@ -172,8 +177,8 @@ var schemaCols = map[string][]string{
 	"nodes":                  {"id_int", "id", "kind", "name", "file_path", "line_start", "line_end", "properties", "signature_text", "created_at"},
 	"edges":                  {"id", "source_ref", "target_ref", "kind", "edge_key", "tool_source", "confidence", "metadata"},
 	"build_metadata":         {"build_id", "commit_sha", "tool_name", "status", "duration_ms", "error_message", "nodes_count", "edges_count", "timestamp", "worktree_fingerprint"},
-	"function_field_summary": {"function_id", "access_kind", "field_path", "instance_path", "line_start", "code_snippet"},
-	"summary_origins":        {"function_id", "access_kind", "field_path", "call_line", "callee_id"},
+	"function_field_summary": {"function_ref", "access_kind", "field_path", "instance_path", "line_start", "code_snippet"},
+	"summary_origins":        {"function_ref", "access_kind", "field_path", "call_line", "callee_id"},
 	"relation_candidates":    {"build_id", "from_table", "from_col", "to_table", "to_col", "hops", "type"},
 	"relation_rules":         {"id", "from_table", "from_col", "to_table", "to_col", "created_at"},
 	"relation_progress":      {"build_id", "status", "done_count", "total_count", "updated_at"},
@@ -215,6 +220,13 @@ func (db *DB) verifySchema() error {
 				if tbl == "edges" && (c == "source_ref" || c == "target_ref") {
 					hint = "；Q254 Stage 2：edges 已改用整数代理键（真实库实测可省数 GB），" +
 						"旧库需重建（派生数据，重建即迁移）"
+				}
+				if tbl == "function_field_summary" || tbl == "summary_origins" {
+					if c == "function_ref" {
+						hint = "；P1-11：摘要表 function_id 已改整数代理键 function_ref" +
+							"（canonical ID 只在本表与 UNIQUE 键各存一份，go2o 实测省 ~13%）——" +
+							"摘要表是派生数据，reindex 即重建"
+					}
 				}
 				if tbl == "edges" && c == "edge_key" {
 					hint = "；todo11-1：grpc_call 需要按 RPC 方法区分身份（edge_key），" +

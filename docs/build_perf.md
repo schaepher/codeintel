@@ -386,6 +386,9 @@ driverArgsConnLocked` 36%、`resultFromStatement` 50%。**复用 `[]any`
   `scripts/detcheck.sh` 冷1/冷2/暖 四类产物全等（缓存重放保真）。
 
 **DB 体量（`scripts/dbdiag.sh --size`）**：删掉摘要表两个最左前缀冗余索引后
-114.3MB → **111.4MB（−2.5%）**；剩余大头仍是 `nodes`+索引（约 72%）与
-`idx_nodes_func_id`（9.9MB，8.7%）——后者的替代路径（id 前缀范围扫）与
-summary 表整数化见 `field_trace.md` §107 的判据/触发条件。
+114.3MB → **111.4MB（−2.5%）**。P1-11（2026-10-28）继续做掉两处结构性体量：
+①`idx_nodes_func_id`（go2o 9.9MB）删除，函数内查询改 nodes.id 前缀范围扫
+②摘要表 `function_id` → 整数代理键 `function_ref`。go2o 同一份源码 A/B：
+**113.4MB → 99.3MB 逻辑页（−14.1MB / −12.4%）**，文件 118.9MB → 104.1MB；
+节点/边/摘要（canonical）逐行全等，`detcheck` 三次构建全等。证据见
+`field_trace.md` §173。

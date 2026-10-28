@@ -100,10 +100,13 @@ func TestFieldPathIndexUsedByRealQueries(t *testing.T) {
 		if i%2 == 1 {
 			kind = domain.KindSSAValue
 		}
+		// P1-11：带 func_id 的函数内节点 ID 必须是 funcID+"#"+slot（前缀
+		// 范围扫依赖），fixture 按真实形态生成（每节点属于自己函数）。
+		fid := "symbol:go:mtest:f" + string(rune('a'+i%26))
 		nodes = append(nodes, &domain.CodeEntity{
-			ID:   domain.CanonicalID("symbol:go:mtest:f" + string(rune('a'+i%26)) + "#" + string(rune('0'+i%10)) + string(rune('A'+i/10))),
+			ID:   domain.CanonicalID(fid + "#" + string(rune('0'+i%10)) + string(rune('A'+i/10))),
 			Kind: kind, Name: "x", Properties: map[string]any{
-				"full_path": "t.a", "func_id": "symbol:go:mtest:f",
+				"full_path": "t.a", "func_id": fid,
 			},
 		})
 	}

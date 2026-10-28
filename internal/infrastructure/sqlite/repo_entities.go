@@ -40,8 +40,10 @@ func (r *Repo) GetEntityRaw() (*domain.EntityRaw, error) {
 	}
 	// R68：字段 direct_write 摘要（service 判定——只查写；读不区分
 	// 数据/注入语义）
-	if rows, err := r.Query(`SELECT function_id, access_kind, field_path, instance_path, line_start, code_snippet
-		FROM function_field_summary WHERE access_kind = 'direct_write'`); err == nil {
+	// P1-11：function_ref（整数）→ join nodes 还原 canonical ID。
+	if rows, err := r.Query(`SELECT n.id, s.access_kind, s.field_path, s.instance_path, s.line_start, s.code_snippet
+		FROM function_field_summary s JOIN nodes n ON n.id_int = s.function_ref
+		WHERE s.access_kind = 'direct_write'`); err == nil {
 		if summaries, err := scanSummaries(rows); err == nil {
 			out.FieldWrites = summaries
 		}

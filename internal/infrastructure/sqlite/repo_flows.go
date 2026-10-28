@@ -14,8 +14,11 @@ func (r *Repo) AllSummaries() ([]*domain.FunctionFieldSummary, error) {
 	logger := zap.L()
 	logger.Debug("enter (Repo).AllSummaries")
 	defer logger.Debug("exit (Repo).AllSummaries")
-	rows, err := r.Query(`SELECT function_id, access_kind, field_path, instance_path, line_start, code_snippet
-		FROM function_field_summary ORDER BY field_path, access_kind`)
+	// P1-11：物理列是 function_ref（整数代理键）——canonical ID 在边界
+	// join nodes 还原（全表导出路径，join 代价可忽略）。
+	rows, err := r.Query(`SELECT n.id, s.access_kind, s.field_path, s.instance_path, s.line_start, s.code_snippet
+		FROM function_field_summary s JOIN nodes n ON n.id_int = s.function_ref
+		ORDER BY s.field_path, s.access_kind`)
 	if err != nil {
 		return nil, err
 	}
@@ -29,9 +32,19 @@ func (r *Repo) GetFunctionFields(funcID domain.CanonicalID) ([]*domain.FunctionF
 	logger := zap.L()
 	logger.Debug("enter (Repo).GetFunctionFields")
 	defer logger.Debug("exit (Repo).GetFunctionFields")
-	rows, err := r.Query(`SELECT function_id, access_kind, field_path, instance_path, line_start, code_snippet
-		FROM function_field_summary WHERE function_id = ?
-		ORDER BY access_kind, field_path`, string(funcID))
+	// P1-11：canonical 只在边界解析成 nodes.id_int（function_ref）；未索引
+	// 的函数按"无摘要"返回（与旧实现无行等价）。
+	ref, ok, err := r.nodeRef(funcID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, nil
+	}
+	rows, err := r.Query(`SELECT n.id, s.access_kind, s.field_path, s.instance_path, s.line_start, s.code_snippet
+		FROM function_field_summary s JOIN nodes n ON n.id_int = s.function_ref
+		WHERE s.function_ref = ?
+		ORDER BY s.access_kind, s.field_path`, ref)
 	if err != nil {
 		return nil, err
 	}
@@ -40,8 +53,8 @@ func (r *Repo) GetFunctionFields(funcID domain.CanonicalID) ([]*domain.FunctionF
 		return nil, err
 	}
 
-	orows, err := r.Query(`SELECT function_id, access_kind, field_path, call_line, callee_id
-		FROM summary_origins WHERE function_id = ? ORDER BY call_line`, string(funcID))
+	orows, err := r.Query(`SELECT function_ref, access_kind, field_path, call_line, callee_id
+		FROM summary_origins WHERE function_ref = ? ORDER BY call_line`, ref)
 	if err != nil {
 		return nil, err
 	}
@@ -50,14 +63,14 @@ func (r *Repo) GetFunctionFields(funcID domain.CanonicalID) ([]*domain.FunctionF
 	for orows.Next() {
 		var (
 			o     domain.SummaryOrigin
-			fid   string
+			fref  int64
 			cline sql.NullInt64
 			cid   sql.NullString
 		)
-		if err := orows.Scan(&fid, &o.AccessKind, &o.FieldPath, &cline, &cid); err != nil {
+		if err := orows.Scan(&fref, &o.AccessKind, &o.FieldPath, &cline, &cid); err != nil {
 			return nil, err
 		}
-		o.FunctionID = domain.CanonicalID(fid)
+		o.FunctionID = funcID
 		if cline.Valid {
 			o.CallLine = int(cline.Int64)
 		}
@@ -107,6 +120,9 @@ func (r *Repo) GetFunctionFlows(funcID domain.CanonicalID, maxDepth int) ([]*dom
 	if maxDepth <= 0 {
 		maxDepth = 8
 	}
+	// P1-11：函数内节点用 nodes.id 前缀范围扫（funcID+"#"+slot 不变量），
+	// 替代已删除的 idx_nodes_func_id 表达式索引。
+	lo, hi := funcIDPrefixBounds(string(funcID))
 	rows, err := r.Query(`WITH RECURSIVE flows(id, depth, name, edge_kinds, line, dir, kind, access, func_id, full_path, ctx) AS (
     SELECT n.id, 0, n.name, '', n.line_start, 0, n.kind,
            json_extract(n.properties, '$.access_kind'),
@@ -115,7 +131,7 @@ func (r *Repo) GetFunctionFlows(funcID domain.CanonicalID, maxDepth int) ([]*dom
            json_extract(n.properties, '$.full_path')
     FROM nodes n
     WHERE n.kind = 'field_access'
-      AND json_extract(n.properties, '$.func_id') = ?
+      AND n.id >= ? AND n.id < ?
     UNION
     -- 反向：流向当前节点（产生链）；字段访问步限定起始字段（⑥：
     -- 共享中间值节点不把其他字段的访问带入本字段链）
@@ -131,7 +147,7 @@ func (r *Repo) GetFunctionFlows(funcID domain.CanonicalID, maxDepth int) ([]*dom
     JOIN nodes n_prev ON e.source_id = n_prev.id
     WHERE e.kind IN ('data_flows_to','phi_operand')
       AND (d.dir = 0 OR d.depth = 0) AND d.depth < ?
-      AND json_extract(n_prev.properties, '$.func_id') = ?
+      AND n_prev.id >= ? AND n_prev.id < ?
       AND (n_prev.kind != 'field_access'
            OR json_extract(n_prev.properties, '$.full_path') = d.ctx)
     UNION
@@ -148,12 +164,12 @@ func (r *Repo) GetFunctionFlows(funcID domain.CanonicalID, maxDepth int) ([]*dom
     JOIN nodes n_next ON e.target_id = n_next.id
     WHERE e.kind IN ('data_flows_to','phi_operand')
       AND (d.dir = 1 OR d.depth = 0) AND d.depth < ?
-      AND json_extract(n_next.properties, '$.func_id') = ?
+      AND n_next.id >= ? AND n_next.id < ?
       AND (n_next.kind != 'field_access'
            OR json_extract(n_next.properties, '$.full_path') = d.ctx)
 )
 SELECT id, depth, name, edge_kinds, line, dir, kind, access, func_id, full_path FROM flows ORDER BY dir, depth, id`,
-		string(funcID), maxDepth, string(funcID), maxDepth, string(funcID))
+		lo, hi, maxDepth, lo, hi, maxDepth, lo, hi)
 	if err != nil {
 		return nil, err
 	}

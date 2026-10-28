@@ -30,8 +30,9 @@ func indexNames(t *testing.T, r *Repo, table string) map[string]bool {
 // End 重建；重建后按 func_id / full_path 查询可走索引且结果正确。
 func TestBulkLoadIndexes(t *testing.T) {
 	r := newTestRepo(t)
-	if !indexNames(t, r, "nodes")["idx_nodes_func_id"] {
-		t.Fatal("初始 schema 应包含 idx_nodes_func_id")
+	// P1-11：函数内查询改走 nodes.id 前缀范围扫，表达式索引已删
+	if indexNames(t, r, "nodes")["idx_nodes_func_id"] {
+		t.Fatal("P1-11：idx_nodes_func_id 不应再创建（Open 时幂等 DROP）")
 	}
 	if err := r.BeginBulkLoad(); err != nil {
 		t.Fatal(err)

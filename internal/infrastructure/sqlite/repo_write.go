@@ -50,6 +50,13 @@ func (r *Repo) SaveBatchStats(nodes []*domain.CodeEntity, edges []*domain.Fact,
 			return nil, fmt.Errorf("prepare node insert: %w", err)
 		}
 		for _, n := range nodes {
+			// P1-11：函数内节点的查询靠"ID 以 funcID+"#" 开头"这个不变量
+			// 做前缀范围扫（funcid_range.go）——违反就必须报错，不能静默
+			// 写进去（否则相关节点在 trace/flows 里消失）。
+			if err := validateFuncIDPrefix(n); err != nil {
+				stmt.Close()
+				return nil, err
+			}
 			props, err := marshalPropsJSON(n.Properties)
 			if err != nil {
 				stmt.Close()
@@ -103,14 +110,29 @@ func (r *Repo) SaveBatchStats(nodes []*domain.CodeEntity, edges []*domain.Fact,
 		}
 		stmt.Close()
 	}
+	// P1-11：摘要表的 function_id（canonical）→ function_ref（nodes.id_int）。
+	// 同事务内节点先于摘要写入，故同批新节点也能解析到；解析不到的
+	// （跨批依赖）走 FailedSummaries/FailedOrigins 延后重试——与原 FK
+	// 冲突路径同语义。
+	var summaryRefs map[string]int64
+	if len(summaries) > 0 || len(allOrigins) > 0 {
+		summaryRefs, err = resolveSummaryRefs(tx, summaries, allOrigins)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if len(summaries) > 0 {
 		stmt, err := tx.Prepare(insertSummarySQL)
 		if err != nil {
 			return nil, fmt.Errorf("prepare summary insert: %w", err)
 		}
 		for _, s := range summaries {
-
-			if _, err := stmt.Exec(string(s.FunctionID), s.AccessKind, s.FieldPath,
+			ref, ok := summaryRefs[string(s.FunctionID)]
+			if !ok {
+				result.FailedSummaries = append(result.FailedSummaries, s)
+				continue
+			}
+			if _, err := stmt.Exec(ref, s.AccessKind, s.FieldPath,
 				s.InstancePath, s.LineStart, s.CodeSnippet); err != nil {
 				if isFKError(err) {
 					result.FailedSummaries = append(result.FailedSummaries, s)
@@ -124,7 +146,7 @@ func (r *Repo) SaveBatchStats(nodes []*domain.CodeEntity, edges []*domain.Fact,
 	}
 	if len(allOrigins) > 0 {
 		stmt, err := tx.Prepare(`INSERT OR REPLACE INTO summary_origins
-			(function_id, access_kind, field_path, call_line, callee_id)
+			(function_ref, access_kind, field_path, call_line, callee_id)
 			VALUES (?, ?, ?, ?, ?)`) // Q215：覆盖旧行（同 Q215 summary）
 		if err != nil {
 			return nil, fmt.Errorf("prepare origin insert: %w", err)
@@ -134,7 +156,12 @@ func (r *Repo) SaveBatchStats(nodes []*domain.CodeEntity, edges []*domain.Fact,
 			if o.FunctionID == "" || o.AccessKind == "" || o.FieldPath == "" {
 				continue
 			}
-			if _, err := stmt.Exec(string(o.FunctionID), o.AccessKind, o.FieldPath,
+			ref, ok := summaryRefs[string(o.FunctionID)]
+			if !ok {
+				result.FailedOrigins = append(result.FailedOrigins, o)
+				continue
+			}
+			if _, err := stmt.Exec(ref, o.AccessKind, o.FieldPath,
 				o.CallLine, string(o.CalleeID)); err != nil {
 				if isFKError(err) {
 					result.FailedOrigins = append(result.FailedOrigins, o)
