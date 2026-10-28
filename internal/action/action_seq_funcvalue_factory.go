@@ -22,6 +22,8 @@ import (
 const (
 	seqMaxListItems    = 32
 	seqMaxRangeIters   = 16
+	// T02：列表路径上限（转发层数）。
+	seqMaxListPath = 16
 	seqMaxFactoryDepth = 3
 )
 
@@ -253,22 +255,43 @@ func seqRangeOverFuncList(a *Actions, req CodeSequenceRequest, fset *token.FileS
 		return node
 	}
 	elems := list.elems
-	if len(elems) > seqMaxRangeIters {
+	if list.listPath > seqMaxListPath {
 		node.Stop = &SeqStop{Code: SeqStopFuncValueUnbound,
-			Detail: "函数列表迭代超过预算 " + itoaSeq(seqMaxRangeIters) + "（todo22 §2.4）"}
+			Detail: "函数列表路径超过预算 " + itoaSeq(seqMaxListPath) + "（T02：转发层数不截断冒充完整）"}
 		return node
 	}
-	for _, elem := range elems {
-		if req.env != nil {
+	if len(elems) > seqMaxListItems {
+		node.Stop = &SeqStop{Code: SeqStopFuncValueUnbound,
+			Detail: "函数列表元素超过预算 " + itoaSeq(seqMaxListItems) + "（T02：不截取前几项冒充完整）"}
+		return node
+	}
+	if len(elems) == 0 {
+		// T02：确定的空列表 → 零元素执行（不生成任何循环体节点）。
+		return node
+	}
+	// T02：函数列表按**元素实际调用**展开——每项一个互斥的"item i/N"循环
+	// （顺序来自列表字面量），整体标"callback list path"（taken）。
+	sub := req
+	sub.inCallbackList = true
+	branch := &CodeSeqNode{Kind: "branch", Label: "callback list path",
+		Line: fset.Position(s.Pos()).Line,
+		Scene: &SceneFit{Status: SceneTaken, Reason: "source-callback-list"}}
+	for i, elem := range elems {
+		if sub.env != nil {
 			if id, ok := s.Value.(*ast.Ident); ok && id.Obj != nil {
-				req.env.set(id.Obj, elem)
+				sub.env.set(id.Obj, elem)
 			}
 			if id, ok := s.Key.(*ast.Ident); ok && id.Obj != nil {
-				req.env.set(id.Obj, unknownSeqValue("range 索引（与函数值执行无关）"))
+				sub.env.set(id.Obj, unknownSeqValue("range 索引（与函数值执行无关）"))
 			}
 		}
-		node.Nodes = append(node.Nodes, walkStmts(a, req, fset, src, s.Body.List, tgts,
-			depth, recvType, recvDecl, f, curPkg, curFile)...)
+		item := &CodeSeqNode{Kind: "loop",
+			Label: "item " + itoaSeq(i+1) + "/" + itoaSeq(len(elems)),
+			Line:  fset.Position(s.Pos()).Line}
+		item.Nodes = walkStmts(a, sub, fset, src, s.Body.List, tgts,
+			depth, recvType, recvDecl, f, curPkg, curFile)
+		branch.Nodes = append(branch.Nodes, item)
 	}
+	node.Nodes = append(node.Nodes, branch)
 	return node
 }

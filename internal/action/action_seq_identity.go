@@ -245,6 +245,13 @@ func finishSeqEvidence(req CodeSequenceRequest, n *CodeSeqNode) *CodeSeqNode {
 	q, snap := seqEvidenceQuery(req, n.Evidence.SymbolID)
 	n.Evidence.Query = q
 	n.Evidence.Request = snap
+	if req.inCallbackList && n.Evidence.Source == SeqEvidenceCallEdge && !n.Evidence.Ambiguous {
+		// T02：函数列表按元素实际调用——在该路径上的调用是"按回调列表补证"
+		// 而不是单点直接边（证据依据与 verdict 同步）。
+		n.Evidence.Reason = "source-callback-list"
+		n.Evidence.Verdict = SeqVerdictCorroborated
+		return n
+	}
 	n.Evidence.Verdict = seqEvidenceVerdict(n.Evidence)
 	return n
 }

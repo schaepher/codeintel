@@ -258,6 +258,14 @@ func microConcreteArgType(pkg *packages.Package, arg ast.Expr, static types.Type
 			continue
 		case *ast.TypeAssertExpr:
 			if t := pkg.TypesInfo.TypeOf(e.X); t != nil {
+				if !isIfaceOrAny(t) {
+					return t
+				}
+				// T09：工厂返回 interface{} / 接口——沿工厂函数体全部第一
+				// 返回槽证明具体类型（`Get() interface{} { return new(A) }`）。
+				if t2, ok := microFactoryReturnType(pkg, e.X); ok {
+					return t2
+				}
 				return t
 			}
 		}

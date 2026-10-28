@@ -152,6 +152,12 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 				Line: fset.Position(s.Pos()).Line,
 				Stop: &SeqStop{Code: SeqStopFuncValueUnbound, Detail: why}}}
 		}
+		// T02：声明的函数列表值未知——留明确诊断（不当作空列表、不猜元素）。
+		if why := seqRangeListUnknown(a, req, s.X); why != "" {
+			return []*CodeSeqNode{{Kind: "loop", Label: "range " + seqExprText(fset, src, s.X),
+				Line: fset.Position(s.Pos()).Line,
+				Stop: &SeqStop{Code: SeqStopFuncValueUnbound, Detail: why}}}
+		}
 		pre := req.env.clone()
 		// todo24 §11.5：range 赋值目标若是已绑定函数值，循环内不得沿用循环前
 		// 的来源（未知元素列表）。

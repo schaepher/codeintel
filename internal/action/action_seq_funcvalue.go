@@ -67,10 +67,15 @@ type seqValue struct {
 	why       string // unknown 原因
 	cands     []seqValue
 	elems     []seqValue // list：元素（按源码/变参顺序）
+	// T02：列表路径长度（`list...` 转发/append 逐层 +1；上限 16）。
+	listPath int
 	// todo22 §2.1：绑定元数据——声明对象（区分同名阴影）、调用上下文
 	// （绑定发生的文件/行）与条件（在哪个分支条件下成立）。
 	declObj  *ast.Object
-	bindFile string
+	// T02：该函数值来自"函数列表回调路径"（range 逐元素实际调用）——
+	// 展开其内部时按回调路径补证（verdict=corroborated）。
+	callbackList bool
+	bindFile     string
 	bindLine int
 	cond     string
 }
@@ -95,7 +100,8 @@ func seqValueShortName(symID string) string {
 // literalSeqValue 由字面量构造函数值（捕获当前文件上下文与环境）。
 func literalSeqValue(req CodeSequenceRequest, ctx *seqFileCtx, env *seqEnv, lit *ast.FuncLit, origin string) seqValue {
 	return seqValue{kind: seqValueLit, origin: origin, lit: lit, ctx: ctx, env: env,
-		enclosing: req.curSym, pkgPath: pkgPathOf(req.curSym),
+		callbackList: req.inCallbackList,
+		enclosing:    req.curSym, pkgPath: pkgPathOf(req.curSym),
 		recvType: req.curRecvType, recvName: req.curRecvName, recvObj: req.curRecvObj,
 		recvDecl: req.curRecvDecl}
 }
@@ -189,7 +195,15 @@ func multiSeqValue(cands []seqValue, why string) seqValue {
 	return seqValue{kind: seqValueMulti, cands: uniq, name: strings.Join(names, " | "), why: why}
 }
 
-// listSeqValue 函数列表值（元素顺序即源码/变参顺序）。
+// listSeqValue 函数列表值（元素顺序即源码/变参顺序；路径长度 = 1 + 元素
+// 最深列表路径——转发/append 逐层累积）。
 func listSeqValue(elems []seqValue) seqValue {
-	return seqValue{kind: seqValueList, elems: elems, name: "list(" + strconv.Itoa(len(elems)) + ")"}
+	path := 1
+	for _, e := range elems {
+		if e.kind == seqValueList && e.listPath+1 > path {
+			path = e.listPath + 1
+		}
+	}
+	return seqValue{kind: seqValueList, elems: elems, listPath: path,
+		name: "list(" + strconv.Itoa(len(elems)) + ")"}
 }

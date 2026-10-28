@@ -137,6 +137,9 @@ func seqExpandSingleValue(a *Actions, req CodeSequenceRequest, call *ast.CallExp
 			defer delete(req.litVisited, key)
 		}
 		sub := req
+		if fv.callbackList {
+			sub.inCallbackList = true
+		}
 		sub.env = newSeqEnv(fv.env) // 闭包捕获：父环境 = 创建时的环境
 		bindSeqParams(sub.env, fv.lit.Type.Params, args)
 		// 字面量内的调用边/包身份归属 = **字面量所在函数**（不是把它内联展开的

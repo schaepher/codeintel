@@ -113,6 +113,9 @@ type CodeSequenceRequest struct {
 	continuationCompat bool
 	// 内部（T07）：当前在"未验证实现候选"分支内——后代不计确定执行、不登记续查前沿。
 	inCandidate bool
+	// 内部（T02）：当前在"函数列表回调路径"内——后代调用按回调路径补证
+	// （corroborated，理由 source-callback-list）。
+	inCallbackList bool
 	// 内部：阶段耗时累加（todo10-9）
 	acc *seqTimingAcc
 	// 内部（todo25 §13）：运行时快照分析结果（分支裁剪 + 调用值证据）
