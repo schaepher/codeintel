@@ -7225,3 +7225,15 @@ exit_code=0；取消契约 26.7ms + 复用边 3。**边界**：子进程 250µs 
 
 测试：`action_seq_parallel_assign_test.go`（场景 `x,y=y,x` 后 y=旧 x；
 函数值 `a,b=b,a` 后 `b()` 命中旧 `A`）。
+
+## §144 todo23 §3.1（第一步）：receiver 字段绑定 receiver 对象（2026-10-27）
+
+`receiverFieldSel` 原先只判断 `s.field` 形态，完全不校验 base 是否为当前
+方法 receiver——局部变量 `x.field.Method()` 会错误复用 receiver 字段的
+SSA 写入证明。现在：
+- `codeSeqForSymbol` 记录 `curRecvName` / `curRecvObj`（receiver 声明的
+  `*ast.Object`）；函数字面量内联时清空（字面量没有 receiver）。
+- `receiverFieldSel(sel, recvObj, recvName)` 要求 base 标识符与 receiver
+  对象同一（无对象时回退 receiver 名），否则不走 receiver 字段/DI 路径。
+- 测试：`TestReceiverFieldSelRequiresReceiverObject`（`x.f.Do` 不命中、
+  `t.f.Do` 命中 f）。

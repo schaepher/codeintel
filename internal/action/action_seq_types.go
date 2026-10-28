@@ -135,6 +135,8 @@ type CodeSequenceRequest struct {
 	curTgts     *seqTargets
 	curCtx      *seqFileCtx
 	curRecvType string
+	curRecvName string
+	curRecvObj  *ast.Object
 	curRecvDecl map[string]string
 	env         *seqEnv
 	paramValues []seqValue

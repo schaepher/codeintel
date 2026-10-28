@@ -151,6 +151,8 @@ func seqExpandSingleValue(a *Actions, req CodeSequenceRequest, call *ast.CallExp
 		// 同一 executor 经不同回调路径可继续展开）。
 		sub.callbackCtx = seqCallbackVisitCtx(fv)
 		sub.curRecvType = fv.recvType
+		sub.curRecvName = ""
+		sub.curRecvObj = nil // 字面量没有 receiver 对象
 		sub.curRecvDecl = fv.recvDecl
 		sub.sceneConsts = seqConstValues(a, req, fv.ctx.rel)
 		// todo22 P1：字面量形参的结构体字段值（捕获变量条件仍在 sub.sceneArgs，
@@ -270,31 +272,4 @@ func seqValueActor(v seqValue) string {
 		return "list"
 	}
 	return "unknown"
-}
-
-// seqVisitKey 防环键：repo + 符号 + 入站回调上下文（todo23 §2.5）。
-// 不能只用符号 ID（同一函数经不同回调路径应可继续展开），也不能用剩余
-// 深度/每层新对象地址（会制造假身份、失去防环）。
-func seqVisitKey(req CodeSequenceRequest, symID string) string {
-	return req.RepoAbs + "|" + symID + "|" + req.callbackCtx
-}
-
-// seqCallbackVisitCtx 函数值的词法身份 + 绑定站点（回调上下文）。
-func seqCallbackVisitCtx(fv seqValue) string {
-	base := ""
-	switch fv.kind {
-	case seqValueLit:
-		base = "lit:" + seqLitKey(fv)
-	case seqValueNamed:
-		base = "fn:" + fv.symID
-	default:
-		return ""
-	}
-	if fv.bindFile != "" {
-		base += "@" + fv.bindFile + ":" + itoaSeq(fv.bindLine)
-	}
-	if fv.declObj != nil && fv.declObj.Name != "" {
-		base += "#" + fv.declObj.Name
-	}
-	return base
 }

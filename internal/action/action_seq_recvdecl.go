@@ -95,10 +95,15 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 	tgts := seqTargetsCached(a, req, symID)
 
 	recvType := ""
+	recvName := ""
+	var recvObj *ast.Object
 
 	recvDecl := map[string]string{}
 	if fn.Recv != nil && len(fn.Recv.List) > 0 {
 		recvType = recvTypeName(fn.Recv.List[0].Type)
+		if names := fn.Recv.List[0].Names; len(names) > 0 {
+			recvName, recvObj = names[0].Name, names[0].Obj
+		}
 		ast.Inspect(f, func(node ast.Node) bool {
 			ts, ok := node.(*ast.TypeSpec)
 			if !ok || ts.Name.Name != recvType {
@@ -129,6 +134,8 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 	req.curSym = symID
 	req.curTgts = tgts
 	req.curRecvType = recvType
+	req.curRecvName = recvName
+	req.curRecvObj = recvObj
 	req.curRecvDecl = recvDecl
 	req.curCtx = &seqFileCtx{fset: fset, file: f, src: src, rel: n.FilePath}
 	req.sceneConsts = seqConstValues(a, req, n.FilePath)

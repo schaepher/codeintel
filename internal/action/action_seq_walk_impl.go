@@ -21,7 +21,7 @@ func seqTryDIAndLocalVar(a *Actions, req CodeSequenceRequest, f *ast.File, sel *
 	depth int, curFile string, pos token.Position) bool {
 	// 1b) DI 字段注入（证据：字段注解 + 引导函数里的显式注册）
 	if recvType != "" {
-		if field, ok := receiverFieldSel(sel, recvType); ok {
+		if field, ok := receiverFieldSel(sel, req.curRecvObj, req.curRecvName); ok {
 			if di, ok2 := a.diFieldImpl(req, f, recvType, field, sel.Sel.Name); ok2 {
 				if di.why != "" {
 					node.Evidence = &SeqEvidence{Source: SeqEvidenceDI, CallFile: curFile,

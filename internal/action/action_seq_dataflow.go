@@ -25,13 +25,26 @@ func recvTypeName(t ast.Expr) string {
 // receiverFieldSel 调用 fun（s.manager.SubmitOrder）是否为 receiver
 // 字段方法调用——s 是当前方法 receiver 名（recvType 对应）、X 是
 // SelectorExpr（s.manager）→ 返回字段名 manager。
-func receiverFieldSel(sel *ast.SelectorExpr, recvType string) (string, bool) {
+func receiverFieldSel(sel *ast.SelectorExpr, recvObj *ast.Object, recvName string) (string, bool) {
 	x, ok := sel.X.(*ast.SelectorExpr)
 	if !ok {
 		return "", false
 	}
-
-	if _, isID := x.X.(*ast.Ident); !isID {
+	base, isID := x.X.(*ast.Ident)
+	if !isID {
+		return "", false
+	}
+	// todo23 §3.1：必须是**当前 receiver 对象**，不能只比较变量名/任意
+	// `x.field`（局部变量/形参同名字段不能借用 receiver 的写入证明）。
+	if recvObj != nil {
+		if base.Obj != recvObj {
+			return "", false
+		}
+	} else if recvName != "" {
+		if base.Name != recvName {
+			return "", false
+		}
+	} else {
 		return "", false
 	}
 	return x.Sel.Name, true

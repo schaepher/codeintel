@@ -204,7 +204,7 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 
 		// 1) receiver 字段数据流具体化（R97-2）
 		if sel, isSel := fun.(*ast.SelectorExpr); isSel && recvType != "" {
-			if field, ok2 := receiverFieldSel(sel, recvType); ok2 {
+			if field, ok2 := receiverFieldSel(sel, req.curRecvObj, req.curRecvName); ok2 {
 				if implMethod := a.receiverFieldImpl(req, recvType, field, sel.Sel.Name); implMethod != "" {
 					node.ImplType = implTypeShort(implMethod)
 					if decl, ok := recvDecl[field]; ok {
