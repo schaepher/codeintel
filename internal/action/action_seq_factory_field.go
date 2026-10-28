@@ -105,8 +105,14 @@ func seqExpandFactoryFieldCall(a *Actions, req CodeSequenceRequest, node *CodeSe
 	if !ok {
 		return false
 	}
-	getID := "symbol:go:" + pkgOfID(domain.CanonicalID(req.curSym)) + ":(" + recvType + ")." + innerSel.Sel.Name
-	field, ok := seqMethodReturnField(a, req, getID, recvType)
+	// todo25 §3.4：getter 可能是嵌入提升方法（Box 自身没有 Get）——沿嵌入
+	// 链找声明类型；多条提升路径（>1）保守放弃，不挑第一个。
+	methodOwners := seqMethodOwnerTypes(a, req, req.curFile, recvType, innerSel.Sel.Name)
+	if len(methodOwners) != 1 {
+		return false
+	}
+	getID := "symbol:go:" + pkgOfID(domain.CanonicalID(req.curSym)) + ":(" + methodOwners[0] + ")." + innerSel.Sel.Name
+	field, ok := seqMethodReturnField(a, req, getID, methodOwners[0])
 	if !ok || field == "" {
 		return false
 	}

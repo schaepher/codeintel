@@ -67,13 +67,30 @@ func seqFactoryFieldCandidates(a *Actions, req CodeSequenceRequest, factoryID, r
 	if len(returned) == 0 || seqFactoryFallthrough(fn, returned) {
 		return nil, false
 	}
-	paramIdx := seqFieldWriterParams(a, req, recvType, field)
+	// 字段 writer 可能在嵌入基类上（提升方法）：沿嵌入链找唯一 owner；
+	// 多条提升路径/找不到 → 保守放弃（不挑第一个）。
+	ownerTypes := seqFieldOwnerTypes(a, req, ctx.rel, recvType, field)
+	if len(ownerTypes) != 1 {
+		return nil, false
+	}
+	paramIdx := seqFieldWriterParams(a, req, ownerTypes[0], field)
 	if len(paramIdx) == 0 {
 		return nil, false
 	}
 	var out []seqFieldCandidate
+	unsafe := false
 	imports := importAliases(ctx.file)
-	seqWalkFieldCalls(fn.Body, "", func(call *ast.CallExpr, guard string) {
+	resolve := func(e ast.Expr) []writeSource {
+		return rhsTypes(a, req, ctx.file, imports, e, 3, pkgOfID(domain.CanonicalID(factoryID)))
+	}
+	seqFactoryCallsWithClosures(fn, resolve, func(call *ast.CallExpr, guard string,
+		subst map[*ast.Object][]writeSource) {
+		if seqFactoryUnknownMethod(call, returned, paramIdx) {
+			// todo25 §3.4：非已知 writer 的 receiver 方法/实例逃逸可能改写
+			// 字段——不能假设"没看到写入就没有写入"。
+			unsafe = true
+			return
+		}
 		sel, isSel := call.Fun.(*ast.SelectorExpr)
 		if !isSel {
 			return
@@ -86,13 +103,22 @@ func seqFactoryFieldCandidates(a *Actions, req CodeSequenceRequest, factoryID, r
 		if !isID || id.Obj == nil || !returned[id.Obj] {
 			return
 		}
-		types := rhsTypes(a, req, ctx.file, imports, call.Args[idx], 3, pkgOfID(domain.CanonicalID(factoryID)))
+		var types []writeSource
+		if argID, ok := call.Args[idx].(*ast.Ident); ok && argID.Obj != nil {
+			types = subst[argID.Obj]
+		}
+		if len(types) == 0 {
+			types = resolve(call.Args[idx])
+		}
 		if len(types) == 0 {
 			return
 		}
 		out = append(out, seqFieldCandidate{pkgPath: types[0].pkgPath,
 			typeName: types[0].typeName, guard: guard})
 	})
+	if unsafe {
+		return nil, false
+	}
 	out = appendUniqueFieldCandidates(out)
 	return out, len(out) > 0
 }
