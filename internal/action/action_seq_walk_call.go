@@ -23,6 +23,9 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		defer func() {
 			attachRuntimeEvidence(req, node, call)
 			finishSeqEvidence(req, node)
+			// U04：持久化边界（INSERT/UPDATE 字面量）写进诊断——值来源/跨入口
+			// 顺序仍需请求证明，不据此凭空连线。
+			seqAnnotatePersistence(node, call)
 		}()
 		fun := call.Fun
 		pos := fset.Position(call.Lparen)
