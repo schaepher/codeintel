@@ -23,6 +23,10 @@ func Store(f func()) {
 	_ = f
 }
 
+func RunBound(cb func()) {
+	cb()
+}
+
 func RunAll(fs ...func()) {
 	for _, f := range fs {
 		f()

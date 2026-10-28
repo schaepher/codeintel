@@ -126,13 +126,20 @@ func seqFilteredEnv(env []string, keys ...string) []string {
 }
 
 // parseSeqDir 解析目录下的非测试 .go 文件（外部包没有索引，只能读源码）。
-func parseSeqDir(dir, relPrefix string) []*seqFileCtx {
+// T10：逐文件检查 ctx 取消——定位/解析大依赖时取消必须中止（不是跑完再说）。
+func parseSeqDir(ctx context.Context, dir, relPrefix string) []*seqFileCtx {
+	if err := ctx.Err(); err != nil {
+		return nil
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
 	}
 	var out []*seqFileCtx
 	for _, ent := range entries {
+		if err := ctx.Err(); err != nil {
+			return nil
+		}
 		name := ent.Name()
 		if ent.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue

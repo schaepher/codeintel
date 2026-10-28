@@ -33,6 +33,8 @@ type SeqTiming struct {
 	// todo14-17：计数口径（避免把上层请求数/结果数当底层次数）
 	StatsScope   string `json:"stats_scope,omitempty"`
 	UncoveredOps string `json:"uncovered_ops,omitempty"`
+	// T10：外部依赖定位次数（go list/源码解析；请求内缓存命中不计）。
+	ExternalLoads int `json:"external_loads,omitempty"`
 }
 
 // SeqMeta 根节点元信息（只有根 CodeSeqNode 携带）。
@@ -118,6 +120,7 @@ type seqTimingAcc struct {
 	symLookups, sigLookups, dispatch, sqlQueries int
 	symDur, sigDur, dispatchDur, sqlDur          time.Duration
 	cacheHits, cacheMisses                       int
+	extLoads                                     int // T10：外部依赖定位次数
 	// todo24 §2：分段续查（前沿登记 / 段数消耗 / 预算停止数 / 逐段记录）
 	frontiers           []*seqFrontier
 	frontierSeen        map[*CodeSeqNode]bool

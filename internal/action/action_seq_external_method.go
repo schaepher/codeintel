@@ -24,9 +24,12 @@ func seqExternalPackageFrom(a *Actions, req CodeSequenceRequest, importPath, wor
 		}
 	}
 	p := &seqExternalPkg{rel: "<external>/" + importPath}
+	if req.acc != nil {
+		req.acc.extLoads++
+	}
 	p.dir, p.std, p.err = seqGoListPkg(req.ctx(), workDir, importPath)
 	if p.err == nil && p.dir != "" && !p.std {
-		p.files = parseSeqDir(p.dir, p.rel)
+		p.files = parseSeqDir(req.ctx(), p.dir, p.rel)
 	}
 	if req.extPkgs != nil {
 		req.extPkgs[key] = p
