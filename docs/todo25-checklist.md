@@ -107,3 +107,9 @@ bash scripts/verify.sh --quick
 | §7.2 投影缓存/查询次数 | 完成（既有复验） | `TestCallFactsProjectionCacheHitAndInvalidation` PASS |
 | §7.4 递归 SQL 取消 | 完成（既有复验） | `TestCalleesContextInterruptsRecursiveSQL` PASS |
 | §7.3 跨仓同名接口方法/冷暖对照 | **未完成** | 仍待补：两仓同名 `API.Insert/SaveService` 的外层 workspace 请求、缓存键含仓库身份、Missing 不借用 Insert。 |
+
+## 第十批（§4.3 负例）
+
+| 任务 | 状态 | 证据 |
+| --- | --- | --- |
+| Client.Do / 自定义 facade 不猜测 HTTP 目标 | 完成 | `TestTodo25HTTPEndpointAndWorkspaceBoundaries` 新增 Gateway（`http.NewRequest` + `Client.Do`）与 Facade（普通转发）查询：均不产生 `source=http_server` 节点。 |

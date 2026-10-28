@@ -186,6 +186,15 @@ func TestTodo25HTTPEndpointAndWorkspaceBoundaries(t *testing.T) {
 import "net/http"
 
 func Entry(uri string) { http.Post(uri, "application/json", nil) }
+
+func Gateway(uri string) {
+	req, _ := http.NewRequest("POST", uri, nil)
+	var c http.Client
+	c.Do(req)
+}
+
+func Facade(uri string) { forward(uri) }
+func forward(uri string) { _ = uri }
 `)
 	gitRun(t, client, "init")
 	gitRun(t, client, "add", "-A")
@@ -206,5 +215,15 @@ func Entry(uri string) { http.Post(uri, "application/json", nil) }
 	}
 	if strings.Contains(strings.ToLower(stop.Detail), "submit") {
 		t.Errorf("不得伪造 handler: %+v", stop)
+	}
+
+	// Client.Do / 自定义 facade 不猜测 HTTP 目标。
+	for _, sym := range []string{"Gateway", "Facade"} {
+		tree := seqTreeJSON(t, client, "symbol:go:example.com/client:"+sym, 6)
+		walkSeq(tree, func(n *action.CodeSeqNode) {
+			if n.Evidence != nil && n.Evidence.Source == action.SeqEvidenceHTTPServer {
+				t.Errorf("%s 不应续接 HTTP handler: %+v", sym, n.Evidence)
+			}
+		})
 	}
 }
