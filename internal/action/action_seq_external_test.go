@@ -22,6 +22,7 @@ func Run(ctx context.Context, f func(context.Context) error) error {
 func Store(f func()) {
 	_ = f
 }
+
 `
 
 // TestSeqExternalCallbackOnlyWhenCalled：外部函数真的调用形参 → 回调执行；

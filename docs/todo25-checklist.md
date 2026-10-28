@@ -119,3 +119,4 @@ bash scripts/verify.sh --quick
 | 任务 | 状态 | 结果 |
 | --- | --- | --- |
 | 全量 `make it`（真实 init/CLI/serve + todo22/24/25 集成套件） | 完成（本轮） | PASS，`integration` 62.677s，exit=0。 |
+| §4.2 外部函数列表/ellipsis/参数重写 | **未完成（已复现缺口）** | 外部 `RunAll(fs ...func())` / `RunList([]func())` 的列表元素未展开（A/B/C/D 零执行）；需在外部形参绑定后支持 variadic/list range，及 `f = func(){Wrong()}` 重写失效。 |
