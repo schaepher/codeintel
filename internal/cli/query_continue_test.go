@@ -37,6 +37,11 @@ func TestContinueSegmentsFlagValidation(t *testing.T) {
 			"--code", "--continue-segments"}, "缺少数值"},
 		{"tooLarge", []string{"query", "sequence", "Entry", "--repo", "/nonexistent-cont-repo",
 			"--code", "--continue-segments", "129"}, "1–128"},
+		// T12：后接 flag 不能被当作数值（必须在开库前拒绝）。
+		{"nextFlag", []string{"query", "sequence", "Entry", "--repo", "/nonexistent-cont-repo",
+			"--code", "--continue-segments", "--evidence"}, "需要整数"},
+		{"nextRepoFlag", []string{"query", "sequence", "Entry", "--code",
+			"--continue-segments", "--repo", "/nonexistent-cont-repo"}, "需要整数"},
 		{"eqFormTooLarge", []string{"query", "sequence", "Entry", "--repo", "/nonexistent-cont-repo",
 			"--code", "--continue-segments=99x"}, "需要整数"},
 		{"wrongCommand", []string{"query", "symbol", "Entry", "--repo", "/nonexistent-cont-repo",

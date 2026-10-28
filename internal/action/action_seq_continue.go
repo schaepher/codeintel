@@ -132,6 +132,20 @@ func seqContinueSegments(a *Actions, req CodeSequenceRequest, root *CodeSeqNode)
 				acc.cancel = true
 				return
 			}
+			// T12：续查前核对身份——目标身份已变化（同一调用点解析到别的
+			// 符号）时保留原前沿，不按新身份展开。
+			cur := ""
+			if f.node.Evidence != nil {
+				cur = f.node.Evidence.SymbolID
+			}
+			if cur != "" && f.target != "" && cur != f.target {
+				acc.continuation = append(acc.continuation, SeqContinuationFrontier{
+					Segment: seg, CallFile: f.callFile, CallLine: f.callLine,
+					TargetID: f.target, Repo: f.repo, DepthReason: f.reason, Continued: false,
+					IdentityChanged: true, IdentityReason: "identity_changed: " + f.target + " → " + cur,
+				})
+				continue
+			}
 			f.node.Nodes = nil
 			f.node.Stop = nil
 			sub := f.base
@@ -143,6 +157,7 @@ func seqContinueSegments(a *Actions, req CodeSequenceRequest, root *CodeSeqNode)
 				Segment: seg, CallFile: f.callFile, CallLine: f.callLine,
 				TargetID: f.target, Repo: f.repo, DepthReason: f.reason, Continued: true,
 			})
+			acc.continueExpansions++
 		}
 	}
 	// 预算耗尽时仍停在 depth 的前沿：保留原 depth 诊断 + 记账（同一前沿只计一次）
@@ -165,10 +180,13 @@ func seqContinuationMeta(req CodeSequenceRequest) *SeqContinuationMeta {
 		return nil
 	}
 	m := &SeqContinuationMeta{
-		SegmentsBudget: req.ContinueSegments,
-		SegmentsUsed:   acc.continueUsed,
-		BudgetStops:    acc.continueBudgetStops,
-		Frontiers:      append([]SeqContinuationFrontier{}, acc.continuation...),
+		SegmentsBudget:   req.ContinueSegments,
+		SegmentsUsed:     acc.continueUsed,
+		BudgetStops:      acc.continueBudgetStops,
+		Frontiers:        append([]SeqContinuationFrontier{}, acc.continuation...),
+		CompatMode:       req.continuationCompat,
+		CompatMaxSegment: req.ContinueSegments,
+		ExtraExpansions:  acc.continueExpansions,
 	}
 	if len(m.Frontiers) == 0 {
 		m.Note = "没有停在 depth 的可续查前沿（无需追加段）"

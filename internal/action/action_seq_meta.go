@@ -60,6 +60,11 @@ type SeqContinuationMeta struct {
 	// Frontiers 逐段的前沿调用位置 / 目标 canonical ID / 仓库 / 原 depth 原因。
 	Frontiers []SeqContinuationFrontier `json:"frontiers,omitempty"`
 	Note      string                    `json:"note,omitempty"`
+	// T12：兼容续查入口的预算与总展开计数（两种模式元数据都在）。
+	CompatMode       bool `json:"compat_mode,omitempty"`
+	CompatMaxSegment int  `json:"compat_max_segments,omitempty"`
+	// ExtraExpansions 实际续查的前沿展开次数（= 已续接的段内前沿数）。
+	ExtraExpansions int `json:"extra_expansions,omitempty"`
 }
 
 // SeqContinuationFrontier 一个前沿的续查记录（continued=false = 预算耗尽）。
@@ -71,6 +76,9 @@ type SeqContinuationFrontier struct {
 	Repo        string `json:"repo,omitempty"`
 	DepthReason string `json:"depth_reason,omitempty"`
 	Continued   bool   `json:"continued"`
+	// T12：续查时目标身份与登记时不一致——保留原前沿并标注（不静默换目标）。
+	IdentityChanged bool   `json:"identity_changed,omitempty"`
+	IdentityReason  string `json:"identity_reason,omitempty"`
 }
 
 // SeqCoverage 构建期覆盖/降级信息（查询携带；与 SQL 解析统计分开）。
@@ -117,6 +125,7 @@ type seqTimingAcc struct {
 	continueUsed        int
 	continueBudgetStops int
 	continuation        []SeqContinuationFrontier
+	continueExpansions  int // T12：实际续查展开次数（总额外展开）
 }
 
 // millis Duration → 毫秒（保留小数——单次阶段可能远小于 1ms）。

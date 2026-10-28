@@ -17,40 +17,6 @@ import (
 // SeqTiming 代码级时序的阶段耗时与展开规模（todo10-9）。诊断用途——
 // 只进日志 / 根节点 meta / stderr，不改变 stdout 的既有 JSON 键。
 
-// 调用执行语义（todo10-2）：sync 缺省；defer 函数返回时执行；async 并发
-// 启动（完成顺序未知，不得渲染成同步完成）。
-
-// 终止原因（todo10-9；todo10-3 起扩展为按键诊断集）。
-
-// ErrSeqCanceled 时序展开被取消（ctx 取消）——调用方不得当作成功。
-
-// SeqMeta 根节点元信息（只有根 CodeSeqNode 携带）。
-
-// SeqCoverage 构建期覆盖/降级信息（查询携带；与 SQL 解析统计分开）。
-
-// SeqFocusMeta 焦点过滤结果（matched=0 时 applied=false——输出保留全量，
-// 调用方据此提示"未命中"而不是把空图当结论）。
-
-// seqTimingAcc 展开期间的累加器（req 按值传递——用指针共享）。
-
-// millis Duration → 毫秒（保留小数——单次阶段可能远小于 1ms）。
-
-// coverageNum degrade_stats 数值键提取（JSON 反序列化为 float64）。
-
-// seqCoverage 构建期覆盖信息（build_metadata → meta.coverage）。
-
-// countSeqNodes 展开规模（节点总数——含分支/else/循环/嵌套）。
-
-// CodeSequenceRequest query sequence --code 参数。
-
-// seqFocus 一次查询的焦点配置（--focus 解析结果，跨递归共享）。
-
-// focusActive 是否启用焦点过滤。
-
-// ctx 取消上下文（nil 安全）。
-
-// CodeSeqNode 代码级时序节点（树——分支/循环/嵌套调用）。
-
 // CodeSequence 解析目标函数的代码级时序（读源码 AST——纯语法不依赖
 // 类型信息）。depth 为嵌套层级（1 = 只本函数；>1 递归展开被调函数
 // 内部——行号对齐索引调用边定位被调符号）。符号解析失败返回 nil。
@@ -69,6 +35,11 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	}
 	if req.sceneCount == nil {
 		req.sceneCount = &sceneSummary{}
+	}
+	// T12：两种续查入口（ContinueSegments / Continue{MaxSegments}）互斥、
+	// 范围 1–128；非法组合在接触仓储之前失败（不产出任何结果）。
+	if err := req.normalizeContinuation(); err != nil {
+		return nil, err
 	}
 	// todo10-2 part3：--focus 解析（字段路径 / return）——一次性构建
 	if req.focus == nil && len(req.Focus) > 0 {

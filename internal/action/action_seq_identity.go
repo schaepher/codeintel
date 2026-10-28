@@ -73,19 +73,23 @@ func seqConfigHash(req CodeSequenceRequest) string {
 	// Cont 用指针 + omitempty：未启用续查时 JSON 与旧结构一致（保持既有
 	// config_hash/证据身份兼容），启用后才参与身份。
 	cfg := struct {
-		Depth int
-		Stop  []string
-		Focus []string
-		Scene map[string]string
-		Fil   SeqFilter
-		Cont  *int   `json:",omitempty"`
-		RT    string `json:",omitempty"`
+		Depth      int
+		Stop       []string
+		Focus      []string
+		Scene      map[string]string
+		Fil        SeqFilter
+		Cont       *int   `json:",omitempty"`
+		ContCompat bool   `json:",omitempty"`
+		RT         string `json:",omitempty"`
 	}{Depth: req.Depth, Stop: append([]string{}, req.StopPackages...),
 		Focus: append([]string{}, req.Focus...), Scene: req.Scene.Values, Fil: req.Filter}
 	if req.ContinueSegments > 0 {
 		v := req.ContinueSegments
 		cfg.Cont = &v
 	}
+	// T12：兼容续查入口与运行时快照 hash 一样属于请求身份（同预算不同
+	// 入口不能复用同一"可重放"结论）。
+	cfg.ContCompat = req.continuationCompat
 	if req.runtime != nil && req.runtime.snap != nil {
 		cfg.RT = req.runtime.snap.Hash
 	} else if req.RuntimeDataPath != "" {

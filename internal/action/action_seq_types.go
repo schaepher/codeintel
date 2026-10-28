@@ -3,6 +3,7 @@ package action
 import (
 	"context"
 	"errors"
+	"fmt"
 	"go/ast"
 
 	"github.com/schaepher/codeintel/internal/domain"
@@ -32,6 +33,34 @@ func (r CodeSequenceRequest) runtimeDataPath() string {
 	return r.RuntimeData
 }
 
+// SeqContinuationOptions 兼容续查选项（T12）。
+type SeqContinuationOptions struct {
+	MaxSegments int
+}
+
+// SeqContinuationMaxSegments 续查段数预算合法上限（两种入口共用）。
+const SeqContinuationMaxSegments = 128
+
+// normalizeContinuation 校验两种续查入口并归一到 ContinueSegments 引擎：
+// 互斥、范围 1–128。返回错误时调用方（CLI/action）不得产出任何结果。
+func (r *CodeSequenceRequest) normalizeContinuation() error {
+	if r.Continue != nil {
+		if r.ContinueSegments > 0 {
+			return fmt.Errorf("Continue 与 ContinueSegments 互斥（只选一个续查入口）")
+		}
+		n := r.Continue.MaxSegments
+		if n < 1 || n > SeqContinuationMaxSegments {
+			return fmt.Errorf("Continue.MaxSegments 超出范围 1–%d（收到 %d）", SeqContinuationMaxSegments, n)
+		}
+		r.ContinueSegments = n
+		r.continuationCompat = true
+	}
+	if r.ContinueSegments > SeqContinuationMaxSegments {
+		return fmt.Errorf("ContinueSegments 超出范围 1–%d（收到 %d）", SeqContinuationMaxSegments, r.ContinueSegments)
+	}
+	return nil
+}
+
 // ErrSeqCanceled 时序展开被取消（ctx 取消）——调用方不得当作成功。
 var ErrSeqCanceled = errors.New("时序展开已取消")
 
@@ -44,8 +73,12 @@ type CodeSequenceRequest struct {
 	// 每段沿当前前沿再展开 Depth 层，结果接回同一棵树；N 的合法范围 1–128
 	// 由 CLI 在开库前校验。
 	ContinueSegments int
-	StopPackages     []string  // 停止包列表（cli 从 config.yaml 读取——命中不深入）
-	Filter           SeqFilter // S5：导出过滤（按包/文件/函数/正则——命中不生成节点，如 log 调用）
+	// Continue T12：兼容续查入口（{MaxSegments:N}）——与原轮次模式
+	// ContinueSegments 互斥、同语义（在原调用处同步续接，按总额外展开次数
+	// 计数），合法范围 1–128。
+	Continue     *SeqContinuationOptions
+	StopPackages []string  // 停止包列表（cli 从 config.yaml 读取——命中不深入）
+	Filter       SeqFilter // S5：导出过滤（按包/文件/函数/正则——命中不生成节点，如 log 调用）
 	// Focus 关注目标（todo10-2 part3）：字段路径（pkg.T.F / T.F / F 后缀匹配）
 	// 或 "return"（只看返回与返回表达式内调用）。空 = 不过滤。
 	Focus []string
@@ -76,6 +109,8 @@ type CodeSequenceRequest struct {
 	// 词法身份/绑定站点）——防环键包含它，避免"同一函数换个回调路径就
 	// 被误判为循环"，也不能只用 executor 符号 ID。
 	callbackCtx string
+	// 内部（T12）：兼容续查入口（{MaxSegments}）标记——进入请求身份/元数据。
+	continuationCompat bool
 	// 内部：阶段耗时累加（todo10-9）
 	acc *seqTimingAcc
 	// 内部（todo25 §13）：运行时快照分析结果（分支裁剪 + 调用值证据）
