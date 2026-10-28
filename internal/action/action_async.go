@@ -177,7 +177,7 @@ func (a *Actions) AsyncLifecycle(req AsyncLifecycleRequest) (*AsyncLifecycleResu
 		res.Partial = true
 		res.Diagnostics = append(res.Diagnostics, SeqDiagCount{Code: "candidates_truncated",
 			Count: total - asyncCandidateBudget,
-			Detail: fmt.Sprintf("候选入口 %d 个超过预算 %d，按 canonical ID 稳定排序保留前 %d 个",
+			Detail: fmt.Sprintf("候选入口 %d 个超过预算 %d，按 direct_call/field_identity/type_scope/call_path/id_name 与 canonical ID 稳定排序保留前 %d 个",
 				total, asyncCandidateBudget, asyncCandidateBudget)})
 	}
 	// 节点：seed + 候选（有索引节点的才有位置）

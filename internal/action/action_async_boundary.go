@@ -42,14 +42,14 @@ type AsyncBoundary struct {
 }
 
 // proveAsyncBoundary 写入/读取函数 + 字段 → 边界证明（无证据返回 nil）。
-func (a *Actions) proveAsyncBoundary(producerID, consumerID, fieldPath string, readLine int,
+func (a *Actions) proveAsyncBoundary(pc *asyncParseCache, producerID, consumerID, fieldPath string, readLine int,
 	apiTargets map[apiCallKey]string) *AsyncBoundary {
 	leaf := fieldLeaf(fieldPath)
 	if leaf == "" {
 		return nil
 	}
-	pf := a.parseFuncNode(producerID)
-	cf := a.parseFuncNode(consumerID)
+	pf := a.parseFuncNodeCached(pc, producerID)
+	cf := a.parseFuncNodeCached(pc, consumerID)
 	if pf == nil || cf == nil {
 		return nil
 	}
@@ -187,6 +187,8 @@ func (a *Actions) proveAsyncBoundary(producerID, consumerID, fieldPath string, r
 // applyAsyncBoundaries 对每条身份链尝试边界证明；返回诊断。
 func (a *Actions) applyAsyncBoundaries(chains []AsyncChain) []SeqDiagCount {
 	var diags []SeqDiagCount
+	// T15：边界证明解析缓存（本次请求内成功/失败都缓存；请求结束即丢弃）。
+	pc := newAsyncParseCache()
 	apiTargets := a.apiCallTargetIndex()
 	for i := range chains {
 		c := &chains[i]
@@ -202,7 +204,7 @@ func (a *Actions) applyAsyncBoundaries(chains []AsyncChain) []SeqDiagCount {
 		if wfn == "" || rfn == "" {
 			continue
 		}
-		b := a.proveAsyncBoundary(wfn, rfn, c.Field, readLine, apiTargets)
+		b := a.proveAsyncBoundary(pc, wfn, rfn, c.Field, readLine, apiTargets)
 		if b == nil {
 			continue
 		}

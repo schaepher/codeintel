@@ -75,6 +75,21 @@ func TestAsyncCandidateBudgetLimitsSummaryQueries(t *testing.T) {
 	if cr.symCalls > 404 {
 		t.Errorf("GetSymbol 调用 %d 次；应 ≤404", cr.symCalls)
 	}
+	// T15：截断提示必须与实际候选排序口径一致（关系强度优先 + ID 稳定）。
+	wantDetail := fmt.Sprintf("候选入口 %d 个超过预算 200，按 direct_call/field_identity/type_scope/call_path/id_name 与 canonical ID 稳定排序保留前 200 个",
+		res.CandidateTotal)
+	found := false
+	for _, d := range res.Diagnostics {
+		if d.Code == "candidates_truncated" {
+			found = true
+			if d.Detail != wantDetail {
+				t.Errorf("截断提示 = %q；want %q", d.Detail, wantDetail)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("缺少 candidates_truncated 诊断: %+v", res.Diagnostics)
+	}
 	inNodes := map[string]bool{}
 	for _, n := range res.Nodes {
 		inNodes[n.ID] = true
@@ -84,5 +99,15 @@ func TestAsyncCandidateBudgetLimitsSummaryQueries(t *testing.T) {
 			t.Errorf("候选缺 candidate_reason: %+v", n)
 		}
 	}
-	_ = inNodes
+	// T15：所有关联端点都在输出节点内；弱候选保持 unverified（不升级）。
+	for _, l := range res.Links {
+		if !inNodes[l.From] || !inNodes[l.To] {
+			t.Errorf("关联端点不在 nodes 内: %s -> %s", l.From, l.To)
+		}
+	}
+	for _, n := range res.Nodes {
+		if n.ID != string(seedID) && n.Verdict != SeqVerdictUnverified {
+			t.Errorf("弱候选不应升级为确定执行: %+v", n)
+		}
+	}
 }
