@@ -7566,3 +7566,13 @@ writer 调用者，只接受 `init` 中的实参并取具体类型（独立 `seq
 **验证**：`integration/todo25_field_budget_test.go`（真实 init：depth=1/8
 均 `(Impl).Run`、depth=8 展开 Sink；另一实现写者/无 init 写入不保留唯一
 Impl）。
+
+## §159 todo25 §5/§6：场景枚举跨包常量 + 未索引声明源码回退（2026-10-28）
+
+- §5：新增 `integration/todo25_scene_test.go`，覆盖 `type Source int32`、本包
+  常量、跨包 `dep.B` + `AliasB` 类型转换；真实 init 后 `Source=7` 只执行
+  Check1–4，`Source=19` 执行 Check1–7。
+- §6：新增 `integration/todo25_source_decl_test.go`。索引缺 alias/const/var
+  节点时，`query symbol --include-source` 在 `SymbolDetail` 失败后回退到
+  `SymbolSource`，JSON 只输出 `source`（`index_status=not_indexed`），不写
+  伪节点；const/var 块保留整段正文与 selection 行号。

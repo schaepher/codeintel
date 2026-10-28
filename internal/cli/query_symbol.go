@@ -26,6 +26,18 @@ func querySymbol(acts *action.Actions, input string, opts outputOpts, since *dom
 	defer logger.Debug("exit querySymbol")
 	d, err := acts.SymbolDetail(input)
 	if err != nil {
+		// todo25 §6：索引缺节点但 AST 声明存在——--include-source 仍输出
+		// 声明源码（source.index_status=not_indexed），不写伪节点。
+		if opts.includeSource && strings.HasPrefix(input, "symbol:") {
+			if src, ok := fetchSymbolSource(acts, opts, input); ok {
+				if opts.json {
+					encodeJSON(map[string]any{"source": src})
+				} else {
+					printSymbolSource(src)
+				}
+				return 0
+			}
+		}
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
