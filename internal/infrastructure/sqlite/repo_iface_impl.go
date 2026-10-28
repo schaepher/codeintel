@@ -50,6 +50,26 @@ func (r *Repo) GetAllFieldPaths() ([]string, error) {
 	return out, rows.Err()
 }
 
+// GetFieldWritersBySuffix 按字段路径后缀（".Type.field"）查 direct_write
+// 写入函数。索引里的 field_path 是 SSA 的 pkg.Type.field 全路径，调用方通常
+// 只知道类型/字段名，需要按后缀匹配（todo24 §11.2）。
+func (r *Repo) GetFieldWritersBySuffix(suffix string) ([]string, error) {
+	rows, err := r.Query(`SELECT function_id FROM function_field_summary
+		WHERE field_path LIKE ? AND access_kind = 'direct_write'`, "%"+suffix)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil {
+			out = append(out, id)
+		}
+	}
+	return out, rows.Err()
+}
+
 // GetFieldWriters 字段的 direct_write 写入函数（R97-2 数据流具体化：
 // receiver 字段赋值来源——构造函数等；fieldPath 完整形态
 // "<pkg>.<Type>.<field>"，匹配摘要 field_path 全等）。

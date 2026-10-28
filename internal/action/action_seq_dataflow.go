@@ -70,6 +70,13 @@ func (a *Actions) receiverFieldImpl(req CodeSequenceRequest, recvType, field, me
 		if err != nil {
 			writers = nil
 		}
+		if len(writers) == 0 {
+			// 索引里的 field_path 是 SSA 的 pkg.Type.field 全路径（真实 init 的
+			// 普通形态）；先精确查短路径，未命中再按类型/字段后缀补查。
+			if ws, serr := a.repo.GetFieldWritersBySuffix(key); serr == nil {
+				writers = ws
+			}
+		}
 		if req.fieldWriters != nil {
 			req.fieldWriters[key] = writers // 命中/未命中都缓存（请求内）
 		}
@@ -122,15 +129,32 @@ func (a *Actions) fieldWriteTypes(req CodeSequenceRequest, writerID, field strin
 	imports := importAliases(f)
 	var out []writeSource
 	ast.Inspect(f, func(node ast.Node) bool {
-		as, ok := node.(*ast.AssignStmt)
-		if !ok || len(as.Lhs) != 1 || len(as.Rhs) != 1 {
+		switch n := node.(type) {
+		case *ast.AssignStmt:
+			if len(n.Lhs) != 1 || len(n.Rhs) != 1 {
+				return true
+			}
+			sel, ok := n.Lhs[0].(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != field {
+				return true
+			}
+			out = appendUnique(out, rhsTypes(a, req, f, imports, n.Rhs[0], 3, curPkg)...)
 			return true
+		case *ast.CompositeLit:
+			// todo24 §11.2：构造器里 `&Service{Biz: Bridge()}` 也是字段写入
+			// （此前只认 `x.Biz = ...` 赋值，接口字段永远只能走接口候选）。
+			for _, el := range n.Elts {
+				kv, ok := el.(*ast.KeyValueExpr)
+				if !ok {
+					continue
+				}
+				key, ok := kv.Key.(*ast.Ident)
+				if !ok || key.Name != field {
+					continue
+				}
+				out = appendUnique(out, rhsTypes(a, req, f, imports, kv.Value, 3, curPkg)...)
+			}
 		}
-		sel, ok := as.Lhs[0].(*ast.SelectorExpr)
-		if !ok || sel.Sel.Name != field {
-			return true
-		}
-		out = appendUnique(out, rhsTypes(a, req, f, imports, as.Rhs[0], 3, curPkg)...)
 		return true
 	})
 	if req.fieldTypes != nil {
@@ -207,6 +231,11 @@ func callReturnTypes(a *Actions, req CodeSequenceRequest, f *ast.File, imports m
 	}
 	switch e := fun.(type) {
 	case *ast.Ident:
+		// todo24 §11.2：裸函数名先看 AST 对象——局部函数值/变量/类型遮蔽时
+		// 不得回退到同名包函数（更不能用名字猜返回类型）。
+		if e.Obj != nil && e.Obj.Kind != ast.Fun {
+			return nil
+		}
 		return funcReturnTypes(a, req, f, imports, e.Name, depth-1, curPkg)
 	case *ast.SelectorExpr:
 		if id, ok := e.X.(*ast.Ident); ok {
@@ -216,40 +245,6 @@ func callReturnTypes(a *Actions, req CodeSequenceRequest, f *ast.File, imports m
 		}
 	}
 	return nil
-}
-
-// funcReturnTypes 同包函数声明 → 返回类型来源。优先函数体 return RHS
-// （构造器"声明返回接口、函数体 return 具体实现"——比返回类型声明更
-// 具体）；无 return 再退回返回类型声明。
-func funcReturnTypes(a *Actions, req CodeSequenceRequest, f *ast.File, imports map[string]string, name string, depth int, curPkg string) []writeSource {
-	var fd *ast.FuncDecl
-	ast.Inspect(f, func(node ast.Node) bool {
-		if d, ok := node.(*ast.FuncDecl); ok && d.Name.Name == name {
-			fd = d
-			return false
-		}
-		return true
-	})
-	if fd == nil || fd.Body == nil {
-		return nil
-	}
-	var out []writeSource
-	for _, st := range fd.Body.List {
-		if ret, ok := st.(*ast.ReturnStmt); ok {
-			for _, r := range ret.Results {
-				out = appendUnique(out, rhsTypes(a, req, f, imports, r, depth, curPkg)...)
-			}
-		}
-	}
-	if len(out) > 0 {
-		return out
-	}
-	if fd.Type.Results != nil {
-		for _, r := range fd.Type.Results.List {
-			out = appendUnique(out, typeSources(r.Type, imports, curPkg)...)
-		}
-	}
-	return out
 }
 
 // indexedFuncReturnTypes 跨包构造器：索引节点（GetSymbol）→ 读源码 →

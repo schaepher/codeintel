@@ -102,6 +102,10 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 				node.Args, node.Returns = args, rets
 			}
 			if depth <= 1 {
+				// todo24 §3.2/§11.2：depth 是展开预算，不是身份解析预算——先
+				// 完成场景/工厂/字段/DI/接口消歧，再按 depth 停止展开。
+				seqIdentityBeforeDepth(a, req, f, fset, fun, tid, node, recvType,
+					req.curRecvName, recvDecl, tg.confidence, curFile, pos)
 				return node
 			}
 			if seqStopPkgHit(tid, req.StopPackages) {

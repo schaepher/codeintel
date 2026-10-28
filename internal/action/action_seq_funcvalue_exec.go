@@ -151,8 +151,11 @@ func seqExpandSingleValue(a *Actions, req CodeSequenceRequest, call *ast.CallExp
 		// 同一 executor 经不同回调路径可继续展开）。
 		sub.callbackCtx = seqCallbackVisitCtx(fv)
 		sub.curRecvType = fv.recvType
-		sub.curRecvName = ""
-		sub.curRecvObj = nil // 字面量没有 receiver 对象
+		// todo24 §9.1：字面量自身没有 receiver，但它的**词法外层** receiver
+		// 仍然可见（闭包捕获 a）——携带创建处的 receiver 名/声明对象，
+		// 否则 `a.Store.Insert` 在闭包内永远走不到 DI/AOP 字段解析。
+		sub.curRecvName = fv.recvName
+		sub.curRecvObj = fv.recvObj
 		sub.curRecvDecl = fv.recvDecl
 		sub.sceneConsts = seqConstValues(a, req, fv.ctx.rel)
 		// todo22 P1：字面量形参的结构体字段值（捕获变量条件仍在 sub.sceneArgs，

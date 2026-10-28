@@ -158,15 +158,16 @@ func seqBeanAnnotation(doc *ast.CommentGroup) (string, bool) {
 
 // seqPackageFiles 当前包（同目录）的 .go 文件列表（仓库相对路径）。
 func seqPackageFiles(req CodeSequenceRequest) []string {
-	dir := req.curFile
+	return seqPackageFilesOf(req, req.curFile)
+}
+
+// seqPackageFilesOf 指定文件所在包（同目录）的 .go 文件列表。
+func seqPackageFilesOf(req CodeSequenceRequest, relFile string) []string {
+	dir := relFile
 	if i := lastSlash(dir); i >= 0 {
 		dir = dir[:i]
 	} else {
 		dir = ""
-	}
-	ctx := req.curCtx
-	if ctx == nil || ctx.file == nil {
-		return nil
 	}
 	var out []string
 	entries, err := os.ReadDir(filepath.Join(req.RepoAbs, dir))

@@ -7343,3 +7343,53 @@ aggregated/corroborated 证据；三个实例入口均为 `(Worker).Error`；Mer
 **边界**：未知 receiver + 唯一方法候选仍沿用旧回退（真实索引里接口方法调用
 不建节点/边，故 `err.Error` 在夹具中是无候选 → unresolved）；函数值/工厂返
 回类型走 §3.4 的专门路径，不在此处按名字猜。
+
+## §150 todo24 §11.2：同包兄弟文件工厂 + 字段来源真实形态（2026-10-27）
+
+**问题（三个真实 init 才暴露的缺口）**：
+1. `funcReturnTypes` 只看**当前文件**：`Bridge()` 在 flow.go、`Build()` 在
+   factory.go 时返回类型永远解析不到（裸函数名跨文件）。
+2. `receiverFieldImpl` 用短路径 `.Type.field` 精确查 `function_field_summary`，
+   而 SSA 真实写的是 `pkg.Type.field` 全路径 → **真实 init 下字段数据流从未命中**
+   （单测因手写短路径摘要而假绿）。
+3. `fieldWriteTypes` 只认 `x.Field = ...` 赋值，`&Service{Biz: Bridge()}`
+   这种构造器字段写入不算 → 接口字段只能落回接口候选。
+
+**改法**：
+- `findFuncDeclInFile` 精确匹配顶层函数（方法不算）；当前文件有声明 → **只**分析
+  该声明；否则扫同包目录（`seqPackageFilesOf`，按被分析文件定位包目录），
+  多处声明/缺失 → unknown（不挑第一个）。AST 局部对象（`Build := runtimeFactory`）
+  证明是函数值/类型时**不**回退包函数。
+- 新增仓储查询 `GetFieldWritersBySuffix`（`field_path LIKE '%.Type.field'`）：
+  精确短路径未命中时按后缀补查（请求内缓存）。
+- `fieldWriteTypes` 增加 `&T{Field: expr}`（CompositeLit KeyValueExpr）来源。
+- §3.2 配套：depth=1 先做"仅身份"消歧（`seqIdentityBeforeDepth`：场景守卫 →
+  receiver 字段数据流 → DI → 局部变量 → 接口已证明实现），再按 depth 停止展开。
+
+**效果**：`s.Biz.Run` 在 depth=1 即输出 `(Impl).Run`（field_dataflow，非候选），
+depth=8 继续到 Sink；局部函数值遮蔽时保持 unknown。
+
+**测试**：`action_seq_sibling_factory_test.go`（兄弟文件/当前文件优先/兄弟冲突/
+缺失工厂/局部遮蔽）、`integration/todo24_sibling_factory_test.go`（真实 init →
+CLI：depth=1 身份、depth=8 Sink、遮蔽反例）。
+
+## §151 todo24 §9.1/§9.2：DI/AOP 在闭包内解析（八个同步流程 + 二十个流程全通）（2026-10-27）
+
+**问题**：`(App).txInsert` 把存储回调写成闭包 `func(inner) error { return
+a.Store.Insert(inner) }`。闭包展开时 `curRecvObj=nil / curRecvName=""`（"字面量
+没有 receiver"），`receiverFieldSel` 因此失败 → `a.Store.Insert` 只能落回接口
+候选（`(Store).Insert` 与 `(storeAOP).Insert` 二选一）→ `iface_ambiguous`，
+§9.1 的"非空装饰器确定执行证明"与存储终点全部缺失（`store=-1`）。
+
+**改法**：`seqValue` 记录字面量创建处的 `recvName/recvObj`（词法外层 receiver），
+`literalSeqValue` 从 `req` 捕获，字面量执行时写回 `sub.curRecvName/sub.curRecvObj`
+——闭包捕获的是**同一个** `a`（AST 对象身份不变），字段识别安全。
+
+**效果**：`a.Store.Insert` → `(storeAOP).Insert`（`di` / `di-aop-wrapper`）→
+`a.inner.Insert` → `(Store).Insert` → `(DB).ExecContext`；八个同步流程 16 个
+（Source=7/19）子用例与二十个流程形态（含 JSON/Mermaid/SVG 一致性、分段流程）
+全部通过；`FinishReview=0` 保持。
+
+**测试**：既有 `TestTodo22SyncFlows` / `TestTodo22FlowForms` /
+`TestTodo22FlowMatrixJSONMermaid|SVG` / `TestTodo22SegmentedFlow` 由红转绿
+（此前 4 个套件长期红），integration 整包 `-count=1` 全绿（52.8s）。

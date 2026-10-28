@@ -59,6 +59,8 @@ type seqValue struct {
 	enclosing string  // 字面量所在函数的 canonical ID（调用边归属）
 	pkgPath   string  // 字面量所在函数的包路径（未解析调用分类用）
 	recvType  string  // 字面量所在函数的 receiver（局部方法调用具体化用）
+	recvName  string  // 字面量所在函数的 receiver 名（闭包内 receiver 字段识别用）
+	recvObj   *ast.Object // 字面量所在函数的 receiver 声明对象（身份校验用）
 	recvDecl  map[string]string
 	symID     string // named：目标 canonical ID
 	name      string // 显示名（多值候选/诊断）
@@ -94,7 +96,8 @@ func seqValueShortName(symID string) string {
 func literalSeqValue(req CodeSequenceRequest, ctx *seqFileCtx, env *seqEnv, lit *ast.FuncLit, origin string) seqValue {
 	return seqValue{kind: seqValueLit, origin: origin, lit: lit, ctx: ctx, env: env,
 		enclosing: req.curSym, pkgPath: pkgPathOf(req.curSym),
-		recvType: req.curRecvType, recvDecl: req.curRecvDecl}
+		recvType: req.curRecvType, recvName: req.curRecvName, recvObj: req.curRecvObj,
+		recvDecl: req.curRecvDecl}
 }
 
 // label 展示用名字（多值候选/unknown 说明）。
