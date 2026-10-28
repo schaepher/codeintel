@@ -52,6 +52,12 @@ func (r *seqRPCResources) closeAll() {
 
 // seqRPCRepoView 候选仓库视图（已打开则复用；失败缓存诊断）。
 func (r *seqRPCResources) view(req CodeSequenceRequest, repoPath string) (*Actions, bool) {
+	return r.viewAs(req, repoPath, SeqStopRPCQueryFailed, "RPC 候选仓库")
+}
+
+// viewAs 通用跨仓视图（RPC/HTTP 共用同一请求级资源与关闭生命周期；诊断码
+// 由调用方指定，避免把 HTTP 失败记成 RPC 查询失败）。
+func (r *seqRPCResources) viewAs(req CodeSequenceRequest, repoPath, diagCode, label string) (*Actions, bool) {
 	if r.opened == nil {
 		r.opened = map[string]*Actions{}
 	}
@@ -65,8 +71,8 @@ func (r *seqRPCResources) view(req CodeSequenceRequest, repoPath string) (*Actio
 		if err != nil {
 			detail += "：" + err.Error()
 		}
-		r.diags = append(r.diags, SeqDiagCount{Code: SeqStopRPCQueryFailed, Count: 1,
-			Detail: "RPC 候选仓库打开失败（" + detail + "）"})
+		r.diags = append(r.diags, SeqDiagCount{Code: diagCode, Count: 1,
+			Detail: label + "打开失败（" + detail + "）"})
 		return nil, false
 	}
 	r.opened[repoPath] = acts

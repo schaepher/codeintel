@@ -165,19 +165,24 @@ func (ctx *fileCtx) emitHTTPRoute(method, path, handler, handlerID, resolver str
 	}
 	pos := ctx.pkg.Fset.PositionFor(call.Pos(), false)
 	ctx.routeSeq++
+	rel := relPath(ctx.repo.Path, pos.Filename)
 	props := map[string]any{
 		"method":     method,
 		"path":       path,
 		"handler":    handler,
 		"handler_id": handlerID,
 		"resolver":   resolver,
-		"register":   fmt.Sprintf("%s:%d", relPath(ctx.repo.Path, pos.Filename), pos.Line),
+		"register":   fmt.Sprintf("%s:%d", rel, pos.Line),
 	}
 	if len(reqTypes) > 0 {
 		props["req_types"] = strings.Join(reqTypes, ",")
 	}
+	// todo25 §4.3：ID 必须跨文件唯一——包 + 仓库相对路径 + 表达式 offset。
+	// 旧实现用每文件自增序号（两个文件都是 route.1），UPSERT 会把同包不同
+	// 文件的注册合并成一条（真实 init 后另一条静默消失）。
+	routeID := fmt.Sprintf("symbol:go:%s:route.%s@%d", ctx.pkg.PkgPath, rel, pos.Offset)
 	_ = ctx.emit(domain.Item{Node: &domain.CodeEntity{
-		ID:         domain.CanonicalID(fmt.Sprintf("symbol:go:%s:route.%d", ctx.pkg.PkgPath, ctx.routeSeq)),
+		ID:         domain.CanonicalID(routeID),
 		Kind:       domain.KindHTTPRoute,
 		Name:       strings.TrimSpace(method + " " + path),
 		Properties: props,

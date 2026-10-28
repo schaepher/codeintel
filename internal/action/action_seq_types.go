@@ -27,15 +27,15 @@ var ErrSeqCanceled = errors.New("时序展开已取消")
 
 // CodeSequenceRequest query sequence --code 参数。
 type CodeSequenceRequest struct {
-	Target       string    // 符号名或 canonical ID
-	RepoAbs      string    // 仓库绝对路径（源码读取）
-	Depth        int       // 嵌套层级（1 = 只本函数；>1 递归展开被调函数内部）
+	Target  string // 符号名或 canonical ID
+	RepoAbs string // 仓库绝对路径（源码读取）
+	Depth   int    // 嵌套层级（1 = 只本函数；>1 递归展开被调函数内部）
 	// ContinueSegments todo24 §2：分段续查 depth 前沿（0 = 不启用，维持原深度限制）。
 	// 每段沿当前前沿再展开 Depth 层，结果接回同一棵树；N 的合法范围 1–128
 	// 由 CLI 在开库前校验。
 	ContinueSegments int
-	StopPackages []string  // 停止包列表（cli 从 config.yaml 读取——命中不深入）
-	Filter       SeqFilter // S5：导出过滤（按包/文件/函数/正则——命中不生成节点，如 log 调用）
+	StopPackages     []string  // 停止包列表（cli 从 config.yaml 读取——命中不深入）
+	Filter           SeqFilter // S5：导出过滤（按包/文件/函数/正则——命中不生成节点，如 log 调用）
 	// Focus 关注目标（todo10-2 part3）：字段路径（pkg.T.F / T.F / F 后缀匹配）
 	// 或 "return"（只看返回与返回表达式内调用）。空 = 不过滤。
 	Focus []string
@@ -116,6 +116,9 @@ type CodeSequenceRequest struct {
 	// rpcRes 跨仓续接打开的目标仓库视图（请求结束统一关闭——覆盖全部子树
 	// 使用期，避免"边界处关闭、递归时 DB 已关"的旧坑）
 	rpcRes *seqRPCResources
+	// todo25 §4.3：HTTP 路由表/注册源码请求内缓存（键 = 仓库路径）
+	httpRoutes map[string][]*domain.CodeEntity
+	httpFiles  map[string]*seqParsedFile
 	// todo22 §4.1：RPC 续接防环键（仓库|方法入口），跨请求子树共享
 	rpcVisited map[string]bool
 	// todo22 §3.3：当前包的 DI 注册表（key → 注册点；扫描一次缓存）

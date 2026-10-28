@@ -29,6 +29,12 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		// todo22 P1：本次调用的结构体字段已知值（函数值/回调路径也要用）
 		req.callArgFields = a.resolveSceneArgFields(req, fset, src, call, req.curBody, req.curParams)
 
+		// todo25 §4.3：标准 HTTP 客户端调用（net/http.Get/Head/Post）——按
+		// 静态 URL + 服务端注册证明续接 handler；动态/HTTPS/未证明保持诊断。
+		if seqExpandHTTPAt(a, req, node, call, f, depth, curFile, pos) {
+			return node
+		}
+
 		// todo22 §4.1：本调用点是否有 RPC 出站（go-micro 客户端接口调用）——
 		// 直接续接服务端子树，不进入接口派发（结构相同的多个客户端接口会
 		// 互相"实现"，接口候选无法消歧；调用点签名已证明是 go-micro 协议）。

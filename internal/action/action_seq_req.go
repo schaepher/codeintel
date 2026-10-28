@@ -25,4 +25,5 @@ type seqParsedFile struct {
 	fset *token.FileSet
 	file *ast.File
 	src  []byte
+	err  error // todo25 §4.3：解析/读取失败也缓存（同一请求不反复读坏文件）
 }

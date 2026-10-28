@@ -1,5 +1,7 @@
 package action
 
+import "github.com/schaepher/codeintel/internal/domain"
+
 // todo22 P1/P2：CodeSequence 请求级缓存的初始化（从 action_seq_code.go 拆出——
 // 行数治理）。全部按请求隔离；跨仓 RPC 子树会显式清空。
 
@@ -45,5 +47,11 @@ func seqInitRequestCaches(req *CodeSequenceRequest) {
 	}
 	if req.varChains == nil {
 		req.varChains = map[string][]writeSource{}
+	}
+	if req.httpRoutes == nil {
+		req.httpRoutes = map[string][]*domain.CodeEntity{}
+	}
+	if req.httpFiles == nil {
+		req.httpFiles = map[string]*seqParsedFile{}
 	}
 }

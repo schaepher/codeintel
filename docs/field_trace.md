@@ -7465,3 +7465,32 @@ HTTP 调用点仍按原样停在未解析/外部诊断，不做自动续查；`C
 （真实 init → CLI：`f` 回调 corroborated + 准确 Sink + range/err==nil 条件 +
 Sink 一次；去掉 defer 仍通过；三个反例 loop-overwrite / addr-escape /
 range-assign-unknown-list 都不执行原 Sink）。
+
+
+## §154 todo25 §4.3：标准 HTTP origin 证明与跨仓续接（2026-10-28）
+
+**问题**：`query sequence --code` 对 `net/http.Get/Head/Post` 只按外部库分类
+（`external_target`），HTTP 服务端 handler 从未进入时序树；同包不同文件的
+`http_route` 节点 ID 用每文件自增 `route.1`，UPSERT 后只留一条（另一条注册
+在真实 init 后静默消失）。
+
+**改法**：
+- 路由节点 ID 改为 `包:route.<仓库相对路径>@<表达式 offset>`（同包多文件
+  唯一；既有 `routes.yaml` 的人工路由 ID 不变）。
+- 新增 `seqExpandHTTPAt`（调用点）：
+  - 识别 `net/http.Get/Head/Post` 与导入别名；URL 用既有场景字面量值流解析
+    （支持形参/局部变量到达定义，调用后覆写不污染先前值）。
+  - 动态/相对/HTTPS → `http_endpoint_unknown`；候选读取不完整/端口不符/
+    workspace 外/注册无法证明 → `http_target_unproven`；两个满足证明的注册 →
+    `http_target_ambiguous`；均不输出确定服务端子树。
+  - origin 证明首版限定注册函数**直接语句** `HandleFunc(path, handler)` +
+    `ListenAndServe(<字面量 addr>, nil)`，addr 与 URL host:port 完全相等。
+  - 证明成立：证据 `source=http_server`、`reason=http-origin+method+registered-handler`、
+    handler canonical ID/定义位置、`remote_repo`；depth=1 先保留身份再停 depth，
+    并登记续查前沿（跨仓 resume 复用请求级仓库视图，外层统一关闭）。
+- 请求级缓存：每仓库路由表 + 注册源码 AST（含读取/解析失败），不跨请求复用。
+
+**验证**：`internal/action/action_seq_http_test.go`（endpoint 矩阵、端口不符、
+非直接 Listen、歧义候选）、`internal/infrastructure/ast/adapter_http_routes_test.go`
+（同包两文件 ID 唯一）、`integration/todo25_http_test.go`（双模块 workspace 真实
+init → CLI：正例/浅查询/跨仓续查/workspace 外/动态 URL/两条注册均存在）。
