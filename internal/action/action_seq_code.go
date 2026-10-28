@@ -137,6 +137,15 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	tResolved := time.Now()
 	// todo12-14：证据命令重放入口分析（不是被调节点本身——focus/scene 属于入口）
 	req.entryID = string(n.ID)
+	// todo25 §13：运行时快照分析（分支裁剪 + 读取值证据）。输入已在 CLI 开库
+	// 前校验；这里只做入口符号执行，失败不产出半棵树。
+	if req.RuntimeDataPath != "" {
+		an, rerr := a.runRuntimeAnalysis(req, string(n.ID))
+		if rerr != nil {
+			return nil, rerr
+		}
+		req.runtime = an
+	}
 	// 阶段 2+3：读源码（acc.read 累加）+ AST 遍历展开
 	root, stop := codeSeqForSymbol(a, req, string(n.ID), req.Depth)
 	if root == nil && stop != nil && stop.Code == SeqStopCycle {

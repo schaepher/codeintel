@@ -151,6 +151,7 @@ const usageText = `codeintel - Go 代码库智能索引与查询（MVP）
   codeintel query sequence <sym> [--code] [--depth N] [--continue-segments N]
                  [--format mermaid|plantuml|svg]
                  [--out <file>] [--focus <字段|return>] [--evidence] [--scene k=v]
+                 [--runtime-data <snapshot.json>]
                                   调用时序图（默认 depth 2）；--code 代码级
                                   （AST 分支/循环/switch 嵌套展开，默认 depth 1；
                                   defer/go 标执行时机，return 带返回值与结果槽；

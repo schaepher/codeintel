@@ -26,14 +26,16 @@ type SeqEvidenceRequest struct {
 	ContinueSegments int    `json:"continue_segments,omitempty"`
 	IndexSHA         string `json:"index_sha,omitempty"`
 	// todo13-14：影响结果的配置/身份（来自实际配置与构建）
-	StopPkgs   []string   `json:"stop_packages,omitempty"`
-	Filter     *SeqFilter `json:"filter,omitempty"`
-	CLI        string     `json:"cli_version,omitempty"`
-	Analyzer   string     `json:"analyzer_version,omitempty"`
-	BuildID    string     `json:"build_id,omitempty"`
-	BuiltAt    string     `json:"built_at,omitempty"`
-	ConfigHash string     `json:"config_hash,omitempty"`
-	Argv       []string   `json:"argv,omitempty"`
+	StopPkgs    []string   `json:"stop_packages,omitempty"`
+	Filter      *SeqFilter `json:"filter,omitempty"`
+	CLI         string     `json:"cli_version,omitempty"`
+	Analyzer    string     `json:"analyzer_version,omitempty"`
+	BuildID     string     `json:"build_id,omitempty"`
+	BuiltAt     string     `json:"built_at,omitempty"`
+	ConfigHash  string     `json:"config_hash,omitempty"`
+	RuntimeData string     `json:"runtime_data,omitempty"`
+	RuntimeHash string     `json:"runtime_hash,omitempty"`
+	Argv        []string   `json:"argv,omitempty"`
 }
 
 // SeqEvidenceIdentity 一次分析的完整身份（meta.evidence）。
@@ -76,12 +78,18 @@ func seqConfigHash(req CodeSequenceRequest) string {
 		Focus []string
 		Scene map[string]string
 		Fil   SeqFilter
-		Cont  *int `json:",omitempty"`
+		Cont  *int   `json:",omitempty"`
+		RT    string `json:",omitempty"`
 	}{Depth: req.Depth, Stop: append([]string{}, req.StopPackages...),
 		Focus: append([]string{}, req.Focus...), Scene: req.Scene.Values, Fil: req.Filter}
 	if req.ContinueSegments > 0 {
 		v := req.ContinueSegments
 		cfg.Cont = &v
+	}
+	if req.runtime != nil && req.runtime.snap != nil {
+		cfg.RT = req.runtime.snap.Hash
+	} else if req.RuntimeDataPath != "" {
+		cfg.RT = "unloaded"
 	}
 	b, _ := json.Marshal(cfg)
 	sum := sha256.Sum256(b)
@@ -100,6 +108,12 @@ func seqEvidenceSnapshot(req CodeSequenceRequest, symbol string) *SeqEvidenceReq
 		Format:           req.Format, Out: req.Out, IndexSHA: req.indexSHA,
 		CLI: "unknown", Analyzer: analyzerVersion(), BuildID: req.buildID, BuiltAt: req.builtAt,
 		ConfigHash: seqConfigHash(req),
+	}
+	if req.RuntimeDataPath != "" {
+		snap.RuntimeData = req.RuntimeDataPath
+		if req.runtime != nil && req.runtime.snap != nil {
+			snap.RuntimeHash = req.runtime.snap.Hash
+		}
 	}
 	if req.Filter.Pkgs != nil || req.Filter.Files != nil || req.Filter.Fns != nil || req.Filter.Regex != nil {
 		f := req.Filter
@@ -145,6 +159,9 @@ func seqEvidenceArgv(snap *SeqEvidenceRequest) []string {
 	}
 	if snap.Out != "" {
 		args = append(args, "--out", snap.Out)
+	}
+	if snap.RuntimeData != "" {
+		args = append(args, "--runtime-data", snap.RuntimeData)
 	}
 	args = append(args, "--json")
 	return args

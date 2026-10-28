@@ -187,6 +187,10 @@ func sceneValueOf(e ast.Expr, consts sceneConstLookup) (string, bool) {
 		if v, ok := sceneConstValue(consts, x.Name); ok {
 			return v, true
 		}
+		// 预声明 bool 字面量（未遮蔽）：`if true == false` 的右侧是字面量。
+		if x.Obj == nil && (x.Name == "true" || x.Name == "false") {
+			return x.Name, true
+		}
 	case *ast.SelectorExpr:
 		// todo22 P1：跨包常量（otherpkg.Const）——按 import 路径按需解析
 		// 目标包的 const 声明；解析不到就是"不是常量"，保持未知。

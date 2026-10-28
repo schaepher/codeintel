@@ -100,6 +100,8 @@ type SeqEvidence struct {
 	// todo12-14：规范化请求快照（结构化 argv 为权威；索引版本变化时可判定
 	// 是否仍能复现同一次分析）
 	Request *SeqEvidenceRequest `json:"request,omitempty"`
+	// todo25 §13：运行时快照读取证据（SQL/Scan；与静态调用证据共存）。
+	Runtime *SeqRuntimeEvidence `json:"runtime,omitempty"`
 }
 
 // SeqDiagCount 诊断聚合项（根节点 meta 用）。

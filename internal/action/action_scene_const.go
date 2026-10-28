@@ -148,3 +148,41 @@ func seqPkgConstTable(a *Actions, req CodeSequenceRequest, importPath string, de
 	}
 	return vals
 }
+
+// seqLocalConstValues 函数体内局部 const 声明（name → 值文本）。只处理同一
+// 作用域/嵌套块里的普通 const；iota 等无法静态求值的保持缺省（unknown）。
+func seqLocalConstValues(body *ast.BlockStmt, consts sceneConstLookup) map[string]string {
+	out := map[string]string{}
+	if body == nil {
+		return out
+	}
+	var walk func(n ast.Node)
+	walk = func(n ast.Node) {
+		ast.Inspect(n, func(nd ast.Node) bool {
+			gd, ok := nd.(*ast.GenDecl)
+			if !ok {
+				return true
+			}
+			if gd.Tok != token.CONST {
+				return true
+			}
+			for _, spec := range gd.Specs {
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				for i, name := range vs.Names {
+					if i >= len(vs.Values) {
+						continue
+					}
+					if v, ok := sceneValueOf(vs.Values[i], consts); ok {
+						out[name.Name] = v
+					}
+				}
+			}
+			return false
+		})
+	}
+	walk(body)
+	return out
+}

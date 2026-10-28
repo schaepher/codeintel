@@ -145,6 +145,18 @@ func parseQueryFlags(args []string) queryFlags {
 			i++
 		case strings.HasPrefix(a, "--scene="):
 			f.scene = append(f.scene, strings.TrimPrefix(a, "--scene="))
+		case a == "--runtime-data":
+			if i+1 >= len(args) {
+				f.runtimeDataErr = "--runtime-data 缺少路径"
+			} else {
+				f.runtimeData = args[i+1]
+				i++
+			}
+		case strings.HasPrefix(a, "--runtime-data="):
+			f.runtimeData = strings.TrimPrefix(a, "--runtime-data=")
+			if f.runtimeData == "" {
+				f.runtimeDataErr = "--runtime-data 路径为空"
+			}
 		case a == "--target-field" && i+1 < len(args):
 			f.targetField, f.targetFieldSet = args[i+1], true
 			i++

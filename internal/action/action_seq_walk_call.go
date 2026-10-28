@@ -22,7 +22,10 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 	tgts *seqTargets, depth int, recvType string, recvDecl map[string]string,
 	f *ast.File, curPkg, curFile string) func(call *ast.CallExpr) *CodeSeqNode {
 	return func(call *ast.CallExpr) (node *CodeSeqNode) {
-		defer func() { finishSeqEvidence(req, node) }()
+		defer func() {
+			attachRuntimeEvidence(req, node, call)
+			finishSeqEvidence(req, node)
+		}()
 		fun := call.Fun
 		pos := fset.Position(call.Lparen)
 		node = &CodeSeqNode{Kind: "call", Label: callLabel(fset, src, fun), Actor: callActor(fset, src, fun), Line: pos.Line}

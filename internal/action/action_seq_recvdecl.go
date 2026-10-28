@@ -148,6 +148,18 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 	req.sceneArgs = paramLiteralArgs(fn.Type.Params, req.callArgLits)
 	req.sceneSrc = paramSourceArgs(fn.Type.Params, req.callArgLits, req.callArgSrcs)
 	req.sceneWhy = paramReasonArgs(fn.Type.Params, req.callArgLits, req.callArgWhy)
+	// todo25 §13.4：函数内局部 const（含对预声明标识符的遮蔽）也是静态已知值；
+	// 条件判定优先用它们，不因快照缺失而把 `const enabled=1` 当未知。
+	for k, v := range seqLocalConstValues(fn.Body, req.sceneConsts) {
+		if req.sceneArgs == nil {
+			req.sceneArgs = map[string]string{}
+		}
+		if req.sceneSrc == nil {
+			req.sceneSrc = map[string]string{}
+		}
+		req.sceneArgs[k] = v
+		req.sceneSrc[k] = "const:local"
+	}
 	// todo22 P1：结构体字段值沿实参传播（`Submit(req)` → 被调函数的
 	// `req.Source` 条件可按调用点的已知字段值判定）
 	if len(req.callArgFields) > 0 {

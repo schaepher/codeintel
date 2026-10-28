@@ -88,6 +88,13 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		// todo10-5：场景条件判定（taken/excluded/unknown）——排除的分支
 		// 保留节点但剔除内容（用户能看到"此处被场景排除"及其依据）
 		fit := req.Scene.matchCondSrc(s.Cond, req.sceneArgs, req.sceneSrc, req.sceneConsts)
+		// todo25 §13：静态/--scene 无法判定时，用运行时快照的分支结论补足
+		// （静态已确定的分支优先，不被快照覆盖）。
+		if fit.Status == SceneUnknown && req.runtime != nil {
+			if rf, ok := req.runtime.fit(s); ok {
+				fit = *rf
+			}
+		}
 		// todo13-3：unknown 的具体原因（值被未知调用改写/分析深度上限）——
 		// 不能只给 unknown 而不说明哪一跳让它未知。
 		if fit.Status == SceneUnknown && fit.Field != "" {

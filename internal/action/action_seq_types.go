@@ -41,6 +41,8 @@ type CodeSequenceRequest struct {
 	Focus []string
 	// Scene 场景条件（todo10-5）：静态可判定的键值，用于分支裁剪与依据标注
 	Scene Scene
+	// RuntimeDataPath todo25 §13：运行时快照路径（CLI 只传参；解析/校验在 action）。
+	RuntimeDataPath string
 	// Ctx 取消信号（todo10-9）：递归展开每语句检查一次；nil = 不取消
 	Ctx context.Context
 	// todo22 §4.1：RPC 跨仓续接（与 ext-chain 同款候选范围——cli 按 workspace
@@ -63,6 +65,8 @@ type CodeSequenceRequest struct {
 	callbackCtx string
 	// 内部：阶段耗时累加（todo10-9）
 	acc *seqTimingAcc
+	// 内部（todo25 §13）：运行时快照分析结果（分支裁剪 + 调用值证据）
+	runtime *runtimeAnalysis
 	// 内部（todo10-2）：当前函数的关注行（字段写入点）+ 具名结果槽 + 焦点配置
 	focusLines  map[int]bool
 	resultNames []string
