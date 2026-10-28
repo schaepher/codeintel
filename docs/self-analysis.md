@@ -2587,6 +2587,40 @@ P1-05（全局注册表 schema 作为仓库外事实源，repos 表 10 列补类
 | P3-10 | #32 | P3 候选 | `precompute relations` 的 10% 打印统一到 `domain.Progress` | 现自打印 stdout |
 | P3-11 | #33 | P3 候选 | NDJSON 进度事件流（出现真实消费者再加） | 可选 |
 
+## todo24 交付状态（2026-10-27，对照 `origin/main` 的 `775a0ec`）
+
+**本轮已完成并验收**（证据见 `field_trace.md` 对应 §）：
+
+| todo24 编号 | 结论 | 证据 |
+|---|---|---|
+| 14.4-B 短查询临时文件峰值 | **完成**：inotify 事件驱动采样 + 目录项快照；整段生命周期都在采样间隙且已 unlink 的文件记 `unobserved` → 峰值 `lower_bound`/unavailable（不给 0）；hold/ephemeral 两个可控夹具断言精确 65536 | §146 |
+| §11.3 准确 ID 未命中禁止名称扫描 | **完成**：`symbol:/file:/commit:` 精确 miss → `ErrNotFound`，名称/全名池调用计数为 0；真实 init→CLI 非零退出/stdout 空/stderr not-found | §147 |
+| §11.4 source imports | **完成**：`source.imports[]{path,alias?}`（含 `.`/`_`，无别名不猜）；函数/类型/const/var/依赖/名称入口共用；真实 init→CLI 逐项相等 | §148 |
+| §11.6 汇总边不混用实例方法与包函数 | **完成**：嵌套 receiver/遮蔽导入按实例 selector 处理；多候选按可证明 receiver 类型消歧，未知保持歧义；`err.Error` 无 aggregated/corroborated 证据 | §149 |
+| §11.2 兄弟文件工厂 + 字段来源真实形态 | **完成**：裸函数名跨文件定位（当前文件优先/冲突 unknown）；新增 `GetFieldWritersBySuffix` + 构造器 KeyValue 字段写入（真实 init 下字段数据流此前从未命中）；depth=1 先身份消歧 | §150 |
+| §9.1/§9.2 八个同步流程 + 二十个流程形态 | **完成**：闭包内保留词法外层 receiver（`a.Store.Insert` → AOP → Store → ExecContext）；`TestTodo22SyncFlows`/`FlowForms`/`FlowMatrixJSONMermaid|SVG`/`SegmentedFlow` 由长期红转绿 | §151 |
+| §2 `--continue-segments` 分段续查 | **完成**：前沿登记（请求值快照 + 祖先集合副本）、逐段展开原 depth 层、节点去重、跨段防环、`meta.continuation` 记账、预算耗尽保留 depth 诊断；CLI 严格校验在开库前；证据 argv/config_hash 纳入；公开夹具 9 类正反例 + flowmatrix 联合夹具通过 | §152 |
+| §11.5 普通数据 range 只读回调 | **完成**：数据列表不再按函数列表逐项展开；`mergePossible` 同值保持；`&f` 取址与 `for _, f = range others` 失效（真实 init 正例 + 3 反例） | §153 |
+
+**本轮未交付（保留，不得当作已完成）**：
+
+- **§4.3 HTTP 跨仓续接**：尚无 `http_server` 证据链（origin 证明/`HandleFunc`+
+  `ListenAndServe` 同函数直语句/method+path 契约/跨仓 handler 身份/歧义与
+  unproven 分类）；因此 §2 中"HTTP 夹具跨仓续查"也一并保留。HTTP 调用点当前
+  仍停在外部/未解析诊断，不猜测目标。
+- **§3.3 DI 字段注解与容器 key 身份**、**§3.4 工厂返回实例的字段/方法续接**
+  的剩余分支（跨文件工厂/setter 构造器实参/只读方法后继续）与 **§4.1 同行双
+  服务 RPC**、**§5 枚举/字符常量**、**§6 失败矩阵**剩余项：本仓已有前几轮实现
+  与部分回归，但本轮未逐条重跑验收矩阵——按原编号保留。
+- **§10.1 worktree/submodule 真实构建回归**：BuildID 回填/无 `.git` 不继承父
+  HEAD 已实现（§137），缺少"文件型 submodule + 连续 init/update"集成用例。
+- **§10.3-A/E/F/G**：包缓存分块（已有 `pkg_cache_chunk_limits_test.go`）、
+  嵌套匿名结构体字段路径、CPU profile 二次启动、路由点查计划/加法索引幂等
+  已有部分测试，未按 todo24 的脱敏矩阵逐项补齐（B/C/D 已有专项测试）。
+- **14.4-B 全量基准复跑**：本轮代码变更后已重跑并更新
+  `docs/benchmarks/walk-resource/`（见该目录 `summary.md`）；后续再改采集逻辑
+  需重跑。
+
 **编号说明（2026-11-01）**：自本次起按优先级重排为 `P0-01…`/`P1-01…`；
 原 `#N`/`RN`/`todoNN-M` 保留在「原 ID/来源」列（历史文档/commit/checklist
 仍用原 ID 交叉引用，不因重排失效）。

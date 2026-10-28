@@ -92,9 +92,11 @@ func newSelfTempSampler(tmpDir string) *selfTempSampler {
 		start: time.Now()}
 }
 
-// stats 汇总（调用方持有锁）。
-func (s *selfTempSampler) statsLocked() (peak int64, phase string, samples, eventSamples, lostN int,
+// stats 汇总快照（内部加锁——监听协程仍在写时读取也安全）。
+func (s *selfTempSampler) stats() (peak int64, phase string, samples, eventSamples, lostN int,
 	maxGap time.Duration, note, watchErr string, lost []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	lost = make([]string, 0, len(s.lost))
 	for name := range s.lost {
 		lost = append(lost, name)

@@ -7272,6 +7272,13 @@ SSA 写入证明。现在：
 - 平台：`requireLinuxTempSampling` 在非 Linux 显式 skip 并说明原因（inotify +
   /proc/self/fd 均不可用，生产采集返回 unavailable），不把跳过计为验收通过。
 
+**全量重跑**（1298.66s，66 样本，`docs/benchmarks/walk-resource/`）：
+`temp_peak_source` 全部 `child_query_events`、`temp_peak_basis` 全部 `exact`、
+`unavailable` 0；12 个深样本峰值 >0（recursive 12,054,528 / materialized
+20,709,376 字节，三次重复一致）；期望边数（256→3/12/66/282/768、
+4096→3/12/66/282/1146）、两实现摘要一致、exit_code=0、取消契约
+（26.1ms / 复用后一跳边 3）全部保持。
+
 **边界**：inotify 事件本身不携带大小；若文件在事件唤醒前被 unlink 且从未取得
 尺寸，峰值仍不可知（→ lower_bound/unavailable）。采集仍不 sleep、不拖长
 query_ms（ephemeral 夹具的事件等待发生在查询边界之前）。

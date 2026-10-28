@@ -620,7 +620,10 @@ go build -o codeintel ./cmd/codeintel
 #                                          # 副作用与返回（表列写入/远程写/事务范围/
 #                                          # 错误覆盖可疑点，各带 verdict）
 #   codeintel query sequence <sym> --code [--scene k=v] [--focus <字段|return>] [--evidence]
-#                                          # 代码级时序：场景条件裁剪 / 关注目标 / 箭头证据
+#                 [--continue-segments N]
+#                                          # 代码级时序：场景条件裁剪 / 关注目标 / 箭头证据；
+#                                          # --continue-segments（1–128）沿 depth 前沿分段续查，
+#                                          # 每段再展开原 depth 层并接回同一棵树（meta.continuation）
 #   codeintel wiki --yaml wiki.yaml [--init] [--diagram plantuml|mermaid]
 #                 [--max-entries N] [--seq-depth N]
 #                                          # 业务 wiki 生成（--ai 增量补缺写回 yaml 标注 # AI 初稿；

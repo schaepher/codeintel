@@ -34,7 +34,7 @@ func (s *selfTempSampler) noteWatch(err error) {
 
 // fillTempStats 把采样器的最终状态写进子进程结果（含峰值依据/触发阶段）。
 func (r *benchChildResult) fillTempStats(s *selfTempSampler) {
-	peak, phase, samples, eventSamples, lostN, maxGap, note, watchErr, lost := s.statsLocked()
+	peak, phase, samples, eventSamples, lostN, maxGap, note, watchErr, lost := s.stats()
 	r.TempPeak = peak
 	r.TempPeakPhase = phase
 	r.TempSamples = samples
@@ -67,12 +67,12 @@ func (r *benchChildResult) fillTempStats(s *selfTempSampler) {
 // 调用，不拖长 query_ms）；事件机制不可用的平台直接返回，由边界快照兜底。
 func waitSamplerMinPeak(t *testing.T, s *selfTempSampler, min int64, limit time.Duration) {
 	t.Helper()
-	if _, _, _, _, _, _, _, watchErr, _ := s.statsLocked(); watchErr != "" {
+	if _, _, _, _, _, _, _, watchErr, _ := s.stats(); watchErr != "" {
 		return
 	}
 	deadline := time.Now().Add(limit)
 	for time.Now().Before(deadline) {
-		if peak, _, _, _, _, _, _, _, _ := s.statsLocked(); peak >= min {
+		if peak, _, _, _, _, _, _, _, _ := s.stats(); peak >= min {
 			return
 		}
 		time.Sleep(time.Millisecond)

@@ -36,7 +36,7 @@ go test ./internal/infrastructure/sqlite \
 | 连接配置 | `temp_store=0`（default，file 系）、`cache_size=-131072` 页（生产 DSN，见 `db.go`） |
 | 机器内存 | 3396 MiB（`/proc/meminfo MemTotal`） |
 | 峰值 RSS 采集 | `/usr/bin/time -v` 的 `Maximum resident set size`（父进程侧），并以子进程 `/proc/self/status VmHWM` 交叉核对 |
-| 临时文件采集 | 父进程每 5ms 采 `/proc/<pid>/fd`，统计目标落在子进程 TMPDIR 的 fd 大小之和（含已 unlink 仍打开的文件），只在采样点落在**查询时间窗**内时才把 0 视为有效观测 |
+| 临时文件采集 | 父进程 1ms 采 `/proc/<pid>/fd`（回退）；子进程内查询生命周期采样（边界快照 + 250µs 轮询 + **inotify 事件驱动**，含已 unlink 仍打开的文件与"两次轮询之间创建/扩容/关闭"的短生命周期文件；峰值依据 `temp_peak_basis=exact|lower_bound`，整个存在期都在间隙且已 unlink 的文件输出 unavailable，不给 0） |
 | 夹具 | N=256：nodes=256 / edges=768，建图 27.2ms；N=4096：nodes=4096 / edges=12288，建图 171.8ms |
 
 ## 期望边数 vs 实测
@@ -196,3 +196,29 @@ go test ./internal/infrastructure/sqlite \
 `child_query_poll`，`unavailable` 0，12 个深递归/物化样本峰值 >0；
 期望边数、两实现摘要一致、exit_code=0、取消契约（26.7ms/复用边 3）全部
 保持。逐样本数据与汇总见 `samples.jsonl` / `summary.json` / `summary.md`。
+
+## todo24 14.4-B 增量：短生命周期临时文件（事件驱动 + 峰值依据）（2026-10-27）
+
+250µs 轮询对"整个存在期都落在两次采样之间"的文件只能靠运气；本轮补齐：
+
+- **inotify 事件驱动采样**（`repo_walk_bench_watch_linux_test.go`）：监听
+  TMPDIR 的 create/modify/attrib/close_write/delete/moved，事件到达即快照，
+  采样时机不再依赖轮询间隔；非 Linux 记 `temp_watch_note` 后回退轮询。
+- **快照同时枚举 TMPDIR 目录项**：短生命周期文件在采样间隙被关闭但仍在
+  目录里时按路径 stat 到大小（`sized` 历史最大 / `onDiskSeen` 产出
+  create/grow/closed 事件）；已 unlink 且仍打开的仍按 fd 计入。
+- **峰值依据显式化**：`temp_peak_basis=exact|lower_bound`、
+  `temp_peak_phase=event|poll|query_start|query_end`、`temp_unobserved[]`、
+  `temp_event_samples`。从未取得尺寸的文件 → `lower_bound`，父进程输出
+  `unavailable` + 原因（观测值是下界），**不用 0 冒充观测**。
+- **可控夹具**：`ephemeral`（4KB→64KB→close，留在目录；轮询间隔显式拉到
+  100ms，峰值只可能来自事件快照）断言精确 65536 且 `phase=event`；原有的
+  `hold`（unlink 后持 fd）继续断言 65536；三个断言在非 Linux 显式 skip 并
+  说明原因。
+
+本轮重跑（**1298.66s**，66 样本，`run.log`）：`temp_peak_source` 全部为
+`child_query_events`、`temp_peak_basis` 全部 `exact`、`unavailable` 0；
+12 个深样本峰值 >0（recursive 12054528 / materialized 20709376 字节，
+三样本一致）；期望边数（256→3/12/66/282/768、4096→3/12/66/282/1146）、
+两实现摘要一致、exit_code=0、取消契约（26.1ms / 复用后一跳边 3）全部保持。
+逐样本数据与汇总见 `samples.jsonl` / `summary.json` / `summary.md`。
