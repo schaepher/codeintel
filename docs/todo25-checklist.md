@@ -79,3 +79,9 @@ bash scripts/verify.sh --quick
 | §2.2 多层装饰 `f = Wrap(f)` 与工厂副作用 | **完成（核心）** | `TestTodo25FuncValueBoundaries/decorate`：Wrap 的 Side 恰执行、Sink 执行、Never 不执行。 |
 | §2.3 工厂/列表函数值在调用点展开 | **完成（核心）** | 同一用例：`Wrap` 返回原回调后在 `Use` 调用点展开；未调用函数体不执行。 |
 | §2.4 `[]func` + append + range 顺序 / 空列表跨函数转发 | **完成（核心）** | `list`：A/B/C 均执行；`empty-list`：空列表经 `Forward` 转发 + range 后 Never 零执行。分支 append/完整反例矩阵仍保留。 |
+
+## 第七批（§8 核心夹具断言）
+
+| 任务 | 状态 | 证据 |
+| --- | --- | --- |
+| §8 第 8 节夹具逐项断言 | **完成（核心表）** | `TestTodo25CoreFixtureAssertions`：真实 init；Source=7 Check1–4=1/Check5–7=0，Source=19 Check1–7=1；Setup 一次；MakeFirst/First/Second 装饰链；Store.Insert→ExecContext；ApproveTrace；BeforeSecond/AfterSecond 两条 bypass 分支均保留。 |

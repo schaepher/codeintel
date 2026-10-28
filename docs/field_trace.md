@@ -7602,3 +7602,10 @@ Impl）。
 返回回调在实际调用点执行、未调用函数零执行；`[]func{A,B}` + `append(C)` +
 range 顺序执行 A/B/C；确定空列表跨函数 `Forward` 转发后 range 不执行元素。
 分支内 append/覆盖的完整反例矩阵仍未覆盖。
+
+## §163 todo25 §8：核心夹具逐项断言（2026-10-28）
+
+`integration/todo25_core_fixture_test.go` 对 todo22 §8 完整夹具做真实 init →
+CLI 断言：Source=7/19 的 Check 1–7 计数、Setup 恰一次、MakeFirst/First/Second
+两层装饰、Store.Insert→ExecContext、ApproveTrace，以及 Second bypass/非 bypass
+两条分支同时保留（不串行）。
