@@ -180,8 +180,13 @@ func sceneValueOf(e ast.Expr, consts sceneConstLookup) (string, bool) {
 		switch x.Kind.String() {
 		case "STRING":
 			return strings.Trim(x.Value, "\"`"), true
-		case "INT", "FLOAT", "CHAR":
-			return x.Value, true
+		case "INT", "FLOAT":
+			// T08：整数字面量归一化显示/比较（0x4 → 4；进制/下划线不影响
+			// 语义，但证据里应给出可读的十进制值）。
+			return sceneNormalizeNumberLiteral(x.Value), true
+		case "CHAR":
+			// T08：字符字面量按其 rune 数值参与比较（`x == '"'"'a'"'"'` 与 x=97 等价）。
+			return sceneNormalizeNumberLiteral(x.Value), true
 		}
 	case *ast.Ident:
 		if v, ok := sceneConstValue(consts, x.Name); ok {

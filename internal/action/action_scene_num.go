@@ -84,6 +84,27 @@ func sceneConvertInt(typ, raw string) (string, bool) {
 
 // sceneValueEqual 值比较：两侧都能解析为整数/浮点数时按数值比较
 // （Source=7 与常量 7、int32 转换后的值一致）；否则按文本比较。
+// sceneNormalizeNumberLiteral 整数字面量 → 十进制文本（十六/八/二进制、
+// 下划线分隔、字符字面量都归一化；无法解析时原样返回）。浮点保持原样
+// （归一化会改变显示精度语义）。
+func sceneNormalizeNumberLiteral(raw string) string {
+	s := strings.ReplaceAll(raw, "_", "")
+	if strings.HasPrefix(s, "'") && strings.HasSuffix(s, "'") && len(s) >= 3 {
+		if r, _, _, err := strconv.UnquoteChar(s[1:len(s)-1], '\''); err == nil {
+			return strconv.Itoa(int(r))
+		}
+		return raw
+	}
+	if strings.ContainsAny(s, ".eE") && !strings.HasPrefix(strings.ToLower(s), "0x") {
+		return raw
+	}
+	n, ok := new(big.Int).SetString(s, 0)
+	if !ok {
+		return raw
+	}
+	return n.String()
+}
+
 func sceneValueEqual(a, b string) bool {
 	if na, ok := sceneNumber(a); ok {
 		if nb, ok2 := sceneNumber(b); ok2 {
