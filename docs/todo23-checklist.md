@@ -25,7 +25,7 @@
 | §2.2 | 嵌套实参工厂/平行赋值/多层转发反例 | **部分完成**：平行赋值先算全部 RHS 再更新 LHS（函数值环境与场景值流都修；`a,b=b,a` 的第二个 RHS 不再读新值），单测锁定；嵌套实参工厂/多层转发/真实 init→CLI 反例矩阵仍待补。 |
 | §2.3 | 返回闭包捕获快照/失效传播 | 部分（todo22）；创建后修改/取址/逃逸正反例实际输出待补 |
 | §2.4 | TypeSpec/别名/跨包 Named 列表、路径预算诊断 | **部分完成**：命名函数类型/类型别名/跨包导入（`type Check func()`、`type Alias = Check`、`[]dep.Check`）识别，别名环保守 false；路径 ≤16/每条 ≤32 预算已有。测试 `action_seq_functype_test.go`。**剩余**：更多列表形态反例矩阵、只读空循环后跨函数转发的新增用例 |
-| §3.1 | 构造器/全局单例/工厂选择器/字段身份 | **部分完成**：receiver 字段数据流改为绑定**当前 receiver `*ast.Object`**（其它局部变量的 x.field 不借用 receiver 写入证明），新增 `TestReceiverFieldSelRequiresReceiverObject`。**剩余**：导入包全局单例/工厂选择器、同行多包调用、陈旧行号旧边核对 |
+| §3.1 | 构造器/全局单例/工厂选择器/字段身份 | **部分完成**：① receiver 字段数据流绑定当前 receiver 对象；② 旧索引只有行号时按调用名/包/函数-vs-方法核对，同行两个不同包调用不串线（`lookupCall`，失败回退唯一聚合匹配）。测试 `TestReceiverFieldSelRequiresReceiverObject`、`TestLookupCallSameLineDifferentPackages`。**剩余**：导入包全局单例/工厂选择器 |
 | §3.2 | 候选预算/前沿 ID | todo22 已有 12 候选/两层展开；直接查询接口方法根入口等边界待验 |
 | §3.3 | 字段 Inject 精确 container/key/AOP bypass 原实现 | todo22 + 本轮 AOP bypass 场景；框架实际注入契约（注释/tag 分别）待补 |
 | §3.4 | 工厂返回实例的 switch/setter/getter 续接 | 未实现（One/Two/Box/Build 夹具与反例矩阵全待做） |

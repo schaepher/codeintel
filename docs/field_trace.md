@@ -7237,3 +7237,12 @@ SSA 写入证明。现在：
   对象同一（无对象时回退 receiver 名），否则不走 receiver 字段/DI 路径。
 - 测试：`TestReceiverFieldSelRequiresReceiverObject`（`x.f.Do` 不命中、
   `t.f.Do` 命中 f）。
+
+## §145 todo23 §3.1（第二/三步）：receiver 对象 + 同行旧边核对（2026-10-27）
+
+- receiver 字段路径已绑定当前 receiver `*ast.Object`（见 §144）。
+- 旧索引无 pos、只有行号时，`seqTargets.byLine` 命中不再直接采用：
+  `lookupCall` 用 `seqCallSiteIdentity` 对比目标（调用名/包提示/函数 vs
+  方法），不一致则回退 `matchAggregated` 的唯一匹配；仍不唯一则未解析
+  （不猜）。`TestLookupCallSameLineDifferentPackages` 锁定同一行
+  `a.Foo(); b.Foo()` 不串包。

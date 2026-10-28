@@ -50,6 +50,45 @@ func (t *seqTargets) lookup(pos token.Position) (seqTarget, bool) {
 	return seqTarget{}, false
 }
 
+// lookupCall 位置查目标：byPos 精确命中直接用；byLine（旧索引无 pos）
+// 必须核对调用名/包/种类，不能把同行的另一个包调用当成本调用；核对失败
+// 回退按目标集合唯一匹配（todo23 §3.1）。
+func (t *seqTargets) lookupCall(pos token.Position, fun ast.Expr, f *ast.File,
+	curPkg, recvType string, recvDecl map[string]string) (seqTarget, bool) {
+	if t.byPos != nil {
+		if tg, ok := t.byPos[pos.Offset]; ok {
+			return tg, true
+		}
+	}
+	if t.byLine != nil {
+		if tg, ok := t.byLine[pos.Line]; ok && seqTargetMatchesCall(tg, fun, f, curPkg, recvType, recvDecl) {
+			return tg, true
+		}
+	}
+	return t.matchAggregated(fun, f, curPkg, recvType, recvDecl)
+}
+
+// seqTargetMatchesCall 旧行号目标与调用表达式的静态身份是否一致
+// （调用名/包提示/函数-vs-方法；未知字段不参与核对）。
+func seqTargetMatchesCall(tg seqTarget, fun ast.Expr, f *ast.File,
+	curPkg, recvType string, recvDecl map[string]string) bool {
+	name, pkgHint, wantMethod, kindKnown := seqCallSiteIdentity(fun, f, curPkg, recvType, recvDecl)
+	if name == "" {
+		return true // 无法核对：保留旧行为（由后续展开/诊断处理）
+	}
+	pkg, tname, tmethod := seqSplitTarget(tg.tid)
+	if tname != name {
+		return false
+	}
+	if pkgHint != "" && pkg != pkgHint {
+		return false
+	}
+	if kindKnown && tmethod != wantMethod {
+		return false
+	}
+	return true
+}
+
 // matchAggregated 位置未命中时按"本次函数调用的目标集合 + 调用名"回退
 // （todo20-9）。索引 calls 边按 (caller,target,kind) 汇总，重复调用只有
 // 首个位置的 metadata；不能因此把后续调用点判成 unresolved。
