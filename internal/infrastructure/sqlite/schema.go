@@ -4,7 +4,18 @@ package sqlite
 // TABLE IF NOT EXISTS，旧库自动补建缺失表）。从 db.go 拆出（行数
 // 治理）。
 
-const schema = `
+// T16：路由投影索引 DDL 只定义一次——schema（Open 幂等补建）与 bulk_load
+// （全量构建延后重建）共用同一常量，避免同名索引两份 DDL 漂移（重复
+// CREATE 不是新增性能能力）。
+const (
+	ddlIdxNodesGrpcService      = "CREATE INDEX IF NOT EXISTS idx_nodes_grpc_service ON nodes(kind) WHERE kind = 'grpc_service';"
+	ddlIdxNodesRegistersService = "CREATE INDEX IF NOT EXISTS idx_nodes_registers_service ON nodes(json_extract(properties, '$.registers_service'));"
+)
+
+// routeIndexes 路由投影索引集合（拼进 schema；创建顺序与历史一致）。
+const routeIndexes = ddlIdxNodesGrpcService + "\n" + ddlIdxNodesRegistersService + "\n"
+
+const schemaHead = `
 CREATE TABLE IF NOT EXISTS nodes (
     -- Q254c Stage 2：整数代理键。canonical ID（平均 145B）此前在 edges 的
     -- 7 棵 B 树里各存一份（真实业务库 7.46M 边实测索引 ~7GB）。
@@ -65,11 +76,9 @@ CREATE TABLE IF NOT EXISTS edges (
 -- **不递增 SchemaVersion**：删索引不改表结构，不该逼用户重建整库。
 -- todo22 §7.2：路由投影（kind 常量查询）走可命中的索引。幂等加法——不改
 -- 表结构、不递增 SchemaVersion、不要求重建业务索引（旧库 Open 时自动补建）。
-CREATE INDEX IF NOT EXISTS idx_nodes_grpc_service ON nodes(kind) WHERE kind = 'grpc_service';
--- registers_service 属性查询（Register 函数识别）用表达式索引；查询里没有
--- kind 谓词，所以不能做成部分索引。
-CREATE INDEX IF NOT EXISTS idx_nodes_registers_service ON nodes(json_extract(properties, '$.registers_service'));
--- todo22 §4.1：go-micro 完整服务身份查询（客户端 NewRequest 的服务名 → 注册
+`
+
+const schemaTail = `-- todo22 §4.1：go-micro 完整服务身份查询（客户端 NewRequest 的服务名 → 注册
 -- 节点）。同样幂等加法：不改表结构、不递增 SchemaVersion。
 CREATE INDEX IF NOT EXISTS idx_nodes_rpc_service ON nodes(json_extract(properties, '$.rpc_service'));
 CREATE INDEX IF NOT EXISTS idx_edges_kind ON edges(kind);
@@ -162,6 +171,9 @@ CREATE TABLE IF NOT EXISTS relation_candidates (
 );
 CREATE INDEX IF NOT EXISTS idx_relcand_build_from ON relation_candidates(build_id, from_table);
 `
+
+// schema 完整建表 DDL（头 + 路由投影索引 + 尾）。
+const schema = schemaHead + routeIndexes + schemaTail
 
 // configSchema 配置表（Q220c）：独立于 schema 版本演进——幂等补建
 // （CREATE TABLE IF NOT EXISTS，打开时始终执行，旧库自动获得配置表，

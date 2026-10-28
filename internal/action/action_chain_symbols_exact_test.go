@@ -52,6 +52,12 @@ func (r *chainStrictReader) InterfaceImplsExact(ifaceID string) ([]string, error
 	return r.Reader.InterfaceImplsExact(ifaceID)
 }
 
+// T16：精确接口查询的 ctx 版本（同一计数——两个入口同源）。
+func (r *chainStrictReader) GetInterfaceImplements(ctx context.Context, ifaceID string) ([]domain.CanonicalID, error) {
+	r.exactImpls++
+	return r.Reader.GetInterfaceImplements(ctx, ifaceID)
+}
+
 func (r *chainStrictReader) GetSymbol(id domain.CanonicalID) (*domain.CodeEntity, error) {
 	r.exactSymbols++
 	return r.Reader.GetSymbol(id)

@@ -57,6 +57,8 @@ func grpcRoutes(r Reader, repoAbs string) (*GrpcRoutesResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	// T16：注册函数投影一次读取（多个服务复用；旧索引才按名称兼容回退）。
+	regs := loadRouteRegisters(r)
 	for _, n := range svcs {
 		name := n.Property("service_name")
 		if name == "" {
@@ -65,12 +67,13 @@ func grpcRoutes(r Reader, repoAbs string) (*GrpcRoutesResult, error) {
 		out := GrpcRouteService{ID: string(n.ID), Name: name, Methods: []GrpcRouteMethod{}}
 		// 2. Register 函数（签名识别建立——按 registers_service 属性查，
 		// R30：不再按函数名 RegisterXxxServer 推导）
+		regNode := regs.node(name)
 		regFile := ""
-		if f, ok := RegisterNodeFile(r, name); ok {
-			regFile = f
+		if regNode != nil {
+			regFile = regNode.FilePath
 		}
 		// 3. 注册调用点：Register 函数的 calls 入边 → source 函数 file:line
-		if src, line, ok := RegisterCallSite(r, name); ok {
+		if src, line, ok := registerCallSiteNode(r, regNode); ok {
 			out.Register = fmt.Sprintf("%s:%d", src, line)
 		}
 		// 4. 实现类型：grpc_impl 边（impl → 服务）
@@ -135,6 +138,15 @@ func RegisterNodeFile(r Reader, svcName string) (string, bool) {
 func RegisterCallSite(r Reader, svcName string) (string, int, bool) {
 	reg, err := r.GetRegisterNode(svcName)
 	if err != nil || reg == nil {
+		return "", 0, false
+	}
+	return registerCallSiteNode(r, reg)
+}
+
+// registerCallSiteNode 已知注册函数节点的调用点（T16：grpcRoutes 复用
+// 一次投影读到的节点，不再按服务重查属性）。
+func registerCallSiteNode(r Reader, reg *domain.CodeEntity) (string, int, bool) {
+	if reg == nil {
 		return "", 0, false
 	}
 	call, err := r.GetFirstCallTo(reg.ID)

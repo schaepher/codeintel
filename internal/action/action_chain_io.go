@@ -231,7 +231,7 @@ func chainSymbols(a *Actions, root string) map[string]bool {
 		if impls, ok := implCache[iface]; ok {
 			return impls
 		}
-		impls, err := a.repo.InterfaceImplsExact(iface)
+		impls, err := a.InterfaceImplements(ctx, iface)
 		if err != nil {
 			impls = nil
 		}

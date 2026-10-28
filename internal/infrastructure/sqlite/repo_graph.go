@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -178,21 +179,15 @@ func (r *Repo) InterfaceImplsExact(ifaceID string) ([]string, error) {
 	logger := zap.L()
 	logger.Debug("enter (Repo).InterfaceImplsExact")
 	defer logger.Debug("exit (Repo).InterfaceImplsExact")
-	rows, err := r.Query(`SELECT t.id FROM nodes s
-		JOIN edges e ON e.source_ref = s.id_int AND e.kind = 'implements'
-		JOIN nodes t ON t.id_int = e.target_ref
-		WHERE s.id = ? AND t.id NOT LIKE '%Unimplemented%'`, ifaceID)
+	// T16：与 GetInterfaceImplements 同一查询（稳定排序 + 只取 implements），
+	// 无 ctx 版本保留为后台兼容入口。
+	ids, err := r.GetInterfaceImplements(context.Background(), ifaceID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		out = append(out, id)
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, string(id))
 	}
-	return out, rows.Err()
+	return out, nil
 }

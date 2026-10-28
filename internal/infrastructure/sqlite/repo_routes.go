@@ -20,6 +20,10 @@ const (
 		FROM nodes WHERE kind = 'grpc_service'`
 	registerNodeSQL = `SELECT id, kind, name, file_path, line_start, line_end, properties
 		FROM nodes WHERE json_extract(properties, '$.registers_service') = ? LIMIT 1`
+	// routeRegisterNodesSQL T16：注册函数投影**一次读完**——grpcRoutes 不再
+	// 按服务逐次查属性（N 个服务 → 1 次查询；表达式索引可命中）。
+	routeRegisterNodesSQL = `SELECT id, kind, name, file_path, line_start, line_end, properties
+		FROM nodes WHERE json_extract(properties, '$.registers_service') IS NOT NULL`
 	httpRoutesSQL = `SELECT id, kind, name, file_path, line_start, line_end, properties
 		FROM nodes WHERE kind = 'http_route'`
 	cliCommandsSQL = `SELECT id, kind, name, file_path, line_start, line_end, properties
@@ -33,6 +37,20 @@ func (r *Repo) GetGrpcServices() ([]*domain.CodeEntity, error) {
 	logger.Debug("enter (Repo).GetGrpcServices")
 	defer logger.Debug("exit (Repo).GetGrpcServices")
 	rows, err := r.Query(grpcServicesSQL)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanNodes(rows)
+}
+
+// GetRouteRegisterNodes 全部注册函数节点（registers_service 属性存在；
+// T16：路由投影一次读取，GrpcRoutes 复用该集合，不再每服务全表查属性）。
+func (r *Repo) GetRouteRegisterNodes() ([]*domain.CodeEntity, error) {
+	logger := zap.L()
+	logger.Debug("enter (Repo).GetRouteRegisterNodes")
+	defer logger.Debug("exit (Repo).GetRouteRegisterNodes")
+	rows, err := r.Query(routeRegisterNodesSQL)
 	if err != nil {
 		return nil, err
 	}

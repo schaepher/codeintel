@@ -10,7 +10,6 @@ package action
 
 import (
 	"context"
-	"sync"
 
 	"github.com/schaepher/codeintel/internal/domain"
 	"go.uber.org/zap"
@@ -75,8 +74,13 @@ type Reader interface {
 	GetPath(from, to domain.CanonicalID, maxDepth int, viaCalls bool) ([]*domain.TraceRow, error)
 	GetGrpcCalls() ([]*domain.GrpcCallRow, error)
 	// R92：grpc/http 路由清单（query grpc-routes/http-routes）
-	GetGrpcServices() ([]*domain.CodeEntity, error)                   // kind=grpc_service（含 properties）
-	GetRegisterNode(svcName string) (*domain.CodeEntity, error)       // registers_service 属性
+	GetGrpcServices() ([]*domain.CodeEntity, error)             // kind=grpc_service（含 properties）
+	GetRegisterNode(svcName string) (*domain.CodeEntity, error) // registers_service 属性
+	// T16：注册函数投影一次读取（grpcRoutes 复用；不再每服务查属性）
+	GetRouteRegisterNodes() ([]*domain.CodeEntity, error)
+	// T16：准确接口 ID → 整数邻接的 implements 目标集合（可取消、稳定排序、
+	// 只取 implements 边；未知接口空集）
+	GetInterfaceImplements(ctx context.Context, ifaceID string) ([]domain.CanonicalID, error)
 	GetFirstCallTo(targetID domain.CanonicalID) (*domain.Fact, error) // 首条 calls 入边（含行号）
 	GetGrpcImplNode(svcID domain.CanonicalID) (*domain.CodeEntity, error)
 	// todo22 §4.1：RPC 转发与注册（go-micro 客户端桩 → 服务端实现续接）
@@ -128,20 +132,6 @@ type Reader interface {
 	StartRelationComputeIfNeeded() (bool, error)
 	PrecomputeAllRelations(progress domain.Progress) error
 	AllSymbolNames(limit int) ([]string, error) // Q244 相似名候选池
-}
-
-// Actions 是 CLI 与 HTTP 共享的查询用例集合。
-type Actions struct {
-	repo     Reader
-	modNames []string // 全部 module 路径缓存（P2-3 多 go.mod；modules() 填充）
-	// todo13-17：value-trace 结果缓存（按索引构建身份 + 查询参数；nil=未启用）
-	vtMu            sync.Mutex
-	vtBuild         string
-	vtCache         map[string][]*domain.TraceRow
-	vtOrder         []string // FIFO 请求键（容量上限淘汰用）
-	vtCacheLimit    int      // 0 = vtCacheDefaultLimit
-	vtEvictions     int
-	vtCacheDisabled bool // A/B 对照：关闭缓存重算
 }
 
 // AddRelationRule 添加用户连线规则（Q226，薄封装）。

@@ -210,7 +210,7 @@ func (a *Actions) seqIfaceMethodImpl(req CodeSequenceRequest, methodID string) (
 	impls, cached := req.ifaceImplTypes[repoKey]
 	if !cached {
 		var err error
-		impls, err = a.repo.InterfaceImplsExact(ifaceID)
+		impls, err = a.InterfaceImplements(req.Ctx, ifaceID)
 		if err != nil {
 			return chosen, nil, true
 		}
