@@ -7718,3 +7718,27 @@ DIUnknownMethodRewrite`（真实 init→CLI；正例证据 `source=di` 且实现
 `TestTodo25CoreFixtureAssertions` 不再只数 `ApproveTrace` 出现次数：在 Entry
 顶层步骤中定位 `err != nil` 分支，断言其子树不含 `ApproveTrace`；`ApproveTrace`
 位于该分支之后，且其后的顶层步骤只能是 `return`（错误路径已提前返回）。
+
+## §171 todo25 §13：运行时快照 v1/v2 与 SQL 读取（2026-10-28）
+
+**新增能力**：`query sequence --code --runtime-data <path>`（CLI 只传路径，验证/解析在
+action；开库前先 `ValidateRuntimeData`）。
+- **输入**：`runtime_snapshot*.go` 严格解析。v2 五部分（sources/bindings/
+  observations/scope+coverage/provenance）与 v1 归一化到同一 `RuntimeSnapshot`；
+  递归重复 JSON 键、未知结构字段、重复 id/binding/observation、缺 complete、
+  rows 缺失/null、越界/额外/类型不兼容列、非 RFC3339、8MiB/50000 行都拒绝。
+  v1 `context.region` 只作样本标签，不写代码变量。
+- **消费**：`runtime_eval*.go` 从入口做**轻量符号执行**（字面量/局部 const/
+  形参绑定/返回多路径/Scan 成功与失败两状态），保留返回值与错误相关性；
+  SQL 用 vitess 结构化解析（表/SELECT 列/WHERE eq/in），按 scope 覆盖与
+  coverage.complete 选 observation、按查询谓词筛行；QueryRow+Scan 写目标
+  变量并产生 `err != nil` 的真/假两状态；静态/--scene 优先，运行时只补
+  unknown 分支。集合路径支持 `QueryContext + rows.Next/Scan + make(map) +
+  append + range map`。
+- **证据**：`SeqEvidence.Runtime`（snapshot_hash/source/table/query/args/scope/
+  rows/scan_target/observed_at/revision）；`config_hash` 含快照内容 hash，
+  规范化 argv 含 `--runtime-data`；Mermaid/文本共用同一棵树。
+- **验证**：`integration/todo25_runtime_{scalar,feature,collection,edge}_test.go`
+  真实 init→CLI：v1/v2、node=2/3/4、scope 不覆盖、complete=false、
+  binding 错、重复行、缺快照、TwoReads/Rebind/RunChecked 返回相关性、
+  feature alpha/beta/gamma、集合 2/1/0 元素、非法输入开库前失败。

@@ -614,6 +614,25 @@ pre-commit 场景的兜底）。
   `container.Get().(pb.XHandler)` 的静态类型是接口，`TypeOf(X)` 才是具体
   类型；handler 短名仍按注册实参静态接口类型推导。
 
+## todo25 §13 运行时快照教训（2026-10-28）
+
+- **快照验证要放在开库前，但逻辑留在 action**：CLI 只解析
+  `--runtime-data` 并在 `sqlite.Open` 前调用 `action.ValidateRuntimeData`；
+  非法 JSON/版本/字段/重复键必须 stdout 为空、非零退出，不能先跑一遍分析。
+- **v1 只做归一化，不静默当 v2**：v1 `context.region` 是样本标签，不能给
+  代码变量赋值；`rows` 缺失/null 不能当完整空结果（完整空必须 `rows:[]`）。
+- **运行时值必须带"成功/失败"两个状态**：SQL `Scan` 成功值 + `err` 不是同一
+  事实；只给成功状态会让 `Failure` 分支消失，只给未知会让返回值相关性丢失。
+  TwoReads/RunChecked 的验收就是靠"每个 return 路径一个状态"。
+- **未知集合不是空集合**：range/scan 失败时可以在循环体保留证据，但聚合
+  map/slice 的 len/成员必须降级 unknown，不能据"执行了一次循环体"得出
+  `len(m)==0/2`。
+- **局部 const 与预声明标识符遮蔽**：`const true=false` 的 `true` Obj 指向
+  局部 const，`false` 仍是预声明字面量；scene 求值要同时支持局部 const 表与
+  未遮蔽的 true/false，否则静态流程会退化成 unknown。
+- **SQL 只用结构化解析**：vitess AST 提取表/列/WHERE eq/in；`IN (?,?)` 的
+  Arguments 顺序消费；JOIN/聚合/动态 SQL 保持 unknown，不用表名字符串补值。
+
 ## 常用命令
 
 ```shell

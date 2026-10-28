@@ -132,8 +132,18 @@ bash scripts/verify.sh --quick
 | §6 多模块包身份/标准库/失败矩阵 | **完成（本轮补齐）** | `TestTodo25SourceMultiModuleIdentity`（两个嵌套 module 同名 package 各自定位；用 A 的 import path 查 B 符号失败）、`TestTodo25SourceStdlibFailure`（标准库明确失败、stdout 空）；symlink 逃逸/路径穿越/缺文件由既有 `action_symbol_source_test.go` 覆盖。 |
 | §8 Insert 错误路径后继精确断言 | **完成** | `TestTodo25CoreFixtureAssertions` 新增：`err != nil` 分支内无 `ApproveTrace`；`ApproveTrace` 位于该分支之后且其后仅 return（不是"全树出现一次"）。 |
 
-## 未完成项
+## 第十四批（§13 运行时快照）
+
+| 任务 | 状态 | 证据 |
+| --- | --- | --- |
+| §13.1 v2 契约 + v1 兼容 | **完成（核心）** | `runtime_snapshot*.go`：v2 sources/bindings/observations/scope/coverage/provenance；v1 归一化到同一模型；严格拒绝重复 JSON 键、未知结构字段、重复 source/binding/observation、缺 `coverage.complete`、v2 `rows` 缺失/null、越界/额外/类型不兼容行、非 RFC3339；8MiB/50000 行上限。`TestTodo25RuntimeInputFailures`。 |
+| §13.2 从真实读取点消费 | **完成（database/sql 直接读取）** | SQL 结构化解析（vitess）→ observation 覆盖判定（查询更窄才对）→ 行筛选；QueryRow/Scan 成功值/错误边界、返回值相关性（成功/失败两个状态）、`enabled == 1` 分支裁剪、`err != nil` 保留 Failure；证据含 snapshot_hash/source/table/query/args/scope/rows/scan_target/observed_at/revision，config_hash 含快照 hash、argv 含 `--runtime-data`。`TestTodo25RuntimeV1Scalar/V2ScalarAndScope/ReturnCorrelation`。 |
+| §13.3 v1 公开夹具 | **完成** | 真实 init `example.com/runtimeflow`：Run ID/2 → Manual=1/Auto=0/Failure=1；node 3 反例 Auto；node 4 scope 外保留 unknown；无快照未知；`Static` 与 `const true=false` 遮蔽无需快照。 |
+| §13.4 集合/分组 | **部分完成（直接 QueryContext）** | `QueryContext` + `rows.Next()` + `rows.Scan(&field…)` + `make(map)`/`append`/range map 聚合：map len=2、仅服务1、完整空结果分别验证；不完整范围保持 unknown + Failure。测试 `TestTodo25RuntimeCollectionVariants`。**未完成**：动态 `QueryByFilter`（字符串拼接/接口/工厂/方法实参传递）与生成 DAO/model-tag 映射；多轮人工审核节点/Finish 推导。 |
+| §13.5 无业务规则通用性 | **完成（标量+集合替代字段）** | `TestTodo25RuntimeFeatureGenericV2`：`example.com/feature` 真实 init，v2 feature_flag alpha/beta、context 任意标签、tenant/feature 未知保留 unknown；JSON/Mermaid 同分支。集合夹具的服务字段替换为本字段的完整 DAO 矩阵未实现（同上条剩余）。 |
+
+## 尚未完成项
 
 | 编号 | 状态 | 原因 / 下一步 |
 | --- | --- | --- |
-| §13 runtime snapshot（v1/v2、database 读取点、集合/分组） | **未开始（阻塞）** | 本会话交接文档只给出标题与三个短语；`todo25.txt` 不在仓库/临时目录，缺少输入/输出、读取点与分组规则的可断言定义。无法用猜测定义验收（按 DoD 不用"主要功能"替代）。接手方需拿到 §13 原文后按四段落地：① v1/v2 schema 与版本选择 ② database 读取点枚举 ③ 集合/分组规则 ④ 真实 init→CLI/服务化验收。 |
+| §13.4 生成 DAO/动态 SQL 与多轮审核 | **未完成（保留）** | 当前 SQL 读取点限结构化字面量 SELECT；字符串拼接/动态过滤参数、接口/工厂/方法实参传递的 `QueryByFilter`、model/tag 表列映射未支持；多轮人工审核节点/每轮新 node_id/Finish 推导依赖上述 DAO 值链。输入/标量/返回相关性/直接集合已通过，按 todo25 §13.4 “每个未通过子项保留任务”在此保留。 |
