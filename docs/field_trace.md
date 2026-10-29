@@ -8086,3 +8086,23 @@ action；开库前先 `ValidateRuntimeData`）。
   遮蔽 / switch 守卫 / 两对象 getter / init 唯一写者正例）。
 - 边界：包级单例的**非 init** 写者（运行时 `InjectCond(true,&One{})`）仍是
   unknown——写入是否发生缺少调用证明（保留守卫但不升级为确定）。
+
+## §178 todo27 T05：局部实例字段的顺序敏感到达定义（2026-10-30）
+
+- `seqLocalInstanceFieldValue`（`action_seq_local_instance.go`）：从局部实例
+  声明（`box := &Box{}`）按**源码顺序**走到读取点，记录最后一次字段写入
+  （直接赋值/已知 writer 方法实参）；`EntryOverwrite`（先 Two 后 One）→ One、
+  `EntryRepeat`（重复 setter）→ 最后一次的 Two、`EntryOther`（两个对象各自
+  setter）→ 各自来源。
+- 失效（unknown）：取址逃逸（`&box`/`*p=`）、未知方法调用（可能经 receiver
+  改写字段，只读 getter 例外）、条件分支内写入（执行未证明）、实例重绑定。
+  读取点之后的语句不参与（调用后修改不倒推）；单行多语句夹具用**语句结束
+  位置**判断是否包含读取点。
+- `localVarImpl` 增加对象身份（`localVarImplObj`）+ 只扫 `req.curBody`——
+  此前按名字扫整个文件，`EntryOther` 里的 `b := &Box{}` 会被 `Step` 的
+  receiver `b` 借用（other receiver 串源）。
+- `curRecvFields` 沿调用链传递（Run→Step→Get）——`Step` 的
+  `b.Get().Work()` 使用调用点之前最后一次 Set 的实参类型；工厂路径
+  （`curRecvOrigin`）不受影响。
+- 回归：`integration/todo27_t05_test.go`（覆写/重复/多对象/逃逸/未知方法/
+  无 default switch/E-T05 守卫正例）。

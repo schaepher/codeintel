@@ -91,7 +91,7 @@ func seqIdentityBeforeDepth(a *Actions, req CodeSequenceRequest, f *ast.File, fs
 	}
 	// 3) 局部变量数据流（构造器/字面量初始化）
 	if id, isID := sel.X.(*ast.Ident); isID {
-		if impl := a.localVarImpl(req, f, pkgPathOf(req.curSym), id.Name, sel.Sel.Name); impl != "" {
+		if impl := a.localVarImplObj(req, f, pkgPathOf(req.curSym), id.Name, id.Obj, sel.Sel.Name); impl != "" {
 			node.ImplType = implTypeShort(impl)
 			node.Evidence = &SeqEvidence{Source: SeqEvidenceLocalVar, CallFile: curFile,
 				CallLine: pos.Line, SymbolID: impl, Confidence: confidence,

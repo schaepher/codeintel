@@ -53,7 +53,7 @@ func seqTryDIAndLocalVar(a *Actions, req CodeSequenceRequest, f *ast.File, sel *
 	if !ok {
 		return false
 	}
-	implMethod := a.localVarImpl(req, f, pkgPathOf(req.curSym), id.Name, sel.Sel.Name)
+	implMethod := a.localVarImplObj(req, f, pkgPathOf(req.curSym), id.Name, id.Obj, sel.Sel.Name)
 	if implMethod == "" {
 		return false
 	}
@@ -67,6 +67,8 @@ func seqTryDIAndLocalVar(a *Actions, req CodeSequenceRequest, f *ast.File, sel *
 	if origin := seqCallReceiverOrigin(a, req, sel, implMethod, f, pkgPathOf(req.curSym)); origin != "" {
 		sub.curRecvOrigin = origin
 	}
+	// T05：局部实例的字段到达定义随调用传递（Get().Work() 用最新写入）。
+	sub.curRecvFields = seqCallReceiverFields(a, req, sel, implMethod, f, pkgPathOf(req.curSym), pos.Offset)
 	seqExpandInto(a, sub, node, implMethod, depth)
 	return true
 }
@@ -214,7 +216,12 @@ func seqExpandSceneIfaceChoice(a *Actions, req CodeSequenceRequest, node *CodeSe
 	if seqExpandRPC(a, req, node, impl, depth, curFile, pos.Line) {
 		return true
 	}
-	if child, stop := codeSeqForSymbol(a, req, impl, depth-1); child != nil {
+	// T05：接口变量/局部实例的字段到达定义随调用传递（Get().Work() 用
+	// 调用点之前最后一次写入；场景守卫已在上方选择实现）。
+	sub := req
+	sub.curRecvFields = seqCallReceiverFields(a, req, fun, impl, req.curCtx.file,
+		pkgOfID(domain.CanonicalID(tid)), pos.Offset)
+	if child, stop := codeSeqForSymbol(a, sub, impl, depth-1); child != nil {
 		node.Nodes, node.Stop = child.Nodes, child.Stop
 		return true
 	} else if stop != nil {

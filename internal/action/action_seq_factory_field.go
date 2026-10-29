@@ -131,30 +131,31 @@ func seqExpandFactoryFieldCall(a *Actions, req CodeSequenceRequest, node *CodeSe
 	}
 	origin := req.curRecvOrigin
 	if origin == "" {
+		// T05：当前 receiver 携带**顺序敏感**的字段到达定义（局部实例经方法
+		// 调用传递）——调用前覆写取最后一次写入；调用后的写入不倒推。
+		if id, isID := innerSel.X.(*ast.Ident); isID && req.curRecvFields != nil &&
+			(id.Obj == req.curRecvObj || id.Obj == nil) {
+			if st, okF := req.curRecvFields[field]; okF {
+				if st.unknown || len(st.types) == 0 {
+					markSeqUnknownReceiver(node, curFile, pos.Line, 0.8, recvType, field)
+					return true
+				}
+				var impls []string
+				for _, c := range st.types {
+					impls = appendUniqueStr(impls, "symbol:go:"+c.pkgPath+":("+c.typeName+")."+sel.Sel.Name)
+				}
+				return seqExpandFieldImpls(a, req, node, impls, depth, curFile, pos)
+			}
+		}
 		// U06：没有工厂来源时仍可用 receiver 自身字段的写入证明
-		// （`s.Get()` 的方法体 return `s.<field>`）：无写入或未知写者 →
-		// 实例来源未知，不借全库唯一实现。
+		// （`s.Get()` 的方法体 return `s.<field>`）：无写入或未知写者 → 实例
+		// 来源未知，不借全库唯一实现。
 		impls, unknown := a.receiverFieldImplsEx(req, recvType, field, sel.Sel.Name)
 		if unknown || len(impls) == 0 {
 			markSeqUnknownReceiver(node, curFile, pos.Line, 0.8, recvType, field)
 			return true
 		}
-		if len(impls) > 1 {
-			node.Evidence = &SeqEvidence{Source: SeqEvidenceFieldFlow, CallFile: curFile,
-				CallLine: pos.Line, Candidates: impls, Ambiguous: true,
-				Reason: "receiver-field-dataflow", CandidateBudget: seqIfaceBudget(len(impls), false)}
-			node.Stop = &SeqStop{Code: SeqStopIfaceAmbiguous,
-				Detail: "字段 " + recvType + "." + field + " 有 " + itoaSeq(len(impls)) + " 个具体实现写入来源（未消歧，未展开）"}
-			seqExpandCandidateBranches(a, req, node, impls, depth, pos)
-			return true
-		}
-		impl := impls[0]
-		node.ImplType = implTypeShort(impl)
-		node.Evidence = &SeqEvidence{Source: SeqEvidenceFieldFlow, CallFile: curFile,
-			CallLine: pos.Line, SymbolID: impl, Confidence: 0.8,
-			Reason: "receiver-field-dataflow"}
-		seqExpandInto(a, req, node, impl, depth)
-		return true
+		return seqExpandFieldImpls(a, req, node, impls, depth, curFile, pos)
 	}
 	cands, ok := seqFactoryFieldCandidates(a, req, origin, recvType, field, curPkg)
 	if !ok || len(cands) == 0 {
@@ -261,4 +262,37 @@ func seqExpandFactoryCallReceiver(a *Actions, req CodeSequenceRequest, node *Cod
 		return false
 	}
 	return seqExpandGetterIfaceCall(a, req, node, fun, f, curPkg, depth, curFile, pos)
+}
+
+// seqExpandFieldImpls 字段来源实现候选 → 展开/歧义/未知（单实现也要求具体
+// 类型；接口方法 ID 不是实例来源）。返回 true 表示已处理节点。
+func seqExpandFieldImpls(a *Actions, req CodeSequenceRequest, node *CodeSeqNode,
+	impls []string, depth int, curFile string, pos token.Position) bool {
+	concrete := make([]string, 0, len(impls))
+	for _, impl := range impls {
+		if a.isIfaceMethodID(impl) {
+			continue
+		}
+		concrete = appendUniqueStr(concrete, impl)
+	}
+	if len(concrete) == 0 {
+		markSeqUnknownReceiver(node, curFile, pos.Line, 0.8, "字段", "实例来源未知")
+		return true
+	}
+	if len(concrete) > 1 {
+		node.Evidence = &SeqEvidence{Source: SeqEvidenceFieldFlow, CallFile: curFile,
+			CallLine: pos.Line, Candidates: concrete, Ambiguous: true,
+			Reason: "receiver-field-dataflow", CandidateBudget: seqIfaceBudget(len(concrete), false)}
+		node.Stop = &SeqStop{Code: SeqStopIfaceAmbiguous,
+			Detail: "字段实现来源有 " + itoaSeq(len(concrete)) + " 个候选（未消歧，未展开）"}
+		seqExpandCandidateBranches(a, req, node, concrete, depth, pos)
+		return true
+	}
+	impl := concrete[0]
+	node.ImplType = implTypeShort(impl)
+	node.Evidence = &SeqEvidence{Source: SeqEvidenceFieldFlow, CallFile: curFile,
+		CallLine: pos.Line, SymbolID: impl, Confidence: 0.8,
+		Reason: "receiver-field-dataflow"}
+	seqExpandInto(a, req, node, impl, depth)
+	return true
 }

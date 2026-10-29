@@ -285,6 +285,8 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		if origin := seqCallReceiverOrigin(a, req, fun, tid, f, curPkg); origin != "" {
 			subReq.curRecvOrigin = origin
 		}
+		// T05：局部实例的字段到达定义（顺序敏感）也传给子方法。
+		subReq.curRecvFields = seqCallReceiverFields(a, req, fun, tid, f, curPkg, pos.Offset)
 		if child, stop := codeSeqForSymbol(a, subReq, tid, depth-1); child != nil {
 			node.Nodes, node.Stop = child.Nodes, child.Stop
 		} else if stop != nil && node.Stop == nil {

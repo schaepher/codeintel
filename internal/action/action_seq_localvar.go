@@ -8,9 +8,20 @@ import "go/ast"
 // (Impl).Method。找不到（参数形态/无初始化）返回空——fallback 现有
 // 接口匹配/枚举。
 func (a *Actions) localVarImpl(req CodeSequenceRequest, f *ast.File, curPkg, varName, method string) string {
+	return a.localVarImplObj(req, f, curPkg, varName, nil, method)
+}
+
+// localVarImplObj 同 localVarImpl，但按**声明对象身份**限定局部变量（T05：
+// 同名变量/别的函数的 `b := &Box{}` 不得借用）；只扫当前函数体。
+func (a *Actions) localVarImplObj(req CodeSequenceRequest, f *ast.File, curPkg, varName string,
+	obj *ast.Object, method string) string {
 	imports := importAliases(f)
+	scope := ast.Node(f)
+	if req.curBody != nil {
+		scope = req.curBody
+	}
 	var out string
-	ast.Inspect(f, func(node ast.Node) bool {
+	ast.Inspect(scope, func(node ast.Node) bool {
 		if out != "" {
 			return false
 		}
@@ -20,6 +31,9 @@ func (a *Actions) localVarImpl(req CodeSequenceRequest, f *ast.File, curPkg, var
 		}
 		id, ok := as.Lhs[0].(*ast.Ident)
 		if !ok || id.Name != varName {
+			return true
+		}
+		if obj != nil && id.Obj != nil && id.Obj != obj {
 			return true
 		}
 		for _, c := range rhsTypes(a, req, f, imports, as.Rhs[0], 3, curPkg) {

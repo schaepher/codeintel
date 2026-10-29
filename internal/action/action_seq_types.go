@@ -208,6 +208,9 @@ type CodeSequenceRequest struct {
 	// 函数 canonical ID；空 = 未知）。用于沿 Run→Step→Get 传递"同一个
 	// 返回实例"，不按同名变量/类型全局借用别的实例。
 	curRecvOrigin string
+	// curRecvFields T05：当前 receiver 实例的**字段到达定义**（局部实例：
+	// 调用点之前按顺序确定的字段值）。沿方法调用传递，供 Get().Work() 使用。
+	curRecvFields map[string]seqLocalInstanceField
 	env           *seqEnv
 	paramValues   []seqValue
 	litVisited    map[string]bool
