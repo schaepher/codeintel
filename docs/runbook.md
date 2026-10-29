@@ -36,3 +36,18 @@
 | 26 | `make it` 报集成测试红，日志里是 `构建失败：SCIP 符号索引不可用` / `init exit = 1` | 确认 `PATH` 含 `$(go env GOPATH)/bin`（`make it` 已自动注入，旧 Makefile/手工命令需自补） | 集成测试内的 CLI 是**子进程**，只有父进程 PATH 里的工具才能用；`make test`/`verify.sh` 早先已注入（Q252f），`make it` 漏了 → 环境缺失被误读成测试回归。预防：门槛脚本统一注入 + 打印工具路径（2026-10-26 修复） |
 | 27 | 暖构建仍然很慢 / 想确认 SCIP 是否真的被跳过（P1-08/P1-12） | 看目标仓库 `.codeintel/codeintel.log`：`scip artifact cache hit`（全量构建命中）、`scip incremental patterns`（增量只索引变更包）；`scip index` 阶段应从秒级降到几十毫秒。要对照全量行为：`CODEINTEL_SCIP_PATTERNS=off codeintel update ...` | 全量构建的 SCIP 产物缓存键 = 内容指纹（与 SSA 包缓存同源）+ `scip-go --version` + 模块目录 + `scipCacheFormat`；增量构建不写缓存（分析范围是子集）。缓存"看似不命中"时先查 scip-go 版本是否变化、依赖是否有未提交改动 |
 | 28 | `detcheck.sh` 报"节点内容差异 N 条"但两边内容看起来一样（含 `\|` 的签名/类型并集） | 用 HEAD 二进制复跑同一仓库确认是否复现；2026-10-27 前的脚本用从左 `split("\|")` 归一会列错位（假红），已改 `rsplit` | 门槛脚本按 `\|` 拼接再切分时，必须假设"内容里也有 `\|`"。预防：新加 dump/对比列时用 JSON 数组或从右切分 |
+
+## #27 运行时快照两个入口不一致（todo27 T14）
+
+现象：`query sequence --code --runtime-data a.json` 与 action 侧 `RuntimeData` 路径不同，
+或已解析 `Runtime` 对象与路径快照不一致 → 查询失败，stderr 只有一条
+`runtime-data: ...` 前缀的错误。处理：只保留一个入口；已解析对象必须来自同一
+快照（hash 相同）。typed-nil `Runtime` 等同未配置（保留原有 error 分支）。
+
+## #28 旧索引 RPC 续接缺失（todo27 T09）
+
+现象：`query sequence` 的 RPC 调用停在 `rpc_registration_missing`，库里有
+`Register<X>Handler` 函数但缺 `registers_service`/`rpc_service` 属性或
+`grpc_impl` 边（旧版本构建）。处理：源码回退会按生成注册函数名 + 真实 calls
+入边 + 注册实参接口 implements 发现实现；仍失败时确认 helper 确实被调用
+（未被调用的 Register helper 不是路由），或 `reindex` 重建索引。

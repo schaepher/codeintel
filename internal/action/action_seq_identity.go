@@ -92,7 +92,9 @@ func seqConfigHash(req CodeSequenceRequest) string {
 	cfg.ContCompat = req.continuationCompat
 	if req.runtime != nil && req.runtime.snap != nil {
 		cfg.RT = req.runtime.snap.Hash
-	} else if req.RuntimeDataPath != "" {
+	} else if req.Runtime != nil && req.Runtime.Hash != "" {
+		cfg.RT = req.Runtime.Hash
+	} else if req.RuntimeDataPath != "" || req.RuntimeData != "" {
 		cfg.RT = "unloaded"
 	}
 	b, _ := json.Marshal(cfg)
@@ -113,11 +115,13 @@ func seqEvidenceSnapshot(req CodeSequenceRequest, symbol string) *SeqEvidenceReq
 		CLI: "unknown", Analyzer: analyzerVersion(), BuildID: req.buildID, BuiltAt: req.builtAt,
 		ConfigHash: seqConfigHash(req),
 	}
-	if req.RuntimeDataPath != "" {
-		snap.RuntimeData = req.RuntimeDataPath
+	if req.RuntimeDataPath != "" || req.RuntimeData != "" {
+		snap.RuntimeData = req.runtimeDataPath()
 		if req.runtime != nil && req.runtime.snap != nil {
 			snap.RuntimeHash = req.runtime.snap.Hash
 		}
+	} else if req.Runtime != nil {
+		snap.RuntimeHash = req.Runtime.Hash
 	}
 	if req.Filter.Pkgs != nil || req.Filter.Files != nil || req.Filter.Fns != nil || req.Filter.Regex != nil {
 		f := req.Filter

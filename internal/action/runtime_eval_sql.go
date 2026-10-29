@@ -27,7 +27,9 @@ func (e *rtEval) evalQueryCall(frame *rtFrame, call *ast.CallExpr, s *rtState, d
 		}
 		// T14：只有**准确声明为 *sql.DB** 的包级/局部变量才绑定数据库身份
 		// （局部同名、自定义类型、未证明类型不借用绑定）。
-		if !runtimeIsSQLDBDecl(recv, frame.ctx.file) {
+		// T14：只借**包级**无初始化 `var DB *sql.DB` 声明；同名局部变量、
+		// 已初始化/重绑定的变量都不借旧身份。
+		if !runtimeIsSQLDBDecl(recv, frame.ctx.file) || recv.Obj == nil || !e.an.pkgVars[recv.Obj] {
 			ev := &SeqRuntimeEvidence{SnapshotPath: e.an.snap.Path, SnapshotHash: e.an.snap.Hash,
 				Version: e.an.snap.Version, Reason: "binding-type-unproven", Result: "unknown"}
 			e.an.facts[call] = ev
@@ -249,6 +251,9 @@ func runtimeIsSQLDBDecl(id *ast.Ident, file *ast.File) bool {
 	var typ ast.Expr
 	switch d := id.Obj.Decl.(type) {
 	case *ast.ValueSpec:
+		if len(d.Values) > 0 {
+			return false // 已初始化（`var DB = open()` / `= (*sql.DB)(nil)`）
+		}
 		typ = d.Type
 	case *ast.Field:
 		typ = d.Type

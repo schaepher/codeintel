@@ -86,6 +86,9 @@ type CodeSequenceRequest struct {
 	Scene Scene
 	// RuntimeDataPath todo25 §13：运行时快照路径（CLI 只传参；解析/校验在 action）。
 	RuntimeDataPath string
+	// Runtime T14 兼容入口：**已解析**快照。typed-nil 等同未配置（不触发
+	// 运行时求值、保留原有 error 分支）；与路径入口同时给出时必须一致。
+	Runtime *RuntimeSnapshot
 	// RuntimeData T14 兼容入口：与 RuntimeDataPath 同一语义（同时给出且
 	// 不一致 → 错误；不静默择一）。
 	RuntimeData string

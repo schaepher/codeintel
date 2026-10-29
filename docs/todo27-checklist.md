@@ -19,8 +19,8 @@
 | T10 | 外部形参的词法回调与列表重绑定 | **已完成（本轮）** | 外部工厂返回闭包按**创建处**包/文件身份捕获（修复跨模块 `index_gap`）；外部包同包裸调用按当前外部上下文展开；普通参数/同名形参/命名列表/ellipsis/返回闭包/未用回调逐项断言；depth=1 保留准确外部 ID 且不加载源码（external_loads=0）；`integration/todo27_t10_test.go` |
 | T12 | 在原调用上下文同步续查 | **已完成（本轮）** | 前沿快照含**调用点上下文**（`curRecvOrigin`/`curRecvFields`）——工厂字段续查与完整展开同一身份（候选未消歧不升级）；同函数不同实参/回调各自绑定；调用后覆写不污染前沿；depth=1 的工厂 getter 身份解析补齐；`integration/todo27_t12_test.go`；既有 RPC/HTTP 跨仓前沿与 `Continue{MaxSegments}` 计数回归保持 |
 | T14 | 运行时输入兼容与严格来源边界 | **未派发** | E-T14 逐字一致（`rewrite(&enabled)` 后两分支保留）；剩余：已解析 RuntimeData vs 字符串路径、typed-nil、同名/初始化 `*sql.DB`、CTE/限定名拒绝、Scan 列全量校验 |
-| T18 | 仅补充回归、兼容声明和文档 | **部分**（本轮同步文档） | 新增 U06 回归；`docs/field_trace.md §175`、本 checklist、AGENTS 教训；剩余：AdapterTimeout 兼容回归、分批/写缓存/边图/SSA 缓存/typeString 缓存回归、Linux-only inotify、预算采样边界、帮助/JSON 契约同步 |
-| U04 | 跨入口新审核节点与多次 Finish | **未派发** | E-U04 持久化边界输出保持（`INSERT INTO nodes` + 未证明顺序）；剩余：跨入口请求身份/守卫证明、21–28 八个同步流程形态 |
+| T18 | 仅补充回归、兼容声明和文档 | **已完成（本轮）** | 新增 `internal/orchestrator/adapter_timeout_test.go`（超时传到 emit / late emit 拒绝 / 其他 adapter 结果保留 / BuildResult degraded；既有 `TestAdapterTimeoutDegradesBuild`）；其余项复核为**既有回归**（分批 `node_batch_fidelity`、写缓存 `build_write_cache_*`、边图/预算、`pkg_cache_chunk_*`、`string_cache_test` typeString/candidateKey、Linux-only inotify 文件、准确 canonical 回归）并在 checklist 声明；文档同步 §175–§184 + runbook 两条 + AGENTS 教训；本轮无 CLI 参数/JSON 键变更（`Runtime` 是 action 兼容入口） |
+| U04 | 跨入口新审核节点与多次 Finish | **已完成（本轮，按规范保留边界）** | E-U04 回归：Submit 只输出持久化边界（表/列 + 参数来源/跨入口顺序未证明），不得凭空连 FinishReview/Complete；FinishReview 单入口保留 `SELECT kind` 与 `alt kind==` 两分支；21–28 同步流程与审核形态回归沿用 `TestTodo22SyncFlows`/`TestTodo22FlowForms`（含人工 Finish 次数 0/1/2 与 node_id 不同）；跨入口请求身份/顺序仍未建模——规范要求作为边界输出，不新增业务配置推算 |
 | U06 | 未知实例来源的剩余入口与续查缺口 | **已完成（本轮）** | 见下节 |
 
 ## U06 验收明细（已完成）

@@ -38,9 +38,12 @@ type rtDecision struct {
 
 // runRuntimeAnalysis 从入口符号执行；错误属于输入/结构问题 → 查询失败。
 func (a *Actions) runRuntimeAnalysis(req CodeSequenceRequest, entryID string) (*runtimeAnalysis, error) {
-	snap, err := LoadRuntimeSnapshot(req.runtimeDataPath())
+	snap, err := req.ResolveRuntimeSnapshot()
 	if err != nil {
 		return nil, err
+	}
+	if snap == nil {
+		return nil, nil
 	}
 	an := &runtimeAnalysis{snap: snap, req: req,
 		branch: map[*ast.IfStmt]*SceneFit{}, facts: map[*ast.CallExpr]*SeqRuntimeEvidence{},

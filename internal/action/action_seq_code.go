@@ -110,7 +110,7 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	req.entryID = string(n.ID)
 	// todo25 §13：运行时快照分析（分支裁剪 + 读取值证据）。输入已在 CLI 开库
 	// 前校验；这里只做入口符号执行，失败不产出半棵树。
-	if req.RuntimeDataPath != "" {
+	if req.RuntimeDataPath != "" || req.RuntimeData != "" || req.Runtime != nil {
 		an, rerr := a.runRuntimeAnalysis(req, string(n.ID))
 		if rerr != nil {
 			return nil, rerr

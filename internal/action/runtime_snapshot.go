@@ -258,3 +258,40 @@ func runtimeTimeValid(s string) bool {
 	_, err := time.Parse(time.RFC3339, s)
 	return err == nil
 }
+
+// ResolveRuntimeSnapshot 统一解析运行时输入（T14）：
+//   - 两个**路径**入口（RuntimeDataPath / RuntimeData）不一致 → 明确失败，
+//     不静默择一；
+//   - 已解析快照（Runtime，typed-nil = 未配置）与路径同时给出时必须 hash
+//     一致，否则失败；
+//   - 都没有 → (nil, nil)（调用方保留原有 error 分支/不额外求值）。
+//
+// 错误统一用 `runtime-data:` 前缀（只出现一次）。
+func (r CodeSequenceRequest) ResolveRuntimeSnapshot() (*RuntimeSnapshot, error) {
+	p1, p2 := r.RuntimeDataPath, r.RuntimeData
+	if p1 != "" && p2 != "" && p1 != p2 {
+		return nil, fmt.Errorf("runtime-data: 两个路径入口不一致（RuntimeDataPath=%q / RuntimeData=%q）", p1, p2)
+	}
+	path := p1
+	if path == "" {
+		path = p2
+	}
+	if r.Runtime != nil {
+		if path == "" {
+			return r.Runtime, nil
+		}
+		fromPath, err := LoadRuntimeSnapshot(path)
+		if err != nil {
+			return nil, err
+		}
+		if fromPath.Hash != r.Runtime.Hash {
+			return nil, fmt.Errorf("runtime-data: 已解析快照与路径快照不一致（hash %s != %s）",
+				r.Runtime.Hash, fromPath.Hash)
+		}
+		return r.Runtime, nil
+	}
+	if path == "" {
+		return nil, nil
+	}
+	return LoadRuntimeSnapshot(path)
+}
