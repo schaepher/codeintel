@@ -126,6 +126,12 @@ func seqMicroService(a *Actions, req CodeSequenceRequest, fwd *domain.RPCForward
 			return out
 		case 1:
 			if matches[0].Property("rpc_service") == "" {
+				// T09：旧索引（缺注册属性/grpc_impl 边）→ 源码回退：
+				// Register<Handler>Handler 真实调用 + 注册实参接口 implements。
+				if src := a.seqMicroRegisterSourceFallback(req, fwd, handler); src != nil {
+					seqCacheRPCSvc(req, key, src)
+					return src
+				}
 				// 只有客户端声明身份（生成客户端桩），没有服务端注册——按
 				// "注册缺失"处理（跨仓续接可以继续到候选仓库找注册）
 				out.stop = &SeqStop{Code: SeqStopRPCRegistrationMissing,
@@ -222,3 +228,24 @@ func splitSeqCSV(v string) []string {
 	}
 	return out
 }
+
+// seqMicroRegisterSourceFallback 旧索引（缺 registers_service/rpc_service
+// 属性与 grpc_impl 边）的**源码回退**：按生成注册函数名
+// `Register<Handler>Handler` + 真实调用边（未被调用的 helper 不是路由）+
+// 注册实参的类型断言/接口 implements 证明实现类型。
+//
+// 返回 nil 表示没有源码证明（保持原诊断）。
+
+// seqRegistrationIfaceArg 注册实参的类型断言/复合字面量 → 接口 canonical ID。
+//   - `c.Get().(pb.AccountServiceHandler)` → 断言目标接口
+//   - `pb.RegisterXxx(svc, &Impl{})` → 具体类型时用 implements 反查（返回空）
+
+// seqFileRelOfCtx 文件上下文的仓库相对路径（pkgPathOf 需要 canonical ID 形式，
+// 这里用占位包路径避免误用）。
+
+// seqIfaceMethodsOf 接口声明的方法名（诊断用）。
+
+// seqCallAtLineNamed 文件内指定行、被调名匹配的 CallExpr（嵌套调用取外层）。
+
+// seqRegistrationImplNarrow 注册实参 `x.(I)` 的 x 若是本仓方法调用的结果，
+// 用方法体的唯一具体返回来源收窄实现候选；无法证明时保持原候选集。

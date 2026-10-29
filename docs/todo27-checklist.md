@@ -15,7 +15,7 @@
 | T06 | DI 的准确容器身份与 AOP 守卫 | **未派发** | E-T06 正例逐字一致；剩余：动态/条件/非 init 注册、错误容器/key、AOP bypass 守卫与包装器 |
 | T07 | 先解析调用点身份，再应用 depth | **已完成（本轮）** | 遮蔽导入别名按 AST 对象判方法身份；同行同名跨包调用各自准确 ID；depth=1 与完整展开身份逐条一致；单实现+未知实例不产生确定执行；修复 IIFE（Actor=`func(){…}`）整棵子树被渲染层丢弃（JSON/Mermaid 同一分析树）；`integration/todo27_t07_test.go` |
 | T08 | 场景常量的源码身份与转换边界 | **已完成（本轮）** | `iota`/省略表达式与常量算术（`+ - * / % << >> & \| ^ &^`）进入同包/跨包/局部常量表（`seqConstSpecValues`）；局部 const 同时进字面量侧求值（`int32(local)`）；越界转换/被遮蔽 `int32`/未知左值短路保持 unknown；`integration/todo27_t08_test.go`；E-T08 逐字一致 |
-| T09 | go-micro 生成桩源码回退与准确路由 | **未派发** | E-T09 正例逐字一致；剩余：客户端 receiver 字段、NewRequest/Call 源码回退、旧索引缺注册属性发现、同服务重复调用身份对照 |
+| T09 | go-micro 生成桩源码回退与准确路由 | **已完成（本轮）** | 旧索引（缺 `rpc_service`/`registers_service` 属性与 `grpc_impl` 边）→ 源码回退：`Register<Handler>Handler` 的真实调用边 + 注册实参类型断言 + 方法体唯一返回收窄（多实现不猜）；未被调用的 helper 不是路由；同形客户端/重复调用按调用点身份；`integration/todo27_t09_test.go`（含旧索引 DB 变更 + 反例） |
 | T10 | 外部形参的词法回调与列表重绑定 | **未派发** | E-T10 正例逐字一致；剩余：外部形参普通参数/命名列表/ellipsis/返回闭包/创建处 receiver、同名 process/f 不继承 |
 | T12 | 在原调用上下文同步续查 | **部分**（候选不续查） | 接口根入口候选子树 `candidate=true` 且不登记续查前沿；剩余：词法回调/返回实例字段/RPC/HTTP 前沿的快照续接、跨仓 reader 生命周期、Continue{MaxSegments} 计数口径 |
 | T14 | 运行时输入兼容与严格来源边界 | **未派发** | E-T14 逐字一致（`rewrite(&enabled)` 后两分支保留）；剩余：已解析 RuntimeData vs 字符串路径、typed-nil、同名/初始化 `*sql.DB`、CTE/限定名拒绝、Scan 列全量校验 |

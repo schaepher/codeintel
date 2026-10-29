@@ -8144,3 +8144,21 @@ action；开库前先 `ValidateRuntimeData`）。
   未知左值短路（`cond() && sourceType==4`）→ unknown（两分支保留）。
 - 回归：`integration/todo27_t08_test.go`（跨包 iota/局部别名/0x4 taken；
   三类未知边界）；E-T08 逐字一致。
+
+## §181 todo27 T09：go-micro 旧索引源码回退（2026-10-30）
+
+- 旧索引（缺 `registers_service`/`rpc_service` 属性与 `grpc_impl` 边）下，
+  `seqMicroService` 在"只有客户端声明身份"时调用
+  `seqMicroRegisterSourceFallback`：
+  1. 按生成注册函数名 `Register<Handler>Handler` 找函数节点；
+  2. 必须有**真实 calls 入边**（未被调用的 helper 不是路由）；
+  3. 解析调用点（同名嵌套调用取外层）、第二实参类型断言 `x.(pb.H)`
+     → 接口 implements 候选；
+  4. 多实现时用注册实参的工厂返回类型收窄（`c.Get().(pb.H)` →
+     `Container.Get` 方法体唯一 return `new(AccountServer)`），不按名字挑。
+- 证据 reason = `micro-register-handler-source`，注册点 = helper 的调用点。
+- 回归：`integration/todo27_t09_test.go`：
+  - 同形 `OtherServiceClient` 只续接 `OtherServer`（不按方法短名串源）；
+  - 重复调用每次都保留 `(AccountServer).Apply` 身份；
+  - `EntryGhost`（Register helper 存在但从未被调用）→ `rpc_registration_missing`；
+  - 删除 rpc 属性 + `grpc_impl` 边模拟旧索引 → 仍经源码回退展开服务端。
