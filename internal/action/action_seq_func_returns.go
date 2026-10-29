@@ -71,11 +71,38 @@ func seqTraceReturnSources(a *Actions, req CodeSequenceRequest, f *ast.File,
 			return true
 		}
 		for _, r := range ret.Results {
-			out = appendUnique(out, rhsTypes(a, req, f, imports, r, depth, curPkg)...)
+			srcs := rhsTypes(a, req, f, imports, r, depth, curPkg)
+			if len(srcs) == 0 && !seqReturnIsPackageVar(req, f, r) {
+				// T04：存在**未知 return**（nil / 未解析调用）——不能因为还有
+				// 一个具体 return 就当唯一具体来源；包级单例由
+				// seqGlobalReturnTypes 单独证明，不在此计未知。
+				out = appendUnique(out, seqUnknownWriteSource())
+				continue
+			}
+			out = appendUnique(out, srcs...)
 		}
 		return true
 	})
 	return out
+}
+
+// seqReturnIsPackageVar return 表达式是否是包级变量（其写入来源由
+// seqGlobalReturnTypes 沿包内赋值 + init 实参证明）。
+func seqReturnIsPackageVar(req CodeSequenceRequest, f *ast.File, e ast.Expr) bool {
+	id, ok := e.(*ast.Ident)
+	if !ok || id.Obj == nil || id.Obj.Kind != ast.Var {
+		return false
+	}
+	vs, ok := id.Obj.Decl.(*ast.ValueSpec)
+	if !ok || len(vs.Names) == 0 || vs.Names[0].Obj != id.Obj {
+		return false
+	}
+	for _, d := range f.Decls {
+		if gd, ok := d.(*ast.GenDecl); ok && gd.Pos() <= vs.Pos() && vs.Pos() <= gd.End() {
+			return true // 包级 GenDecl 内的 var 声明
+		}
+	}
+	return false
 }
 
 // seqFirstResultIface 函数第一个返回类型若是本仓已索引的接口 → 返回类型名

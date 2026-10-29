@@ -98,6 +98,19 @@ func seqExpandFactoryFieldCall(a *Actions, req CodeSequenceRequest, node *CodeSe
 		return false
 	}
 	recvType, ok := seqCallSiteReceiverType(inner.Fun, req.curRecvType, req.curRecvName, req.curRecvDecl)
+	if (!ok || recvType == "") && req.curCtx != nil && req.curCtx.file != nil {
+		// T04：`NewBoxA().Get().Work()` —— getter 的 receiver 本身是工厂调用时，
+		// 类型取构造器返回（唯一具体类型），字段写入证明按该类型查。
+		if innerSel0, isSel := inner.Fun.(*ast.SelectorExpr); isSel {
+			if c, isCall := innerSel0.X.(*ast.CallExpr); isCall {
+				srcs := rhsTypes(a, req, req.curCtx.file, importAliases(req.curCtx.file), c, 3, curPkg)
+				known := knownWriteSources(srcs)
+				if len(known) == 1 && !hasUnknownWriteSource(srcs) {
+					recvType, ok = known[0].typeName, true
+				}
+			}
+		}
+	}
 	if !ok || recvType == "" {
 		return false
 	}
@@ -234,4 +247,18 @@ func (a *Actions) seqGetterFieldImpls(req CodeSequenceRequest, recvType string,
 	}
 	impls, unknown = a.receiverFieldImplsEx(req, recvType, f, method)
 	return impls, f, unknown, true
+}
+
+// seqExpandFactoryCallReceiver 接收者是工厂调用结果（`FromField(k).M()`）：
+// 先按工厂 return 的守卫裁剪具体来源（T04），命中即已展开/已标未知。
+func seqExpandFactoryCallReceiver(a *Actions, req CodeSequenceRequest, node *CodeSeqNode,
+	fun ast.Expr, f *ast.File, curPkg string, depth int, curFile string, pos token.Position) bool {
+	sel, isSel := fun.(*ast.SelectorExpr)
+	if !isSel {
+		return false
+	}
+	if _, isCall := sel.X.(*ast.CallExpr); !isCall {
+		return false
+	}
+	return seqExpandGetterIfaceCall(a, req, node, fun, f, curPkg, depth, curFile, pos)
 }

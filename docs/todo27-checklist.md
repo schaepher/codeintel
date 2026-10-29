@@ -10,7 +10,7 @@
 | T01 | 局部闭包、到达定义与递归身份 | **已完成（本轮）** | `seqFuncValueAddrTaken`（`&f` 后回调绑定失效 → `func_value_unbound`）；`integration/todo27_t01_test.go`：Nested Hit=1 无假 cycle、Overwrite Hit=1/Miss=0、Captured Miss=1/Hit=0、Unused 不展开、Retried Hit=1、PtrEscape 无确定执行、Cycle 仍 `cycle` 停止；E-T01 逐字一致 |
 | T02 | 命名函数列表的跨帧与到达定义 | **已完成（本轮）** | 纯内建（append/len/…）不再产生"未解析调用/回调逃逸"假诊断；命名 slice 类型/别名/方法值元素（`s.M`、`(&S{}).M`）/返回闭包；`Run(l...)` 多候选列表整体绑定 → 公共前缀确定 + 差异尾部互斥候选（`range 列表候选 i/N`）；`integration/todo27_t02_test.go` 逐项断言；E-T02 逐字一致 |
 | T03 | 条件装饰器与跨帧捕获 | **已完成（本轮）** | 工厂条件返回按调用点实参/guard 裁剪（`seqReturnValuesOf` 语句路径 + `seqReturnGuardsAllow`；guard 子句后 `!cond` 可达性）；裸布尔条件（`if enabled`）参与场景判定；字面量展开键含**有界捕获环境**（`Use(Use(Hit))` 不再假 cycle）；捕获改写用新来源、未知改写不改回旧值；`integration/todo27_t03_test.go` |
-| T04 | 未知返回、单例调用者与字段全部来源 | **部分**（单例未知写者已随 U06 修） | `seqParamCallTypes` 非 init 调用者 → 未知哨兵（Singleton 反例）；剩余：局部别名/跨包变量全部来源、任一未知 return 使具体证明失效、跨包 init 调用者实参 |
+| T04 | 未知返回、单例调用者与字段全部来源 | **已完成（本轮）** | 未知 return（nil/未解析调用/形参返回/退回到声明接口）→ 未知哨兵使唯一具体来源失效；类型转换（`API(&Two{})`、`(*T)(v)`）按实参来源解析（局部遮蔽正例）；工厂调用接收者（`FromField(1).Work()`）按 switch/if 守卫裁剪、未知实参保留 unknown 边界；`NewBoxX().Get().Work()` 字段证明按对象类型隔离（请求内缓存不串用）；`integration/todo27_t04_test.go`；非 init 条件写仍为 unknown 边界 |
 | T05 | 返回实例跨方法、闭包与拷贝的来源一致性 | **部分**（字段写者不完整已随 U06 修） | 混合写者（构造器 + setter 形参）→ `unknown_receiver`；剩余：值拷贝/指针逃逸、调用后修改不倒推、嵌入方法最近 owner、同深度多路径 |
 | T06 | DI 的准确容器身份与 AOP 守卫 | **未派发** | E-T06 正例逐字一致；剩余：动态/条件/非 init 注册、错误容器/key、AOP bypass 守卫与包装器 |
 | T07 | 先解析调用点身份，再应用 depth | **部分**（接口派发顺序已校） | 实例来源闸门在 `InterfaceMethodImpl` 唯一实现之前，depth=1 与展开路径同口径；剩余：旧同行汇总边名称/包核对、遮蔽导入别名、同行同名跨包 |

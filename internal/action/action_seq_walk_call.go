@@ -24,6 +24,10 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		if seqPureBuiltinCall(call.Fun) {
 			return nil
 		}
+		// 类型转换（`API(&Two{})` / `(*T)(v)`）不是函数调用——不产生调用节点。
+		if seqPureTypeConversionCall(call) {
+			return nil
+		}
 		defer func() {
 			attachRuntimeEvidence(req, node, call)
 			finishSeqEvidence(req, node)
@@ -147,18 +151,9 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 			}
 			return node
 		} else {
-			// 未解析到项目内符号：按消费者可区分的类别给出原因（todo13-13）
-			// todo22 §4.2：外部依赖的按需源码解析（depth>1 才 go list；离线只读、
-			// 请求内缓存）。展开成功时按外部函数自己的形参重新绑定回调。
-			if seqExpandExternalCall(a, req, node, f, fun, call, depth, curFile, pos.Line) {
+			if seqExpandUnresolvedCall(a, req, node, f, fun, call, depth, curPkg, curFile, pos.Line) {
 				return node
 			}
-			if seqExpandExternalMethodCall(a, req, node, call, depth, curFile, pos.Line) {
-				return node
-			}
-			// todo12-13：AST 调用表达式存在 ≠ 目标实现已解析——明确终点诊断；
-			// todo22 §2：函数值参数逃逸在分类里一并标注（不展开内部执行）。
-			seqUnresolvedCallFallback(a, req, node, f, fun, call, curPkg, curFile)
 		}
 
 		if depth <= 1 {
@@ -271,6 +266,17 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 
 		// 4) grpc 服务的实现方法（服务节点 → (Impl).Method；见 walk_impl.go）
 		if seqExpandGrpcServiceImpl(a, req, node, fun, tid, tg.confidence, depth, curFile, pos.Line) {
+			return node
+		}
+
+		// T04：接收者是工厂调用结果（`FromField(1).Work()`）——先按工厂
+		// return 的守卫裁剪具体来源；无法证明时再给 unknown（调用边指向的
+		// 具体方法不能当实例来源证明）。
+		if seqExpandFactoryCallReceiver(a, req, node, fun, f, curPkg, depth, curFile, pos) {
+			return node
+		}
+		if detail, unproven := seqReceiverCallUnproven(a, req, fun, f, curPkg); unproven {
+			markSeqUnknownInstance(node, curFile, pos.Line, tg.confidence, detail)
 			return node
 		}
 

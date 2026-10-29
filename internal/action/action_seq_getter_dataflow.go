@@ -22,13 +22,20 @@ func seqExpandGetterIfaceCall(a *Actions, req CodeSequenceRequest, node *CodeSeq
 		return false
 	}
 	inner, ok := sel.X.(*ast.CallExpr)
-	if !ok || len(inner.Args) > 0 {
+	if !ok {
 		return false
 	}
 	if _, isSel := inner.Fun.(*ast.SelectorExpr); isSel {
 		return false // 方法 getter（b.Get()）走工厂字段/数据流路径
 	}
-	types := callReturnTypes(a, req, f, importAliases(f), inner.Fun, 3, curPkg)
+	// T04：有实参的工厂调用（`FromField(kind).Work()`）按守卫裁剪 return；
+	// 无法按工厂解析时退回声明返回类型（无参 getter 的旧路径）。
+	var types []writeSource
+	if len(inner.Args) > 0 {
+		types, _ = seqFactoryCallReturnSources(a, req, f, inner, 3, curPkg)
+	} else {
+		types = callReturnTypes(a, req, f, importAliases(f), inner.Fun, 3, curPkg)
+	}
 	if len(types) == 0 {
 		return false
 	}
@@ -76,4 +83,54 @@ func markSeqUnknownGetter(node *CodeSeqNode, curFile string, line int, detail st
 	node.Evidence = &SeqEvidence{Source: SeqEvidenceFieldFlow, CallFile: curFile, CallLine: line,
 		Reason: "unknown_receiver", Ambiguous: true}
 	node.Stop = &SeqStop{Code: SeqStopUnknownReceiver, Detail: detail}
+}
+
+// seqFactoryCallReturnSources 调用点 `F(args).M()` 的工厂返回来源：
+// F 的每个 return 按守卫裁剪（调用点实参已知时只取可达 return），
+// RHS 用 rhsTypes 解析具体类型；未知/nil return 追加未知哨兵（T04：
+// 任一未知 return 使"唯一具体来源"失效）。
+//
+// ok=false 表示不是可解析的本仓工厂调用（交给其它路径/保持接口身份）。
+func seqFactoryCallReturnSources(a *Actions, req CodeSequenceRequest, f *ast.File,
+	call *ast.CallExpr, depth int, curPkg string) ([]writeSource, bool) {
+	if call == nil || f == nil {
+		return nil, false
+	}
+	target, ok := seqASTCallTarget(call.Fun, f, curPkg)
+	if !ok {
+		return nil, false
+	}
+	ctx, fd, ok := loadSeqFuncDecl(a, req, target)
+	if !ok || fd == nil || fd.Body == nil {
+		return nil, false
+	}
+	consts := seqConstValues(a, req, ctx.rel)
+	args := seqCalleeArgLiterals(fd, call, consts)
+	imports := importAliases(ctx.file)
+	pkg := pkgOfID(domain.CanonicalID(target))
+	var out []writeSource
+	for _, site := range seqReturnSitesOf(fd) {
+		if !seqReturnGuardsAllow(site.guards, args, consts) {
+			continue
+		}
+		for _, r := range site.exprs {
+			srcs := rhsTypes(a, req, ctx.file, imports, r, depth, pkg)
+			if len(srcs) == 0 {
+				out = appendUnique(out, seqUnknownWriteSource())
+				continue
+			}
+			// T04：来源退回到"声明接口"（`return nil` 之类的声明类型回退）
+			// 不是具体实例——按未知处理，不能当唯一具体来源。
+			known := knownWriteSources(srcs)
+			if len(known) == 1 && a.isIfaceTypeName(req, known[0].typeName) {
+				out = appendUnique(out, seqUnknownWriteSource())
+				continue
+			}
+			out = appendUnique(out, srcs...)
+		}
+	}
+	if len(out) == 0 {
+		return nil, false
+	}
+	return out, true
 }

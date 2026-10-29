@@ -8063,3 +8063,26 @@ action；开库前先 `ValidateRuntimeData`）。
   depth。
 - 回归：`integration/todo27_t03_test.go`（条件返回原回调/包装闭包、
   多层同名包装、多层 guard 互斥链、捕获改写新来源、未知改写 unbound）。
+
+## §177 todo27 T04：未知返回与全部来源（2026-10-30）
+
+- **未知 return 使具体证明失效**：`seqTraceReturnSources` 对无法解析的
+  return（`nil`、未解析调用、形参）追加未知写者哨兵（包级变量 return 除外，
+  由 `seqGlobalReturnTypes` 证明）；`seqFactoryCallReturnSources` 把"退回到
+  声明接口"的来源（`funcDeclReturnTypes` 的 decl 回退）也按未知处理——
+  不能因为还有一个具体 return 就当唯一实例。
+- **类型转换按实参来源**：`rhsTypes` 对 `T(x)`（Fun 是类型对象/`*T`）取
+  `rhsTypes(x)`——`current := API(&Two{})` 解析为 Two（此前回退到全库实现
+  候选 One/Two）；转换本身也不再产生"未解析调用"节点。
+- **工厂调用接收者 + 守卫**：`FromField(kind).Work()` 先走
+  `seqExpandFactoryCallReceiver` → `seqFactoryCallReturnSources`（if/switch
+  守卫 + `seqCalleeArgLiterals`），已知实参只保留可达 return
+  （`FromField(1)` → One）；未知实参保留 unknown 边界。`switch` 无 default
+  且各 case 返回时，后续语句带 `tag != case 值` 守卫。
+- **对象隔离**：`NewBoxA().Get().Work()` 的 getter receiver 类型取构造器
+  返回（唯一具体类型），字段写入证明按 `.BoxA.biz`/`.BoxB.biz` 分别查——
+  同一请求内两个对象的 getter 不串用缓存/来源。
+- 回归：`integration/todo27_t04_test.go`（未知 return / 混合写者 / 局部
+  遮蔽 / switch 守卫 / 两对象 getter / init 唯一写者正例）。
+- 边界：包级单例的**非 init** 写者（运行时 `InjectCond(true,&One{})`）仍是
+  unknown——写入是否发生缺少调用证明（保留守卫但不升级为确定）。
