@@ -159,8 +159,13 @@ func writeSeqNode(b *strings.Builder, alias map[string]string, from, caller stri
 	for _, n := range nodes {
 		switch n.Kind {
 		case "call":
-			// R83：基础类型参与者（int64 类型转换）跳过消息——非调用
+			// R83：基础类型参与者（int64 类型转换）跳过消息——非调用。
+			// T07：但**子节点仍要渲染**（IIFE 的 Actor 是 `func(){…}` 签名，
+			// 整体跳过会把闭包体内的调用链从图里丢掉）。
 			if seqBaseTypeActor(n.Actor) {
+				if len(n.Nodes) > 0 {
+					writeSeqNode(b, alias, from, caller, n.Nodes)
+				}
 				continue
 			}
 			to := alias[n.Actor]

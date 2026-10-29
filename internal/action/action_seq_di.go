@@ -43,8 +43,11 @@ type seqDIReg struct {
 	// T06：反射容器注册（RegisterBeanByType(key, reflect.TypeOf(...))）——
 	// 必须另有容器自身 GetBean/FieldByName/Set 的注入代码证明。
 	reflectContainer bool
-	kind     string // register|bind|set|provide|apply|put|bean（契约来源）
-	invalid  bool   // 未知容器方法可能改写该注册（todo25 §3.3）
+	kind             string // register|bind|set|provide|apply|put|bean（契约来源）
+	invalid          bool   // 未知容器方法可能改写该注册（todo25 §3.3）
+	// T06：注册调用所属容器名（接收者最后一段，如 Container）——必须与
+	// 注入代码实际使用的容器一致。
+	container string
 }
 
 // extended 非 Register/Bind 的容器/注解契约：必须有**字段注解**才采纳
@@ -59,8 +62,8 @@ func (r seqDIReg) extended() bool {
 
 // seqDIImpl 字段注入解析结果。
 type seqDIImpl struct {
-	symID  string // (Type).Method
-	reason string
+	symID    string // (Type).Method
+	reason   string
 	reg      seqDIReg
 	contract *seqDIContract // T06：容器注入机制证明（反射容器必填）
 	why      string         // 无法解析时的原因（调用方写成 unknown）
@@ -119,8 +122,13 @@ func (a *Actions) diFieldImpl(req CodeSequenceRequest, f *ast.File, recvType, fi
 	}
 	if reg.reflectContainer {
 		// T06：反射容器的注册证据只证明 key→类型；字段真正被写入还必须由
-		// 容器自身的 GetBean/FieldByName/Set 代码证明。
+		// 容器自身的 GetBean/FieldByName/Set 代码证明（同一条 key→bean→
+		// field→Set 变量链）。
 		if c, ok := seqDIContainerContract(a, req); ok {
+			if reg.container != "" && len(c.containers) > 0 && !containsStr(c.containers, reg.container) {
+				return seqDIImpl{why: "注册容器 " + reg.container + " 与注入代码使用的容器不一致（" +
+					strings.Join(c.containers, ",") + "）", reason: seqReasonDIRegistration}, true
+			}
 			out.contract = &c
 		} else {
 			return seqDIImpl{why: "反射容器注册已找到，但容器自身的字段注入代码未证明" +
@@ -248,9 +256,13 @@ func seqCollectRegCalls(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx,
 	if ctx.fset != nil {
 		line = ctx.fset.Position(call.Lparen).Line
 	}
+	container := ""
+	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+		container = seqContainerName(sel.X)
+	}
 	out[key] = append(out[key], seqDIReg{key: key, typeName: ref.typeName, pkgPath: ref.pkgPath,
 		file: ctx.rel, line: line, wrapper: wrapper, kind: kind,
-		reflectContainer: reflectForm || typeOfForm})
+		reflectContainer: reflectForm || typeOfForm, container: container})
 }
 
 // seqDIPick 字段注入的选取结果。
@@ -262,35 +274,7 @@ type seqDIPick struct {
 }
 
 // diPickRegistration 按注解 key（或字段名）选注册：多重注册 → 未消歧。
-func diPickRegistration(regs map[string][]seqDIReg, key, field string) (seqDIPick, bool) {
-	for _, k := range []string{key, field} {
-		if k == "" {
-			continue
-		}
-		if list, ok := regs[k]; ok {
-			switch len(list) {
-			case 0:
-				continue
-			case 1:
-				return seqDIPick{reg: list[0], key: k}, true
-			default:
-				return seqDIPick{key: k, multi: true}, true
-			}
-		}
-	}
-	return seqDIPick{}, false
-}
 
 // isReflectTypeOfArg 注册实参是否为 reflect.TypeOf(...)（T06 反射容器形态）。
-func isReflectTypeOfArg(e ast.Expr) bool {
-	call, ok := e.(*ast.CallExpr)
-	if !ok {
-		return false
-	}
-	sel, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok || sel.Sel.Name != "TypeOf" {
-		return false
-	}
-	id, ok := sel.X.(*ast.Ident)
-	return ok && id.Name == "reflect"
-}
+
+// seqContainerName 容器表达式的名字（`di.Container` / `Container` → Container）。

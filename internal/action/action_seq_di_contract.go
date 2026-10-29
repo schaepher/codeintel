@@ -26,6 +26,9 @@ type seqDIContract struct {
 	file  string
 	line  int
 	steps []string
+	// T06：注入代码实际使用的容器名（GetBean 接收者最后一段）——注册容器
+	// 与注入容器必须一致，否则串了容器。
+	containers []string
 }
 
 // seqDIContainerContract 找容器自身的字段注入实现（请求内缓存）。
@@ -64,48 +67,29 @@ func seqDIContractInFile(req CodeSequenceRequest, rel string) (seqDIContract, bo
 		if !ok || fd.Body == nil {
 			continue
 		}
-		steps := map[string]bool{}
-		line := 0
-		ast.Inspect(fd.Body, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-			name := ""
-			switch fn := call.Fun.(type) {
-			case *ast.SelectorExpr:
-				name = fn.Sel.Name
-			case *ast.Ident:
-				name = fn.Name
-			}
-			switch name {
-			case "GetBean", "Get", "Resolve", "Lookup":
-				steps["get"] = true
-			case "FieldByName":
-				steps["field"] = true
-			case "Set":
-				steps["set"] = true
-			case "Value", "GetStructByAnno", "GetAnnotation":
-				steps["annotation"] = true
-			}
-			if len(steps) == 4 && line == 0 {
-				line = ctx.fset.Position(call.Lparen).Line
-			}
-			return true
-		})
-		if len(steps) != 4 {
-			continue
+		if c, ok := seqDIContractInFunc(req, ctx, rel, fd); ok {
+			return c, true
 		}
-		keys := make([]string, 0, 4)
-		for _, k := range []string{"annotation", "get", "field", "set"} {
-			if steps[k] {
-				keys = append(keys, k)
-			}
-		}
-		return seqDIContract{file: rel, line: line, steps: keys}, true
 	}
 	return seqDIContract{}, false
 }
+
+// T06 契约污点标签：注解读取 / 容器取值 / 字段定位 / 反射值。
+const (
+	diTaintAnnotation = "annotation"
+	diTaintBean       = "bean"
+	diTaintField      = "field"
+	diTaintBeanValue  = "bean_value"
+	diTaintFieldValue = "field_value"
+)
+
+// seqDIContractInFunc 在单个函数内做**变量级**契约证明：
+//
+//	annotation →（key）→ GetBean 实参 → reflect.ValueOf(结果) → 同一字段
+//	的 FieldByName 结果 .Set(...)。
+//
+// 只要求"同函数 + 变量依赖链"，不按调用顺序/无关语句拼接（不能因为函数里
+// 分别出现过 4 个调用就当契约成立）。
 
 // seqDIContractFromRepo 按索引函数节点扫描仓库内文件找注入实现（去重文件、
 // 限规模；只用于反射容器注册的证明，常态零成本）。

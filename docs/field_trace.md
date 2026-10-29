@@ -8106,3 +8106,27 @@ action；开库前先 `ValidateRuntimeData`）。
   （`curRecvOrigin`）不受影响。
 - 回归：`integration/todo27_t05_test.go`（覆写/重复/多对象/逃逸/未知方法/
   无 default switch/E-T05 守卫正例）。
+
+## §179 todo27 T06/T07：DI 容器契约 + 调用身份先于 depth（2026-10-30）
+
+### T06 DI
+
+- **容器身份**：`seqDIReg.container` 记录注册调用接收者（`di.Container` →
+  `Container`）；`seqDIContract.containers` 记录注入代码 `GetBean` 的接收者
+  ——两者不一致 → 明确 unknown（错误容器不再被接受）。
+- **变量级注入链**：`seqDIContractInFunc` 用污点标签（annotation / bean /
+  field / bean_value / field_value）沿赋值传播，要求
+  `FieldByName` 结果的变量 `.Set(reflect.ValueOf(<GetBean 结果>))`；不再把
+  函数里分别出现的四个调用当契约（无关联赋值 → unknown）。
+- 反例（`integration/todo27_t06_test.go`）：错误容器 / 无关联 Set / 动态 key /
+  条件注册 / 非引导函数注册 / 错误 key 均不升级；E-T06 正例仍准确给出
+  `(Worker).Work` + 注册点 + 注入代码位置。
+
+### T07 身份先于 depth
+
+- 遮蔽导入别名、同行同名跨包调用按 AST 对象 + 包/种类核对（既有
+  `seqCallSiteIdentity`），depth=1 与完整展开的身份逐条一致（续查同源）。
+- **渲染层 bug**：IIFE 节点的 Actor 是 `func(){…}` 签名，被
+  `seqBaseTypeActor` 当"基础类型转换"整节点跳过 → 闭包体内的调用链在
+  Mermaid/文本里消失（JSON 树里有）。修复：跳过消息但**递归渲染子节点**，
+  JSON/Mermaid 共享同一分析树。
