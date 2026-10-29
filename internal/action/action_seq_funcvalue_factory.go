@@ -33,7 +33,9 @@ func seqCalleeReturnValues(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx,
 	curPkg := pkgPathOf(req.curSym)
 	symID, ok := seqASTCallTarget(call.Fun, ctx.file, curPkg)
 	if !ok || !seqTargetIndexed(req, curPkg, symID) {
-		return nil, false
+		// T10：外部包函数（本仓未索引）——按外部源码 return 表达式解析
+		// 闭包/具名回调（创建处上下文 = 外部包文件）。
+		return seqExternalReturnValues(a, req, ctx, call, depth)
 	}
 	fileCtx, fn, ok := loadSeqFuncDecl(a, req, symID)
 	if !ok {
@@ -41,7 +43,11 @@ func seqCalleeReturnValues(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx,
 	}
 	env := newSeqEnv(nil)
 	bindSeqParams(env, fn.Type.Params, captureSeqClosureArgs(a, req, ctx, call))
-	return seqReturnValuesOf(a, req, fileCtx, fn, env, call, depth)
+	// T10：工厂返回的闭包按**创建处**（被调函数）身份捕获——否则字面量里的
+	// 同包调用会用调用者的包路径（跨模块时产生 index_gap）。
+	sub := req
+	sub.curSym = symID
+	return seqReturnValuesOf(a, sub, fileCtx, fn, env, call, depth)
 }
 
 // seqValueReturnValues 函数值（字面量/具名/列表/多候选）的返回候选。

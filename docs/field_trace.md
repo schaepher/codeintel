@@ -8162,3 +8162,19 @@ action；开库前先 `ValidateRuntimeData`）。
   - 重复调用每次都保留 `(AccountServer).Apply` 身份；
   - `EntryGhost`（Register helper 存在但从未被调用）→ `rpc_registration_missing`；
   - 删除 rpc 属性 + `grpc_impl` 边模拟旧索引 → 仍经源码回退展开服务端。
+
+## §182 todo27 T10：外部回调的创建处身份（2026-10-30）
+
+- **工厂返回闭包按创建处身份捕获**：`seqCalleeReturnValues` ② 分支此前把
+  调用者的 `curSym` 传给 `seqReturnValuesOf`，外部模块工厂返回的字面量
+  继承了调用者的包路径 → 闭包内 `Inner()` 解析成 `example.com/flow:Inner`
+  （index_gap）。现在 `sub.curSym = symID`（被调函数），字面量的
+  enclosing/pkgPath/ctx 都是创建处。
+- **外部包同包裸调用**：`seqExternalSamePkgCall`（仅 `curFile` 为
+  `<external>/` 且标识符是包级函数）→ 按 `req.curSym` 包路径展开同包声明
+  （T10：闭包/装饰器内部调用）。
+- 新增 `seqExternalReturnValues`：外部包函数（本仓未索引）的 return 表达式
+  → 闭包/具名回调值（带调用点实参绑定与返回守卫），调用方
+  `seqCalleeReturnValues` 在目标未索引时回退到这里。
+- 回归：`integration/todo27_t10_test.go`（普通/同名形参/列表/ellipsis/
+  返回闭包/未用回调；depth=1 外部 ID 准确且 `external_loads=0`）。

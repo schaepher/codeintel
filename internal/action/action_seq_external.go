@@ -277,3 +277,10 @@ func seqExpandExternalDecl(a *Actions, req CodeSequenceRequest, node *CodeSeqNod
 
 // seqStructFieldTypes 外部包某结构体的字段类型名（receiver 字段调用的
 // `x.Field.Method()` 具体化用；只到类型名，不解析完整类型）。
+
+// seqExternalSamePkgCall 外部包源码内部的**同包函数**调用（裸标识符）：
+// 当前分析上下文本身在外部包（`curFile` 以 `<external>/` 开头）时，按
+// `req.curSym` 的包路径定位同包声明展开（T10：返回闭包/装饰器内部调用）。
+
+// seqExternalReturnValues 外部包函数调用 → return 表达式的函数值（闭包/
+// 具名回调）。T10：返回闭包按**创建处**外部包文件上下文传递。

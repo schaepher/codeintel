@@ -16,6 +16,12 @@ func seqExpandUnresolvedCall(a *Actions, req CodeSequenceRequest, node *CodeSeqN
 	if seqExpandExternalCall(a, req, node, f, fun, call, depth, curFile, line) {
 		return true
 	}
+	// T10：外部包源码内部的同包函数调用（裸标识符）——按当前外部包上下文展开。
+	if importPath, declName, extID, ok := seqExternalSamePkgCall(a, req, fun); ok {
+		if seqExpandExternalDecl(a, req, node, importPath, declName, extID, depth, call, curFile, line, "") {
+			return true
+		}
+	}
 	if seqExpandExternalMethodCall(a, req, node, call, depth, curFile, line) {
 		return true
 	}
