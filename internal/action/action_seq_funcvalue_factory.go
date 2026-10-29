@@ -10,20 +10,15 @@ package action
 
 import (
 	"go/ast"
-	"go/parser"
 	"go/token"
-	"os"
-	"path/filepath"
-
-	"github.com/schaepher/codeintel/internal/domain"
 )
 
 // 预算（todo22 §2.4：路径 ≤16、每条 ≤32 项）。
 const (
-	seqMaxListItems    = 32
-	seqMaxRangeIters   = 16
+	seqMaxListItems  = 32
+	seqMaxRangeIters = 16
 	// T02：列表路径上限（转发层数）。
-	seqMaxListPath = 16
+	seqMaxListPath     = 16
 	seqMaxFactoryDepth = 3
 )
 
@@ -46,7 +41,7 @@ func seqCalleeReturnValues(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx,
 	}
 	env := newSeqEnv(nil)
 	bindSeqParams(env, fn.Type.Params, captureSeqClosureArgs(a, req, ctx, call))
-	return seqReturnValuesOf(a, req, fileCtx, fn, env, depth)
+	return seqReturnValuesOf(a, req, fileCtx, fn, env, call, depth)
 }
 
 // seqValueReturnValues 函数值（字面量/具名/列表/多候选）的返回候选。
@@ -62,7 +57,7 @@ func seqValueReturnValues(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx,
 		sub := req
 		sub.curSym = fv.enclosing
 		sub.env = env
-		return seqReturnValuesOf(a, sub, fv.ctx, &ast.FuncDecl{Type: fv.lit.Type, Body: fv.lit.Body}, env, depth)
+		return seqReturnValuesOf(a, sub, fv.ctx, &ast.FuncDecl{Type: fv.lit.Type, Body: fv.lit.Body}, env, call, depth)
 	case seqValueNamed:
 		fileCtx, fn, ok := loadSeqFuncDecl(a, req, fv.symID)
 		if !ok {
@@ -73,7 +68,7 @@ func seqValueReturnValues(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx,
 		sub := req
 		sub.curSym = fv.symID
 		sub.env = env
-		return seqReturnValuesOf(a, sub, fileCtx, fn, env, depth)
+		return seqReturnValuesOf(a, sub, fileCtx, fn, env, call, depth)
 	case seqValueMulti:
 		// 条件返回的多候选（上一次折叠的结果）——逐候选解析返回值
 		var out []seqValue
@@ -92,109 +87,24 @@ func seqValueReturnValues(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx,
 
 // seqReturnValuesOf 收集函数体（不含嵌套字面量体）里每个 return 表达式的
 // 函数值——条件返回 → 多候选（不任选一条）。
-func seqReturnValuesOf(a *Actions, req CodeSequenceRequest, fileCtx *seqFileCtx,
-	fn *ast.FuncDecl, env *seqEnv, depth int) ([]seqValue, bool) {
-	if fn == nil || fn.Body == nil || depth >= seqMaxFactoryDepth {
-		return nil, false
-	}
-	var vals []seqValue
-	ast.Inspect(fn.Body, func(n ast.Node) bool {
-		if _, isLit := n.(*ast.FuncLit); isLit {
-			return false // 字面量体内的 return 属于该字面量，不是工厂本身
-		}
-		rs, ok := n.(*ast.ReturnStmt)
-		if !ok {
-			return true
-		}
-		for _, r := range rs.Results {
-			sub := req
-			sub.env = env
-			vals = append(vals, captureSeqClosureValueDepth(a, sub, fileCtx, r, depth+1))
-		}
-		return true
-	})
-	return vals, len(vals) > 0
-}
+
+// seqReturnGuard 工厂返回的到达条件（if cond body 上的 return → want=true）。
+
+// seqReturnGuardsAllow 路径上全部守卫在已知实参下都可满足 → 该 return 可达。
+// 任一守卫被排除 → 不可达；未知 → 保守保留（可达）。
+
+// seqCalleeArgLiterals 被调工厂的形参 → 调用点实参字面量（只认可静态求值
+// 的实参；未知保持缺失 = 该守卫不裁剪）。
 
 // loadSeqFuncDecl 按 canonical ID 读源码并定位函数声明（名字 + receiver 精确
 // 匹配；不按可能陈旧的行号切片）。
-func loadSeqFuncDecl(a *Actions, req CodeSequenceRequest, symID string) (*seqFileCtx, *ast.FuncDecl, bool) {
-	n, err := a.repo.GetSymbol(domain.CanonicalID(symID))
-	if err != nil || n == nil || n.FilePath == "" {
-		return nil, nil, false
-	}
-	ctx := seqFileCtxFor(req, n.FilePath)
-	if ctx == nil {
-		return nil, nil, false
-	}
-	recvType, funcName, isMethod := splitDeclName(seqDeclNameOf(symID))
-	for _, decl := range ctx.file.Decls {
-		fd, ok := decl.(*ast.FuncDecl)
-		if !ok || fd.Name == nil || fd.Name.Name != funcName {
-			continue
-		}
-		if isMethod {
-			if fd.Recv == nil || len(fd.Recv.List) == 0 ||
-				recvTypeName(fd.Recv.List[0].Type) != recvType {
-				continue
-			}
-		} else if fd.Recv != nil {
-			continue
-		}
-		return ctx, fd, true
-	}
-	return nil, nil, false
-}
 
 // seqFileCtxFor 取（并缓存）仓库文件的解析上下文。
-func seqFileCtxFor(req CodeSequenceRequest, rel string) *seqFileCtx {
-	if fc := req.fileCache[rel]; fc != nil {
-		if req.acc != nil {
-			req.acc.cacheHits++ // todo22 P2：共享源码缓存的命中计数
-		}
-		return &seqFileCtx{fset: fc.fset, file: fc.file, src: fc.src, rel: rel}
-	}
-	src, err := os.ReadFile(filepath.Join(req.RepoAbs, rel))
-	if err != nil {
-		return nil
-	}
-	if req.acc != nil {
-		req.acc.cacheMisses++
-	}
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, rel, src, parser.ParseComments)
-	if err != nil {
-		return nil
-	}
-	// fileCache 可能为 nil（直接调 helper 的单测）：此时只解析不缓存
-	if req.fileCache != nil {
-		req.fileCache[rel] = &seqParsedFile{fset: fset, file: f, src: src}
-	}
-	return &seqFileCtx{fset: fset, file: f, src: src, rel: rel}
-}
 
 // seqDeclNameOf canonical ID → 声明名（`(T).m` / `Func`）。
-func seqDeclNameOf(symID string) string {
-	if i := lastColon(symID); i >= 0 {
-		return symID[i+1:]
-	}
-	return symID
-}
 
 // seqTargetsCached 按函数缓存"调用点 → 目标"映射（字面量内联展开会反复用到
 // 同一个外层函数的映射）。
-func seqTargetsCached(a *Actions, req CodeSequenceRequest, symID string) *seqTargets {
-	if req.tgtsCache != nil {
-		if t, ok := req.tgtsCache[symID]; ok {
-			return t
-		}
-	}
-	t := seqTargetsFor(a, req, symID)
-	if req.tgtsCache != nil {
-		req.tgtsCache[symID] = t
-	}
-	return t
-}
 
 // seqRangeElems range 的对象是否是已知函数列表（统一走 captureSeqCallbackLists
 // ——只认确定的列表；多候选不套用"按顺序展开"）。
@@ -212,11 +122,24 @@ func seqRangeElems(a *Actions, req CodeSequenceRequest, x ast.Expr) (seqValue, b
 	if !seqListHoldsFuncValues(a, req, x, v) {
 		return seqValue{}, false
 	}
+	if v.kind == seqValueMulti {
+		// 多候选列表走 seqRangeMultiListsValue（公共前缀 + 互斥尾部）。
+		return seqValue{}, false
+	}
 	return v, true
 }
 
 // seqListHoldsFuncValues 列元素是否函数值（空列表必须由声明类型证明）。
+// T02：多候选列表（条件分支 append）按每个候选列表分别判定。
 func seqListHoldsFuncValues(a *Actions, req CodeSequenceRequest, x ast.Expr, v seqValue) bool {
+	if v.kind == seqValueMulti {
+		for _, c := range v.cands {
+			if c.kind != seqValueList || !seqListHoldsFuncValues(a, req, x, c) {
+				return false
+			}
+		}
+		return len(v.cands) > 0
+	}
 	for _, e := range v.elems {
 		switch e.kind {
 		case seqValueLit, seqValueNamed, seqValueMulti, seqValueList:
@@ -271,10 +194,26 @@ func seqRangeOverFuncList(a *Actions, req CodeSequenceRequest, fset *token.FileS
 	}
 	// T02：函数列表按**元素实际调用**展开——每项一个互斥的"item i/N"循环
 	// （顺序来自列表字面量），整体标"callback list path"（taken）。
+	branch := seqListItemsNode(a, req, fset, src, s, list, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
+	if branch != nil {
+		node.Nodes = append(node.Nodes, branch)
+	}
+	return node
+}
+
+// seqListItemsNode 一个已证明列表 → "callback list path" 分支（每元素一个
+// item 循环）。空列表返回 nil（确定零元素执行）。
+func seqListItemsNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []byte,
+	s *ast.RangeStmt, list seqValue, tgts *seqTargets, depth int, recvType string,
+	recvDecl map[string]string, f *ast.File, curPkg, curFile string) *CodeSeqNode {
+	elems := list.elems
+	if list.why != "" || len(elems) == 0 || list.listPath > seqMaxListPath || len(elems) > seqMaxListItems {
+		return nil
+	}
 	sub := req
 	sub.inCallbackList = true
 	branch := &CodeSeqNode{Kind: "branch", Label: "callback list path",
-		Line: fset.Position(s.Pos()).Line,
+		Line:  fset.Position(s.Pos()).Line,
 		Scene: &SceneFit{Status: SceneTaken, Reason: "source-callback-list"}}
 	for i, elem := range elems {
 		if sub.env != nil {
@@ -292,6 +231,8 @@ func seqRangeOverFuncList(a *Actions, req CodeSequenceRequest, fset *token.FileS
 			depth, recvType, recvDecl, f, curPkg, curFile)
 		branch.Nodes = append(branch.Nodes, item)
 	}
-	node.Nodes = append(node.Nodes, branch)
-	return node
+	return branch
 }
+
+// seqStmtsTerminate 语句列表是否必然终止（return / panic；if-else 两支都
+// 终止）。用于 guard 子句后的可达性（后续 return 受 !cond 约束）。

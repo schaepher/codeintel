@@ -8029,3 +8029,37 @@ action；开库前先 `ValidateRuntimeData`）。
   `cycle` 停止。E-T01 `defer Use(Build())` 求值顺序输出逐字一致。
 - 递归键 `seqVisitKey` = 仓库 + 符号 + `callbackCtx`（字面量/函数名 +
   绑定站点文件:行 + 声明对象），不含剩余 depth——嵌套同源回调不误判环。
+
+## §176 todo27 T02/T03：函数列表跨帧 + 条件装饰器（2026-10-30）
+
+### T02 命名函数列表
+
+- **纯内建不产生调用节点**（`seqPureBuiltinCall`）：`append/len/cap/copy/make/
+  new/delete/close/print/println/complex/real/imag/clear/min/max`（未遮蔽）
+  不是图里的函数调用——此前 `l = append(l, B)` 会落一条"函数值参数在未解析
+  调用中逃逸: B"的假诊断。
+- **列表元素统一走函数值求值**：复合字面量元素现在支持方法值
+  （`[]Fn{s.M, A}`、`(&S{}).M`）——`seqMethodValue` 对非标识符接收者按
+  **类型来源**（复合字面量/构造器/括号）解析，标识符仍要求同一声明对象。
+- **`Run(l...)` 多候选列表**：变参绑定保持多候选边界（不包成
+  `list(1)[multi]`），交给 `seqRangeMultiListsValue`——公共前缀确定执行、
+  差异尾部 `range 列表候选 i/N` 互斥分支（不带候选标记的前缀仍是确定执行）。
+- 回归：`integration/todo27_t02_test.go`（命名 slice / 方法值 / 别名 /
+  覆盖 / 空列表 / 兄弟分支 append / builtin 假诊断）。
+
+### T03 条件装饰器
+
+- **工厂条件返回按 guard 裁剪**（`seqReturnValuesOf` 改为语句路径遍历）：
+  `if cond { return X }` 的 return 带 `cond`，guard 子句（body 必然 return）
+  之后的语句带 `!cond`；`Wrap(false, Hit)` 只走 `return f`，包装闭包链
+  （GuardedA/B）不再被当"另一条可达链"。实参/常量由 `sceneValueOf`
+  （字面量/内置转换/包内常量/跨包常量）提供，未知实参保持多候选。
+- **裸布尔条件参与场景判定**（`Scene.matchBoolValueCond`）：`if enabled`
+  在实参/常量已知时 Taken/Excluded（此前只支持比较表达式，恒 unknown）。
+- **字面量展开键含捕获环境**（`seqLitVisitKey`/`seqEnvCaptureKey`/
+  `seqValueVisitKey`）：同一 AST 字面量（工厂 return 的
+  `func(){process()}`）在不同绑定下是不同回调实例——`Use(Use(Hit))`
+  不再被误判 cycle；键确定性（对象名 + 值身份 + 有界递归），不含指针/剩余
+  depth。
+- 回归：`integration/todo27_t03_test.go`（条件返回原回调/包装闭包、
+  多层同名包装、多层 guard 互斥链、捕获改写新来源、未知改写 unbound）。

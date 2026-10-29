@@ -16,7 +16,6 @@ package action
 
 import (
 	"go/ast"
-	"go/token"
 
 	"github.com/schaepher/codeintel/internal/domain"
 )
@@ -53,9 +52,17 @@ func captureSeqClosureArgs(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx,
 		v.origin = seqOriginArg
 		v.bindFile, v.bindLine = req.curFile, lineOfOffset(ctx, call.Lparen)
 		// todo22 §2.4：`f(list...)` 把列表元素摊平为实参
-		if call.Ellipsis.IsValid() && i == len(call.Args)-1 && v.kind == seqValueList {
-			out = append(out, v.elems...)
-			continue
+		if call.Ellipsis.IsValid() && i == len(call.Args)-1 {
+			if v.kind == seqValueList {
+				out = append(out, v.elems...)
+				continue
+			}
+			// T02：多候选列表（条件分支 append）整体传给变参形参——保持候选
+			// 边界，交给 range 多列表路径（公共前缀确定 + 差异尾部互斥）。
+			if seqValueIsFuncList(v) {
+				out = append(out, v)
+				continue
+			}
 		}
 		out = append(out, v)
 	}
@@ -76,22 +83,51 @@ func captureSeqCallbackLists(a *Actions, req CodeSequenceRequest, ctx *seqFileCt
 		return seqValue{}, false
 	}
 	v := captureSeqClosureValue(a, req, ctx, expr)
-	if v.kind != seqValueList {
+	if !seqValueIsFuncList(v) {
 		return seqValue{}, false
 	}
 	return v, true
 }
 
+// seqValueIsFuncList 列表值，或"每个候选都是列表"的多候选值（T02：条件
+// 分支 append 得到 multi(list…)，仍需按候选列表展开元素）。
+func seqValueIsFuncList(v seqValue) bool {
+	if v.kind == seqValueList {
+		return true
+	}
+	if v.kind != seqValueMulti || len(v.cands) == 0 {
+		return false
+	}
+	for _, c := range v.cands {
+		if c.kind != seqValueList {
+			return false
+		}
+	}
+	return true
+}
+
 // seqMethodValue `x.Method` 的方法值：接收者类型 = 变量在本函数内的类型数据流。
 // 只接受**同一声明对象**的类型（阴影/无关实例不借用）；符号必须真实存在于索引。
 func seqMethodValue(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx, sel *ast.SelectorExpr) (seqValue, bool) {
-	id, ok := sel.X.(*ast.Ident)
-	if !ok || (id.Obj != nil && id.Obj.Kind == ast.Pkg) {
-		return seqValue{}, false
-	}
-	ref, ok := seqLookupType(req.env, id.Obj)
-	if !ok {
-		return seqValue{}, false
+	var ref seqTypeRef
+	var decl *ast.Object
+	if id, ok := sel.X.(*ast.Ident); ok {
+		if id.Obj != nil && id.Obj.Kind == ast.Pkg {
+			return seqValue{}, false
+		}
+		r, ok2 := seqLookupType(req.env, id.Obj)
+		if !ok2 {
+			return seqValue{}, false
+		}
+		ref, decl = r, id.Obj
+	} else {
+		// T02：`(&S{}).M` / `(NewS()).M`——接收者是表达式时按类型来源解析
+		// （复合字面量/构造器/括号），不按变量名猜测。
+		r, ok2 := seqTypeOfExpr(a, req, ctx, sel.X)
+		if !ok2 {
+			return seqValue{}, false
+		}
+		ref = r
 	}
 	symID := "symbol:go:" + ref.pkgPath + ":(" + ref.typeName + ")." + sel.Sel.Name
 	if _, err := a.repo.GetSymbol(domain.CanonicalID(symID)); err != nil {
@@ -100,196 +136,25 @@ func seqMethodValue(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx, sel *a
 	}
 	v := namedSeqValue(symID)
 	v.bindFile, v.bindLine = req.curFile, lineOfOffset(ctx, sel.Sel.Pos())
-	v.declObj = id.Obj
+	v.declObj = decl
 	return v, true
 }
 
 // seqTypeOfExpr 表达式的接收者类型（构造器/字面量/变量链；纯语法数据流）。
-func seqTypeOfExpr(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx, expr ast.Expr) (seqTypeRef, bool) {
-	switch e := expr.(type) {
-	case *ast.UnaryExpr:
-		if e.Op.String() == "&" {
-			return seqTypeOfExpr(a, req, ctx, e.X)
-		}
-	case *ast.CompositeLit:
-		return seqTypeRefOf(req, ctx, e.Type)
-	case *ast.ParenExpr:
-		return seqTypeOfExpr(a, req, ctx, e.X)
-	case *ast.CallExpr:
-		// T06：类型表达式调用 `(*T)(nil)` / `(T)(nil)` ——参数是 nil 时，
-		// 被调者就是类型本身（reflect.TypeOf 的常见写法）。
-		if isNilIdent(e.Args) {
-			if ref, ok := seqTypeRefOf(req, ctx, unwrapParen(e.Fun)); ok {
-				return ref, true
-			}
-		}
-		// T06：reflect.TypeOf((*T)(nil)) / TypeOf(T{}) / TypeOf(new(T)) ——
-		// 反射注册的 impl 类型（容器契约形态）直接从参数里取类型。
-		if sel, ok := e.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "TypeOf" && len(e.Args) == 1 {
-			if id, ok2 := sel.X.(*ast.Ident); ok2 && id.Obj == nil {
-				if p := seqImportPath(ctx.file, id.Name); p == "reflect" {
-					return seqTypeOfExpr(a, req, ctx, e.Args[0])
-				}
-			}
-		}
-		// 构造器：newT() / NewT() ——按返回值类型（rhsTypes 已有该能力）
-		imports := importAliases(ctx.file)
-		refs := rhsTypes(a, req, ctx.file, imports, e, 3, pkgPathOf(req.curSym))
-		if len(refs) == 1 {
-			return seqTypeRef{pkgPath: refs[0].pkgPath, typeName: refs[0].typeName}, true
-		}
-		// todo22 P1：外部包构造器（`ext.NewStore()`）——本仓没有索引边，
-		// 按需读外部源码的第一个返回类型（离线只读，请求内缓存）。
-		if ref, ok := seqExternalFuncResultType(a, req, ctx, e); ok {
-			return ref, true
-		}
-	case *ast.Ident:
-		return seqLookupType(req.env, e.Obj)
-	}
-	return seqTypeRef{}, false
-}
 
 // unwrapParen 剥掉括号（`(*T)` → `*T`）。
-func unwrapParen(e ast.Expr) ast.Expr {
-	for {
-		p, ok := e.(*ast.ParenExpr)
-		if !ok {
-			return e
-		}
-		e = p.X
-	}
-}
 
 // seqTypeRefOf 类型表达式 → 类型引用（Ident / pkg.T / 泛型 T[P]）。
-func seqTypeRefOf(req CodeSequenceRequest, ctx *seqFileCtx, t ast.Expr) (seqTypeRef, bool) {
-	switch x := t.(type) {
-	case *ast.Ident:
-		return seqTypeRef{pkgPath: pkgPathOf(req.curSym), typeName: x.Name}, true
-	case *ast.SelectorExpr:
-		if id, ok := x.X.(*ast.Ident); ok {
-			if p := seqImportPath(ctx.file, id.Name); p != "" {
-				return seqTypeRef{pkgPath: p, typeName: x.Sel.Name}, true
-			}
-		}
-	case *ast.StarExpr:
-		return seqTypeRefOf(req, ctx, x.X)
-	case *ast.Ellipsis:
-		return seqTypeRefOf(req, ctx, x.Elt)
-	case *ast.IndexExpr:
-		return seqTypeRefOf(req, ctx, x.X)
-	case *ast.IndexListExpr:
-		return seqTypeRefOf(req, ctx, x.X)
-	}
-	return seqTypeRef{}, false
-}
 
 // seqLookupType 按声明对象查类型（沿闭包父环境）。
-func seqLookupType(env *seqEnv, obj *ast.Object) (seqTypeRef, bool) {
-	for e := env; e != nil; e = e.parent {
-		if r, ok := e.types[obj]; ok {
-			return r, true
-		}
-	}
-	return seqTypeRef{}, false
-}
 
 // lineOfOffset 位置 → 行号（ctx 可能为 nil）。
-func lineOfOffset(ctx *seqFileCtx, pos token.Pos) int {
-	if ctx == nil || ctx.fset == nil || !pos.IsValid() {
-		return 0
-	}
-	return ctx.fset.Position(pos).Line
-}
 
 // seqReceiverTypeRef 方法调用接收者的类型（`extT.Method()` / `h.store.Method()`）：
 //  1. 局部变量：按声明对象查类型数据流（声明/复合字面量/构造器返回）；
 //  2. 当前 receiver 的字段：按结构体声明取字段类型（`s.store.Method()`）；
 //  3. 已知类型的变量字段：同文件结构体声明（不做跨文件猜测）。
-func seqReceiverTypeRef(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx,
-	sel *ast.SelectorExpr) (seqTypeRef, bool) {
-	if sel == nil {
-		return seqTypeRef{}, false
-	}
-	switch x := sel.X.(type) {
-	case *ast.Ident:
-		if r, ok := seqLookupType(req.env, x.Obj); ok {
-			return r, true
-		}
-	case *ast.SelectorExpr:
-		base, ok := x.X.(*ast.Ident)
-		if !ok {
-			return seqTypeRef{}, false
-		}
-		if ref, ok := seqLookupType(req.env, base.Obj); ok {
-			if fr, ok2 := seqStructFieldTypeRef(req, ctx, ref.typeName, x.Sel.Name); ok2 {
-				// 裸类型名（`store *Store`）按 base 的包解析；限定名
-				// （`store *ext.Store`）已由 seqTypeRefOf 给出准确 import path，
-				// 不能被覆盖。
-				if fr.pkgPath == pkgPathOf(req.curSym) {
-					fr.pkgPath = ref.pkgPath
-				}
-				return fr, true
-			}
-		}
-		// 当前 receiver 的字段（receiver 变量本身不在 env 里）
-		if req.curRecvType != "" {
-			if fr, ok2 := seqStructFieldTypeRef(req, ctx, req.curRecvType, x.Sel.Name); ok2 {
-				return fr, true
-			}
-		}
-	}
-	return seqTypeRef{}, false
-}
 
 // seqStructFieldTypeRef 同文件结构体声明的字段类型（含 pkg.T / *T / 泛型）。
-func seqStructFieldTypeRef(req CodeSequenceRequest, ctx *seqFileCtx, typeName, field string) (seqTypeRef, bool) {
-	if ctx == nil || ctx.file == nil || typeName == "" || field == "" {
-		return seqTypeRef{}, false
-	}
-	for _, decl := range ctx.file.Decls {
-		gd, ok := decl.(*ast.GenDecl)
-		if !ok {
-			continue
-		}
-		for _, sp := range gd.Specs {
-			tsp, ok := sp.(*ast.TypeSpec)
-			if !ok || tsp.Name == nil || tsp.Name.Name != typeName {
-				continue
-			}
-			st, ok := tsp.Type.(*ast.StructType)
-			if !ok || st.Fields == nil {
-				continue
-			}
-			for _, fl := range st.Fields.List {
-				for _, nm := range fl.Names {
-					if nm.Name == field {
-						return seqTypeRefOf(req, ctx, fl.Type)
-					}
-				}
-			}
-		}
-	}
-	return seqTypeRef{}, false
-}
 
 // seqExternalFuncResultType 外部包包级函数/构造器的第一个返回类型。
-func seqExternalFuncResultType(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx, call *ast.CallExpr) (seqTypeRef, bool) {
-	if ctx == nil || ctx.file == nil || call == nil {
-		return seqTypeRef{}, false
-	}
-	importPath, declName, _, ok := seqExternalCallTarget(ctx.file, call.Fun)
-	if !ok || req.pkgSet[importPath] {
-		return seqTypeRef{}, false
-	}
-	pkg := seqExternalPackage(a, req, importPath)
-	if pkg == nil || pkg.err != nil || pkg.std {
-		return seqTypeRef{}, false
-	}
-	ectx, fd := seqFindExternalDecl(pkg, declName)
-	if ectx == nil || fd == nil || fd.Type.Results == nil || len(fd.Type.Results.List) == 0 {
-		return seqTypeRef{}, false
-	}
-	sub := req
-	sub.curSym = "symbol:go:" + importPath + ":" + declName
-	return seqTypeRefOf(sub, ectx, fd.Type.Results.List[0].Type)
-}

@@ -48,6 +48,11 @@ func seqValueOfExprDepth(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx, e
 				return namedSeqValue("symbol:go:" + p + ":" + e.Sel.Name)
 			}
 		}
+		// T02：方法值（`s.M` / `(&S{}).M`）按接收者类型数据流解析；列表元素
+		// 也走这条路径（不止单个实参）。
+		if mv, ok := seqMethodValue(a, req, ctx, e); ok {
+			return mv
+		}
 		return unknownSeqValue("选择器表达式未解析（方法值/字段 " + seqExprText(ctx.fset, ctx.src, e) + "）")
 	case *ast.CallExpr:
 		// todo22 §2.4：内建 append(列表, 元素…) 扩展函数列表
@@ -137,6 +142,12 @@ func bindSeqParams(env *seqEnv, params *ast.FieldList, values []seqValue) {
 			}
 			name := names[len(names)-1]
 			if name.Obj != nil {
+				// T02：`Run(l...)` 且 l 是多候选列表 → 形参保持多候选（不包成
+				// list(1)[multi]，否则 range 看不到候选边界）。
+				if len(elems) == 1 && elems[0].kind == seqValueMulti && seqValueIsFuncList(elems[0]) {
+					env.set(name.Obj, elems[0])
+					return
+				}
 				if len(elems) > seqMaxListItems {
 					env.set(name.Obj, unknownSeqValue("变参列表超过元素预算 "+strconv.Itoa(seqMaxListItems)))
 				} else {

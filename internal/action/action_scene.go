@@ -105,6 +105,38 @@ func (s Scene) matchCondSrc(cond ast.Expr, args, srcs map[string]string, consts 
 		fit := s.matchBoolOp(bin, args, srcs, consts)
 		return sceneNegateFit(fit, negated)
 	}
+	// T03：布尔值条件本身（`if enabled` / `if !enabled`）——调用点实参/常量
+	// 已知时按值裁剪分支（此前只支持比较表达式，裸布尔条件恒 unknown）。
+	if fit, ok := s.matchBoolValueCond(cond, args, srcs, consts); ok {
+		return sceneNegateFit(fit, negated)
+	}
 	fit := s.matchCompareCond(cond, args, srcs, consts)
 	return sceneNegateFit(fit, negated)
+}
+
+// matchBoolValueCond 裸布尔标识符/布尔常量的取值判定（未遮蔽的 true/false、
+// 形参实参值、包内常量）。
+func (s Scene) matchBoolValueCond(cond ast.Expr, args, srcs map[string]string, consts sceneConstLookup) (SceneFit, bool) {
+	id, ok := unwrapSceneExpr(cond).(*ast.Ident)
+	if !ok {
+		return SceneFit{}, false
+	}
+	val, key, reason := "", "", ""
+	if v, found := args[id.Name]; found {
+		if v == sceneArgUnknown || (v != "true" && v != "false") {
+			return SceneFit{Status: SceneUnknown, Field: id.Name, Reason: "unknown:arg-value", Source: srcs[id.Name]}, true
+		}
+		val, key, reason = v, id.Name, "scene-arg:"+id.Name+"="+v
+	} else if v, found := sceneConstValue(consts, id.Name); found && (v == "true" || v == "false") {
+		val, key, reason = v, id.Name, "const:"+id.Name+"="+v
+	} else if id.Obj == nil && (id.Name == "true" || id.Name == "false") {
+		val, key, reason = id.Name, id.Name, "literal:"+id.Name
+	} else {
+		return SceneFit{}, false
+	}
+	status := SceneExcluded
+	if val == "true" {
+		status = SceneTaken
+	}
+	return SceneFit{Status: status, Key: key, Field: id.Name, Expected: val, Reason: reason}, true
 }

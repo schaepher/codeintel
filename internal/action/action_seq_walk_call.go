@@ -11,7 +11,6 @@ import (
 	"go/ast"
 	"go/token"
 	"strings"
-	"time"
 )
 
 // newSeqCallNode 返回"位置 → 调用节点"的构造函数（闭包捕获遍历上下文，
@@ -20,6 +19,11 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 	tgts *seqTargets, depth int, recvType string, recvDecl map[string]string,
 	f *ast.File, curPkg, curFile string) func(call *ast.CallExpr) *CodeSeqNode {
 	return func(call *ast.CallExpr) (node *CodeSeqNode) {
+		// T02：纯内建（append/len/cap/copy/make/new/...）不是代码图里的函数
+		// 调用——不产生调用节点，也不把回调实参误判成"在未解析调用中逃逸"。
+		if seqPureBuiltinCall(call.Fun) {
+			return nil
+		}
 		defer func() {
 			attachRuntimeEvidence(req, node, call)
 			finishSeqEvidence(req, node)
@@ -104,16 +108,7 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 				node.Stop = &SeqStop{Code: SeqStopDepthLimit,
 					Detail: "depth 上限（--depth " + itoaSeq(req.Depth) + "），未展开该调用内部"}
 			}
-			sigStart := time.Now()
-			args, rets, ok2 := sigTypesOf(a, sigID)
-			req.acc.sigLookups++
-			req.acc.symLookups++ // 签名解析内部 GetSymbol（精确查询，14.1）
-			req.acc.sqlQueries++
-			req.acc.symDur += time.Since(sigStart)
-			req.acc.sigDur += time.Since(sigStart)
-			if ok2 {
-				node.Args, node.Returns = args, rets
-			}
+			seqAttachCallSignature(a, req, node, sigID)
 			if depth <= 1 {
 				// todo24 §3.2/§11.2：depth 是展开预算，不是身份解析预算——先
 				// 完成场景/工厂/字段/DI/接口消歧，再按 depth 停止展开。

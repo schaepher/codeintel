@@ -52,6 +52,11 @@ func Entry() {
 	h := MakeCond(true, func() { B() })
 	h()
 }
+
+func EntryUnknown(flag bool) {
+	u := MakeCond(flag, func() { B() })
+	u()
+}
 `
 	acts, dir := seedFuncValueRepo(t, src, map[string]string{})
 	root, err := acts.CodeSequence(CodeSequenceRequest{Target: "Entry", RepoAbs: dir, Depth: 5})
@@ -75,18 +80,34 @@ func Entry() {
 	if got := seqCallNodesNamed(callsG[0], "A"); len(got) != 1 {
 		t.Errorf("g() 应展开工厂返回闭包里的 A（1 次），got %d", len(got))
 	}
-	// ③ 条件返回：两条 return 路径都保留 → 未消歧多候选，A/B 分别展开
+	// ③ 条件返回 + 已知实参（true）：只走可达的 `return f` 链 → B 一次，
+	// 包装字面量分支（A）被 guard 排除（todo27 T03）。
 	callsH := seqCallNodesNamed(root, "h")
 	if len(callsH) != 1 {
 		t.Fatalf("应有 1 个 h()，got %d", len(callsH))
 	}
-	if ev := callsH[0].Evidence; ev == nil || !ev.Ambiguous || len(ev.Candidates) < 2 {
-		t.Errorf("条件返回应保留未消歧多候选（>=2），证据 %+v", ev)
-	}
-	if got := seqCallNodesNamed(callsH[0], "A"); len(got) == 0 {
-		t.Errorf("条件返回候选（字面量）应展开 A")
+	if got := seqCallNodesNamed(callsH[0], "A"); len(got) != 0 {
+		t.Errorf("已知 flag=true 时不应执行包装字面量分支（A=%d）", len(got))
 	}
 	if got := seqCallNodesNamed(callsH[0], "B"); len(got) != 1 {
+		t.Errorf("条件返回候选（传入回调）应展开 B 一次，got %d", len(got))
+	}
+	// ④ 条件返回 + 未知实参（形参）：两条 return 路径都保留（未消歧）。
+	rootU, err := acts.CodeSequence(CodeSequenceRequest{Target: "EntryUnknown", RepoAbs: dir, Depth: 5})
+	if err != nil {
+		t.Fatalf("CodeSequence(EntryUnknown): %v", err)
+	}
+	callsU := seqCallNodesNamed(rootU, "u")
+	if len(callsU) != 1 {
+		t.Fatalf("应有 1 个 u()，got %d", len(callsU))
+	}
+	if ev := callsU[0].Evidence; ev == nil || !ev.Ambiguous || len(ev.Candidates) < 2 {
+		t.Errorf("未知 flag 时应保留未消歧多候选（>=2），证据 %+v", ev)
+	}
+	if got := seqCallNodesNamed(callsU[0], "A"); len(got) == 0 {
+		t.Errorf("条件返回候选（字面量）应展开 A")
+	}
+	if got := seqCallNodesNamed(callsU[0], "B"); len(got) != 1 {
 		t.Errorf("条件返回候选（传入回调）应展开 B 一次，got %d", len(got))
 	}
 }
