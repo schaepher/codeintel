@@ -7951,3 +7951,68 @@ action；开库前先 `ValidateRuntimeData`）。
   `go build -o /tmp/ci` 再跑夹具（与 R37 同一坑）。
 - **tests 引用 `Evidence.Verdict(...)` 这类臆造方法**会直接编译失败——证据 verdict
   统一由 `seqEvidenceVerdict(ev)` 计算。
+
+## §175 todo27 U06：未知实例来源的剩余入口（2026-10-30）
+
+对照 `todo27.txt` U06：未知 receiver 判定要接到 getter、包级单例、普通接口
+形参/别名、接口根入口与续查路径；先验证实例来源，再用 implements。
+
+### 实现
+
+- **实例来源闸门**（`action_seq_instance_source.go`）：`seqReceiverInstanceUnknown`
+  在所有正向证明（场景守卫 / receiver 字段 / DI / 局部变量 / getter / 工厂
+  字段 / RPC）之后、`InterfaceMethodImpl` **唯一实现回退之前**执行。接收者
+  为形参 / 形参别名 / 未知返回值 / 包级变量 / 无初始化局部变量时 →
+  `unknown_receiver`（保留接口身份，不展开实现）。depth>1 与 depth=1
+  （`seqIdentityBeforeDepth`）共用同一口径——续查前沿不再从"唯一实现"
+  产生确定身份。
+- **形参的调用点证明**（`seqParamInstanceProven`）：形参不是一律未知——
+  当前函数**全部已索引调用点**在同一实参位置给出同一个具体类型来源
+  （`Run(&Store{})`、构造器）时来源成立；无调用点（查询入口）/ 多来源 /
+  实参来源未知 → 未证明。既有跨仓隔离回归（`todo25_iface_repo_test`）因此
+  保持：`Entry(){Run(&Store{})}` 仍具体化到本仓 `(Store).Insert`。
+- **字段写者来源不完整**（`receiverFieldImplsEx` + 未知写者哨兵）：
+  `fieldWriteTypes` 遇到形参/未知调用 RHS 时追加 `seqUnknownWriteSource()`
+  ——构造器写具体类型 + setter 写形参（混合写者）不再被当作唯一来源。
+  `Mixed.biz` 由具体 `&One{}` + `Set(v API)` 写入 → `unknown_receiver`。
+- **字段写者扫描范围 = 写者函数体**（此前是整个文件）：同一文件里
+  `Mixed.Set` 的 `s.biz = v` 会把哨兵写进 `Known.biz` 的来源证明，导致
+  正例 `KnownEntry` 退化成 unknown。改为先按 `LineStart` 定位 `FuncDecl`
+  再 `ast.Inspect(fd.Body, …)`。
+- **方法 getter 返回字段**（`seqExpandFactoryFieldCall` 无工厂来源分支 +
+  `seqGetterFieldImpls`）：`s.Get().Work()` 在 `origin==""` 时读 receiver
+  字段写入证明——无写入/未知写者 → `unknown_receiver`；单一具体写者 → 展开；
+  多写者 → 互斥候选。depth=1 走 `seqGetterFieldImpls` 得到同一身份。
+- **接口根入口不外推实现**（`codeSeqIfaceEntryRoot`）：`(API).Work` 作为
+  查询入口（无方法体）时，实现方法只作为 `alt unverified implementation`
+  **候选子树**（`candidate=true`，不计确定执行、不参与自动续查）；根节点
+  带 `interface-entry` 依据 + `iface_ambiguous` 诊断。普通无方法体节点
+  （非接口/无实现）仍返回 nil，保持"回退索引调用链"的旧行为。
+- **包级单例未知注入**（`seqParamCallTypes`）：writer 形参的场景此前只认
+  `init` 调用点，非 init 调用者被跳过；现在追加未知写者哨兵——`Inject`
+  既被 `init` 调用、也被运行时函数调用时，`Get().Work()` 不再确定。
+
+### 验收（E-U06 夹具，源码→init→CLI）
+
+`integration/todo27_u06_test.go`（真实 init，9 个目标，depth 1 / 12）：
+前七项（Getter/API 根/Empty/Mixed/Local/Parameter/Singleton）无确定
+`Hit`（unknown_receiver 或未验证候选）；`KnownEntry`/`KnownLocal`
+`Hit=1`；接口根入口 JSON 带 `"candidate": true`。既有 E-T01…T14 正例
+逐字对照无变化（12 个夹具 mermaid 输出 diff 为空）。
+
+### 边界
+
+- 形参调用点证明只认"全部已索引调用点同一具体来源"；跨仓/动态调用
+  仍未知（`GetCallers` 上限 16，超限保守放弃）。
+- 接口根入口的候选子树深度沿用 `seqExpandCandidateBranches`（≤2 层）。
+
+### 本轮踩坑
+
+- **"唯一实现"回退不能一刀切关掉**：首版在派发前无条件拦形参 → 既有
+  多候选诊断（`iface_ambiguous` + 候选列表）全部退化成 unknown（5 个
+  测试红）。正确位置是**唯一实现分支之前**：多候选保留候选集合，单实现
+  才要求实例来源。
+- **字段写者扫描必须限定函数体**：整文件扫描把同名 `.field` 写者的未知
+  哨兵串到别的类型（`Mixed.Set` 污染 `Known.biz`），正例静默退化。
+- **接口方法节点的 `line_start` 可能是 0**（SCIP 虚拟符号）：证据行输出
+  `flow.go:0` 无意义——无行号时只给符号 ID。

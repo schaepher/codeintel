@@ -118,7 +118,30 @@ func seqExpandFactoryFieldCall(a *Actions, req CodeSequenceRequest, node *CodeSe
 	}
 	origin := req.curRecvOrigin
 	if origin == "" {
-		return false
+		// U06：没有工厂来源时仍可用 receiver 自身字段的写入证明
+		// （`s.Get()` 的方法体 return `s.<field>`）：无写入或未知写者 →
+		// 实例来源未知，不借全库唯一实现。
+		impls, unknown := a.receiverFieldImplsEx(req, recvType, field, sel.Sel.Name)
+		if unknown || len(impls) == 0 {
+			markSeqUnknownReceiver(node, curFile, pos.Line, 0.8, recvType, field)
+			return true
+		}
+		if len(impls) > 1 {
+			node.Evidence = &SeqEvidence{Source: SeqEvidenceFieldFlow, CallFile: curFile,
+				CallLine: pos.Line, Candidates: impls, Ambiguous: true,
+				Reason: "receiver-field-dataflow", CandidateBudget: seqIfaceBudget(len(impls), false)}
+			node.Stop = &SeqStop{Code: SeqStopIfaceAmbiguous,
+				Detail: "字段 " + recvType + "." + field + " 有 " + itoaSeq(len(impls)) + " 个具体实现写入来源（未消歧，未展开）"}
+			seqExpandCandidateBranches(a, req, node, impls, depth, pos)
+			return true
+		}
+		impl := impls[0]
+		node.ImplType = implTypeShort(impl)
+		node.Evidence = &SeqEvidence{Source: SeqEvidenceFieldFlow, CallFile: curFile,
+			CallLine: pos.Line, SymbolID: impl, Confidence: 0.8,
+			Reason: "receiver-field-dataflow"}
+		seqExpandInto(a, req, node, impl, depth)
+		return true
 	}
 	cands, ok := seqFactoryFieldCandidates(a, req, origin, recvType, field, curPkg)
 	if !ok || len(cands) == 0 {
@@ -183,4 +206,32 @@ func seqExpandFactoryFieldCall(a *Actions, req CodeSequenceRequest, node *CodeSe
 			Detail: "工厂字段候选在索引中不存在（" + strings.Join(impls, ", ") + "）"}
 	}
 	return true
+}
+
+// seqGetterFieldImpls `x.Get().M()` → receiver 字段（`s.Get()` 返回
+// `s.<field>`）的写入来源实现候选。ok=false 表示不是"receiver 方法 getter"
+// 形态（交给其它路径处理）。
+//
+// U06：depth=1 的身份解析要用同一口径——字段无写入/未知写者时 impls 为空，
+// 调用方必须标 unknown_receiver，而不是回退到"全库唯一实现"。
+func (a *Actions) seqGetterFieldImpls(req CodeSequenceRequest, recvType string,
+	inner *ast.CallExpr, method string) (impls []string, field string, unknown bool, ok bool) {
+	if inner == nil || len(inner.Args) > 0 || recvType == "" {
+		return nil, "", false, false
+	}
+	innerSel, isSel := inner.Fun.(*ast.SelectorExpr)
+	if !isSel {
+		return nil, "", false, false
+	}
+	owners := seqMethodOwnerTypes(a, req, req.curFile, recvType, innerSel.Sel.Name)
+	if len(owners) != 1 {
+		return nil, "", false, false
+	}
+	getID := "symbol:go:" + pkgOfID(domain.CanonicalID(req.curSym)) + ":(" + owners[0] + ")." + innerSel.Sel.Name
+	f, okF := seqMethodReturnField(a, req, getID, owners[0])
+	if !okF || f == "" {
+		return nil, "", false, false
+	}
+	impls, unknown = a.receiverFieldImplsEx(req, recvType, f, method)
+	return impls, f, unknown, true
 }

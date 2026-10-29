@@ -156,7 +156,10 @@ func seqParamCallTypes(a *Actions, req CodeSequenceRequest, rel string, f *ast.F
 		}
 		cfn := seqEnclosingFunc(cc.file, call.Pos())
 		if cfn == nil || cfn.Name == nil || cfn.Name.Name != "init" {
-			continue // 未证明实际执行（§11：跨包 init 写入）
+			// U06/T04：writer 还有非 init 的调用者（可能是运行时注入）——
+			// 无法证明实际执行的就是 init 的那个实参，来源不完整。
+			out = appendUnique(out, seqUnknownWriteSource())
+			continue
 		}
 		out = appendUnique(out, rhsTypes(a, req, cc.file, importAliases(cc.file),
 			call.Args[idx], depth-1, pkgOfID(caller.ID))...)

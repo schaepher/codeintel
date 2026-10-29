@@ -25,6 +25,8 @@
   codeintel-changelog3 验收 Checklist 逐项证据（全部通过/评估归档）
 - [`docs/todo22-checklist.md`](docs/todo22-checklist.md)：todo22 交付 Checklist
   （A=递归查询资源基准已完成；B=后端流程续接/时序图逐节现状与计划）
+- [`docs/todo27-checklist.md`](docs/todo27-checklist.md)：todo27 交付 Checklist
+  （U06 已完成；T01–T14/T18/U04 的剩余范围与证据逐项列明）
 
 ## 项目一句话
 
@@ -132,6 +134,29 @@ pre-commit 场景的兜底）。
   `go build ./...` + 相关包单测。
 - **夹具行号必须由源码解析得到**（不要手写）：action 测试里索引行号与源码不一致会
   直接落成 `index_gap`，表现为"功能没生效"。
+
+## todo27 U06 未知实例来源教训（2026-10-30）
+
+- **"唯一实现"回退的闸门要放在它自己前面，不是接口派发前面**：无条件拦
+  形参接收者会把多候选诊断（`iface_ambiguous` + 候选列表）一起打死
+  （5 个既有测试红）。正确位置：`seqIfaceMethodImpl` 唯一实现分支之前——
+  多候选保留候选集合，单实现才要求实例来源。
+- **字段写者扫描必须限定写者函数体**：整文件 `ast.Inspect` 会把同文件里
+  别的类型/方法的同名 `.field` 写入串进来（`Mixed.Set` 的 `s.biz = v`
+  污染 `Known.biz`），正例静默退化成 unknown。
+- **未知写者要有哨兵，而不是"过滤掉就当没写"**：构造器写具体类型 +
+  setter 写形参 = 来源不完整（`unknown_receiver`）；`seqUnknownWriteSource`
+  哨兵与 `hasUnknownWriteSource` 在全局变量/字段/形参三条路径共用同一口径。
+- **形参不是一律未知**：全部已索引调用点在同一实参位置给同一具体类型
+  （`Entry(){Run(&Store{})}`）时是真实来源——否则跨仓隔离回归
+  （`todo25_iface_repo_test`）会被误伤。无调用点（作为查询入口）/多来源/
+  实参未知 → 未证明。
+- **接口方法作为查询入口（无方法体）只能给候选**：唯一实现不是实例来源
+  （`(API).Work` 根入口），候选子树 `candidate=true` 不计确定执行、不续查；
+  非接口的无方法体节点仍返回 nil 以保留"回退索引调用链"的旧行为
+  （否则 wiki gRPC 子页内容静默消失）。
+- **`line_start=0` 的虚拟符号**（接口方法节点）：证据行输出 `file:0` 无
+  意义——没有行号时只给符号 ID。
 
 ## Q254c/d 整数代理键 + 写库流水线教训（2026-09-20）
 

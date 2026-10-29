@@ -123,9 +123,10 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 		stop = nil // 入口本身在栈上不可能；留给下面的 nil 诊断
 	}
 	if root == nil && strings.Contains(string(n.ID), ":(") {
-		if impl, ok := a.InterfaceMethodImpl(string(n.ID)); ok {
-			root, stop = codeSeqForSymbol(a, req, impl, req.Depth)
-		}
+		// R84 保留"动态入口（无方法体）"能力；U06/T07：接口入口没有实例来源
+		// 证明，实现只能作为**未验证候选**展开（不计确定执行、不续查），
+		// 不能把唯一实现当确定调用。
+		root, stop = a.codeSeqIfaceEntryRoot(req, n)
 	}
 	// todo24 §2：分段续查 depth 前沿（同步完成；新前沿进入下一段）。续查
 	// 属于"展开"阶段，计入 walk_ms；收尾后按剩余 depth 诊断重算 stop。

@@ -197,9 +197,14 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		unknownField := ""
 		if sel, isSel := fun.(*ast.SelectorExpr); isSel && recvType != "" {
 			if field, ok2 := receiverFieldSel(sel, req.curRecvObj, req.curRecvName); ok2 {
-				impls := a.receiverFieldImpls(req, recvType, field, sel.Sel.Name)
+				impls, unknownWriters := a.receiverFieldImplsEx(req, recvType, field, sel.Sel.Name)
 				// 写者来源只证明到接口本身（如工厂返回接口）→ 仍无实例来源。
 				if len(impls) == 1 && a.isIfaceMethodID(impls[0]) {
+					impls = nil
+				}
+				if unknownWriters {
+					// U06：字段存在无法证明的写者（形参/未知方法）——即便还有具体
+					// 写入来源也不能当唯一实例。
 					impls = nil
 				}
 				if len(impls) > 1 {
@@ -262,7 +267,10 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 				return node
 			}
 		}
-		if seqExpandIfaceTarget(a, req, node, tid, tg.confidence, curFile, pos, depth) {
+		// U06/T07：候选集保留在接口派发里；这里把接收者表达式带下去，单实现
+		// 也要先验证实例来源（形参/别名/未知返回值的唯一实现不算证据）。
+		if seqExpandIfaceTarget(a, req, node, tid, fun, recvType, req.curRecvName, recvDecl,
+			tg.confidence, curFile, pos, depth) {
 			return node
 		}
 

@@ -112,6 +112,7 @@ func seqExpandGrpcServiceImpl(a *Actions, req CodeSequenceRequest, node *CodeSeq
 // seqExpandIfaceTarget todo24：接口方法目标 → 实现（多候选保留候选集合、不选
 // 第一个；单实现展开；无可证明实现给明确诊断）。返回 true = 已处理该节点。
 func seqExpandIfaceTarget(a *Actions, req CodeSequenceRequest, node *CodeSeqNode, tid string,
+	fun ast.Expr, recvType, recvName string, recvDecl map[string]string,
 	confidence float64, curFile string, pos token.Position, depth int) bool {
 	if !a.isIfaceMethodID(tid) {
 		return false
@@ -134,6 +135,12 @@ func seqExpandIfaceTarget(a *Actions, req CodeSequenceRequest, node *CodeSeqNode
 			node.Stop = &SeqStop{Code: SeqStopIfaceAmbiguous,
 				Detail: "接口实现未消歧；候选分支不是已确定执行顺序"}
 			seqExpandCandidateBranches(a, req, node, expandCands, depth, pos)
+			return true
+		}
+		// U06/T07：唯一实现不等于实际实例来源——接口派发前先验证接收者
+		// 表达式（形参/局部别名/未知返回值/包级变量）。未证明时停在接口边界。
+		if detail, unknownRcvr := seqReceiverInstanceUnknown(a, req, fun, recvType, recvName, recvDecl); unknownRcvr {
+			markSeqUnknownInstance(node, curFile, pos.Line, confidence, detail)
 			return true
 		}
 		node.ImplType = implTypeShort(impl)

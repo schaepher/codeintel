@@ -46,9 +46,19 @@ func seqIdentityBeforeDepth(a *Actions, req CodeSequenceRequest, f *ast.File, fs
 		}
 	}
 	// 1) receiver 字段数据流（工厂/构造器返回实例的字段方法调用）
+	unknownField := ""
 	if recvType != "" {
 		if field, ok2 := receiverFieldSel(sel, req.curRecvObj, recvName); ok2 {
-			impls := a.receiverFieldImpls(req, recvType, field, sel.Sel.Name)
+			impls, unknownWriters := a.receiverFieldImplsEx(req, recvType, field, sel.Sel.Name)
+			if len(impls) == 1 && a.isIfaceMethodID(impls[0]) {
+				impls = nil
+			}
+			if unknownWriters {
+				impls = nil
+			}
+			if len(impls) == 0 && (a.isIfaceMethodID(tid) || seqDeclaredTypeIsIface(a, req, recvDecl[field])) {
+				unknownField = field
+			}
 			if len(impls) > 1 {
 				node.Evidence = &SeqEvidence{Source: SeqEvidenceFieldFlow, CallFile: curFile,
 					CallLine: pos.Line, Confidence: confidence, Reason: "receiver-field-dataflow",
@@ -89,8 +99,36 @@ func seqIdentityBeforeDepth(a *Actions, req CodeSequenceRequest, f *ast.File, fs
 			return true
 		}
 	}
+	// U06：字段既无写入、也无 DI/局部变量证明——实例来源未知（depth=1 与
+	// 展开路径同口径，唯一实现不接成确定调用）。
+	if unknownField != "" {
+		markSeqUnknownReceiver(node, curFile, pos.Line, confidence, recvType, unknownField)
+		return true
+	}
 	// 4) 接口方法 → 唯一已证明实现（多候选保留候选集合并标 ambiguous）
+	// U06/T07：先用与 depth>1 相同的口径验证实例来源——方法 getter
+	// （`s.Get().M()`）按 receiver 字段写入证明具体化；形参/别名/未知返回
+	// 值等无来源证明时停在接口边界（唯一实现不等于实际实例来源）。
 	if a.isIfaceMethodID(tid) {
+		if inner, isCall := sel.X.(*ast.CallExpr); isCall {
+			if impls, field, unknown, ok3 := a.seqGetterFieldImpls(req, recvType, inner, sel.Sel.Name); ok3 {
+				if unknown || len(impls) == 0 {
+					markSeqUnknownReceiver(node, curFile, pos.Line, confidence, recvType, field)
+					return true
+				}
+				if len(impls) > 1 {
+					node.Evidence = &SeqEvidence{Source: SeqEvidenceFieldFlow, CallFile: curFile,
+						CallLine: pos.Line, Candidates: impls, Ambiguous: true,
+						Reason: "receiver-field-dataflow", CandidateBudget: seqIfaceBudget(len(impls), false)}
+					return true
+				}
+				node.ImplType = implTypeShort(impls[0])
+				node.Evidence = &SeqEvidence{Source: SeqEvidenceFieldFlow, CallFile: curFile,
+					CallLine: pos.Line, SymbolID: impls[0], Confidence: confidence,
+					Reason: "receiver-field-dataflow"}
+				return true
+			}
+		}
 		impl, cands, ok := a.seqIfaceMethodImpl(req, tid)
 		if !ok {
 			return false
@@ -102,6 +140,11 @@ func seqIdentityBeforeDepth(a *Actions, req CodeSequenceRequest, f *ast.File, fs
 			node.Evidence = ev
 			node.Stop = &SeqStop{Code: SeqStopIfaceAmbiguous,
 				Detail: "接口方法 " + tid + " 有 " + itoaSeq(len(cands)) + " 个未验证实现候选（无消歧证据，未展开）"}
+			return true
+		}
+		// U06/T07：唯一实现也要先有实例来源证明（与 depth>1 同口径）。
+		if detail, unknown := seqReceiverInstanceUnknown(a, req, fun, recvType, recvName, recvDecl); unknown {
+			markSeqUnknownInstance(node, curFile, pos.Line, confidence, detail)
 			return true
 		}
 		node.ImplType = implTypeShort(impl)

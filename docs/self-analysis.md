@@ -2566,6 +2566,12 @@ P1-05（全局注册表 schema 作为仓库外事实源，repos 表 10 列补类
 - 剩余按 R98 保留 cli：`list/registry/workspace*/clean`（全局台账与
   worktree 运维）、`config_*`、`serve/mcp*`、`ask*/agent*`、全部渲染。
 
+**2026-10-30 todo27 U06 完成、其余项待派发**：未知实例来源（getter / 混合
+写者 / 形参别名 / 包级单例未知注入 / 接口根入口 / depth=1 续查）已收口
+（`field_trace.md` §175，`integration/todo27_u06_test.go`）；T01–T14/T18/U04
+的剩余增量逐项列在 [`docs/todo27-checklist.md`](todo27-checklist.md)（含证据
+与保守边界），按该表顺序派发。
+
 | 新编号 | 原 ID/来源 | 优先级 | 事项 | 依赖 / 说明 |
 |---|---|---|---|---|
 | P0-01 | #1 | P0 | 真实业务系统端到端验证（gRPC 识别形态/DI/字段流/`query grpc-routes`/wiki） | **需外部真实系统** |
