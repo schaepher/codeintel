@@ -103,43 +103,22 @@ func seqPkgConstTable(a *Actions, req CodeSequenceRequest, importPath string, de
 	vals := map[string]string{}
 	// 先占位：包内常量可能互相引用（含前向引用），迭代解析时复用同一张表
 	req.constPkgs[importPath] = vals
-	type constSpec struct {
-		name string
-		expr ast.Expr
-		ctx  *seqFileCtx
-	}
-	var specs []constSpec
-	for _, c := range pkg.files {
-		for _, decl := range c.file.Decls {
-			gd, ok := decl.(*ast.GenDecl)
-			if !ok || gd.Tok != token.CONST {
-				continue
-			}
-			for _, sp := range gd.Specs {
-				vs, ok := sp.(*ast.ValueSpec)
-				if !ok {
-					continue
-				}
-				for i, nm := range vs.Names {
-					if i >= len(vs.Values) || !ast.IsExported(nm.Name) {
-						continue
-					}
-					specs = append(specs, constSpec{name: nm.Name, expr: vs.Values[i], ctx: c})
-				}
-			}
-		}
-	}
-	// 迭代解析（3 轮足够处理同一清单里的前向/跨常量引用；仍不可判定则留空）
+	// T08：按文件解析 const 声明（含 iota / 省略表达式）；跨包/前向引用在
+	// 3 轮内收敛（每轮复用同一张表）。
 	for round := 0; round < 3; round++ {
 		changed := false
-		for _, sp := range specs {
-			if _, ok := vals[sp.name]; ok {
-				continue
-			}
-			t := &seqConstTable{vals: vals, a: a, req: req, ctx: sp.ctx, depth: depth}
-			if v, ok := sceneValueOf(sp.expr, t); ok {
-				vals[sp.name] = v
-				changed = true
+		for _, c := range pkg.files {
+			for _, decl := range c.file.Decls {
+				gd, ok := decl.(*ast.GenDecl)
+				if !ok || gd.Tok != token.CONST {
+					continue
+				}
+				t := &seqConstTable{vals: vals, a: a, req: req, ctx: c, depth: depth}
+				before := len(vals)
+				seqConstSpecValuesExported(gd, vals, t)
+				if len(vals) != before {
+					changed = true
+				}
 			}
 		}
 		if !changed {
@@ -166,23 +145,69 @@ func seqLocalConstValues(body *ast.BlockStmt, consts sceneConstLookup) map[strin
 			if gd.Tok != token.CONST {
 				return true
 			}
-			for _, spec := range gd.Specs {
-				vs, ok := spec.(*ast.ValueSpec)
-				if !ok {
-					continue
-				}
-				for i, name := range vs.Names {
-					if i >= len(vs.Values) {
-						continue
-					}
-					if v, ok := sceneValueOf(vs.Values[i], consts); ok {
-						out[name.Name] = v
-					}
-				}
-			}
+			// T08：局部 const 同样支持 iota 与省略表达式。
+			seqConstSpecValues(gd, out, consts, false)
 			return false
 		})
 	}
 	walk(body)
 	return out
+}
+
+// sceneConstsOverlay 常量查表叠加（T08：`iota` 是 const 块内的隐式值）。
+type sceneConstsOverlay struct {
+	base  sceneConstLookup
+	extra map[string]string
+}
+
+func (o sceneConstsOverlay) constValue(name string) (string, bool) {
+	if o.extra != nil {
+		if v, ok := o.extra[name]; ok {
+			return v, true
+		}
+	}
+	if o.base == nil {
+		return "", false
+	}
+	return o.base.constValue(name)
+}
+
+// seqConstSpecValues 一个 const GenDecl 的 (name → 值)：处理 iota 与"省略
+// 表达式重复上一行"的 Go 语义（T08：同包/跨包常量表的统一实现）。
+func seqConstSpecValues(gd *ast.GenDecl, consts map[string]string, base sceneConstLookup, exportedOnly bool) {
+	if gd == nil {
+		return
+	}
+	var prev []ast.Expr
+	iota := 0
+	for _, spec := range gd.Specs {
+		vs, ok := spec.(*ast.ValueSpec)
+		if !ok {
+			continue
+		}
+		exprs := vs.Values
+		if len(exprs) == 0 {
+			exprs = prev // 省略表达式：重复上一行（iota 递增）
+		} else {
+			prev = exprs
+		}
+		lookup := sceneConstsOverlay{base: base, extra: map[string]string{"iota": itoaSeq(iota)}}
+		for i, name := range vs.Names {
+			if i >= len(exprs) || name.Name == "_" {
+				continue
+			}
+			if exportedOnly && !ast.IsExported(name.Name) {
+				continue
+			}
+			if v, ok := sceneValueOf(exprs[i], lookup); ok {
+				consts[name.Name] = v
+			}
+		}
+		iota++
+	}
+}
+
+// seqConstSpecValuesExported 跨包常量表：只登记导出常量（调用方只能引用导出）。
+func seqConstSpecValuesExported(gd *ast.GenDecl, consts map[string]string, base sceneConstLookup) {
+	seqConstSpecValues(gd, consts, base, true)
 }

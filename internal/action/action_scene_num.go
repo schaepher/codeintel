@@ -128,3 +128,66 @@ func sceneNumber(s string) (float64, bool) {
 	}
 	return f, true
 }
+
+// sceneParseInt 十进制/十六进制等整数字面量文本 → big.Int。
+func sceneParseInt(s string) (*big.Int, bool) {
+	s = strings.ReplaceAll(s, "_", "")
+	s = strings.ReplaceAll(s, "'", "")
+	n := new(big.Int)
+	if _, ok := n.SetString(s, 0); ok {
+		return n, true
+	}
+	if _, ok := n.SetString(s, 10); ok {
+		return n, true
+	}
+	return nil, false
+}
+
+// sceneIntBinary 整数二元运算（T08：常量表达式；越界/非法 → 不支持）。
+func sceneIntBinary(op, l, r string) (string, bool) {
+	li, okL := sceneParseInt(l)
+	ri, okR := sceneParseInt(r)
+	if !okL || !okR {
+		return "", false
+	}
+	n := new(big.Int)
+	switch op {
+	case "+":
+		n.Add(li, ri)
+	case "-":
+		n.Sub(li, ri)
+	case "*":
+		n.Mul(li, ri)
+	case "/":
+		if ri.Sign() == 0 {
+			return "", false
+		}
+		n.Quo(li, ri)
+	case "%":
+		if ri.Sign() == 0 {
+			return "", false
+		}
+		n.Rem(li, ri)
+	case "<<":
+		if ri.Sign() < 0 || ri.BitLen() > 16 {
+			return "", false
+		}
+		n.Lsh(li, uint(ri.Int64()))
+	case ">>":
+		if ri.Sign() < 0 || ri.BitLen() > 16 {
+			return "", false
+		}
+		n.Rsh(li, uint(ri.Int64()))
+	case "&":
+		n.And(li, ri)
+	case "|":
+		n.Or(li, ri)
+	case "^":
+		n.Xor(li, ri)
+	case "&^":
+		n.AndNot(li, ri)
+	default:
+		return "", false
+	}
+	return n.String(), true
+}

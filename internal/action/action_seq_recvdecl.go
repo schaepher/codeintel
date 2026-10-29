@@ -159,6 +159,11 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 		}
 		req.sceneArgs[k] = v
 		req.sceneSrc[k] = "const:local"
+		// T08：局部 const 也要能被**字面量侧**求值（`int32(local)`），
+		// 只放 sceneArgs 时比较右侧的转换永远求不出来。
+		if req.sceneConsts != nil && req.sceneConsts.vals != nil {
+			req.sceneConsts.vals[k] = v
+		}
 	}
 	// todo22 P1：结构体字段值沿实参传播（`Submit(req)` → 被调函数的
 	// `req.Source` 条件可按调用点的已知字段值判定）

@@ -156,59 +156,6 @@ func sceneCompare(fieldExpr, litExpr ast.Expr, consts sceneConstLookup) (field, 
 
 // sceneValueOf 表达式的"可比较值"：字面量（字符串/整数/浮点/字符）或包内
 // 常量（按 const 声明解析），中间的内建转换/括号被剥离。
-func sceneValueOf(e ast.Expr, consts sceneConstLookup) (string, bool) {
-	// todo23 §5：内建整数转换（未遮蔽）按范围校验求值；`int32(SourceB)` 与
-	// `SourceB` 得到同一个值，越界转换保持 unknown。
-	for {
-		call, ok := e.(*ast.CallExpr)
-		if !ok {
-			break
-		}
-		typ, isConv := sceneBuiltinConversionCall(call)
-		if !isConv {
-			break
-		}
-		inner, ok := sceneValueOf(call.Args[0], consts)
-		if !ok {
-			return "", false
-		}
-		return sceneConvertInt(typ, inner)
-	}
-	e = unwrapSceneExpr(e)
-	switch x := e.(type) {
-	case *ast.BasicLit:
-		switch x.Kind.String() {
-		case "STRING":
-			return strings.Trim(x.Value, "\"`"), true
-		case "INT", "FLOAT":
-			// T08：整数字面量归一化显示/比较（0x4 → 4；进制/下划线不影响
-			// 语义，但证据里应给出可读的十进制值）。
-			return sceneNormalizeNumberLiteral(x.Value), true
-		case "CHAR":
-			// T08：字符字面量按其 rune 数值参与比较（`x == '"'"'a'"'"'` 与 x=97 等价）。
-			return sceneNormalizeNumberLiteral(x.Value), true
-		}
-	case *ast.Ident:
-		if v, ok := sceneConstValue(consts, x.Name); ok {
-			return v, true
-		}
-		// 预声明 bool 字面量（未遮蔽）：`if true == false` 的右侧是字面量。
-		if x.Obj == nil && (x.Name == "true" || x.Name == "false") {
-			return x.Name, true
-		}
-	case *ast.SelectorExpr:
-		// todo22 P1：跨包常量（otherpkg.Const）——按 import 路径按需解析
-		// 目标包的 const 声明；解析不到就是"不是常量"，保持未知。
-		// todo23 §5：导入别名被局部变量遮蔽时不得当包常量。
-		if id, ok := x.X.(*ast.Ident); ok && id.Obj != nil && id.Obj.Kind != ast.Pkg {
-			return "", false
-		}
-		if v, ok := sceneConstValue(consts, exprTextShallow(x)); ok {
-			return v, true
-		}
-	}
-	return "", false
-}
 
 // sceneFieldOf 表达式的"字段身份"（req.Region / region），同样剥离转换。
 func sceneFieldOf(e ast.Expr) (string, bool) {

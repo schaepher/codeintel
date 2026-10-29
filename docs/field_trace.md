@@ -8130,3 +8130,17 @@ action；开库前先 `ValidateRuntimeData`）。
   `seqBaseTypeActor` 当"基础类型转换"整节点跳过 → 闭包体内的调用链在
   Mermaid/文本里消失（JSON 树里有）。修复：跳过消息但**递归渲染子节点**，
   JSON/Mermaid 共享同一分析树。
+
+## §180 todo27 T08：常量身份（iota/算术）与转换边界（2026-10-30）
+
+- **iota 与省略表达式**：`seqConstSpecValues` 统一处理 const 块（同一实现
+  供同包表、跨包表、局部 const 表使用）：省略表达式重复上一行、`iota`
+  按块内序号注入；`sceneValueOf` 扩展**常量算术**（`+ - * / % << >> &
+  | ^ &^`，big.Int 越界拒绝，字符串仅 `+`）。
+- **局部 const 同时进字面量侧求值**：此前局部 const 只写 `sceneArgs`，
+  `sourceType == int32(local)` 的右侧转换永远求不出来；现在同步写
+  `sceneConsts`（同请求内的表是新建的，不污染跨请求）。
+- 边界保持：越界/未知值转换（`int32(big)`）、被局部函数遮蔽的 `int32`、
+  未知左值短路（`cond() && sourceType==4`）→ unknown（两分支保留）。
+- 回归：`integration/todo27_t08_test.go`（跨包 iota/局部别名/0x4 taken；
+  三类未知边界）；E-T08 逐字一致。

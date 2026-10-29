@@ -43,22 +43,8 @@ func seqConstValues(a *Actions, req CodeSequenceRequest, relFile string) *seqCon
 			if !ok || gd.Tok != token.CONST {
 				continue
 			}
-			for _, spec := range gd.Specs {
-				vs, ok := spec.(*ast.ValueSpec)
-				if !ok {
-					continue
-				}
-				for i, name := range vs.Names {
-					if i >= len(vs.Values) {
-						continue
-					}
-					if v, ok := sceneValueOf(vs.Values[i], fileTbl); ok {
-						consts[name.Name] = v
-					} else if lit, ok := vs.Values[i].(*ast.BasicLit); ok {
-						consts[name.Name] = strings.Trim(lit.Value, "\"`")
-					}
-				}
-			}
+			// T08：iota 与"省略表达式重复上一行"由 seqConstSpecValues 统一处理。
+			seqConstSpecValues(gd, consts, fileTbl, false)
 		}
 	}
 	return tbl
