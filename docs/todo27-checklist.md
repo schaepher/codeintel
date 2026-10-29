@@ -7,7 +7,7 @@
 
 | # | 事项 | 状态 | 证据 / 剩余范围 |
 | --- | --- | --- | --- |
-| T01 | 局部闭包、到达定义与递归身份 | **未派发** | 现有 defer/go 求值顺序正例保持（E-T01 逐字一致）；剩余：retry/多层实际回调用词法身份、覆盖/取址/捕获改写失效、递归键含词法回调与有界捕获环境 |
+| T01 | 局部闭包、到达定义与递归身份 | **已完成（本轮）** | `seqFuncValueAddrTaken`（`&f` 后回调绑定失效 → `func_value_unbound`）；`integration/todo27_t01_test.go`：Nested Hit=1 无假 cycle、Overwrite Hit=1/Miss=0、Captured Miss=1/Hit=0、Unused 不展开、Retried Hit=1、PtrEscape 无确定执行、Cycle 仍 `cycle` 停止；E-T01 逐字一致 |
 | T02 | 命名函数列表的跨帧与到达定义 | **未派发** | E-T02 正例逐字一致；剩余：命名 slice/别名、导入包类型源码解析、列表经返回闭包/方法值/外部形参、遮蔽/兄弟分支 append |
 | T03 | 条件装饰器与跨帧捕获 | **未派发** | E-T03 正例逐字一致；剩余：条件返回原回调/包装闭包、嵌套工厂、同名回调跨多层 helper 的到达定义 |
 | T04 | 未知返回、单例调用者与字段全部来源 | **部分**（单例未知写者已随 U06 修） | `seqParamCallTypes` 非 init 调用者 → 未知哨兵（Singleton 反例）；剩余：局部别名/跨包变量全部来源、任一未知 return 使具体证明失效、跨包 init 调用者实参 |

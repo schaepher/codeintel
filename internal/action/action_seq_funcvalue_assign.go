@@ -5,6 +5,7 @@ package action
 
 import (
 	"go/ast"
+	"go/token"
 	"path"
 	"strconv"
 	"strings"
@@ -29,6 +30,11 @@ func seqValueOfExprDepth(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx, e
 	case *ast.Ident:
 		if env != nil {
 			if v, ok := env.lookup(e.Obj); ok {
+				// T01：函数值取址逃逸（`p := &f; *p = ...`）后可能被指针改写，
+				// 旧回调绑定不能继续沿用（保守给未知，不接原回调）。
+				if seqFuncValueAddrTaken(req, e) {
+					return unknownSeqValue("函数值 " + e.Name + " 取址逃逸（可能被指针改写，未沿用旧回调）")
+				}
 				return v
 			}
 		}
@@ -151,4 +157,36 @@ func bindSeqParams(env *seqEnv, params *ast.FieldList, values []seqValue) {
 			i++
 		}
 	}
+}
+
+// seqFuncValueAddrTaken 当前函数体内是否对同一 AST 对象取址（`&f`）。
+// 取址意味着指针写入可以改写回调变量（`*p = func(){…}`），静态绑定失效。
+func seqFuncValueAddrTaken(req CodeSequenceRequest, id *ast.Ident) bool {
+	if id == nil || req.curBody == nil {
+		return false
+	}
+	taken := false
+	ast.Inspect(req.curBody, func(n ast.Node) bool {
+		u, ok := n.(*ast.UnaryExpr)
+		if !ok || u.Op != token.AND {
+			return true
+		}
+		bid, ok := u.X.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		if bid.Obj != nil && id.Obj != nil {
+			if bid.Obj == id.Obj {
+				taken = true
+				return false
+			}
+			return true
+		}
+		if bid.Name == id.Name {
+			taken = true
+			return false
+		}
+		return true
+	})
+	return taken
 }

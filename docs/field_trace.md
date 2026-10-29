@@ -8016,3 +8016,16 @@ action；开库前先 `ValidateRuntimeData`）。
   哨兵串到别的类型（`Mixed.Set` 污染 `Known.biz`），正例静默退化。
 - **接口方法节点的 `line_start` 可能是 0**（SCIP 虚拟符号）：证据行输出
   `flow.go:0` 无意义——无行号时只给符号 ID。
+
+### §175 追加：T01 局部闭包的取址逃逸（2026-10-30）
+
+- `seqValueOfExprDepth` 的标识符分支在 env 命中后检查当前函数体内是否对该
+  AST 对象取址（`&f`）：取址后指针写入（`*p = func(){…}`）可以改写回调，
+  旧绑定失效 → `unknownSeqValue("…取址逃逸…")`（`func_value_unbound`），
+  不接原回调、也不猜测新回调。
+- 回归 `integration/todo27_t01_test.go`（真实 init → CLI）：嵌套实际回调
+  Hit=1 且无假 cycle；调用前覆盖只用新绑定；闭包捕获的后续改写执行新来源；
+  未执行字面量不展开；retry 内回调仍绑定；取址逃逸无确定执行；真正递归
+  `cycle` 停止。E-T01 `defer Use(Build())` 求值顺序输出逐字一致。
+- 递归键 `seqVisitKey` = 仓库 + 符号 + `callbackCtx`（字面量/函数名 +
+  绑定站点文件:行 + 声明对象），不含剩余 depth——嵌套同源回调不误判环。
