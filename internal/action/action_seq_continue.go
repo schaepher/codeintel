@@ -1,5 +1,7 @@
 package action
 
+import "go/ast"
+
 // todo24 §2：`query sequence --code --continue-segments N`——在原调用上下文
 // 里**分段续查 depth 前沿**，把结果接回同一棵分析树（JSON/文本/Mermaid/SVG
 // 共用），而不是把前沿当独立根重跑前缀、也不是简单提高入口 depth。
@@ -217,4 +219,19 @@ func seqHasDepthStop(n *CodeSeqNode) bool {
 		}
 	}
 	return false
+}
+
+// seqRegisterCallFrontier 登记普通调用前沿时，把**调用点上下文**（工厂来源 /
+// 局部实例字段到达定义）一并放进请求快照——续查在 Step/Get 等下游函数里
+// 才能得到与完整展开相同的身份（T12/T05）。
+func seqRegisterCallFrontier(a *Actions, req CodeSequenceRequest, node *CodeSeqNode,
+	fun ast.Expr, targetID string, f *ast.File, curPkg string, atOff int) {
+	sub := req
+	if origin := seqCallReceiverOrigin(a, req, fun, targetID, f, curPkg); origin != "" {
+		sub.curRecvOrigin = origin
+	}
+	if fields := seqCallReceiverFields(a, req, fun, targetID, f, curPkg, atOff); len(fields) > 0 {
+		sub.curRecvFields = fields
+	}
+	seqRegisterSymbolFrontier(a, sub, node)
 }

@@ -111,6 +111,26 @@ func seqIdentityBeforeDepth(a *Actions, req CodeSequenceRequest, f *ast.File, fs
 	// 值等无来源证明时停在接口边界（唯一实现不等于实际实例来源）。
 	if a.isIfaceMethodID(tid) {
 		if inner, isCall := sel.X.(*ast.CallExpr); isCall {
+			// T12/T05：工厂来源（Build→Run→Step→Get）在 depth=1 也要解析身份
+			// ——与完整展开同一口径（kind 守卫候选 / 单一具体实现）。
+			if req.curRecvOrigin != "" {
+				if impls, field := a.seqFactoryFieldImplsAtDepth1(req, recvType, sel.Sel.Name); len(impls) > 0 {
+					if len(impls) > 1 {
+						node.Evidence = &SeqEvidence{Source: SeqEvidenceFieldFlow, CallFile: curFile,
+							CallLine: pos.Line, Candidates: impls, Ambiguous: true,
+							Reason: "factory-field-dataflow", CandidateBudget: seqIfaceBudget(len(impls), false)}
+						node.Stop = &SeqStop{Code: SeqStopIfaceAmbiguous,
+							Detail: "工厂字段有 " + itoaSeq(len(impls)) + " 个候选实现（未消歧，未展开）"}
+						return true
+					}
+					node.ImplType = implTypeShort(impls[0])
+					node.Evidence = &SeqEvidence{Source: SeqEvidenceFieldFlow, CallFile: curFile,
+						CallLine: pos.Line, SymbolID: impls[0], Confidence: confidence,
+						Reason: "factory-field-dataflow"}
+					_ = field
+					return true
+				}
+			}
 			if impls, field, unknown, ok3 := a.seqGetterFieldImpls(req, recvType, inner, sel.Sel.Name); ok3 {
 				if unknown || len(impls) == 0 {
 					markSeqUnknownReceiver(node, curFile, pos.Line, confidence, recvType, field)

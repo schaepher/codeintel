@@ -119,7 +119,7 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 				seqIdentityBeforeDepth(a, req, f, fset, fun, tid, node, recvType,
 					req.curRecvName, recvDecl, tg.confidence, curFile, pos)
 				// todo24 §2：停在 depth 的已证明调用登记为续查前沿
-				seqRegisterSymbolFrontier(a, req, node)
+				seqRegisterCallFrontier(a, req, node, fun, tid, f, curPkg, pos.Offset)
 				return node
 			}
 			if seqStopPkgHit(tid, req.StopPackages) {
@@ -141,7 +141,7 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 				node.Stop = &SeqStop{Code: SeqStopDepthLimit,
 					Detail: "depth 上限（--depth " + itoaSeq(req.Depth) + "），未展开该调用内部"}
 				// todo24 §2：AST 身份恢复的目标同样可续查
-				seqRegisterSymbolFrontier(a, req, node)
+				seqRegisterCallFrontier(a, req, node, fun, symID, f, curPkg, pos.Offset)
 				return node
 			}
 			if child, stop := codeSeqForSymbol(a, req, symID, depth-1); child != nil {

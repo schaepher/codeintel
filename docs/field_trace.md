@@ -8178,3 +8178,16 @@ action；开库前先 `ValidateRuntimeData`）。
   `seqCalleeReturnValues` 在目标未索引时回退到这里。
 - 回归：`integration/todo27_t10_test.go`（普通/同名形参/列表/ellipsis/
   返回闭包/未用回调；depth=1 外部 ID 准确且 `external_loads=0`）。
+
+## §183 todo27 T12：续查前沿的调用点上下文（2026-10-30）
+
+- `seqRegisterCallFrontier`：depth 前沿登记时把**调用点上下文**（工厂来源
+  `curRecvOrigin` / 局部实例字段到达定义 `curRecvFields`）写进请求快照——
+  此前快照只有 env/实参/祖先，续查展开 `Run→Step→Get().Work()` 时丢失
+  工厂来源，退化成 `unknown_receiver`。
+- `seqFactoryFieldImplsAtDepth1`：depth=1 身份解析补工厂字段（getter 返回
+  字段 + 工厂 setter 候选），与完整展开同一口径：单候选给 SymbolID，多候选
+  标 `iface_ambiguous`（不续查）。
+- 回归：`integration/todo27_t12_test.go`：不同实参/回调前沿各自绑定；
+  调用后覆写不污染已保存环境；factory 字段 depth1+续查与 depth12 输出同一
+  候选集合（不升级为确定执行）。
