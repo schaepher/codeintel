@@ -70,6 +70,27 @@ func seqExpandExternalMethodCall(a *Actions, req CodeSequenceRequest, node *Code
 	if !ok || sel.Sel == nil {
 		return false
 	}
+	// U04t/U04u：`pkg.Var.Method()` —— 按选中外部源码里的变量声明取静态类型
+	// （显式类型优先，其次初始化表达式推断）。接口变量不选实现。
+	if importPath, varName, isPkgVar := seqPkgVarReceiver(req.curCtx, sel); isPkgVar {
+		ref, iface, ok := seqExternalPkgVarType(a, req, importPath, varName, 0)
+		if !ok {
+			return false
+		}
+		if iface {
+			markSeqUnknownInstance(node, curFile, line, 0.8,
+				"包变量 "+varName+" 声明为接口（实例来源未证明，未展开）")
+			return true
+		}
+		extID := "symbol:go:" + ref.pkgPath + ":(" + ref.name + ")." + sel.Sel.Name
+		if a.seqExternalIfaceMethod(req, extID) {
+			markSeqUnknownInstance(node, curFile, line, 0.8,
+				"外部接口 "+ref.name+" 的方法 "+sel.Sel.Name+" 无实例来源证明（未展开）")
+			return true
+		}
+		return seqExpandExternalDecl(a, req, node, ref.pkgPath, "("+ref.name+")."+sel.Sel.Name,
+			extID, depth, call, curFile, line, ref.name)
+	}
 	ref, ok := seqReceiverTypeRef(a, req, req.curCtx, sel)
 	if !ok || ref.pkgPath == "" || req.pkgSet[ref.pkgPath] {
 		return false
