@@ -230,6 +230,8 @@ type CodeSequenceRequest struct {
 	callArgObjs []*ast.Object
 	// acts U04v：分析器本身（源码身份解析需要仓储/外部包缓存）。
 	acts *Actions
+	// scheduled U04y：当前语句位于 go/defer 调度体（赋值观察标 scheduled）。
+	scheduled bool
 	// callArgOrigins U04c：本次调用实参的标量来源（在实参求值位置立即捕获，
 	// 被调函数形参绑定用；续查快照带值拷贝，不被后续赋值污染）。
 	callArgOrigins []*SeqStorageOrigin

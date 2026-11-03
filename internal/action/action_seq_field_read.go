@@ -13,6 +13,8 @@ import (
 
 // SeqFieldRoot 字段读取的对象根（入口形参对象）。
 type SeqFieldRoot struct {
+	// Kind parameter_object | struct_literal（构造实例对象根）。
+	Kind      string `json:"kind,omitempty"`
 	Symbol    string `json:"symbol"`
 	Repo      string `json:"repo,omitempty"`
 	Parameter int    `json:"parameter"`
@@ -68,7 +70,7 @@ func seqFieldBaseOrigin(req CodeSequenceRequest, e ast.Expr) *seqFieldBase {
 			if !ok {
 				return nil
 			}
-			root := &SeqFieldRoot{Repo: origin.Repo, Parameter: 0}
+			root := &SeqFieldRoot{Kind: "parameter_object", Repo: origin.Repo, Parameter: 0}
 			if origin.Parameter != nil {
 				root.Parameter = *origin.Parameter
 			}
@@ -87,6 +89,22 @@ func seqFieldBaseOrigin(req CodeSequenceRequest, e ast.Expr) *seqFieldBase {
 			return &seqFieldBase{root: origin.FieldRead.Root, ref: seqORMTypeRef{
 				pkgPath: pkgOfID(domain.CanonicalID(origin.FieldRead.TypeID)), name: pkgNameOfID(origin.FieldRead.TypeID)},
 				path: append([]string{}, origin.FieldRead.Path...)}
+		}
+	case *ast.CallExpr:
+		// `Get().ID = 3`：接收者是构造调用的返回值 → struct_literal 根。
+		if origin := seqScalarOriginOf(req, x); origin != nil {
+			switch origin.Kind {
+			case SeqOriginStructLiteral:
+				if origin.StructLiteral != nil {
+					return &seqFieldBase{root: &SeqFieldRoot{Kind: "struct_literal"},
+						ref: seqTypeRefOfSymbolID(origin.StructLiteral.TypeID)}
+				}
+			case SeqOriginStructCopy:
+				if origin.StructCopy != nil {
+					return &seqFieldBase{root: &SeqFieldRoot{Kind: "struct_copy"},
+						ref: seqTypeRefOfCopyTypeID(origin.StructCopy)}
+				}
+			}
 		}
 	}
 	return nil

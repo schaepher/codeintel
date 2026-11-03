@@ -143,6 +143,7 @@ type seqTimingAcc struct {
 	// U04w：结构体字面量构造观察（请求内计数 + 全值复制观察）。
 	structLitSeq  int
 	structCopySeq int
+	fieldWriteSeq int
 	// U04k：AST 调用 → 最新调用节点；depth=1 的延迟结果绑定。
 	callNodes        map[*ast.CallExpr]*CodeSeqNode
 	pendingVars      []seqPendingVar
@@ -273,6 +274,8 @@ type CodeSeqNode struct {
 	RowCountCondition *SeqRowCountCondition `json:"row_count_condition,omitempty"`
 	// U04n：条件引用事务操作的错误槽（branch 节点）。
 	TransactionCondition *SeqTransactionCondition `json:"transaction_condition,omitempty"`
+	// U04y：字段赋值观察（assign 节点；assignment_only）。
+	FieldWrites []SeqFieldWrite `json:"field_writes,omitempty"`
 	// U04k：return 节点的各结果槽来源 / 调用节点的返回槽来源共识。
 	ValueOrigins  []*SeqStorageOrigin `json:"value_origins,omitempty"`
 	ResultOrigins []*SeqStorageOrigin `json:"result_origins,omitempty"`

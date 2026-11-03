@@ -88,8 +88,11 @@ func TestSeqScalarEscapePersists(t *testing.T) {
 	}
 	env.markScalarEscaped(obj)
 	env.setScalar(obj, seqOriginParameter("symbol:go:example.com/flow:Entry", "/repo", "string", 0))
-	if slot, _ := env.scalarSlot(obj); !slot.escaped || slot.origin != nil {
-		t.Fatalf("逃逸后不得恢复来源: %+v", slot)
+	if slot, _ := env.scalarSlot(obj); !slot.escaped {
+		t.Fatalf("逃逸标记丢失: %+v", slot)
+	}
+	if o, _ := env.scalarOriginAt(obj, 10); o != nil {
+		t.Fatalf("逃逸后的读取不得恢复来源: %+v", o)
 	}
 	// 克隆保留逃逸标记。
 	clone := env.clone()

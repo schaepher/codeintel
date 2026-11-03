@@ -46,7 +46,8 @@ func (e *seqEnv) setScalar(obj *ast.Object, origin *SeqStorageOrigin) {
 	}
 	slot, _ := e.scalarSlot(obj)
 	if slot.escaped {
-		e.scalars[obj] = seqScalarSlot{escaped: true, escapedAt: slot.escapedAt}
+		// 逃逸前已求值的读取仍可用旧来源（位置判定）；之后的读取被挡。
+		e.scalars[obj] = seqScalarSlot{escaped: true, escapedAt: slot.escapedAt, origin: slot.origin}
 		return
 	}
 	e.scalars[obj] = seqScalarSlot{origin: cloneSeqScalarOrigin(origin)}

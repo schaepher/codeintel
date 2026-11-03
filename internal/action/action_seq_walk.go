@@ -59,38 +59,13 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 			return nil
 		}
 	case *ast.AssignStmt:
-		// R100 续：表达式内最外层调用提取（x = foo() + bar()——原只认
-		// 顶层 CallExpr，BinaryExpr/Index 等内的调用整条丢失）
-		var out []*CodeSeqNode
-		for _, rhs := range s.Rhs {
-			for _, call := range collectCalls(rhs) {
-				// T14：链式调用的接收者调用先求值（x := DB.QueryRowContext(...).Scan(&v)
-				// 先有 QueryRowContext 再有 Scan），与实参调用同一顺序口径。
-				out = append(out, seqArgCallNodes(callNode, call)...)
-				if n := callNode(call); n != nil {
-					out = append(out, n)
-				}
-			}
-		}
-		// todo22 §2：赋值更新函数值环境——在调用节点生成之后（RHS 读旧值，
-		// LHS 从下一条语句起生效：`f = wrap(ctx, f)` 的右侧是旧 f）。
-		recordSeqAssign(a, req, req.curCtx, s)
-		// todo10-2 part3：焦点模式下输出"纯赋值"步骤（状态字段赋值常常
-		// 不含调用，纯调用树看不到）；非焦点模式保持原输出不变
+		return walkSeqAssign(a, req, fset, src, s, callNode, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
+	case *ast.IncDecStmt:
+		// U04y：`r.ID++` 也是字段赋值观察（operator 保留）。
 		if req.focusActive() {
-			line := fset.Position(s.Pos()).Line
-			node := &CodeSeqNode{Kind: "assign", Label: assignLabel(fset, src, s), Line: line}
-			focusHit := req.focusLines != nil && req.focusLines[line]
-			if !focusHit && len(req.focus.fieldIDs) == 0 {
-				// 局部变量焦点（无类型身份）：按变量名匹配
-				focusHit = assignsFocusField(s, req.focus.fields)
-			}
-			if focusHit {
-				node.Focus = true
-			}
-			out = append(out, node)
+			return nil
 		}
-		return out
+		return seqFieldWriteNodes(req, fset, src, s)
 	case *ast.IfStmt:
 		var steps []*CodeSeqNode
 
@@ -189,8 +164,11 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 	case *ast.DeferStmt:
 		// todo10-2：defer 位置保留在声明处，Exec 标注执行时机（不是立即执行）。
 		// T01：defer 的实参在当前流程求值，延迟标记只加在被调度的调用上。
-		nodes := seqArgCallNodes(callNode, s.Call)
-		if n := callNode(s.Call); n != nil {
+		// U04y：被调度函数体里的字段赋值标 scheduled。
+		schedNode := newScheduledCallNode(a, req, fset, src, tgts, depth, recvType, recvDecl,
+			f, curPkg, curFile)
+		nodes := seqArgCallNodes(schedNode, s.Call)
+		if n := schedNode(s.Call); n != nil {
 			n.Exec = SeqExecDefer
 			if n.Evidence != nil && n.Evidence.Transaction != nil {
 				n.Evidence.Transaction.Exec = SeqExecDefer
@@ -200,8 +178,10 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		return nodes
 	case *ast.GoStmt:
 		// todo10-2：go 是并发启动（完成顺序未知）；T01：实参同样同步求值。
-		nodes := seqArgCallNodes(callNode, s.Call)
-		if n := callNode(s.Call); n != nil {
+		schedNode := newScheduledCallNode(a, req, fset, src, tgts, depth, recvType, recvDecl,
+			f, curPkg, curFile)
+		nodes := seqArgCallNodes(schedNode, s.Call)
+		if n := schedNode(s.Call); n != nil {
 			n.Exec = SeqExecAsync
 			if n.Evidence != nil && n.Evidence.Transaction != nil {
 				n.Evidence.Transaction.Exec = SeqExecAsync
@@ -281,4 +261,13 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		return []*CodeSeqNode{{Kind: kind, Label: kind, Line: fset.Position(s.Pos()).Line}}
 	}
 	return nil
+}
+
+// newScheduledCallNode go/defer 调度体专用调用节点构造（scheduled=true）。
+func newScheduledCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []byte,
+	tgts *seqTargets, depth int, recvType string, recvDecl map[string]string, f *ast.File,
+	curPkg, curFile string) func(call *ast.CallExpr) *CodeSeqNode {
+	sched := req
+	sched.scheduled = true
+	return newSeqCallNode(a, sched, fset, src, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
 }

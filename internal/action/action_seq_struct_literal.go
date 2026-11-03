@@ -48,10 +48,9 @@ func seqStructLiteralOrigin(req CodeSequenceRequest, lit *ast.CompositeLit, dept
 	if lit == nil || req.curCtx == nil || req.curCtx.file == nil || depth >= seqStructLiteralMaxDepth {
 		return nil
 	}
-	// 位置式字段/无显式字段：不扩展语义（省略来源）。
-	if len(lit.Elts) == 0 {
-		return nil
-	}
+	// 位置式字段不扩展语义（省略来源）；空字面量是确定的"构造空对象"，
+	// 保留构造观察（字段列表为空）。
+
 	if len(lit.Elts) > seqStructLiteralMaxFields {
 		return nil
 	}
