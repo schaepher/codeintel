@@ -117,6 +117,8 @@ type SeqEvidence struct {
 	StorageRead *SeqStorageRead `json:"storage_read,omitempty"`
 	// U04f：XORM 终端操作与显式构建器证据（模型映射/执行成功未证明）。
 	ORM *SeqORM `json:"orm,omitempty"`
+	// U04n：标准 SQL 事务事件（begin/write/read/commit/rollback）。
+	Transaction *SeqTransaction `json:"transaction,omitempty"`
 }
 
 // SeqDiagCount 诊断聚合项（根节点 meta 用）。

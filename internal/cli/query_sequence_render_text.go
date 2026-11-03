@@ -45,6 +45,9 @@ func seqText(nodes []*action.CodeSeqNode, depth int) string {
 			if note := seqRuntimeBoundaryNote(n); note != "" {
 				b.WriteString(fmt.Sprintf("%s   %s\n", pad, note))
 			}
+			if note := seqTransactionNote(n); note != "" {
+				b.WriteString(fmt.Sprintf("%s   %s\n", pad, note))
+			}
 			if len(n.Nodes) > 0 {
 				b.WriteString(seqText(n.Nodes, depth+1))
 			}
@@ -54,6 +57,9 @@ func seqText(nodes []*action.CodeSeqNode, depth int) string {
 				b.WriteString(fmt.Sprintf("%s   %s\n", pad, note))
 			}
 			if note := seqRowCountConditionNote(n); note != "" {
+				b.WriteString(fmt.Sprintf("%s   %s\n", pad, note))
+			}
+			if note := seqTransactionConditionNote(n); note != "" {
 				b.WriteString(fmt.Sprintf("%s   %s\n", pad, note))
 			}
 			b.WriteString(seqText(n.Nodes, depth+1))

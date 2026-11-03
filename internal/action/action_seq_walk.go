@@ -100,6 +100,8 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		node.WriteCondition = seqWriteConditionOrRegister(req, node, s.Cond)
 		// U04j：行数变量与零值的比较（只描述符号关系）。
 		node.RowCountCondition = seqRowConditionOrRegister(req, node, s.Cond)
+		// U04n：事务错误槽条件（begin/commit/rollback）。
+		node.TransactionCondition = seqTransactionCondition(req, s.Cond)
 		// todo10-5：场景条件判定（taken/excluded/unknown）——排除的分支
 		// 保留节点但剔除内容（用户能看到"此处被场景排除"及其依据）
 		fit := req.Scene.matchCondSrc(s.Cond, req.sceneArgs, req.sceneSrc, req.sceneConsts)
@@ -188,6 +190,9 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		nodes := seqArgCallNodes(callNode, s.Call)
 		if n := callNode(s.Call); n != nil {
 			n.Exec = SeqExecDefer
+			if n.Evidence != nil && n.Evidence.Transaction != nil {
+				n.Evidence.Transaction.Exec = SeqExecDefer
+			}
 			nodes = append(nodes, n)
 		}
 		return nodes
@@ -196,6 +201,9 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		nodes := seqArgCallNodes(callNode, s.Call)
 		if n := callNode(s.Call); n != nil {
 			n.Exec = SeqExecAsync
+			if n.Evidence != nil && n.Evidence.Transaction != nil {
+				n.Evidence.Transaction.Exec = SeqExecAsync
+			}
 			nodes = append(nodes, n)
 		}
 		return nodes

@@ -141,6 +141,7 @@ func seqRecordWriteResultPair(req CodeSequenceRequest, lhs, rhs []ast.Expr) {
 		}
 		// U04k：返回槽来源来自实际展开（或 depth=1 的续查结果）。
 		if callExpr != nil {
+			seqBindTxResults(req, seqCallNodeOf(req, callExpr), callExpr, lhs)
 			seqBindReturnOrigins(req, callExpr, lhs, []int{0, 1})
 		}
 		return
@@ -164,6 +165,8 @@ func seqRecordWriteResultPair(req CodeSequenceRequest, lhs, rhs []ast.Expr) {
 			}
 		}
 		if call, ok := rhs[i].(*ast.CallExpr); ok {
+			// U04n：`err = tx.Commit()`（单槽）→ 事务操作错误槽。
+			seqBindTxResults(req, seqCallNodeOf(req, call), call, singleLHSAt(lhs, i))
 			node := seqCallNodeOf(req, call)
 			if node != nil && len(node.Nodes) == 0 {
 				// U04k：depth=1 未展开——续查完成后回填（error/row_count/标量）。
@@ -182,6 +185,14 @@ func seqRecordWriteResultPair(req CodeSequenceRequest, lhs, rhs []ast.Expr) {
 			req.env.setRows(id.Obj, nil)
 		}
 	}
+}
+
+// singleLHSAt 单值赋值语义下的 LHS 槽列表（仅当 LHS 只有一个占位时）。
+func singleLHSAt(lhs []ast.Expr, i int) []ast.Expr {
+	if len(lhs) != 1 || i != 0 {
+		return nil
+	}
+	return lhs
 }
 
 // seqArgReturnOrigin 单返回调用/变量引用的返回槽来源（深/浅展开统一）。

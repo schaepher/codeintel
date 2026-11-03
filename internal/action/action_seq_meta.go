@@ -135,6 +135,9 @@ type seqTimingAcc struct {
 	writeIDs map[*CodeSeqNode]string
 	// fset U04m：调用点偏移（精确 access 证据用）。
 	fset *token.FileSet
+	// U04n：事务身份（同一 Begin 节点稳定；请求内唯一）。
+	txSeq int
+	txIDs map[*CodeSeqNode]string
 	// U04k：AST 调用 → 最新调用节点；depth=1 的延迟结果绑定。
 	callNodes        map[*ast.CallExpr]*CodeSeqNode
 	pendingVars      []seqPendingVar
@@ -263,27 +266,11 @@ type CodeSeqNode struct {
 	WriteCondition *SeqWriteCondition `json:"write_condition,omitempty"`
 	// U04j：条件引用某次写入的影响行数返回槽（branch 节点）。
 	RowCountCondition *SeqRowCountCondition `json:"row_count_condition,omitempty"`
+	// U04n：条件引用事务操作的错误槽（branch 节点）。
+	TransactionCondition *SeqTransactionCondition `json:"transaction_condition,omitempty"`
 	// U04k：return 节点的各结果槽来源 / 调用节点的返回槽来源共识。
 	ValueOrigins  []*SeqStorageOrigin `json:"value_origins,omitempty"`
 	ResultOrigins []*SeqStorageOrigin `json:"result_origins,omitempty"`
-}
-
-// resultObjectsOf 具名结果的对象（无名结果返回 nil 占位）。
-func resultObjectsOf(results *ast.FieldList) []*ast.Object {
-	if results == nil {
-		return nil
-	}
-	var out []*ast.Object
-	for _, field := range results.List {
-		if len(field.Names) == 0 {
-			out = append(out, nil)
-			continue
-		}
-		for _, n := range field.Names {
-			out = append(out, n.Obj)
-		}
-	}
-	return out
 }
 
 // exprTypeName 类型表达式 → 短名（Ident → 名；SelectorExpr pkg.T → T）

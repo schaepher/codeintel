@@ -22,3 +22,21 @@ type seqPendingOrigin struct {
 	obj   *ast.Object
 	apply func(*SeqStorageOrigin)
 }
+
+// resultObjectsOf 具名结果的对象（无名结果返回 nil 占位）。
+func resultObjectsOf(results *ast.FieldList) []*ast.Object {
+	if results == nil {
+		return nil
+	}
+	var out []*ast.Object
+	for _, field := range results.List {
+		if len(field.Names) == 0 {
+			out = append(out, nil)
+			continue
+		}
+		for _, n := range field.Names {
+			out = append(out, n.Obj)
+		}
+	}
+	return out
+}

@@ -246,6 +246,8 @@ func seqAnnotateCallEvidence(a *Actions, req CodeSequenceRequest, node *CodeSeqN
 	seqAttachORMEvidence(node, call, c)
 	seqAttachWriteErrorResult(node, call, c)
 	seqAttachORMErrorResult(req, node, call, c)
+	// U04n：事务事件（begin/write/read/commit/rollback）+ 独立错误槽。
+	seqAttachTransaction(req, node, call, c)
 	// U04k：实参来源尚待被调返回槽（depth=1）→ 续查后回填。
 	seqRegisterPendingValueOrigins(req, node, call)
 }

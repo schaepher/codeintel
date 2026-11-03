@@ -24,12 +24,16 @@ type seqEnv struct {
 	errs map[*ast.Object]seqErrSlot
 	// rows U04j：写入影响行数变量（同一失效规则）。
 	rows map[*ast.Object]seqRowSlot
+	// txs/txErrs U04n：事务变量与事务操作的错误槽。
+	txs    map[*ast.Object]seqTxSlot
+	txErrs map[*ast.Object]seqTxErrSlot
 }
 
 func newSeqEnv(parent *seqEnv) *seqEnv {
 	return &seqEnv{parent: parent, vals: map[*ast.Object]seqValue{},
 		types: map[*ast.Object]seqTypeRef{}, scalars: map[*ast.Object]seqScalarSlot{},
-		errs: map[*ast.Object]seqErrSlot{}, rows: map[*ast.Object]seqRowSlot{}}
+		errs: map[*ast.Object]seqErrSlot{}, rows: map[*ast.Object]seqRowSlot{},
+		txs: map[*ast.Object]seqTxSlot{}, txErrs: map[*ast.Object]seqTxErrSlot{}}
 }
 
 func (e *seqEnv) lookup(obj *ast.Object) (seqValue, bool) {
@@ -53,12 +57,14 @@ func (e *seqEnv) clone() *seqEnv {
 	if e == nil {
 		return nil
 	}
+	txSlots, txErrSlots := e.copyTx()
 	out := &seqEnv{parent: e.parent,
 		vals:    make(map[*ast.Object]seqValue, len(e.vals)),
 		types:   make(map[*ast.Object]seqTypeRef, len(e.types)),
 		scalars: e.copyScalars(),
 		errs:    e.copyErrs(),
-		rows:    e.copyRows()}
+		rows:    e.copyRows(),
+		txs:     txSlots, txErrs: txErrSlots}
 	for k, v := range e.vals {
 		out.vals[k] = v
 	}
@@ -103,6 +109,8 @@ func (e *seqEnv) mergeBranches(branches []*seqEnv) {
 		}
 		e.set(obj, multiSeqValue(cands, "分支/循环下多个值都可能到达调用点（未消歧）"))
 	}
+	// U04n：事务槽随分支候选合并（不同事务 → 未知）。
+	e.mergeTx(branches)
 	// U04c：标量来源走同一批分支候选（来源相同保留、不同未知）。
 	e.mergeScalars(branches)
 	// U04h：错误结果引用同理（不同分支指向不同写入 → 失效）。

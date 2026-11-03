@@ -106,6 +106,9 @@ func seqEvidenceNotes(n *action.CodeSeqNode) []string {
 	if note := seqRuntimeBoundaryNote(n); note != "" {
 		out = append(out, note)
 	}
+	if note := seqTransactionNote(n); note != "" {
+		out = append(out, note)
+	}
 	return out
 }
 
@@ -153,4 +156,54 @@ func seqRuntimeBoundaryNote(n *action.CodeSeqNode) string {
 		note += "；需要事实：" + strings.Join(b.Needs, ",")
 	}
 	return note
+}
+
+// seqTransactionNote 事务事件 Note（U04n；JSON 同一份 evidence.transaction）。
+func seqTransactionNote(n *action.CodeSeqNode) string {
+	if n == nil || n.Evidence == nil || n.Evidence.Transaction == nil {
+		return ""
+	}
+	tx := n.Evidence.Transaction
+	id := ""
+	if tx.Origin != nil {
+		id = tx.Origin.ID
+	}
+	if id == "" {
+		note := "事务边界 " + tx.Action
+		if tx.Boundary != "" {
+			note += "（" + tx.Boundary + "；执行结果未证明）"
+		} else {
+			note += "（执行结果未证明）"
+		}
+		return note
+	}
+	return "事务 " + id + " " + tx.Action + "（outcome=" + tx.Outcome + "）"
+}
+
+// seqTransactionConditionNote 事务错误槽条件 Note（U04n）。
+func seqTransactionConditionNote(n *action.CodeSeqNode) string {
+	if n == nil || n.TransactionCondition == nil || n.TransactionCondition.Result == nil {
+		return ""
+	}
+	c := n.TransactionCondition
+	return "事务 " + c.Result.Operation + " 错误槽 " + c.Result.CallID +
+		"[" + itoaSeqInt(c.Result.Slot) + "]：then=" + c.WhenTrue + "；else=" + c.WhenFalse +
+		"（执行结果未证明）"
+}
+
+// seqBranchEvidenceNotes 分支节点上的证据注记（写入错误/行数/事务条件）。
+func seqBranchEvidenceNotes(b *strings.Builder, alias map[string]string, from string, n *action.CodeSeqNode) {
+	var notes []string
+	if note := seqWriteConditionNote(n); note != "" {
+		notes = append(notes, note)
+	}
+	if note := seqRowCountConditionNote(n); note != "" {
+		notes = append(notes, note)
+	}
+	if note := seqTransactionConditionNote(n); note != "" {
+		notes = append(notes, note)
+	}
+	for _, note := range notes {
+		b.WriteString("  Note over " + alias[from] + ": " + note + "\n")
+	}
 }

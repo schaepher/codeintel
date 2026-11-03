@@ -78,9 +78,12 @@ func (e *seqEnv) setErr(obj *ast.Object, ref *SeqWriteErrorResult) {
 	}
 	if slot, ok := e.errs[obj]; ok && slot.escaped {
 		e.errs[obj] = seqErrSlot{escaped: true, escapedAt: slot.escapedAt}
+		delete(e.txErrs, obj)
 		return
 	}
 	e.errs[obj] = seqErrSlot{ref: cloneSeqWriteErrorResult(ref)}
+	// U04n：写入错误与事务错误是不同来源（同一变量保留最近绑定的来源）。
+	delete(e.txErrs, obj)
 }
 
 func (e *seqEnv) markErrEscaped(obj *ast.Object, pos token.Pos) {

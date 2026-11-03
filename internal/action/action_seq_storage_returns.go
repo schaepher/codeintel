@@ -83,6 +83,12 @@ func seqReturnOriginOf(req CodeSequenceRequest, e ast.Expr) *SeqStorageOrigin {
 			return &SeqStorageOrigin{Kind: SeqOriginNil}
 		}
 		if id.Obj != nil && req.env != nil {
+			if tx := seqTxVarOrigin(req, id); tx != nil {
+				return &SeqStorageOrigin{Kind: SeqOriginTransaction, TxOrigin: tx}
+			}
+			if txErr := seqTxErrRefOf(req, id); txErr != nil {
+				return &SeqStorageOrigin{Kind: SeqOriginTxError, TxError: txErr}
+			}
 			if ref := req.env.errSlotAt(id.Obj, id.Pos()); ref != nil {
 				return &SeqStorageOrigin{Kind: SeqOriginWriteError, WriteError: ref}
 			}
@@ -108,6 +114,13 @@ func seqNodeOriginsFromEvidence(node *CodeSeqNode) []*SeqStorageOrigin {
 	}
 	if st := ev.Storage; st != nil && st.ErrorResult != nil {
 		return []*SeqStorageOrigin{nil, {Kind: SeqOriginWriteError, WriteError: st.ErrorResult}}
+	}
+	if tx := ev.Transaction; tx != nil && tx.Origin != nil {
+		// Begin 返回 (tx, error)：槽 0 事务、槽 1 事务错误（begin=1）。
+		return []*SeqStorageOrigin{
+			{Kind: SeqOriginTransaction, TxOrigin: tx.Origin},
+			{Kind: SeqOriginTxError, TxError: &SeqTxOpResult{CallID: "", Operation: SeqTxBegin, Slot: 1}},
+		}
 	}
 	return nil
 }
@@ -217,6 +230,17 @@ func seqBindOriginToVar(env *seqEnv, obj *ast.Object, origin *SeqStorageOrigin) 
 		return false
 	}
 	switch origin.Kind {
+	case SeqOriginTransaction:
+		if origin.TxOrigin != nil {
+			env.setTx(obj, origin.TxOrigin)
+			env.setScalar(obj, cloneSeqScalarOrigin(origin))
+			return true
+		}
+	case SeqOriginTxError:
+		if origin.TxError != nil {
+			env.setTxErr(obj, origin.TxError)
+			return true
+		}
 	case SeqOriginWriteError:
 		if origin.WriteError != nil {
 			env.setErr(obj, origin.WriteError)

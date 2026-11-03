@@ -77,6 +77,9 @@ func (e *seqEnv) markScalarEscapedAt(obj *ast.Object, pos token.Pos) {
 	// U04h/U04j：取址/闭包写者同样使错误结果/行数变量失效。
 	e.markErrEscaped(obj, pos)
 	e.markRowsEscaped(obj, pos)
+	// U04n：取址/闭包写者使事务变量与事务错误槽失效。
+	e.markTxEscaped(obj)
+	e.setTxErr(obj, nil)
 }
 
 // scalarOriginAt 该使用位置是否仍可用槽来源（逃逸从逃逸点起生效）。

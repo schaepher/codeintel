@@ -21,6 +21,9 @@ const (
 	SeqOriginWriteRowCount = "write_row_count"
 	// U04m：标准库 Exec 的返回槽 0（sql.Result）。
 	SeqOriginSQLResult = "sql_result"
+	// U04n：事务对象与事务错误槽。
+	SeqOriginTransaction = "transaction"
+	SeqOriginTxError     = "tx_error"
 )
 
 // 标量来源树的边界（有界展开：超限即未知，不截取部分）。
@@ -47,6 +50,9 @@ type SeqStorageOrigin struct {
 	WriteError *SeqWriteErrorResult `json:"write_error,omitempty"`
 	// SQLResult U04m：该标量是某次 Exec 的 sql.Result（kind=sql_result）。
 	SQLResult *SeqSQLResult `json:"sql_result,omitempty"`
+	// TxOrigin / TxError U04n：事务对象与事务操作的错误槽。
+	TxOrigin *SeqTxOrigin   `json:"tx_origin,omitempty"`
+	TxError  *SeqTxOpResult `json:"tx_error,omitempty"`
 }
 
 // cloneSeqScalarOrigin 深拷贝（消费者不得改到请求内的共享来源）。
@@ -65,6 +71,14 @@ func cloneSeqScalarOrigin(o *SeqStorageOrigin) *SeqStorageOrigin {
 			out.Parts = append(out.Parts, *cloneSeqScalarOrigin(&o.Parts[i]))
 		}
 	}
+	if o.TxOrigin != nil {
+		cp := *o.TxOrigin
+		out.TxOrigin = &cp
+	}
+	if o.TxError != nil {
+		cp := *o.TxError
+		out.TxError = &cp
+	}
 	return &out
 }
 
@@ -75,6 +89,16 @@ func sameSeqScalarOrigin(a, b *SeqStorageOrigin) bool {
 	}
 	if a.Kind != b.Kind || a.ScalarType != b.ScalarType || a.Symbol != b.Symbol ||
 		a.Repo != b.Repo || a.Literal != b.Literal || len(a.Parts) != len(b.Parts) {
+		return false
+	}
+	if (a.TxOrigin == nil) != (b.TxOrigin == nil) || (a.TxError == nil) != (b.TxError == nil) {
+		return false
+	}
+	if a.TxOrigin != nil && (a.TxOrigin.ID != b.TxOrigin.ID || a.TxOrigin.Symbol != b.TxOrigin.Symbol) {
+		return false
+	}
+	if a.TxError != nil && (a.TxError.CallID != b.TxError.CallID || a.TxError.Operation != b.TxError.Operation ||
+		a.TxError.Slot != b.TxError.Slot) {
 		return false
 	}
 	pa, pb := 0, 0
