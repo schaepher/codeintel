@@ -158,8 +158,9 @@ func seqRecordWriteResultPair(req CodeSequenceRequest, lhs, rhs []ast.Expr) {
 			if seqBindOriginToVar(req.env, id.Obj, origin) {
 				continue
 			}
-			if origin.Kind == SeqOriginParameter || origin.Kind == SeqOriginLiteral ||
-				origin.Kind == SeqOriginConcat {
+			if origin.Kind != SeqOriginWriteError && origin.Kind != SeqOriginWriteRowCount &&
+				origin.Kind != SeqOriginTxError && origin.Kind != SeqOriginTransaction &&
+				origin.Kind != SeqOriginNil {
 				req.env.setScalar(id.Obj, origin)
 				continue
 			}

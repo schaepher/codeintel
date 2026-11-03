@@ -57,6 +57,8 @@ type SeqStorageOrigin struct {
 	TxError  *SeqTxOpResult `json:"tx_error,omitempty"`
 	// FieldRead U04v：请求结构体字段读取（独立读取 ID + 声明/读取位置）。
 	FieldRead *SeqStorageFieldRead `json:"field_read,omitempty"`
+	// StructLiteral U04w：结构体字面量初始化来源（initialization_only）。
+	StructLiteral *SeqStorageStructLiteral `json:"struct_literal,omitempty"`
 }
 
 // cloneSeqScalarOrigin 深拷贝（消费者不得改到请求内的共享来源）。
@@ -89,6 +91,16 @@ func cloneSeqScalarOrigin(o *SeqStorageOrigin) *SeqStorageOrigin {
 		cp.Path = append([]string{}, o.FieldRead.Path...)
 		out.FieldRead = &cp
 	}
+	if o.StructLiteral != nil {
+		cp := *o.StructLiteral
+		cp.Fields = nil
+		for i := range o.StructLiteral.Fields {
+			f := o.StructLiteral.Fields[i]
+			cp.Fields = append(cp.Fields, SeqStructLiteralField{Name: f.Name,
+				Origin: cloneSeqScalarOrigin(f.Origin)})
+		}
+		out.StructLiteral = &cp
+	}
 	return &out
 }
 
@@ -115,6 +127,12 @@ func sameSeqScalarOrigin(a, b *SeqStorageOrigin) bool {
 		return false
 	}
 	if a.FieldRead != nil && a.FieldRead.ID != b.FieldRead.ID {
+		return false
+	}
+	if (a.StructLiteral == nil) != (b.StructLiteral == nil) {
+		return false
+	}
+	if a.StructLiteral != nil && a.StructLiteral.ID != b.StructLiteral.ID {
 		return false
 	}
 	pa, pb := 0, 0
@@ -210,7 +228,23 @@ func seqScalarOriginDepth(req CodeSequenceRequest, e ast.Expr, depth int) *SeqSt
 		return seqFieldReadOrigin(req, v)
 	case *ast.CallExpr:
 		// U04v：getter 调用（单一 return：字面量 / receiver 字段）。
-		return seqGetterOrigin(req, v)
+		if o := seqGetterOrigin(req, v); o != nil {
+			return o
+		}
+		// U04w：实参位置的调用（`Session.Insert(Build(id))`）——按已展开的
+		// 返回槽来源传播（不重跑函数体）。
+		return seqNodeResultOriginAt(req, v, 0)
+	case *ast.UnaryExpr:
+		// U04w：`&T{...}` 与 `T{...}` 同义（指针字面量）。
+		if v.Op == token.AND {
+			if lit, ok := runtimeUnparen(v.X).(*ast.CompositeLit); ok {
+				return seqStructLiteralOrigin(req, lit, depth)
+			}
+		}
+		return nil
+	case *ast.CompositeLit:
+		// U04w：`T{...}` 构造来源（initialization_only）。
+		return seqStructLiteralOrigin(req, v, depth)
 	case *ast.BinaryExpr:
 		if v.Op != token.ADD {
 			return nil
@@ -220,68 +254,4 @@ func seqScalarOriginDepth(req CodeSequenceRequest, e ast.Expr, depth int) *SeqSt
 		return seqConcatOrigin(left, right)
 	}
 	return nil
-}
-
-// seqConcatOrigin 字符串拼接来源（两侧都必须已证明为 string 来源）。
-func seqConcatOrigin(left, right *SeqStorageOrigin) *SeqStorageOrigin {
-	if !seqOriginIsString(left) || !seqOriginIsString(right) {
-		return nil
-	}
-	parts := make([]SeqStorageOrigin, 0, 2)
-	appendParts := func(o *SeqStorageOrigin) {
-		if o.Kind == SeqOriginConcat {
-			parts = append(parts, o.Parts...)
-			return
-		}
-		parts = append(parts, *cloneSeqScalarOrigin(o))
-	}
-	appendParts(left)
-	appendParts(right)
-	if len(parts) > 32 || seqOriginTotalBytes(parts) > seqScalarOriginMaxBytes {
-		return nil
-	}
-	return &SeqStorageOrigin{Kind: SeqOriginConcat, ScalarType: "string", Parts: parts}
-}
-
-func seqOriginIsString(o *SeqStorageOrigin) bool {
-	if o == nil || o.ScalarType != "string" {
-		return false
-	}
-	// 只有 parameter/literal(string)/concat 的字符串来源可继续拼接。
-	switch o.Kind {
-	case SeqOriginParameter, SeqOriginConcat:
-		return true
-	case SeqOriginLiteral:
-		return true
-	}
-	return false
-}
-
-func seqOriginTotalBytes(parts []SeqStorageOrigin) int {
-	total := 0
-	for i := range parts {
-		total += len(parts[i].Literal)
-		for j := range parts[i].Parts {
-			total += len(parts[i].Parts[j].Literal)
-		}
-	}
-	return total
-}
-
-// captureSeqArgOrigins 调用点每个实参的标量来源（在实参求值位置立即
-// 捕获：后续赋值/改写不影响已捕获的来源）。
-func captureSeqArgOrigins(req CodeSequenceRequest, call *ast.CallExpr) []*SeqStorageOrigin {
-	if call == nil {
-		return nil
-	}
-	out := make([]*SeqStorageOrigin, len(call.Args))
-	for i, arg := range call.Args {
-		if call.Ellipsis.IsValid() && i == len(call.Args)-1 {
-			// `f(xs...)` 的实参是集合，标量来源未证明。
-			out[i] = nil
-			continue
-		}
-		out[i] = seqScalarOriginOf(req, arg)
-	}
-	return out
 }
