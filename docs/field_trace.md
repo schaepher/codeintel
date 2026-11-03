@@ -8224,3 +8224,8 @@ action；开库前先 `ValidateRuntimeData`）。
   `integration/todo28_u04c_test.go`（Entry parameter+concat、Escape/Capture
   省略、Branch 未知 / Same 保留、Shadow 隔离、Distinct 两次调用不串、
   Compound/Loop 省略；depth=1+续查与 depth=12 同口径）。
+- **踩坑（本轮）**：把 `defer func(){ annotate(node) }()` 改写成
+  `defer annotate(node)` 会让 `node` 在 **defer 语句执行时**求值（此刻还是
+  nil），调用节点证据被静默丢掉——`TestSequenceCodeEvidenceIdentity` 报
+  "证据清单缺 codeintel query sequence"。重构收尾逻辑时保持闭包捕获，
+  或把变量改成指针参数。
