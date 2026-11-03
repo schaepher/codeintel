@@ -28,16 +28,7 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		if seqPureTypeConversionCall(call) {
 			return nil
 		}
-		defer func() {
-			attachRuntimeEvidence(req, node, call)
-			finishSeqEvidence(req, node)
-			// U04：持久化边界（INSERT/UPDATE 字面量）写进诊断——值来源/跨入口
-			// 顺序仍需请求证明，不据此凭空连线。
-			seqAnnotatePersistence(node, call)
-			// U04b：结构化写入证据（SQL AST + 实参绑定 + 资源身份边界）。
-			seqAttachStorageEvidence(node, call, &seqPersistCtx{file: f, pkgPath: curPkg,
-				src: src, fset: fset, guard: req.branchCond})
-		}()
+		defer func() { seqAnnotateCallEvidence(req, node, call, f, fset, src, curPkg) }()
 		fun := call.Fun
 		pos := fset.Position(call.Lparen)
 		node = &CodeSeqNode{Kind: "call", Label: callLabel(fset, src, fun), Actor: callActor(fset, src, fun), Line: pos.Line}
@@ -65,6 +56,8 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		// todo22 §2：本次调用的实参值（按位置）——被展开函数绑定形参后，
 		// 形参调用处才能证明执行的是哪个回调。
 		req.paramValues = captureSeqClosureArgs(a, req, req.curCtx, call)
+		// U04c：实参的标量来源（同一求值位置立即捕获）。
+		req.callArgOrigins = captureSeqArgOrigins(req, call)
 		// todo24 §11.5：`Replace(&f)` 这类取址实参可能改写回调槽——先降级为
 		// 未知，后续同作用域使用不得沿用旧绑定。
 		seqInvalidateAddrTaken(req, call)

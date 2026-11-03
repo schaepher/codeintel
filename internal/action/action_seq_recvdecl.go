@@ -142,8 +142,16 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 	env := newSeqEnv(nil)
 	bindSeqParams(env, fn.Type.Params, req.paramValues)
 	seqRecordParamTypes(req, env, fn.Type.Params)
+	// U04c：形参标量来源——入口参数是 parameter（symbol=入口），被调函数
+	// 形参沿用调用点实参来源（缺失即未知，不借同名参数）。
+	if symID == req.entryID {
+		seqBindEntryParamOrigins(req, env, fn.Type.Params, fset, src, symID)
+	} else {
+		seqBindParamOrigins(env, fn.Type.Params, req.callArgOrigins)
+	}
 	req.env = env
 	req.paramValues = nil
+	req.callArgOrigins = nil
 	// todo10-5：一层条件传播——调用点实参字面量按形参名对齐（下次展开覆盖）
 	req.sceneArgs = paramLiteralArgs(fn.Type.Params, req.callArgLits)
 	req.sceneSrc = paramSourceArgs(fn.Type.Params, req.callArgLits, req.callArgSrcs)

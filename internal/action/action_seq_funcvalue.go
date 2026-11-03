@@ -55,11 +55,11 @@ type seqValue struct {
 	origin    string
 	lit       *ast.FuncLit
 	ctx       *seqFileCtx
-	env       *seqEnv // 创建字面量时的环境（闭包捕获）
-	enclosing string  // 字面量所在函数的 canonical ID（调用边归属）
-	pkgPath   string  // 字面量所在函数的包路径（未解析调用分类用）
-	recvType  string  // 字面量所在函数的 receiver（局部方法调用具体化用）
-	recvName  string  // 字面量所在函数的 receiver 名（闭包内 receiver 字段识别用）
+	env       *seqEnv     // 创建字面量时的环境（闭包捕获）
+	enclosing string      // 字面量所在函数的 canonical ID（调用边归属）
+	pkgPath   string      // 字面量所在函数的包路径（未解析调用分类用）
+	recvType  string      // 字面量所在函数的 receiver（局部方法调用具体化用）
+	recvName  string      // 字面量所在函数的 receiver 名（闭包内 receiver 字段识别用）
 	recvObj   *ast.Object // 字面量所在函数的 receiver 声明对象（身份校验用）
 	recvDecl  map[string]string
 	symID     string // named：目标 canonical ID
@@ -71,13 +71,13 @@ type seqValue struct {
 	listPath int
 	// todo22 §2.1：绑定元数据——声明对象（区分同名阴影）、调用上下文
 	// （绑定发生的文件/行）与条件（在哪个分支条件下成立）。
-	declObj  *ast.Object
+	declObj *ast.Object
 	// T02：该函数值来自"函数列表回调路径"（range 逐元素实际调用）——
 	// 展开其内部时按回调路径补证（verdict=corroborated）。
 	callbackList bool
 	bindFile     string
-	bindLine int
-	cond     string
+	bindLine     int
+	cond         string
 }
 
 func unknownSeqValue(why string) seqValue {

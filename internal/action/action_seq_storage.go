@@ -39,45 +39,6 @@ const (
 	SeqStorageBoundaryArgs     = "argument_count_unproven"    // 占位符与实参数量不符
 )
 
-// SeqStorage 写入证据（SeqEvidence.Storage）。
-type SeqStorage struct {
-	Operation string `json:"operation,omitempty"`
-	Table     string `json:"table,omitempty"`
-	// Writes SET/列赋值（按 SQL 书写顺序）。
-	Writes []SeqStorageWrite `json:"writes,omitempty"`
-	// Predicates WHERE 的 AND 等式子集（按书写顺序）。
-	Predicates []SeqStoragePredicate `json:"predicates,omitempty"`
-	// ResourceDeclaration 只能是**准确的包级** `var X *sql.DB` 声明符号；
-	// 局部同名/已初始化/其它类型一律省略。
-	ResourceDeclaration string `json:"resource_declaration,omitempty"`
-	Guard               string `json:"guard,omitempty"`
-	Outcome             string `json:"outcome"`
-	Boundary            string `json:"boundary,omitempty"`
-}
-
-// SeqStorageWrite 单列写入。
-type SeqStorageWrite struct {
-	Column string          `json:"column"`
-	Value  SeqStorageValue `json:"value"`
-}
-
-// SeqStoragePredicate WHERE 等式的列与值。
-type SeqStoragePredicate struct {
-	Column string          `json:"column"`
-	Value  SeqStorageValue `json:"value"`
-}
-
-// SeqStorageValue 绑定到列的实参或 SQL 字面量。
-type SeqStorageValue struct {
-	Kind string `json:"kind"`
-	// Argument 零基索引（不含 context/SQL）；SQL 字面量为 -1。
-	Argument int `json:"argument"`
-	// Expression 实参在**调用处**的 Go 表达式文本（argument）。
-	Expression string `json:"expression,omitempty"`
-	// SQL 字面量原文（literal）。
-	SQL string `json:"sql,omitempty"`
-}
-
 // seqPersistCtx 持久化注释所需的调用点上下文（源码/文件/包）。
 type seqPersistCtx struct {
 	file    *ast.File
@@ -85,6 +46,9 @@ type seqPersistCtx struct {
 	src     []byte
 	fset    *token.FileSet
 	guard   string
+	// argOrigins U04c：调用实参的标量来源（按 call.Args 下标；SQL 之后的值
+	// 实参用 [sqlArg+1:] 对齐 argument 编号）。
+	argOrigins []*SeqStorageOrigin
 }
 
 // seqExprText 表达式在源码中的原文（缺失上下文返回空）。
@@ -102,9 +66,10 @@ func (c *seqPersistCtx) exprText(e ast.Expr) string {
 
 // seqSQLBinder 按占位符出现顺序绑定实参（不含 context/SQL）。
 type seqSQLBinder struct {
-	args []ast.Expr
-	used int
-	ctx  *seqPersistCtx
+	args    []ast.Expr
+	origins []*SeqStorageOrigin
+	used    int
+	ctx     *seqPersistCtx
 	// lenient 实参不足时仍产出结构（只用于诊断文本，不用于证据）。
 	lenient bool
 }
@@ -123,13 +88,21 @@ func (b *seqSQLBinder) bind(e sqlparser.Expr) (SeqStorageValue, string) {
 		idx := b.used
 		b.used++
 		return SeqStorageValue{Kind: SeqStorageValueArgument, Argument: idx,
-			Expression: b.ctx.exprText(b.args[idx])}, ""
+			Expression: b.ctx.exprText(b.args[idx]), Origin: b.originAt(idx)}, ""
 	}
 	if text, ok := seqStorageLiteralText(e); ok {
 		return SeqStorageValue{Kind: SeqStorageValueLiteral, Argument: -1, SQL: text}, ""
 	}
 	// 函数调用/表达式赋值：SQL 形态未证明（不猜值）。
 	return SeqStorageValue{}, SeqStorageBoundaryShape
+}
+
+// originAt 第 idx 个值实参的标量来源（无则省略）。
+func (b *seqSQLBinder) originAt(idx int) *SeqStorageOrigin {
+	if b == nil || idx < 0 || idx >= len(b.origins) {
+		return nil
+	}
+	return cloneSeqScalarOrigin(b.origins[idx])
 }
 
 // done 校验占位符与实参数量一致（诊断文本模式跳过）。
@@ -259,6 +232,9 @@ func seqStorageEvidence(node *CodeSeqNode, call *ast.CallExpr, c *seqPersistCtx)
 		return &SeqStorage{Outcome: "unproven", Boundary: SeqStorageBoundaryArgs}
 	}
 	binder := &seqSQLBinder{args: valueArgs, ctx: c}
+	if c != nil && len(c.argOrigins) > sqlArg+1 {
+		binder.origins = c.argOrigins[sqlArg+1:]
+	}
 	st, code := seqStorageParse(sql, binder)
 	if st == nil {
 		return &SeqStorage{Outcome: "unproven", Boundary: code}
@@ -274,6 +250,18 @@ func seqStorageEvidence(node *CodeSeqNode, call *ast.CallExpr, c *seqPersistCtx)
 		st.Guard = c.guard
 	}
 	return st
+}
+
+// seqAnnotateCallEvidence 调用节点的收尾证据：运行时读取、调用证据
+// 收口、持久化边界诊断（U04）与结构化写入证据（U04b/U04c）。
+func seqAnnotateCallEvidence(req CodeSequenceRequest, node *CodeSeqNode, call *ast.CallExpr,
+	f *ast.File, fset *token.FileSet, src []byte, curPkg string) {
+	attachRuntimeEvidence(req, node, call)
+	finishSeqEvidence(req, node)
+	// 值来源/跨入口顺序仍需请求证明，不据此凭空连线。
+	seqAnnotatePersistence(node, call)
+	seqAttachStorageEvidence(node, call, &seqPersistCtx{file: f, pkgPath: curPkg,
+		src: src, fset: fset, guard: req.branchCond, argOrigins: req.callArgOrigins})
 }
 
 // seqAttachStorageEvidence 把结构化写入证据写到调用节点（不覆盖既有

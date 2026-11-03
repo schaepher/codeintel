@@ -18,8 +18,13 @@ func walkStmts(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []b
 			req.acc.cancel = true
 			return out
 		}
+		// U04c：先标记本语句的取址/闭包写者（持续逃逸），再展开语句。
+		seqMarkScalarEscapes(req, st)
 		seq := walkStmt(a, req, fset, src, st, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
 		out = append(out, seq...)
+		// U04c：赋值/声明/incdec/range 的标量来源（RHS 读旧值，LHS 从下一
+		// 条语句起生效）。
+		seqRecordScalarStatement(req, st)
 		// todo10-2：return 终止当前路径——其后的语句不属于这条路径。
 		// U03：已判定 taken 的分支里含 return 时，后续语句在同一路径上也不
 		// 可达（`if len(m)==0 { Empty(); return }` 之后的业务分支不应再出现）。

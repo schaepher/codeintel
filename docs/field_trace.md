@@ -8191,3 +8191,36 @@ action；开库前先 `ValidateRuntimeData`）。
 - 回归：`integration/todo27_t12_test.go`：不同实参/回调前沿各自绑定；
   调用后覆写不污染已保存环境；factory 字段 depth1+续查与 depth12 输出同一
   候选集合（不升级为确定执行）。
+
+## §184 todo28 U04a/U04b/U04c：写入身份、结构化 storage 与标量来源（2026-11-04）
+
+- **U04a 写入身份闸门**：`seqPersistenceSQLArg` 只认 `database/sql` 的
+  `(DB/Tx).Exec`（SQL 在参数 0）与 `(DB/Tx/Conn).ExecContext`（参数 1）；
+  `Stmt.Exec`（SQL 来自 Prepare）、自定义同名方法、日志调用、缺 SymbolID
+  的未解析调用都不产生写入诊断。SQL 字符串按 Go 语法 `strconv.Unquote`
+  解码（不再 `Trim("`\"")` 猜）。
+- **U04b 结构化 storage**：表/列/谓词**全部来自 vitess SQL AST**（删除
+  `parseInsertTarget`/`parseUpdateTarget`/`splitTrim` 字符串切分）。实参按
+  占位符出现顺序绑定为 `argument`（零基、不含 context/SQL，保留调用处 Go
+  表达式原文），SQL 字面量给 `literal` + 原文（`'ID'`）。资源声明只认
+  **准确的包级无初始化** `var X *sql.DB`（`seqStorageResourceDecl`）。
+  形态拒绝矩阵：INSERT SELECT / 多行 VALUES / IGNORE / REPLACE / ON DUP /
+  重复写列 / 表别名 / 限定名 / 多表 / 表达式赋值 / OR / IN / LIMIT / 命名
+  绑定（`?` 会被 vitess 归一成内部名 v1，故按 SQL 文本扫 `:name`）/ 多语句。
+- **U04c 标量来源**：`seqEnv.scalars`（按 `*ast.Object` 隔离，带持续逃逸
+  标记）复用现有 clone/merge 通道：
+  - 入口形参 → `parameter`（symbol=**本次查询入口**、零基 index、repo）；
+    被调函数形参沿用**调用点立即捕获**的实参来源（`callArgOrigins`），
+    缺失即未知（不借同名参数）；
+  - 字面量 → `literal`（字符串解码后重新加引号、整数归一为十进制）；
+  - 字符串 `+` → `concat`（两侧都必须是已证明 string 来源；深度 8 / 64KiB
+    上限，超限即未知而不是截取部分）；
+  - 失效：普通覆盖替换来源；compound/incdec 与 range 元素置未知；取址
+    （`&x` / `p:=&x`）与闭包内写者使声明槽**持续逃逸**（其后赋值也不能
+    恢复来源）；分支合并来源相同保留、不同未知；循环用 `mergePossible`
+    把循环前值作为候选。
+- 生产链路验收：`integration/todo28_u04b_test.go`（真实 init→CLI，UPDATE
+  编号/字符串内逗号/局部资源/动态 SQL/数量不符/日志不产生诊断）、
+  `integration/todo28_u04c_test.go`（Entry parameter+concat、Escape/Capture
+  省略、Branch 未知 / Same 保留、Shadow 隔离、Distinct 两次调用不串、
+  Compound/Loop 省略；depth=1+续查与 depth=12 同口径）。

@@ -52,8 +52,13 @@ schema 变更需更新本契约并走 Q 流程（Agent/MCP 依赖字段名解析
     `resource_identity_unproven` | `sql_shape_unproven` | `query_not_proven` |
     `argument_count_unproven`）。`value`：`kind`（argument|literal）、
     `argument`（零基，不含 context/SQL；字面量 -1）、`expression`（实参在调用处
-    的 Go 原文）、`sql`（字面量原文）。**这组字段只描述语句结构与实参绑定**：
-    值来源、资源身份、写入成功与跨入口顺序都未证明，不得据此生成因果边。
+    的 Go 原文）、`sql`（字面量原文）、可选 `origin`（U04c 标量来源）。
+     `origin`：`kind`（parameter|literal|concat）、`scalar_type`、`symbol`
+    （入口 canonical ID）+ `parameter`（零基）+ `repo`（parameter）、
+     `literal`（Go 规范化原文）、`parts[]`（concat，有界：深度 8 / 64KiB）。
+     **这组字段只描述语句结构与实参绑定**：值来源、资源身份、写入成功与
+     跨入口顺序都未证明，不得据此生成因果边；origin 也不证明另一个入口的
+     参数与本入口相等。
 - **rule list**：数组——RelationRule[]
 
 ## 历史（为何有本文档）

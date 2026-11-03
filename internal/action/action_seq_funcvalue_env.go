@@ -18,10 +18,13 @@ type seqEnv struct {
 	parent *seqEnv
 	vals   map[*ast.Object]seqValue
 	types  map[*ast.Object]seqTypeRef
+	// scalars U04c：标量来源槽（parameter/literal/concat）与持续逃逸标记。
+	scalars map[*ast.Object]seqScalarSlot
 }
 
 func newSeqEnv(parent *seqEnv) *seqEnv {
-	return &seqEnv{parent: parent, vals: map[*ast.Object]seqValue{}, types: map[*ast.Object]seqTypeRef{}}
+	return &seqEnv{parent: parent, vals: map[*ast.Object]seqValue{},
+		types: map[*ast.Object]seqTypeRef{}, scalars: map[*ast.Object]seqScalarSlot{}}
 }
 
 func (e *seqEnv) lookup(obj *ast.Object) (seqValue, bool) {
@@ -46,8 +49,9 @@ func (e *seqEnv) clone() *seqEnv {
 		return nil
 	}
 	out := &seqEnv{parent: e.parent,
-		vals:  make(map[*ast.Object]seqValue, len(e.vals)),
-		types: make(map[*ast.Object]seqTypeRef, len(e.types))}
+		vals:    make(map[*ast.Object]seqValue, len(e.vals)),
+		types:   make(map[*ast.Object]seqTypeRef, len(e.types)),
+		scalars: e.copyScalars()}
 	for k, v := range e.vals {
 		out.vals[k] = v
 	}
@@ -92,6 +96,8 @@ func (e *seqEnv) mergeBranches(branches []*seqEnv) {
 		}
 		e.set(obj, multiSeqValue(cands, "分支/循环下多个值都可能到达调用点（未消歧）"))
 	}
+	// U04c：标量来源走同一批分支候选（来源相同保留、不同未知）。
+	e.mergeScalars(branches)
 }
 
 // sameSeqValue 两个函数值是否同一来源（kind + 字面量/符号/未知原因）。
@@ -152,4 +158,6 @@ func (e *seqEnv) mergePossible(pre *seqEnv) {
 		}
 		e.set(obj, multiSeqValue(cands, "循环体可能未执行（值可能仍是循环前的）"))
 	}
+	// U04c：标量槽同理（循环体可能 0 次执行）。
+	e.mergePossibleScalars(pre)
 }
