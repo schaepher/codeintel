@@ -51,3 +51,29 @@
 `grpc_impl` 边（旧版本构建）。处理：源码回退会按生成注册函数名 + 真实 calls
 入边 + 注册实参接口 implements 发现实现；仍失败时确认 helper 确实被调用
 （未被调用的 Register helper 不是路由），或 `reindex` 重建索引。
+
+## todo28 新增（SQL/事务/外部源码证据）
+
+- **`storage.error_result`/`writes` 缺失**：先确认调用点是准确的
+  `database/sql` 身份（DB/Tx Exec、DB/Tx/Conn ExecContext、Tx Query*）；自定义
+  同名方法/Stmt.Exec/日志调用不会被当作写入。再用 `--evidence --json` 看
+  `storage.boundary`：`query_not_proven`（动态 SQL）、`sql_shape_unproven`
+  （SELECT ... INTO/多行/别名等）、`argument_count_unproven`（占位符数量不符）。
+- **`write_condition` 不出现**：错误变量必须来自**同一次**写入
+  （`_,err := DB.Exec(...)` / `var _,err =` / 别名 / 形参透传）；被覆盖、取址、
+  闭包写者或与另一结果合流后不再引用。depth=1 时依赖续查完成后回填，确认
+  带 `--continue-segments`。
+- **`row_count_condition` 缺失**：XORM 需要 `(int64,error)` 签名源码证明
+  （`orm.error_result.signature_source` 非空）；SQL 需要准确的
+  `(Result).RowsAffected` 调用且接收者是 Exec 返回槽 0。
+- **`transaction` 全是 `transaction_origin_unproven`**：Begin 必须是已证明的
+  `DB.Begin/BeginTx` 或 `Conn.BeginTx`；包装器需经返回槽/形参传递（`Start()`
+  返回 `DB.Begin()`）。缺来源时不伪造 tx ID，属预期边界。
+- **外部源码（包变量/字段/嵌入方法）解析不到**：确认依赖在查询主仓的 go.mod
+  里（`replace` 也可）、包不是 stdlib、文件未被 `//go:build` 排除；标准库方法
+  只给身份（`external_target`），不展开实现。vendor 源码按 vendor 边界 +
+  `modules.txt` + `go list -mod=vendor` 校验。
+- **运行时边界 `missing_fact/incomplete_rows`**：快照 observation 的
+  `complete` 为 false 或 scope 不覆盖查询；按 `boundary.needs` 补事实（
+  complete_rows/columns/scope/snapshot/resource_binding）。`query_not_proven`
+  表示 SQL 形态未证明（DISTINCT/JOIN/表达式等），不应通过配置补语义。

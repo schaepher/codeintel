@@ -8229,3 +8229,28 @@ action；开库前先 `ValidateRuntimeData`）。
   nil），调用节点证据被静默丢掉——`TestSequenceCodeEvidenceIdentity` 报
   "证据清单缺 codeintel query sequence"。重构收尾逻辑时保持闭包捕获，
   或把变量改成指针参数。
+
+## §185 todo28 批量交付（2026-11-05）
+
+- **SQL 证据链**：U04a 写入身份闸门 → U04b `storage`（AST 表/列/谓词/实参原文/
+  资源声明）→ U04c origin（parameter/literal/concat + 持续逃逸，位置敏感到
+  同一语句内更早求值的实参）→ U04d `storage.resource`（bound/binding_missing/
+  binding_mutated/analysis_not_visited/ambiguous_resource；未知调用/取址/闭包
+  写者/for·switch init/range/Scan 目标/深度截断使 DB 绑定失效）→ U04e
+  `storage_read`（明确列投影 + AND 等式 + 读取边界 Note）→ U04f/U04g XORM 终端
+  操作与模型声明 → U04h/U04i/U04j 错误槽/签名源码/影响行数 → U04k/U04l 返回槽
+  共识与错误守卫等价 → U04m `Result.RowsAffected` → U04n 事务身份/独立错误槽。
+- **外部源码**：U04o 递归 go list 固定主仓模块图；U04p 同包跨文件函数；
+  U04q 方法 owner/嵌入 path；U04r/U04s 字段声明文件与显式匿名字段/标准库终端；
+  U04t/U04u 导入包变量与省略类型恢复；U06c 外部接口实例边界；U06d vendor
+  包身份（vendor 边界 + modules.txt + go list 选中文件）。
+- **候选与续查**：U06b `candidate_budget` 标记 + 两个续查入口拒绝候选
+  （不登记前沿/不 replay/不消耗预算）；U07 条件工厂（单例 switch 字段、工厂
+  字段 `return &local`）保留 Actor/Type 与守卫。
+- **运行时**：T19 `runtime.boundary{kind,code,needs}`；无快照时对已证明的字面量
+  读取给出 `snapshot_missing`（不索要配置）；完整零行保持 empty。
+- 测试：`integration/todo28_*_test.go`（每项真实 init→CLI）+ 相关 action 单测。
+- 踩坑：`defer f(node)` 会在 defer 语句处求值（node 仍为 nil）——收尾证据逻辑
+  要用闭包捕获；`Diagnostic` 类结构拆分时注意 `*ast.ComparisonExpr` 不存在
+  （比较是 `*ast.BinaryExpr`）；外部文件上下文的 import path 不能靠 rel 的
+  首个 `/` 猜（`<external>/<import path>/<file>`），要显式携带 pkgPath。

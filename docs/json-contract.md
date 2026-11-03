@@ -59,6 +59,31 @@ schema 变更需更新本契约并走 Q 流程（Agent/MCP 依赖字段名解析
      **这组字段只描述语句结构与实参绑定**：值来源、资源身份、写入成功与
      跨入口顺序都未证明，不得据此生成因果边；origin 也不证明另一个入口的
      参数与本入口相等。
+  - `storage.resource`（U04d）：`status`（bound|binding_missing|
+    binding_mutated|analysis_not_visited|ambiguous_resource）+ `source_id`/
+    `symbol`/`snapshot_hash`（仅 bound 带前两者）。
+  - `storage.error_result`（U04h）：`call_id`（每个实际调用节点一个）、
+    `repo`/`entry`/`symbol`/`file`/`offset`/`slot`（SQL/XORM 写入恒为 1）。
+  - `storage_read`（U04e）：`table`/`columns`/`predicates`/`resource_declaration`/
+    `guard`/`outcome`/`boundary`（+可选 `resource`）；不证明唯一记录或读取成功。
+  - `orm`（U04f/U04g/U04i/U04j）：`framework`/`operation`/`table`（或
+    `table_expression`）/`arguments`/`predicates`/`predicate_coverage`/
+    `outcome`/`boundary`（orm_state_unproven|table_identity_unproven）；
+    `models[]`（argument/symbol_id/source/fields[{name,go_type,tag,embedded}]/
+    boundary=model_mapping_unproven）；`error_result`（+`signature_source`）；
+    `row_count_result{write,slot:0,access?}`。
+  - `transaction`（U04n）：`origin{id,repo,entry,symbol,file,offset,slot}`/
+    `action`（begin|write|read|commit|rollback）/`guard`/`exec`（defer|async）/
+    `outcome`（unproven）/`boundary`（transaction_origin_unproven）。
+  - `runtime`（todo25/T19）：`table`/`columns`/`query`/`source_id`/`symbol`/
+    `result`/`reason`/`boundary{kind,code,needs}`；kind = missing_fact |
+    analysis_boundary | ambiguous_fact，needs 只列真正需要的事实。
+  - 节点级 `write_condition`（result{call_id,slot}+when_true/when_false =
+    error_nil|error_non_nil）、`row_count_condition`（rows_gt_zero|
+    rows_le_zero|rows_ge_zero|rows_lt_zero|rows_eq_zero|rows_ne_zero）、
+    `transaction_condition`（result{call_id,operation,slot}）、
+    `value_origins`/`result_origins`（return 槽来源）、`method_path`（外部方法
+    owner 链）。
 - **rule list**：数组——RelationRule[]
 
 ## 历史（为何有本文档）
