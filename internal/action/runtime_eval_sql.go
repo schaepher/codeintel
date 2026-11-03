@@ -4,7 +4,6 @@ package action
 import (
 	"fmt"
 	"go/ast"
-	"strings"
 )
 
 func (e *rtEval) evalQueryCall(frame *rtFrame, call *ast.CallExpr, s *rtState, depth int) (rtValue, []*rtState, bool) {
@@ -43,26 +42,17 @@ func (e *rtEval) evalQueryCall(frame *rtFrame, call *ast.CallExpr, s *rtState, d
 	ev := &SeqRuntimeEvidence{SnapshotPath: e.an.snap.Path, SnapshotHash: e.an.snap.Hash,
 		Version: e.an.snap.Version, Reason: "runtime-query", Result: "unknown"}
 	e.an.facts[call] = ev
-	if sym == "" {
-		ev.Reason = "binding-type-unproven"
-		return rtUnknownValue(), []*rtState{s}, true
+	// T19：先解析查询（即使缺绑定也要给出可核对的表/列/谓词身份），
+	// 绑定缺失作为明确边界而不是丢失查询身份。
+	mutated := false
+	if sym != "" {
+		mutated = e.an.globalByNameOf(&ast.Ident{Name: nameOfSymbol(sym)}).mutated
 	}
-	// 包级 DB 变量：rebind（DB=nil 等）后不再使用旧绑定。
-	if g := e.an.globalByNameOf(&ast.Ident{Name: nameOfSymbol(sym)}); g.mutated {
-		ev.Reason = "binding-mutated"
-		e.recordReadResource(call, SeqResourceMutated, sym, "")
-		return rtUnknownValue(), []*rtState{s}, true
-	}
-	source := runtimeResolveSource(e.an.snap, sym)
-	if source == "" {
-		ev.Reason = "binding-missing"
-		e.recordReadResource(call, SeqResourceBindingMissing, sym, "")
-		return rtUnknownValue(), []*rtState{s}, true
-	}
-	ev.SourceID = source
-	e.recordReadResource(call, SeqResourceBound, sym, source)
 	if len(call.Args) < 2 {
 		ev.Reason = "missing-sql"
+		if sym == "" {
+			ev.Reason = "binding-type-unproven"
+		}
 		return rtUnknownValue(), []*rtState{s}, true
 	}
 	var sqlVal rtValue
@@ -71,6 +61,10 @@ func (e *rtEval) evalQueryCall(frame *rtFrame, call *ast.CallExpr, s *rtState, d
 	}
 	if sqlVal.kind != rtString {
 		ev.Reason = "dynamic-sql"
+		ev.Boundary = seqRuntimeBoundaryFor(SeqRuntimeCodeQuery)
+		if sym == "" {
+			ev.Reason = "binding-type-unproven"
+		}
 		return rtUnknownValue(), []*rtState{s}, true
 	}
 	args := make([]rtValue, 0, len(call.Args)-2)
@@ -90,17 +84,41 @@ func (e *rtEval) evalQueryCall(frame *rtFrame, call *ast.CallExpr, s *rtState, d
 	q, err := parseRuntimeSelect(sqlVal.s, args)
 	if err != nil {
 		ev.Reason = err.Error()
+		// T19：SQL 形态未证明 → analysis_boundary/query_not_proven（不索要配置）。
+		ev.Boundary = seqRuntimeBoundaryFor(SeqRuntimeCodeQuery)
 		return rtUnknownValue(), []*rtState{s}, true
 	}
-	q.SourceID = source
+	q.SourceID = runtimeResolveSource(e.an.snap, sym)
 	q.Args = append([]rtValue(nil), args...)
 	e.an.queries[call] = q
 	ev.Table = q.Table
 	ev.Columns = append([]string(nil), q.Columns...)
 	ev.Query = runtimePredicateDisplays(q.Predicates)
+	// 绑定检查（查询身份已就绪后才能给出准确边界）。
+	if sym == "" {
+		ev.Reason = "binding-type-unproven"
+		return rtUnknownValue(), []*rtState{s}, true
+	}
+	if mutated {
+		ev.Reason = "binding-mutated"
+		e.recordReadResource(call, SeqResourceMutated, sym, "")
+		return rtUnknownValue(), []*rtState{s}, true
+	}
+	source := q.SourceID
+	if source == "" {
+		ev.Reason = "binding-missing"
+		ev.Boundary = seqRuntimeBoundaryFor(SeqRuntimeCodeBinding)
+		e.recordReadResource(call, SeqResourceBindingMissing, sym, "")
+		return rtUnknownValue(), []*rtState{s}, true
+	}
+	ev.SourceID = source
+	e.recordReadResource(call, SeqResourceBound, sym, source)
 	obs, err := runtimeObservationFor(e.an.snap, q)
 	if err != nil {
 		ev.Reason = err.Error()
+		if gap, ok := err.(*seqRuntimeGap); ok {
+			ev.Boundary = seqRuntimeBoundaryFor(gap.Code)
+		}
 		return rtUnknownValue(), []*rtState{s}, true
 	}
 	fillRuntimeObservationEvidence(ev, obs)
@@ -186,43 +204,6 @@ func (e *rtEval) evalQueryOutcomes(frame *rtFrame, call *ast.CallExpr, s *rtStat
 		{state: success, val: rtValue{kind: rtTuple, elems: []rtValue{val, rtNullValue()}}},
 		{state: failure, val: rtValue{kind: rtTuple, elems: []rtValue{rtUnknownValue(), rtErrorValue()}}},
 	}
-}
-
-// evalRowsScanOutcomes rows.Scan(&f1,&f2)（循环内）：按 query.Columns 顺序写入
-// 目标变量/结构体字段。
-func (e *rtEval) evalRowsScanOutcomes(frame *rtFrame, scan *ast.CallExpr, rowsID *ast.Ident,
-	s *rtState, depth int) []rtOutcome {
-	if rowsID.Obj == nil {
-		return nil
-	}
-	row, ok := e.an.cursor[rowsID.Obj]
-	q := e.an.rowQueries[rowsID.Obj]
-	if !ok || q == nil || row.kind != rtRow {
-		return nil
-	}
-	ev := &SeqRuntimeEvidence{SnapshotPath: e.an.snap.Path, SnapshotHash: e.an.snap.Hash,
-		Version: e.an.snap.Version, Reason: "runtime-rows-scan", Result: "row",
-		SourceID: q.SourceID, Table: q.Table, Columns: append([]string(nil), q.Columns...),
-		Query: runtimePredicateDisplays(q.Predicates), Rows: q.RowCount}
-	for _, a := range q.Args {
-		ev.Args = append(ev.Args, a.rtDisplay())
-	}
-	e.an.facts[scan] = ev
-	var targets []string
-	for i, arg := range scan.Args {
-		if i >= len(q.Columns) {
-			break
-		}
-		v, ok := row.cols[q.Columns[i]]
-		if !ok || !runtimeScanTargetAccepts(arg, v) {
-			v = rtUnknownValue()
-		}
-		e.assignScanTarget(arg, v, s)
-		targets = append(targets, runtimeScanTargetName(arg))
-	}
-	ev.ScanTarget = strings.Join(targets, ",")
-	ev.ReturnSlot = ev.ScanTarget
-	return []rtOutcome{{state: s, val: rtNullValue()}}
 }
 
 // runtimeRowsIdentical 多行是否完全相同（同一行重复出现 = 幂等行集）。

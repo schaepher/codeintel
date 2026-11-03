@@ -103,6 +103,9 @@ func seqEvidenceNotes(n *action.CodeSeqNode) []string {
 	if note := seqRowCountNote(n); note != "" {
 		out = append(out, note)
 	}
+	if note := seqRuntimeBoundaryNote(n); note != "" {
+		out = append(out, note)
+	}
 	return out
 }
 
@@ -125,4 +128,24 @@ func seqRowCountConditionNote(n *action.CodeSeqNode) string {
 	c := n.RowCountCondition
 	return "写入影响行数 " + c.Result.Write.CallID + "[" + itoaSeqInt(c.Result.Slot) + "]：" +
 		"then=" + c.WhenTrue + "；else=" + c.WhenFalse + "（错误检查与事务提交未证明）"
+}
+
+// seqRuntimeBoundaryNote 运行时事实边界 Note（T19；JSON 与图同源）。
+func seqRuntimeBoundaryNote(n *action.CodeSeqNode) string {
+	if n == nil || n.Evidence == nil || n.Evidence.Runtime == nil {
+		return ""
+	}
+	rt := n.Evidence.Runtime
+	b := rt.Boundary
+	if b == nil {
+		return ""
+	}
+	note := "运行时边界 " + b.Kind + "/" + b.Code
+	if rt.Table != "" {
+		note += "；table=" + rt.Table
+	}
+	if len(b.Needs) > 0 {
+		note += "；需要事实：" + strings.Join(b.Needs, ",")
+	}
+	return note
 }

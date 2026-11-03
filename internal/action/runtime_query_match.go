@@ -11,30 +11,59 @@ func runtimeObservationFor(snap *RuntimeSnapshot, q *runtimeQuery) (*runtimeObse
 		return nil, errors.New("没有快照/查询")
 	}
 	var matches []*runtimeObservation
+	gap := SeqRuntimeCodeObservation
+	sawObs, sawIncomplete, sawColumns, sawScope := false, false, false, false
 	for _, obs := range snap.Observations {
 		if obs.SourceID != q.SourceID || obs.Table != q.Table {
 			continue
 		}
+		sawObs = true
 		if !obs.Complete {
+			sawIncomplete = true
 			continue
 		}
-		if !runtimeObservationColumns(obs, q) {
+		// T19：完整且**零行**的观测没有可枚举列——空集在已证明 scope 内保持
+		// empty（不因缺投影列名退化成 unknown）。
+		if len(obs.Rows) > 0 && !runtimeObservationColumns(obs, q) {
+			sawColumns = true
 			continue
 		}
 		if !runtimeScopeCovers(obs.Scope, q.Predicates) {
+			sawScope = true
 			continue
 		}
 		matches = append(matches, obs)
 	}
 	switch len(matches) {
 	case 0:
-		return nil, errors.New("没有覆盖查询范围的完整 observation")
+		// T19：按实际缺口分类（原因文本保持稳定，边界给出准确类别）。
+		switch {
+		case sawIncomplete:
+			gap = SeqRuntimeCodeRows
+		case sawColumns:
+			gap = SeqRuntimeCodeColumns
+		case sawScope:
+			gap = SeqRuntimeCodeScope
+		case !sawObs:
+			gap = SeqRuntimeCodeObservation
+		}
+		return nil, &seqRuntimeGap{Code: gap,
+			Msg: "没有覆盖查询范围的完整 observation"}
 	case 1:
 		return matches[0], nil
 	default:
-		return nil, errors.New("多个 observation 同时覆盖查询范围（不选第一项）")
+		return nil, &seqRuntimeGap{Code: SeqRuntimeCodeAmbiguous,
+			Msg: "多个 observation 同时覆盖查询范围（不选第一项）"}
 	}
 }
+
+// seqRuntimeGap 运行时事实缺口（Error() 保持既有原因文本，Code 用于 boundary）。
+type seqRuntimeGap struct {
+	Code string
+	Msg  string
+}
+
+func (g *seqRuntimeGap) Error() string { return g.Msg }
 
 func runtimeObservationColumns(obs *runtimeObservation, q *runtimeQuery) bool {
 	for _, c := range q.Columns {

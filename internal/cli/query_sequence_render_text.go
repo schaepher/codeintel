@@ -42,6 +42,9 @@ func seqText(nodes []*action.CodeSeqNode, depth int) string {
 			if note := seqRowCountNote(n); note != "" {
 				b.WriteString(fmt.Sprintf("%s   %s\n", pad, note))
 			}
+			if note := seqRuntimeBoundaryNote(n); note != "" {
+				b.WriteString(fmt.Sprintf("%s   %s\n", pad, note))
+			}
 			if len(n.Nodes) > 0 {
 				b.WriteString(seqText(n.Nodes, depth+1))
 			}
