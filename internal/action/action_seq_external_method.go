@@ -96,6 +96,16 @@ func seqExpandExternalMethodCall(a *Actions, req CodeSequenceRequest, node *Code
 		return false
 	}
 	extID := "symbol:go:" + ref.pkgPath + ":(" + ref.typeName + ")." + sel.Sel.Name
+	if pkg := seqExternalPackage(a, req, ref.pkgPath); pkg != nil && pkg.err == nil && pkg.std {
+		// U04s：标准库方法终端——保留准确 canonical ID 与外部目标边界，不展开
+		// 标准库实现（避免噪声），也不回退成 unresolved。
+		node.Evidence = &SeqEvidence{Source: SeqEvidenceAST, CallFile: curFile, CallLine: line,
+			SymbolID: extID, Reason: "standard-method-declaration",
+			Verdict: SeqVerdictCorroborated}
+		node.Stop = &SeqStop{Code: SeqStopExternalTarget,
+			Detail: "标准库方法终端（不展开标准库实现；" + extID + "）"}
+		return true
+	}
 	if a.seqExternalIfaceMethod(req, extID) {
 		// U06c：外部接口类型的接收者没有实例来源证明（接口别名/命名类型链
 		// 同样按声明核对）。

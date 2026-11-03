@@ -118,17 +118,28 @@ func seqReceiverTypeRef(a *Actions, req CodeSequenceRequest, ctx *seqFileCtx,
 		if !ok {
 			return seqTypeRef{}, false
 		}
+		rel := ""
+		if ctx != nil {
+			rel = ctx.rel
+		}
 		if ref, ok := seqLookupType(req.env, base.Obj); ok {
-			if fr, ok2 := seqStructFieldTypeRef(req, ctx, ref.typeName, x.Sel.Name); ok2 {
-
-				if fr.pkgPath == pkgPathOf(req.curSym) {
-					fr.pkgPath = ref.pkgPath
+			// U04r：字段类型按**结构体声明所在包/文件**解析（方法与结构体
+			// 可在不同文件，import 也不同）。
+			if fr, _, ok2 := seqPkgFieldTypeRef(a, req, ref.pkgPath, rel, ref.typeName,
+				x.Sel.Name, 0); ok2 {
+				out := seqTypeRef{pkgPath: fr.pkgPath, typeName: fr.name}
+				if out.pkgPath == pkgPathOf(req.curSym) {
+					out.pkgPath = ref.pkgPath
 				}
-				return fr, true
+				return out, true
 			}
 		}
-
 		if req.curRecvType != "" {
+			// receiver 字段（含显式匿名嵌入字段）同样按包内声明解析。
+			if fr, _, ok2 := seqPkgFieldTypeRef(a, req, pkgPathOf(req.curSym), rel,
+				req.curRecvType, x.Sel.Name, 0); ok2 {
+				return seqTypeRef{pkgPath: fr.pkgPath, typeName: fr.name}, true
+			}
 			if fr, ok2 := seqStructFieldTypeRef(req, ctx, req.curRecvType, x.Sel.Name); ok2 {
 				return fr, true
 			}
