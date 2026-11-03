@@ -242,6 +242,7 @@ func seqAnnotateCallEvidence(a *Actions, req CodeSequenceRequest, node *CodeSeqN
 		actions:  a, repoAbs: req.RepoAbs, fileRel: curFile, req: &originReq,
 		ormModels: req.ormModels}
 	seqAttachStorageEvidence(node, call, c)
+	seqAttachWriteErrorResult(node, call, c)
 	seqAttachStorageRead(node, call, c)
 	seqAttachORMEvidence(node, call, c)
 }

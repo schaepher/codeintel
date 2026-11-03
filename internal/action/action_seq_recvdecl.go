@@ -149,9 +149,11 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 	} else {
 		seqBindParamOrigins(env, fn.Type.Params, req.callArgOrigins)
 	}
+	seqBindParamErrResults(env, fn.Type.Params, req.callArgErrResults)
 	req.env = env
 	req.paramValues = nil
 	req.callArgOrigins = nil
+	req.callArgErrResults = nil
 	// todo10-5：一层条件传播——调用点实参字面量按形参名对齐（下次展开覆盖）
 	req.sceneArgs = paramLiteralArgs(fn.Type.Params, req.callArgLits)
 	req.sceneSrc = paramSourceArgs(fn.Type.Params, req.callArgLits, req.callArgSrcs)

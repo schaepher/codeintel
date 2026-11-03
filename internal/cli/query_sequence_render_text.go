@@ -36,11 +36,17 @@ func seqText(nodes []*action.CodeSeqNode, depth int) string {
 			if note := seqORMNote(n); note != "" {
 				b.WriteString(fmt.Sprintf("%s   %s\n", pad, note))
 			}
+			if note := seqWriteErrorNote(n); note != "" {
+				b.WriteString(fmt.Sprintf("%s   %s\n", pad, note))
+			}
 			if len(n.Nodes) > 0 {
 				b.WriteString(seqText(n.Nodes, depth+1))
 			}
 		case "branch":
 			b.WriteString(fmt.Sprintf("%sif %s%s\n", pad, n.Label, seqSceneMark(n)))
+			if note := seqWriteConditionNote(n); note != "" {
+				b.WriteString(fmt.Sprintf("%s   %s\n", pad, note))
+			}
 			b.WriteString(seqText(n.Nodes, depth+1))
 			if len(n.Else) > 0 {
 				b.WriteString(fmt.Sprintf("%selse\n", pad))

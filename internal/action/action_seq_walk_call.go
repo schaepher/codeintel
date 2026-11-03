@@ -60,6 +60,8 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		req.paramValues = captureSeqClosureArgs(a, req, req.curCtx, call)
 		// U04c：实参的标量来源（同一求值位置立即捕获）。
 		req.callArgOrigins = captureSeqArgOrigins(req, call)
+		// U04h：实参携带的写入错误结果（形参透传）。
+		req.callArgErrResults = captureSeqArgErrResults(req, call)
 		// todo24 §11.5：`Replace(&f)` 这类取址实参可能改写回调槽——先降级为
 		// 未知，后续同作用域使用不得沿用旧绑定。
 		seqInvalidateAddrTaken(req, call)

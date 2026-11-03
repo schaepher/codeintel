@@ -129,6 +129,9 @@ type seqTimingAcc struct {
 	continueBudgetStops int
 	continuation        []SeqContinuationFrontier
 	continueExpansions  int // T12：实际续查展开次数（总额外展开）
+	// U04h：写入调用 ID（同一 AST 调用在本次请求内稳定；续查复用）。
+	writeSeq int
+	writeIDs map[*CodeSeqNode]string
 }
 
 // millis Duration → 毫秒（保留小数——单次阶段可能远小于 1ms）。
@@ -247,6 +250,8 @@ type CodeSeqNode struct {
 	// T07：位于"未验证实现候选"分支内（互斥候选，其全部后代不计确定执行，
 	// 也不参与自动续查）。
 	Candidate bool `json:"candidate,omitempty"`
+	// U04h：条件引用某次写入调用的错误返回槽（branch 节点）。
+	WriteCondition *SeqWriteCondition `json:"write_condition,omitempty"`
 }
 
 // exprTypeName 类型表达式 → 短名（Ident → 名；SelectorExpr pkg.T → T）

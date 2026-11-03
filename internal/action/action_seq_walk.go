@@ -25,6 +25,8 @@ func walkStmts(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []b
 		// U04c：赋值/声明/incdec/range 的标量来源（RHS 读旧值，LHS 从下一
 		// 条语句起生效）。
 		seqRecordScalarStatement(req, st)
+		// U04h：`_,err := 写入调用` 的写入错误结果绑定（覆盖/逃逸后失效）。
+		seqRecordWriteResults(req, st)
 		// todo10-2：return 终止当前路径——其后的语句不属于这条路径。
 		// U03：已判定 taken 的分支里含 return 时，后续语句在同一路径上也不
 		// 可达（`if len(m)==0 { Empty(); return }` 之后的业务分支不应再出现）。
@@ -94,6 +96,8 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 			steps = append(steps, walkStmt(a, req, fset, src, s.Init, tgts, depth, recvType, recvDecl, f, curPkg, curFile)...)
 		}
 		node := &CodeSeqNode{Kind: "branch", Label: seqExprText(fset, src, s.Cond), Line: fset.Position(s.Cond.Pos()).Line}
+		// U04h：条件引用某次写入调用的错误返回槽（只描述符号关系）。
+		node.WriteCondition = seqWriteCondition(req, s.Cond)
 		// todo10-5：场景条件判定（taken/excluded/unknown）——排除的分支
 		// 保留节点但剔除内容（用户能看到"此处被场景排除"及其依据）
 		fit := req.Scene.matchCondSrc(s.Cond, req.sceneArgs, req.sceneSrc, req.sceneConsts)
@@ -280,11 +284,7 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 	case *ast.SwitchStmt, *ast.TypeSwitchStmt:
 		return walkSwitchStmt(a, req, fset, src, s, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
 	case *ast.DeclStmt:
-		// todo22 §2：`var f = func(){…}` / `var f func()`——只建值，不执行
-		if gd, ok := s.Decl.(*ast.GenDecl); ok {
-			recordSeqDecl(a, req, req.curCtx, gd)
-		}
-		return nil
+		return walkSeqDeclStmt(a, req, fset, src, s, callNode)
 	case *ast.LabeledStmt:
 		// R100 续：Loop: for——原无 case 整块丢弃（label 本身无时序
 		// 语义，递归内部语句）

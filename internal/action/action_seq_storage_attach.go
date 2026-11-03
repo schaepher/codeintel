@@ -4,6 +4,24 @@ package action
 
 import "go/ast"
 
+// seqAttachWriteErrorResult 写入证据 → 错误返回槽（U04h）。
+func seqAttachWriteErrorResult(node *CodeSeqNode, call *ast.CallExpr, c *seqPersistCtx) {
+	if node == nil || node.Evidence == nil || node.Evidence.Storage == nil {
+		return
+	}
+	if c == nil || c.req == nil {
+		return
+	}
+	res := seqWriteErrorResult(*c.req, node, call, c)
+	if res == nil {
+		return
+	}
+	node.Evidence.Storage.ErrorResult = res
+	if c.req.writeCalls != nil {
+		c.req.writeCalls[call] = res
+	}
+}
+
 // seqAttachORMEvidence 挂载 XORM 操作证据（U04f）。
 func seqAttachORMEvidence(node *CodeSeqNode, call *ast.CallExpr, c *seqPersistCtx) {
 	if node == nil || node.Evidence == nil {

@@ -45,3 +45,60 @@ func seqORMNote(n *action.CodeSeqNode) string {
 	note := head + "（" + detail + "；模型映射/生成键/写入成功未证明）"
 	return strings.TrimSpace(note)
 }
+
+// seqWriteErrorNote 写入错误槽 Note（U04h；JSON/Mermaid 同一份 storage）。
+func seqWriteErrorNote(n *action.CodeSeqNode) string {
+	if n == nil || n.Evidence == nil || n.Evidence.Storage == nil ||
+		n.Evidence.Storage.ErrorResult == nil {
+		return ""
+	}
+	res := n.Evidence.Storage.ErrorResult
+	return "写入错误结果 " + res.CallID + "[" + itoaSeqInt(res.Slot) + "]（outcome=unproven）"
+}
+
+// seqWriteConditionNote 分支条件引用写入错误槽（U04h）。
+func seqWriteConditionNote(n *action.CodeSeqNode) string {
+	if n == nil || n.WriteCondition == nil || n.WriteCondition.Result == nil {
+		return ""
+	}
+	c := n.WriteCondition
+	return "写入错误结果 " + c.Result.CallID + "[" + itoaSeqInt(c.Result.Slot) + "]：" +
+		"then=" + c.WhenTrue + "；else=" + c.WhenFalse + "（事务提交与影响行数未证明）"
+}
+
+func itoaSeqInt(v int) string {
+	if v == 0 {
+		return "0"
+	}
+	neg := v < 0
+	if neg {
+		v = -v
+	}
+	var buf [20]byte
+	i := len(buf)
+	for v > 0 {
+		i--
+		buf[i] = byte('0' + v%10)
+		v /= 10
+	}
+	if neg {
+		i--
+		buf[i] = '-'
+	}
+	return string(buf[i:])
+}
+
+// seqEvidenceNotes 调用节点上的结构化证据注记（U04e/U04f/U04h 同源）。
+func seqEvidenceNotes(n *action.CodeSeqNode) []string {
+	var out []string
+	if note := seqStorageReadNote(n); note != "" {
+		out = append(out, note)
+	}
+	if note := seqORMNote(n); note != "" {
+		out = append(out, note)
+	}
+	if note := seqWriteErrorNote(n); note != "" {
+		out = append(out, note)
+	}
+	return out
+}

@@ -1,5 +1,7 @@
 package action
 
+import "go/ast"
+
 import "github.com/schaepher/codeintel/internal/domain"
 
 // todo22 P1/P2：CodeSequence 请求级缓存的初始化（从 action_seq_code.go 拆出——
@@ -14,6 +16,12 @@ func seqInitRequestCaches(req *CodeSequenceRequest) {
 	}
 	if req.ormModels == nil {
 		req.ormModels = map[string]*seqORMStruct{} // U04g：模型声明缓存
+	}
+	if req.writeCalls == nil {
+		req.writeCalls = map[*ast.CallExpr]*SeqWriteErrorResult{} // U04h
+	}
+	if req.acc != nil && req.acc.writeIDs == nil {
+		req.acc.writeIDs = map[*CodeSeqNode]string{}
 	}
 	if req.litVisited == nil {
 		req.litVisited = map[string]bool{} // todo22 §2：函数字面量展开防环

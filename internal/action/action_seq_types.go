@@ -218,6 +218,10 @@ type CodeSequenceRequest struct {
 	paramValues   []seqValue
 	// ormModels U04g：模型声明解析的请求内缓存（键 = canonical ID）。
 	ormModels map[string]*seqORMStruct
+	// writeCalls U04h：写入 AST 调用 → 错误结果身份（本次请求内）。
+	writeCalls map[*ast.CallExpr]*SeqWriteErrorResult
+	// callArgErrResults U04h：本次调用实参携带的写入错误结果（形参透传）。
+	callArgErrResults []*SeqWriteErrorResult
 	// callArgOrigins U04c：本次调用实参的标量来源（在实参求值位置立即捕获，
 	// 被调函数形参绑定用；续查快照带值拷贝，不被后续赋值污染）。
 	callArgOrigins []*SeqStorageOrigin

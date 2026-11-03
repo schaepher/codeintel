@@ -18,6 +18,8 @@ type SeqStorage struct {
 	Boundary            string `json:"boundary,omitempty"`
 	// Resource U04d：写入资源绑定（有快照才输出）。
 	Resource *SeqStorageResource `json:"resource,omitempty"`
+	// ErrorResult U04h：该写入的错误返回槽（slot=1；call_id 请求内唯一）。
+	ErrorResult *SeqWriteErrorResult `json:"error_result,omitempty"`
 }
 
 // SeqStorageWrite 单列写入。

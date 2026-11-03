@@ -74,6 +74,8 @@ func (e *seqEnv) markScalarEscapedAt(obj *ast.Object, pos token.Pos) {
 	slot.escaped = true
 	slot.escapedAt = pos
 	e.scalars[obj] = slot
+	// U04h：取址/闭包写者同样使错误结果变量失效。
+	e.markErrEscaped(obj, pos)
 }
 
 // scalarOriginAt 该使用位置是否仍可用槽来源（逃逸从逃逸点起生效）。

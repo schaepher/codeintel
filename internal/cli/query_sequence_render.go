@@ -209,12 +209,8 @@ func writeSeqNode(b *strings.Builder, alias map[string]string, from, caller stri
 				// R81：嵌套展开——From 切换为被调者 Actor
 				writeSeqNode(b, alias, n.Actor, from, n.Nodes)
 			}
-			// U04e：读取边界（与 JSON 同一份 storage_read，不依赖 Stop.Detail）。
-			if note := seqStorageReadNote(n); note != "" {
-				b.WriteString(fmt.Sprintf("  Note over %s,%s: %s\n", alias[from], to, note))
-			}
-			// U04f：XORM 操作边界（模型映射/执行成功未证明）。
-			if note := seqORMNote(n); note != "" {
+			// U04e/U04f/U04h：读取边界 / ORM 边界 / 写入错误槽（同一分析结果）。
+			for _, note := range seqEvidenceNotes(n) {
 				b.WriteString(fmt.Sprintf("  Note over %s,%s: %s\n", alias[from], to, note))
 			}
 			// todo10-3：为什么没继续展开（分析停止 vs 业务流程结束）
@@ -240,6 +236,10 @@ func writeSeqNode(b *strings.Builder, alias map[string]string, from, caller stri
 			} else if n.Scene != nil && n.Scene.Status == action.SceneUnknown && n.Scene.Cause != "" {
 				// todo13-3：值被未知调用改写/深度上限——两个分支保留，但指明原因
 				b.WriteString(fmt.Sprintf("  Note over %s: 场景未定（%s）— 两个分支均保留\n", alias[from], seqSceneNoteSuffix(n.Scene)))
+			}
+			// U04h：条件引用写入错误槽（只描述符号关系）。
+			if note := seqWriteConditionNote(n); note != "" {
+				b.WriteString(fmt.Sprintf("  Note over %s: %s\n", alias[from], note))
 			}
 			b.WriteString(fmt.Sprintf("  alt %s\n", n.Label))
 			writeSeqNode(b, alias, from, caller, n.Nodes)
