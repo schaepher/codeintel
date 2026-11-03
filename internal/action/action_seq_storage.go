@@ -242,9 +242,10 @@ func seqAnnotateCallEvidence(a *Actions, req CodeSequenceRequest, node *CodeSeqN
 		actions:  a, repoAbs: req.RepoAbs, fileRel: curFile, req: &originReq,
 		ormModels: req.ormModels}
 	seqAttachStorageEvidence(node, call, c)
-	seqAttachWriteErrorResult(node, call, c)
 	seqAttachStorageRead(node, call, c)
 	seqAttachORMEvidence(node, call, c)
+	seqAttachWriteErrorResult(node, call, c)
+	seqAttachORMErrorResult(req, node, call, c)
 }
 
 // seqAttachStorageEvidence 把结构化写入证据写到调用节点（不覆盖既有

@@ -48,6 +48,14 @@ type SeqORM struct {
 	Boundary          string                `json:"boundary,omitempty"`
 	// Models U04g：实参的准确模型声明（model_mapping_unproven）。
 	Models []SeqORMModel `json:"models,omitempty"`
+	// ErrorResult U04i：（int64,error）签名源码证明后的错误返回槽。
+	ErrorResult *SeqORMErrorResult `json:"error_result,omitempty"`
+}
+
+// SeqORMErrorResult XORM 写入错误槽（复用 SeqWriteErrorResult + 签名源码）。
+type SeqORMErrorResult struct {
+	SeqWriteErrorResult
+	SignatureSource *SymbolSource `json:"signature_source,omitempty"`
 }
 
 // SeqORMModel 模型声明证据（U04g；字段只展示源码声明，不推定列映射）。
