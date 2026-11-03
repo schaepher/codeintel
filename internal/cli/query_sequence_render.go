@@ -209,6 +209,10 @@ func writeSeqNode(b *strings.Builder, alias map[string]string, from, caller stri
 				// R81：嵌套展开——From 切换为被调者 Actor
 				writeSeqNode(b, alias, n.Actor, from, n.Nodes)
 			}
+			// U04e：读取边界（与 JSON 同一份 storage_read，不依赖 Stop.Detail）。
+			if note := seqStorageReadNote(n); note != "" {
+				b.WriteString(fmt.Sprintf("  Note over %s,%s: %s\n", alias[from], to, note))
+			}
 			// todo10-3：为什么没继续展开（分析停止 vs 业务流程结束）
 			if n.Stop != nil && n.Stop.Code != "" && n.Stop.Code != action.SeqStopNoCalls {
 				b.WriteString(fmt.Sprintf("  Note over %s,%s: 未继续展开：%s%s\n",

@@ -262,9 +262,10 @@ func seqAnnotateCallEvidence(req CodeSequenceRequest, node *CodeSeqNode, call *a
 	finishSeqEvidence(req, node)
 	// 值来源/跨入口顺序仍需请求证明，不据此凭空连线。
 	seqAnnotatePersistence(node, call)
-	seqAttachStorageEvidence(node, call, &seqPersistCtx{file: f, pkgPath: curPkg,
-		src: src, fset: fset, guard: req.branchCond, argOrigins: req.callArgOrigins,
-		runtime: req.runtime})
+	c := &seqPersistCtx{file: f, pkgPath: curPkg, src: src, fset: fset,
+		guard: req.branchCond, argOrigins: req.callArgOrigins, runtime: req.runtime}
+	seqAttachStorageEvidence(node, call, c)
+	seqAttachStorageRead(node, call, c)
 }
 
 // seqAttachStorageEvidence 把结构化写入证据写到调用节点（不覆盖既有

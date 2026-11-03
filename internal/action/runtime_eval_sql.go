@@ -50,14 +50,17 @@ func (e *rtEval) evalQueryCall(frame *rtFrame, call *ast.CallExpr, s *rtState, d
 	// 包级 DB 变量：rebind（DB=nil 等）后不再使用旧绑定。
 	if g := e.an.globalByNameOf(&ast.Ident{Name: nameOfSymbol(sym)}); g.mutated {
 		ev.Reason = "binding-mutated"
+		e.recordReadResource(call, SeqResourceMutated, sym, "")
 		return rtUnknownValue(), []*rtState{s}, true
 	}
 	source := runtimeResolveSource(e.an.snap, sym)
 	if source == "" {
 		ev.Reason = "binding-missing"
+		e.recordReadResource(call, SeqResourceBindingMissing, sym, "")
 		return rtUnknownValue(), []*rtState{s}, true
 	}
 	ev.SourceID = source
+	e.recordReadResource(call, SeqResourceBound, sym, source)
 	if len(call.Args) < 2 {
 		ev.Reason = "missing-sql"
 		return rtUnknownValue(), []*rtState{s}, true

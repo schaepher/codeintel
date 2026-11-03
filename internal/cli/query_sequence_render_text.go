@@ -30,6 +30,9 @@ func seqText(nodes []*action.CodeSeqNode, depth int) string {
 				}
 				b.WriteString(fmt.Sprintf("%s   候选未消歧: %s（%s）\n", pad, strings.Join(cands, "、"), n.Evidence.Reason))
 			}
+			if note := seqStorageReadNote(n); note != "" {
+				b.WriteString(fmt.Sprintf("%s   %s\n", pad, note))
+			}
 			if len(n.Nodes) > 0 {
 				b.WriteString(seqText(n.Nodes, depth+1))
 			}

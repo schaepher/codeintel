@@ -111,6 +111,8 @@ type SeqEvidence struct {
 	// U04b：SQL 写入的结构化证据（表/列/谓词/实参绑定；值来源、资源身份、
 	// 写入成功与跨入口顺序仍未证明——outcome 恒为 unproven）。
 	Storage *SeqStorage `json:"storage,omitempty"`
+	// U04e：SQL 读取的结构证据（选择器与符号键来源；读取成功/唯一记录未证明）。
+	StorageRead *SeqStorageRead `json:"storage_read,omitempty"`
 }
 
 // SeqDiagCount 诊断聚合项（根节点 meta 用）。
