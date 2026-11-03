@@ -138,6 +138,8 @@ type seqTimingAcc struct {
 	// U04n：事务身份（同一 Begin 节点稳定；请求内唯一）。
 	txSeq int
 	txIDs map[*CodeSeqNode]string
+	// U04v：字段读取观察 ID（每次求值一个）。
+	fieldReadSeq int
 	// U04k：AST 调用 → 最新调用节点；depth=1 的延迟结果绑定。
 	callNodes        map[*ast.CallExpr]*CodeSeqNode
 	pendingVars      []seqPendingVar

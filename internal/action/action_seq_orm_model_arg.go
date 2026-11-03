@@ -102,7 +102,7 @@ func seqORMTypeExprRef(c *seqPersistCtx, typ ast.Expr, file *ast.File, pkgPath s
 			if ts, ok := t.Obj.Decl.(*ast.TypeSpec); ok && !seqFileLevelTypeSpecObj(file, ts) {
 				return seqORMTypeRef{}, false
 			}
-		} else if !seqFileLevelTypeSpec(file, t.Name) {
+		} else if !seqFileLevelTypeSpec(file, t.Name) && !seqBuiltinTypeName(t.Name) {
 			return seqORMTypeRef{}, false
 		}
 		return seqORMTypeRef{pkgPath: pkgPath, name: t.Name}, true

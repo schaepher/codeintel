@@ -24,6 +24,8 @@ const (
 	// U04n：事务对象与事务错误槽。
 	SeqOriginTransaction = "transaction"
 	SeqOriginTxError     = "tx_error"
+	// U04v：请求结构体字段读取。
+	SeqOriginFieldRead = "field_read"
 )
 
 // 标量来源树的边界（有界展开：超限即未知，不截取部分）。
@@ -53,6 +55,8 @@ type SeqStorageOrigin struct {
 	// TxOrigin / TxError U04n：事务对象与事务操作的错误槽。
 	TxOrigin *SeqTxOrigin   `json:"tx_origin,omitempty"`
 	TxError  *SeqTxOpResult `json:"tx_error,omitempty"`
+	// FieldRead U04v：请求结构体字段读取（独立读取 ID + 声明/读取位置）。
+	FieldRead *SeqStorageFieldRead `json:"field_read,omitempty"`
 }
 
 // cloneSeqScalarOrigin 深拷贝（消费者不得改到请求内的共享来源）。
@@ -79,6 +83,12 @@ func cloneSeqScalarOrigin(o *SeqStorageOrigin) *SeqStorageOrigin {
 		cp := *o.TxError
 		out.TxError = &cp
 	}
+	if o.FieldRead != nil {
+		cp := *o.FieldRead
+		cp.Root = cloneSeqFieldRoot(o.FieldRead.Root)
+		cp.Path = append([]string{}, o.FieldRead.Path...)
+		out.FieldRead = &cp
+	}
 	return &out
 }
 
@@ -99,6 +109,12 @@ func sameSeqScalarOrigin(a, b *SeqStorageOrigin) bool {
 	}
 	if a.TxError != nil && (a.TxError.CallID != b.TxError.CallID || a.TxError.Operation != b.TxError.Operation ||
 		a.TxError.Slot != b.TxError.Slot) {
+		return false
+	}
+	if (a.FieldRead == nil) != (b.FieldRead == nil) {
+		return false
+	}
+	if a.FieldRead != nil && a.FieldRead.ID != b.FieldRead.ID {
 		return false
 	}
 	pa, pb := 0, 0
@@ -189,6 +205,12 @@ func seqScalarOriginDepth(req CodeSequenceRequest, e ast.Expr, depth int) *SeqSt
 		return nil
 	case *ast.BasicLit:
 		return seqBasicLitOrigin(v)
+	case *ast.SelectorExpr:
+		// U04v：`req.ID` / `req.Nested.ID` → 字段读取来源（独立读取 ID）。
+		return seqFieldReadOrigin(req, v)
+	case *ast.CallExpr:
+		// U04v：getter 调用（单一 return：字面量 / receiver 字段）。
+		return seqGetterOrigin(req, v)
 	case *ast.BinaryExpr:
 		if v.Op != token.ADD {
 			return nil

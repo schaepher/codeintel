@@ -27,6 +27,7 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	logger.Info("enter (Actions).CodeSequence", zap.String("target", req.Target), zap.Int("depth", req.Depth))
 	defer logger.Info("exit (Actions).CodeSequence")
 	start := time.Now()
+	req.acts = a
 	if req.visited == nil {
 		req.visited = map[string]bool{}
 	}
