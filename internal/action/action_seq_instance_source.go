@@ -214,7 +214,7 @@ func (a *Actions) codeSeqIfaceEntryRoot(req CodeSequenceRequest, n *domain.CodeE
 		Stop: &SeqStop{Code: SeqStopIfaceAmbiguous,
 			Detail: "接口方法入口（无实例来源证明）；实现仅作未验证候选，不计确定执行、不参与续查"}}
 	seqExpandCandidateBranches(a, req, dispatch, expandCands, req.Depth,
-		token.Position{Line: n.LineStart})
+		token.Position{Line: n.LineStart}, len(expandCands) < len(ev.Candidates), len(ev.Candidates))
 	root.Nodes = []*CodeSeqNode{dispatch}
 	return root, nil
 }

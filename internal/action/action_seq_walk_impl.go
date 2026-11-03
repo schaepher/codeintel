@@ -136,7 +136,7 @@ func seqExpandIfaceTarget(a *Actions, req CodeSequenceRequest, node *CodeSeqNode
 			node.Evidence = ev
 			node.Stop = &SeqStop{Code: SeqStopIfaceAmbiguous,
 				Detail: "接口实现未消歧；候选分支不是已确定执行顺序"}
-			seqExpandCandidateBranches(a, req, node, expandCands, depth, pos)
+			seqExpandCandidateBranches(a, req, node, expandCands, depth, pos, truncated, len(all))
 			return true
 		}
 		// U06/T07：唯一实现不等于实际实例来源——接口派发前先验证接收者
@@ -233,7 +233,7 @@ func seqExpandSceneIfaceChoice(a *Actions, req CodeSequenceRequest, node *CodeSe
 // T07：未验证实现候选的互斥分支展开（每个候选 ≤2 层、≤12 个；后代标
 // Candidate=true——不计确定执行、不登记续查前沿）。
 func seqExpandCandidateBranches(a *Actions, req CodeSequenceRequest, node *CodeSeqNode,
-	cands []string, depth int, pos token.Position) {
+	cands []string, depth int, pos token.Position, truncated bool, total int) {
 	const candDepth = 2
 	candReq := req
 	candReq.inCandidate = true
@@ -263,6 +263,13 @@ func seqExpandCandidateBranches(a *Actions, req CodeSequenceRequest, node *CodeS
 		node.Evidence.CandidateDepth = candDepth
 	}
 	node.Nodes = build(0)
+	if truncated {
+		// U06b：预算截断本身是候选边界——明确标 candidate（不计确定执行）。
+		node.Nodes = append(node.Nodes, &CodeSeqNode{Kind: "branch",
+			Label: "candidate budget", Line: pos.Line, Candidate: true,
+			Stop: &SeqStop{Code: SeqStopCandidateBudget,
+				Detail: "候选实现超过展开预算（" + itoaSeq(len(cands)) + "/" + itoaSeq(total) + "）；其余候选未展开"}})
+	}
 }
 
 // markSeqCandidateSubtree 把候选分支内全部节点标为 Candidate（后代统计口径：

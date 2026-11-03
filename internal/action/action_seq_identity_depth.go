@@ -153,13 +153,21 @@ func seqIdentityBeforeDepth(a *Actions, req CodeSequenceRequest, f *ast.File, fs
 		if !ok {
 			return false
 		}
+		all := len(cands)
 		cands, truncated := capSeqCandidates(cands)
 		if len(cands) > 1 {
 			ev := seqIfaceEvidence(curFile, pos.Line, "", cands, confidence)
-			ev.CandidateBudget = seqIfaceBudget(len(cands), truncated)
+			ev.CandidateBudget = seqIfaceBudget(all, truncated)
 			node.Evidence = ev
 			node.Stop = &SeqStop{Code: SeqStopIfaceAmbiguous,
 				Detail: "接口方法 " + tid + " 有 " + itoaSeq(len(cands)) + " 个未验证实现候选（无消歧证据，未展开）"}
+			// U06b：depth=1 的预算截断同样标 candidate_budget（候选项不计确定执行）。
+			if truncated {
+				node.Nodes = append(node.Nodes, &CodeSeqNode{Kind: "branch",
+					Label: "candidate budget", Line: pos.Line, Candidate: true,
+					Stop: &SeqStop{Code: SeqStopCandidateBudget,
+						Detail: "候选实现超过展开预算（" + itoaSeq(len(cands)) + "/" + itoaSeq(all) + "）；depth 截断未展开其余候选"}})
+			}
 			return true
 		}
 		// U06/T07：唯一实现也要先有实例来源证明（与 depth>1 同口径）。

@@ -34,6 +34,8 @@ const (
 	SeqStopUnknownImpl    = "unknown_implementation" // 接口方法无可证明实现
 	// todo22 §3.2：有多个未验证候选——保留候选集合，不选第一个展开
 	SeqStopIfaceAmbiguous = "iface_ambiguous"
+	// U06b：候选展开预算截断（候选分支后代不计确定执行）。
+	SeqStopCandidateBudget = "candidate_budget"
 	// U06：接口字段/接收者实例来源未知（无写入/注入证明）——唯一实现
 	// 不等于实际实例来源。
 	SeqStopUnknownReceiver = "unknown_receiver"

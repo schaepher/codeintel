@@ -62,7 +62,8 @@ func seqExpandGetterIfaceCall(a *Actions, req CodeSequenceRequest, node *CodeSeq
 			CandidateBudget: seqIfaceExpandBudget(len(impls), len(impls), false)}
 		node.Stop = &SeqStop{Code: SeqStopIfaceAmbiguous,
 			Detail: "getter 返回多个互斥具体来源；候选分支不是已确定执行顺序"}
-		seqExpandCandidateBranches(a, req, node, impls, depth, pos)
+		capped, truncated := capSeqCandidates(impls)
+		seqExpandCandidateBranches(a, req, node, capped, depth, pos, truncated, len(impls))
 		return true
 	}
 	impl := impls[0]

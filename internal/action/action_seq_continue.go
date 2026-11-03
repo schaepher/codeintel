@@ -47,6 +47,10 @@ func seqCanContinueFrontier(node *CodeSeqNode) bool {
 	if node == nil || node.Stop == nil || node.Stop.Code != SeqStopDepthLimit {
 		return false
 	}
+	// U06b：候选分支（含预算截断）不是确定执行——两个续查入口都不登记前沿。
+	if node.Candidate {
+		return false
+	}
 	ev := node.Evidence
 	if ev == nil || ev.SymbolID == "" {
 		return false
@@ -71,7 +75,7 @@ func seqRegisterFrontier(req CodeSequenceRequest, node *CodeSeqNode, target stri
 		return
 	}
 	// T07：未验证实现候选的后代禁止自动续查（候选不是确定执行）。
-	if req.inCandidate {
+	if req.inCandidate || node.Candidate {
 		return
 	}
 	if acc.frontierSeen == nil {

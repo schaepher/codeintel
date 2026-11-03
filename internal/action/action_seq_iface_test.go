@@ -183,7 +183,8 @@ func TestSeqIfaceCandidateBudgetTruncation(t *testing.T) {
 	var countBranches func(nodes []*CodeSeqNode)
 	countBranches = func(nodes []*CodeSeqNode) {
 		for _, n := range nodes {
-			if n.Kind == "branch" && n.Candidate {
+			// U06b：candidate_budget 诊断节点（Stop 非空）不是实现分支。
+			if n.Kind == "branch" && n.Candidate && n.Stop == nil {
 				branch++
 			}
 			countBranches(n.Nodes)

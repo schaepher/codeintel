@@ -27,7 +27,8 @@ func seqExpandFieldImpls(a *Actions, req CodeSequenceRequest, node *CodeSeqNode,
 			Reason: "receiver-field-dataflow", CandidateBudget: seqIfaceBudget(len(concrete), false)}
 		node.Stop = &SeqStop{Code: SeqStopIfaceAmbiguous,
 			Detail: "字段实现来源有 " + itoaSeq(len(concrete)) + " 个候选（未消歧，未展开）"}
-		seqExpandCandidateBranches(a, req, node, concrete, depth, pos)
+		capped, truncated := capSeqCandidates(concrete)
+		seqExpandCandidateBranches(a, req, node, capped, depth, pos, truncated, len(concrete))
 		return true
 	}
 	impl := concrete[0]
