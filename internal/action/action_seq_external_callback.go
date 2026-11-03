@@ -15,14 +15,46 @@ func seqExternalSamePkgCall(a *Actions, req CodeSequenceRequest, fun ast.Expr) (
 		return "", "", "", false
 	}
 	id, ok := fun.(*ast.Ident)
-	if !ok || id.Obj == nil || id.Obj.Kind != ast.Fun {
+	if !ok {
 		return "", "", "", false
 	}
 	pkg := pkgOfID(domain.CanonicalID(req.curSym))
 	if pkg == "" {
 		return "", "", "", false
 	}
-	return pkg, id.Name, "symbol:go:" + pkg + ":" + id.Name, true
+	if id.Obj != nil {
+		if id.Obj.Kind != ast.Fun {
+			return "", "", "", false
+		}
+		return pkg, id.Name, "symbol:go:" + pkg + ":" + id.Name, true
+	}
+	// U04p：同包**跨文件**引用在 parser 里没有 Obj——按外部包选中文件里的
+	// 顶层 FuncDecl 核对（不按名字猜其它包/未选中文件）。
+	if !seqExternalPkgHasFunc(req, pkg, id.Name) {
+		return "", "", "", false
+	}
+	pkg, name, extID := pkg, id.Name, "symbol:go:"+pkg+":"+id.Name
+	return pkg, name, extID, true
+}
+
+// seqExternalPkgHasFunc 外部包目录里是否有该顶层函数声明（忽略测试文件与
+// 构建标签排除的文件）。
+func seqExternalPkgHasFunc(req CodeSequenceRequest, pkg, name string) bool {
+	if req.curCtx == nil || req.curCtx.dir == "" || name == "" {
+		return false
+	}
+	for _, ctx := range parseSeqDir(req.ctx(), req.curCtx.dir, "<external>/"+pkg) {
+		if ctx == nil || ctx.file == nil || seqFileHasBuildConstraint(ctx) {
+			continue
+		}
+		for _, d := range ctx.file.Decls {
+			fd, ok := d.(*ast.FuncDecl)
+			if ok && fd.Recv == nil && fd.Name != nil && fd.Name.Name == name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // seqExternalReturnValues 外部包函数调用 → return 表达式的函数值（闭包/

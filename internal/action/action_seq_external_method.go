@@ -4,7 +4,6 @@ import (
 	"go/ast"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 // seqExternalPackageFrom 同 seqExternalPackage，可指定 go list 的 cwd：
@@ -37,12 +36,10 @@ func seqExternalPackageFrom(a *Actions, req CodeSequenceRequest, importPath, wor
 	return p
 }
 
-// seqExternalWorkDir 当前展开位置的 go list cwd：外部包内部用该包的模块根。
+// seqExternalWorkDir go list 的 cwd 固定为**查询主仓**（U04o）：依赖源码
+// 目录只用于解析文件，不作为新的模块选择上下文——否则会读到依赖自己
+// go.mod 里的 replace/工具链配置，选中与主仓不一致的版本。
 func seqExternalWorkDir(req CodeSequenceRequest) string {
-	if req.curCtx != nil && req.curCtx.dir != "" &&
-		strings.HasPrefix(req.curCtx.rel, "<external>/") {
-		return seqModuleRoot(req.curCtx.dir)
-	}
 	return req.RepoAbs
 }
 
