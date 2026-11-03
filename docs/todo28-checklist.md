@@ -45,10 +45,15 @@
 无（todo28 全部编号已完成；边界见各节"已知边界"）。## 本轮已执行验证
 
 ```sh
-scripts/verify.sh --quick                                   # 多次执行：全部通过
-go test -tags integration ./integration -run 'TestU04|TestU06|TestT19|TestTodo27' -count=1   # 通过
+scripts/verify.sh                    # 全量 -race 14 包基线：OK（无 FAIL；scip-go 在 PATH）
+make it                              # integration 全量：ok 106.8s（无 skip、无 FAIL）
+scripts/verify.sh --quick            # 每个任务提交前执行：全部通过
+go test -tags integration ./integration -run 'TestU0*|TestT19|TestTodo27' -count=1   # 通过
 go test ./internal/action ./internal/cli -count=1            # 通过
 ```
+
+- 未运行：`make e2e`（本轮无前端改动；todo28 验收未要求）。
+- 跳过：无（scip-go 可用，integration 全量执行）。
 
 ## 已知边界（本轮未扩展）
 
