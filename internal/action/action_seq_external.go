@@ -15,14 +15,11 @@ package action
 //   - 取消、过滤、停止包、深度规则与普通调用共用（ctx 一路传下去）。
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
@@ -53,77 +50,6 @@ func seqExternalPackage(a *Actions, req CodeSequenceRequest, importPath string) 
 // seqExternalWorkDir 当前展开位置的 go list cwd：外部包内部用该包的模块根。
 
 // seqModuleRoot 从目录向上找最近的 go.mod（找不到返回 dir 本身）。
-
-// seqGoListPkg `go list -e -json -find -mod=readonly <importPath>`（离线只读）。
-// 成功返回 package Dir + 是否标准库；失败返回原因（查询阶段不构建索引、
-// 不下载依赖）。
-func seqGoListPkg(ctx context.Context, workDir, importPath string) (string, bool, error) {
-	if err := ctx.Err(); err != nil {
-		return "", false, err
-	}
-	cmd := exec.CommandContext(ctx, "go", "list", "-e", "-json", "-find", "-mod=readonly", importPath)
-	cmd.Dir = workDir
-	// 离线：禁止下载与 sumdb 访问；只读：不修改 go.mod/go.sum
-	cmd.Env = append(seqFilteredEnv(os.Environ(), "GOFLAGS", "GOPROXY", "GOSUMDB", "GONOSUMDB", "GONOSUMCHECK", "GOPRIVATE"),
-		"GOFLAGS=-mod=readonly", "GOPROXY=off", "GOSUMDB=off", "GONOSUMDB=*", "GONOSUMCHECK=1")
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Run(); err != nil {
-		return "", false, &seqExternalError{Import: importPath, Err: err.Error(), Stderr: strings.TrimSpace(stderr.String())}
-	}
-	var out struct {
-		Dir      string
-		Standard bool
-		Error    *struct{ Err string }
-	}
-	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
-		return "", false, &seqExternalError{Import: importPath, Err: "解析 go list 输出失败: " + err.Error()}
-	}
-	if out.Error != nil && out.Error.Err != "" {
-		return "", false, &seqExternalError{Import: importPath, Err: out.Error.Err}
-	}
-	if out.Dir == "" {
-		return "", false, &seqExternalError{Import: importPath, Err: "go list 未返回包目录（外部依赖不可定位）"}
-	}
-	return out.Dir, out.Standard, nil
-}
-
-// seqExternalError 外部包定位失败（错误文本可读，缓存后不重复尝试）。
-type seqExternalError struct {
-	Import string
-	Err    string
-	Stderr string
-}
-
-func (e *seqExternalError) Error() string {
-	msg := "外部包 " + e.Import + " 源码不可定位: " + e.Err
-	if e.Stderr != "" {
-		msg += "（go list: " + e.Stderr + "）"
-	}
-	return msg
-}
-
-// seqFilteredEnv 去掉指定环境变量后返回（避免与追加的离线值冲突）。
-func seqFilteredEnv(env []string, keys ...string) []string {
-	out := make([]string, 0, len(env))
-	for _, kv := range env {
-		name := kv
-		if i := strings.IndexByte(kv, '='); i >= 0 {
-			name = kv[:i]
-		}
-		skip := false
-		for _, k := range keys {
-			if name == k {
-				skip = true
-				break
-			}
-		}
-		if !skip {
-			out = append(out, kv)
-		}
-	}
-	return out
-}
 
 // parseSeqDir 解析目录下的非测试 .go 文件（外部包没有索引，只能读源码）。
 // T10：逐文件检查 ctx 取消——定位/解析大依赖时取消必须中止（不是跑完再说）。
@@ -211,6 +137,12 @@ func seqExpandExternalCall(a *Actions, req CodeSequenceRequest, node *CodeSeqNod
 	}
 	if req.pkgSet[importPath] {
 		return false // 本仓包（交给索引/接口派发路径）
+	}
+	if a.seqExternalIfaceMethod(req, extID) {
+		// U06c：外部接口方法（类型节点不在索引）没有实例来源——保留接口
+		// 边界，不按"方法形状"展开确定实现。
+		markSeqUnknownReceiver(node, curFile, line, 1.0, seqMethodRecvType(extID), declName)
+		return true
 	}
 	return seqExpandExternalDecl(a, req, node, importPath, declName, extID, depth, call, curFile, line, "")
 }

@@ -137,28 +137,6 @@ func (a *Actions) SymbolSource(req SymbolSourceRequest) (*SymbolSource, error) {
 		nerr == nil && n != nil, nerr == nil && n != nil && n.FilePath == "")
 }
 
-// verifySymbolSourcePackage 用「最近 go.mod 的 module 路径 + 相对目录」还原
-// 文件的包 import path，与 ID 中的 import path 比对（支持嵌套 module）。
-func verifySymbolSourcePackage(importPath, repoReal, absFile string) error {
-	modulePath, moduleDir, err := nearestGoMod(filepath.Dir(absFile), repoReal)
-	if err != nil {
-		return err
-	}
-	relDir, err := filepath.Rel(moduleDir, filepath.Dir(absFile))
-	if err != nil {
-		return fmt.Errorf("包身份推导失败: %w", err)
-	}
-	want := modulePath
-	if relDir != "." && relDir != "" {
-		want = modulePath + "/" + filepath.ToSlash(relDir)
-	}
-	if want != importPath {
-		return fmt.Errorf("包身份不匹配: ID 声明 %q，最近 go.mod（%s）推导为 %q",
-			importPath, modulePath, want)
-	}
-	return nil
-}
-
 // nearestGoMod 从 dir 向上找最近的 go.mod（含 module 声明的路径）。
 func nearestGoMod(dir, repoReal string) (modulePath, moduleDir string, err error) {
 	for {

@@ -126,6 +126,12 @@ func seqIdentityBeforeDepth(a *Actions, req CodeSequenceRequest, f *ast.File, fs
 						seqExpandFactoryCandidatesDepth1(a, req, node, impls, sel.Sel.Name, curFile, pos)
 						return true
 					}
+					if a.isIfaceMethodID(impls[0]) || a.seqExternalIfaceMethod(req, impls[0]) {
+						// U06c：外部接口（类型节点缺失）不是实例来源。
+						markSeqUnknownReceiver(node, curFile, pos.Line, confidence,
+							seqMethodRecvType(impls[0]), field)
+						return true
+					}
 					node.ImplType = implTypeShort(impls[0])
 					node.Evidence = &SeqEvidence{Source: SeqEvidenceFieldFlow, CallFile: curFile,
 						CallLine: pos.Line, SymbolID: impls[0], Confidence: confidence,

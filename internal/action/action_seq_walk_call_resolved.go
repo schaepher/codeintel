@@ -12,6 +12,14 @@ func seqExpandResolvedCall(a *Actions, req CodeSequenceRequest, node *CodeSeqNod
 	tg seqTarget, recvType string, recvDecl map[string]string, call *ast.CallExpr,
 	depth int, pos token.Position) bool {
 	tid := tg.tid
+	// U06c：外部依赖接口（类型节点不在索引中）——不能按"调用边已知"当具体
+	// 实例来源展开；保留接口边界。
+	if a.seqExternalIfaceMethod(req, tid) {
+		markSeqUnknownInstance(node, curFile, pos.Line, tg.confidence,
+			"外部接口 "+seqMethodRecvType(tid)+" 的方法 "+seqMethodName(tid)+
+				" 无实例来源证明（类型节点不在索引中，未展开）")
+		return true
+	}
 	// 0) 场景/守卫优先的接口实现选择（todo11-2；见 walk_impl.go）
 	if seqExpandSceneIfaceChoice(a, req, node, fun, fset, pos, tid, tg.confidence,
 		curFile, depth) {

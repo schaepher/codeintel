@@ -9,6 +9,7 @@ package action
 import (
 	"go/ast"
 	"go/token"
+	"strings"
 
 	"github.com/schaepher/codeintel/internal/domain"
 )
@@ -79,8 +80,10 @@ func seqExpandGetterIfaceCall(a *Actions, req CodeSequenceRequest, node *CodeSeq
 		return true
 	}
 	impl := impls[0]
-	if a.isIfaceMethodID(impl) {
-		markSeqUnknownGetter(node, curFile, pos.Line, "getter 只证明了接口类型（缺实例来源）")
+	if a.isIfaceMethodID(impl) || a.seqExternalIfaceMethod(req, impl) {
+		// U06c：外部依赖里的接口（类型节点不在索引中）同样只有接口身份——
+		// 唯一实现/方法形状不能当作具体实例来源。
+		markSeqUnknownReceiver(node, curFile, pos.Line, 1.0, seqMethodRecvType(impl), method)
 		return true
 	}
 	node.ImplType = implTypeShort(impl)
@@ -146,4 +149,87 @@ func seqFactoryCallReturnSources(a *Actions, req CodeSequenceRequest, f *ast.Fil
 		return nil, false
 	}
 	return out, true
+}
+
+// seqExternalIfaceMethod 方法接收者类型是否是**未入索引的外部包**接口声明。
+func (a *Actions) seqExternalIfaceMethod(req CodeSequenceRequest, methodID string) bool {
+	pkg := pkgOfID(domain.CanonicalID(methodID))
+	recv := seqMethodRecvType(methodID)
+	if pkg == "" || recv == "" || req.pkgSet[pkg] {
+		return false
+	}
+	if a == nil || a.repo == nil {
+		return false
+	}
+	// 只有**类型节点缺失**（本仓未索引）时才走外部声明核对；已索引的接口
+	// 由既有实现派发/无实现诊断处理（不能把仓库内接口当外部接口）。
+	if n, err := a.repo.GetSymbol(domain.CanonicalID("symbol:go:" + pkg + ":" + recv)); err == nil && n != nil {
+		return false
+	}
+	pkgSrc := seqExternalPackage(a, req, pkg)
+	if pkgSrc == nil || pkgSrc.err != nil {
+		return false
+	}
+	return seqExternalPkgTypeIsIface(pkgSrc.files, recv, 0)
+}
+
+// seqExternalPkgTypeIsIface 外部包类型是否（经别名/命名类型链）为接口。
+func seqExternalPkgTypeIsIface(files []*seqFileCtx, name string, depth int) bool {
+	if depth > 8 || name == "" {
+		return false
+	}
+	for _, ctx := range files {
+		if ctx == nil || ctx.file == nil {
+			continue
+		}
+		for _, d := range ctx.file.Decls {
+			gd, ok := d.(*ast.GenDecl)
+			if !ok || gd.Tok != token.TYPE {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				ts, ok := spec.(*ast.TypeSpec)
+				if !ok || ts.Name == nil || ts.Name.Name != name {
+					continue
+				}
+				switch t := ts.Type.(type) {
+				case *ast.InterfaceType:
+					return true
+				case *ast.Ident:
+					// `type Alias = Router` / `type Named Router`：沿声明链。
+					if t.Name == name {
+						return false
+					}
+					if seqExternalPkgTypeIsIface(files, t.Name, depth+1) {
+						return true
+					}
+				case *ast.StarExpr:
+					if id, ok := t.X.(*ast.Ident); ok &&
+						seqExternalPkgTypeIsIface(files, id.Name, depth+1) {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+// seqMethodRecvType `symbol:go:pkg:(T).M` → T。
+func seqMethodRecvType(id string) string {
+	i := strings.Index(id, ":(")
+	j := strings.LastIndex(id, ").")
+	if i < 0 || j < 0 || j <= i {
+		return ""
+	}
+	return id[i+2 : j]
+}
+
+// seqMethodName `symbol:go:pkg:(T).M` → M。
+func seqMethodName(id string) string {
+	j := strings.LastIndex(id, ").")
+	if j < 0 {
+		return ""
+	}
+	return id[j+2:]
 }

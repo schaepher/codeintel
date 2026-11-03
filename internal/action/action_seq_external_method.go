@@ -75,6 +75,12 @@ func seqExpandExternalMethodCall(a *Actions, req CodeSequenceRequest, node *Code
 		return false
 	}
 	extID := "symbol:go:" + ref.pkgPath + ":(" + ref.typeName + ")." + sel.Sel.Name
+	if a.seqExternalIfaceMethod(req, extID) {
+		// U06c：外部接口类型的接收者没有实例来源证明（接口别名/命名类型链
+		// 同样按声明核对）。
+		markSeqUnknownReceiver(node, curFile, line, 1.0, seqMethodRecvType(extID), sel.Sel.Name)
+		return true
+	}
 	return seqExpandExternalDecl(a, req, node, ref.pkgPath, "("+ref.typeName+")."+sel.Sel.Name,
 		extID, depth, call, curFile, line, ref.typeName)
 }
