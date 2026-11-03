@@ -42,15 +42,7 @@
 
 ## 剩余待办（下一批）
 
-| # | 事项 | 状态 | 剩余范围 |
-| --- | --- | --- | --- |
-| U04v | 请求结构体字段读取来源（`field_read`） | **待办** | 入口形参结构体字段的声明/读取位置、独立读取 ID、getter 恢复、定义类型 vs 别名 |
-| U04w | 结构体字面量构造来源（`struct_literal`） | **待办** | 构造观察 ID、字段来源、initialization_only、预算（64 字段/深度 8/256 观察） |
-| U04x | 整值复制构造祖先 + 函数列表返回来源（`struct_copy`） | **待办** | `*dst=*src` 祖先、construction_ancestry_only、函数列表逐项环境、go/defer 调度上下文 |
-| U04y | 字段赋值观察与求值顺序（`field_writes`） | **待办** | assign 节点+`assignment_only`、RHS 求值顺序、compound/incdec operator、field_write_budget |
-| T18 | 回归/契约/文档补充 | **部分** | 已完成：JSON 契约（storage/read/orm/transaction/runtime/条件字段）、runbook 6 条、field_trace §185。剩余：U04v–U04y 的契约与回归随各自交付补齐 |
-
-## 本轮已执行验证
+无（todo28 全部编号已完成；边界见各节"已知边界"）。## 本轮已执行验证
 
 ```sh
 scripts/verify.sh --quick                                   # 多次执行：全部通过

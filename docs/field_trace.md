@@ -8254,3 +8254,21 @@ action；开库前先 `ValidateRuntimeData`）。
   要用闭包捕获；`Diagnostic` 类结构拆分时注意 `*ast.ComparisonExpr` 不存在
   （比较是 `*ast.BinaryExpr`）；外部文件上下文的 import path 不能靠 rel 的
   首个 `/` 猜（`<external>/<import path>/<file>`），要显式携带 pkgPath。
+
+## §186 todo28 U04v–U04y：字段读取/构造/复制/赋值观察（2026-11-05）
+
+- **field_read (U04v)**：`seqFieldReadOrigin` 把 `req.Field`/`req.Nested.ID` 解析为
+  字段读取来源——根为入口形参对象（`kind=parameter_object`）、每次求值独立
+  ID、声明 owner/type_id/声明行来自结构体声明文件（跨文件通过包内声明核对），
+  读取位置来自选择器本身；getter（单一 return：字面量或 receiver 字段）给出来源，
+  `Defined` 定义类型保留自身方法（literal）。
+- **struct_literal (U04w)**：`initialization_only` 构造观察；字段只复用已有分析，
+  省略字段不补零值；位置式/泛型/局部同名/遮蔽 new 不建来源；预算 64 字段/
+  深度 8/256 观察；同一构造经实参/别名/拷贝保留观察 ID。
+- **struct_copy (U04x)**：`*dst = <expr>` 在指针层级与结构体类型一致时记录
+  `construction_ancestry_only` 祖先；条件分支/go·defer 调度体/遮蔽 new/未知源
+  不建立；立即执行字面量回写捕获变量（`seqMergeImmediateClosureEnv`）。
+- **field_writes (U04y)**：默认时序保留字段赋值节点（焦点模式不变）；
+  operator/result_slot/guard/scheduled；LHS 接收者调用先求值；RHS 顺序固定；
+  预算 256 项，超出项仅给 `field_write_budget` 诊断。
+- 兼容修正：标量槽逃逸保留逃逸前来源（位置判定），`setScalar` 不再清空旧来源。

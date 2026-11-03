@@ -78,6 +78,19 @@ schema 变更需更新本契约并走 Q 流程（Agent/MCP 依赖字段名解析
   - `runtime`（todo25/T19）：`table`/`columns`/`query`/`source_id`/`symbol`/
     `result`/`reason`/`boundary{kind,code,needs}`；kind = missing_fact |
     analysis_boundary | ambiguous_fact，needs 只列真正需要的事实。
+  - `field_read`（U04v）：`id`（每次求值独立）、`root{kind,symbol,repo,
+    parameter}`、`path`、`type_id`（字段声明 owner）、`source_file/source_line`
+    （声明位置）、`read_file/read_offset`（本次读取位置）。
+  - `struct_literal`（U04w）：`id`（构造观察）、`type_id`、`semantics=
+    initialization_only`、`file/offset`、`fields[{name,origin?}]`（省略字段不
+    补零值来源；显式未知字段保留名字、无 origin）。
+  - `struct_copy`（U04x）：`id`、`type_id`、`semantics=
+    construction_ancestry_only`、`file/offset`、`source`（构造祖先来源）、
+    `guard`/`conditional`。
+  - 节点级 `field_writes`（U04y）：每项 `id`、`semantics=assignment_only`、
+    `file/offset`、`operator`、`target{type_id,source_file,source_line,path,
+    root?}`、`value`（仅右操作数来源）、`expression`、`result_slot`、
+    `guard`、`scheduled`；超预算项只带 `stop.code=field_write_budget`。
   - 节点级 `write_condition`（result{call_id,slot}+when_true/when_false =
     error_nil|error_non_nil）、`row_count_condition`（rows_gt_zero|
     rows_le_zero|rows_ge_zero|rows_lt_zero|rows_eq_zero|rows_ne_zero）、

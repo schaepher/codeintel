@@ -77,3 +77,18 @@
   `complete` 为 false 或 scope 不覆盖查询；按 `boundary.needs` 补事实（
   complete_rows/columns/scope/snapshot/resource_binding）。`query_not_proven`
   表示 SQL 形态未证明（DISTINCT/JOIN/表达式等），不应通过配置补语义。
+
+## todo28 U04v–U04y（字段读取/构造/复制/赋值观察）
+
+- **`field_read` 缺失**：入口形参必须是**具名结构体**（别名可、泛型/局部同名
+  类型不可）；字段读取按结构体声明文件解析（跨文件 import 以声明文件为准）。
+  `req=Other`/`Touch(&req)` 之后来源失效属预期；`Getter` 只支持单一 return。
+- **`struct_literal` 缺失**：位置式字段、泛型、局部同名类型、遮蔽 `new` 不建
+  来源；字段值只复用已有分析（参数/字面量/嵌套构造/返回槽）；观察 ID 相同
+  表示同一次构造经传递/拷贝，两次构造必然不同。
+- **`struct_copy` 缺失**：只认 `*dst = <expr>` 且目标为 `new(T)`/已证明指针、
+  指针层级与结构体类型一致；条件分支内、go/defer 调度体、遮蔽 new、未知来源
+  都不建立祖先；立即执行的函数字面量会回写捕获变量。
+- **`field_writes` 缺失**：字段目标需能解析到准确结构体声明；实例来源未知时
+  仍保留声明（root 省略）。`scheduled=true` 表示赋值在调度体内。预算 256 项，
+  超出项的节点只有 `field_write_budget` 诊断（不部分表示）。
