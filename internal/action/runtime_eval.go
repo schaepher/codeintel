@@ -46,6 +46,14 @@ type rtEval struct {
 	// 不返回截断后的"成功"结果）。
 	steps int
 	stack map[string]bool
+	// extraFuncs U04d：同包跨文件函数（parser 无 Obj / 索引缺失时的源码回退）。
+	extraFuncs map[string]rtFuncSource
+}
+
+// rtFuncSource 运行时求值用的函数源码（源码回退解析结果）。
+type rtFuncSource struct {
+	fn  *ast.FuncDecl
+	ctx *seqFileCtx
 }
 
 const (
@@ -83,6 +91,14 @@ func (e *rtEval) execStmt(frame *rtFrame, st ast.Stmt, s *rtState, depth int) []
 	if e.canceled() || !e.step() {
 		return nil
 	}
+	// U04d：闭包潜在写者保守失效（字面量出现即视为可能的写入者）。
+	ast.Inspect(st, func(n ast.Node) bool {
+		if lit, ok := n.(*ast.FuncLit); ok {
+			e.markClosureWriters(lit.Body)
+			return false
+		}
+		return true
+	})
 	switch x := st.(type) {
 	case *ast.ExprStmt:
 		_, out := e.evalExpr(frame, x.X, s, depth)
@@ -98,6 +114,16 @@ func (e *rtEval) execStmt(frame *rtFrame, st ast.Stmt, s *rtState, depth int) []
 	case *ast.BlockStmt:
 		return e.execBlock(frame, x.List, []*rtState{s}, depth)
 	case *ast.ForStmt:
+		// U04d：for 的 init/cond 是**到达该控制语句时**就执行的写入/取址，
+		// 即使循环体不执行（`for DB=nil;false;{}`）也要让旧绑定失效。
+		if x.Init != nil {
+			out := e.execStmt(frame, x.Init, s, depth)
+			if len(out) == 0 {
+				return nil
+			}
+			s = out[0]
+		}
+
 		// rows.Next() 循环：按查询结果逐行执行（cursor 供 rows.Scan 取当前行）。
 		if id, rows, ok := e.rowsNextLoop(frame, x.Cond, s); ok {
 			states := []*rtState{s}
@@ -133,6 +159,14 @@ func (e *rtEval) execStmt(frame *rtFrame, st ast.Stmt, s *rtState, depth int) []
 	case *ast.LabeledStmt:
 		return e.execStmt(frame, x.Stmt, s, depth)
 	case *ast.SwitchStmt:
+		// U04d：switch 的 init 在到达控制语句时执行（`switch DB=nil;{...}`）。
+		if x.Init != nil {
+			out := e.execStmt(frame, x.Init, s, depth)
+			if len(out) == 0 {
+				return nil
+			}
+			s = out[0]
+		}
 		// 首期：switch 不裁剪（保留所有 case；内部调用仍执行一次）
 		var merged []*rtState
 		for _, c := range x.Body.List {

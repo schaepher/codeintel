@@ -12,30 +12,17 @@ func (e *rtEval) evalQueryCall(frame *rtFrame, call *ast.CallExpr, s *rtState, d
 	if !ok || !isRuntimeQueryMethod(sel.Sel.Name) {
 		return rtUnknownValue(), nil, false
 	}
-	e.an.fact(call) // 保证 map 初始化
+	// 接收者身份（Go 求值顺序：接收者先于实参）。
 	sym := ""
 	if recv, ok := sel.X.(*ast.Ident); ok {
-		// 包级 DB 变量：rebind（DB=nil 等）后不再使用旧绑定。
-		if recv.Obj != nil {
-			g := e.an.globalByNameOf(recv)
-			if g.mutated {
-				ev := &SeqRuntimeEvidence{SnapshotPath: e.an.snap.Path, SnapshotHash: e.an.snap.Hash,
-					Version: e.an.snap.Version, Reason: "binding-mutated", Result: "unknown"}
-				e.an.facts[call] = ev
-				return rtUnknownValue(), []*rtState{s}, true
-			}
+		if sym2, ok2 := e.sqlResourceSymbols(frame, recv); ok2 {
+			sym = sym2
+		} else if recv.Obj != nil || e.an.pkgVarNames[recv.Name] {
+			// 不是已证明的 `*sql.DB` 包级句柄（局部/参数/自定义类型/已初始化）：
+			// 交回通用调用求值——自研 QueryRow/Scan 的副作用不能被读取快路径
+			// 绕过（U04d）。
+			return rtUnknownValue(), nil, false
 		}
-		// T14：只有**准确声明为 *sql.DB** 的包级/局部变量才绑定数据库身份
-		// （局部同名、自定义类型、未证明类型不借用绑定）。
-		// T14：只借**包级**无初始化 `var DB *sql.DB` 声明；同名局部变量、
-		// 已初始化/重绑定的变量都不借旧身份。
-		if !runtimeIsSQLDBDecl(recv, frame.ctx.file) || recv.Obj == nil || !e.an.pkgVars[recv.Obj] {
-			ev := &SeqRuntimeEvidence{SnapshotPath: e.an.snap.Path, SnapshotHash: e.an.snap.Hash,
-				Version: e.an.snap.Version, Reason: "binding-type-unproven", Result: "unknown"}
-			e.an.facts[call] = ev
-			return rtUnknownValue(), []*rtState{s}, true
-		}
-		sym = "symbol:go:" + frame.pkgPath + ":" + recv.Name
 	} else {
 		// 结构体字段/工厂返回值里的 db 句柄（`d.db.QueryContext`）。
 		rv, variants := e.evalExpr(frame, sel.X, s, depth)
@@ -46,9 +33,25 @@ func (e *rtEval) evalQueryCall(frame *rtFrame, call *ast.CallExpr, s *rtState, d
 			sym = rv.s
 		}
 	}
+	// U04d：SQL 与值实参里的 helper 副作用先求值，再检查绑定（ResetArg 等
+	// 改写句柄后不得用旧绑定返回确定行）。
+	vals, states := e.evalArgs(frame, call.Args, s, depth)
+	if len(states) > 0 {
+		s = states[0]
+	}
+	e.an.fact(call) // 保证 map 初始化
 	ev := &SeqRuntimeEvidence{SnapshotPath: e.an.snap.Path, SnapshotHash: e.an.snap.Hash,
 		Version: e.an.snap.Version, Reason: "runtime-query", Result: "unknown"}
 	e.an.facts[call] = ev
+	if sym == "" {
+		ev.Reason = "binding-type-unproven"
+		return rtUnknownValue(), []*rtState{s}, true
+	}
+	// 包级 DB 变量：rebind（DB=nil 等）后不再使用旧绑定。
+	if g := e.an.globalByNameOf(&ast.Ident{Name: nameOfSymbol(sym)}); g.mutated {
+		ev.Reason = "binding-mutated"
+		return rtUnknownValue(), []*rtState{s}, true
+	}
 	source := runtimeResolveSource(e.an.snap, sym)
 	if source == "" {
 		ev.Reason = "binding-missing"
@@ -59,9 +62,9 @@ func (e *rtEval) evalQueryCall(frame *rtFrame, call *ast.CallExpr, s *rtState, d
 		ev.Reason = "missing-sql"
 		return rtUnknownValue(), []*rtState{s}, true
 	}
-	sqlVal, variants := e.evalExpr(frame, call.Args[1], s, depth)
-	if len(variants) > 0 {
-		s = variants[0]
+	var sqlVal rtValue
+	if len(vals) > 1 {
+		sqlVal = vals[1]
 	}
 	if sqlVal.kind != rtString {
 		ev.Reason = "dynamic-sql"
@@ -69,10 +72,10 @@ func (e *rtEval) evalQueryCall(frame *rtFrame, call *ast.CallExpr, s *rtState, d
 	}
 	args := make([]rtValue, 0, len(call.Args)-2)
 	rawArgs := call.Args[2:]
-	for i, arg := range rawArgs {
-		v, variants2 := e.evalExpr(frame, arg, s, depth)
-		if len(variants2) > 0 {
-			s = variants2[0]
+	for i := range rawArgs {
+		var v rtValue
+		if len(vals) > 2+i {
+			v = vals[2+i]
 		}
 		if call.Ellipsis.IsValid() && i == len(rawArgs)-1 && v.kind == rtSlice {
 			args = append(args, v.elems...)

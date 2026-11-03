@@ -64,7 +64,7 @@ func (e *rtEval) runtimeTypeFromExpr(frame *rtFrame, expr ast.Expr, s *rtState, 
 			return t
 		}
 	case *ast.CallExpr:
-		if target, ok := runtimeCalleeID(frame, x); ok {
+		if target, ok := e.runtimeCalleeID(frame, x); ok {
 			if fn, _, ok2 := seqFuncSource(e.a, e.req, target); ok2 && fn.Type.Results != nil && len(fn.Type.Results.List) > 0 {
 				if name := runtimeTypeNameOfExpr(fn.Type.Results.List[0].Type); name != "" {
 					return &runtimeType{name: name}

@@ -32,7 +32,7 @@ func (e *rtEval) invalidateAddrTaken(call *ast.CallExpr, s *rtState) {
 
 // evalFuncCallOutcomes 函数调用 → 每个 return 路径一个变体（保留值与错误相关）。
 func (e *rtEval) evalFuncCallOutcomes(frame *rtFrame, call *ast.CallExpr, s *rtState, depth int) []rtOutcome {
-	target, ok := runtimeCalleeID(frame, call)
+	target, ok := e.runtimeCalleeID(frame, call)
 	if !ok {
 		return nil
 	}

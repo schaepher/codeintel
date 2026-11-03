@@ -69,11 +69,17 @@ func (e *rtEval) execRange(frame *rtFrame, x *ast.RangeStmt, s *rtState, depth i
 		for _, k := range v.order {
 			if x.Key != nil {
 				if id, ok := x.Key.(*ast.Ident); ok && id.Obj != nil {
+					if e.an.pkgVars[id.Obj] {
+						e.markRangeGlobalWrite(id)
+					}
 					states[0].env[id.Obj] = rtStringValue(k)
 				}
 			}
 			if x.Value != nil {
 				if id, ok := x.Value.(*ast.Ident); ok && id.Obj != nil {
+					if e.an.pkgVars[id.Obj] {
+						e.markRangeGlobalWrite(id)
+					}
 					states[0].env[id.Obj] = v.cols[k]
 				}
 			}
@@ -85,6 +91,12 @@ func (e *rtEval) execRange(frame *rtFrame, x *ast.RangeStmt, s *rtState, depth i
 		return states
 	}
 	if v.kind != rtSlice && v.kind != rtRows {
+		// 未知集合：range 赋值目标（含包级 DB）保守失效；显式空集合走下面
+		// 的确定性分支（零次迭代、不误伤）。
+		if v.kind != rtSlice || len(v.elems) > 0 {
+			e.markRangeGlobalWrite(x.Key)
+			e.markRangeGlobalWrite(x.Value)
+		}
 		out := e.execBlock(frame, x.Body.List, []*rtState{s}, depth)
 		// 未知集合上执行一次循环体只为保留调用证据；聚合结果（map）的
 		// 基数/成员不可据此确定（len(map) 保持 unknown）。
@@ -102,6 +114,9 @@ func (e *rtEval) execRange(frame *rtFrame, x *ast.RangeStmt, s *rtState, depth i
 		if x.Value != nil {
 			if id, ok := x.Value.(*ast.Ident); ok {
 				if id.Obj != nil {
+					if e.an.pkgVars[id.Obj] {
+						e.markRangeGlobalWrite(id)
+					}
 					states[0].env[id.Obj] = elem
 				}
 			}

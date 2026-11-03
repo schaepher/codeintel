@@ -16,6 +16,8 @@ type SeqStorage struct {
 	Guard               string `json:"guard,omitempty"`
 	Outcome             string `json:"outcome"`
 	Boundary            string `json:"boundary,omitempty"`
+	// Resource U04d：写入资源绑定（有快照才输出）。
+	Resource *SeqStorageResource `json:"resource,omitempty"`
 }
 
 // SeqStorageWrite 单列写入。

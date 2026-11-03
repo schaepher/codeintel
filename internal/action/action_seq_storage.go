@@ -49,6 +49,8 @@ type seqPersistCtx struct {
 	// argOrigins U04c：调用实参的标量来源（按 call.Args 下标；SQL 之后的值
 	// 实参用 [sqlArg+1:] 对齐 argument 编号）。
 	argOrigins []*SeqStorageOrigin
+	// runtime U04d：运行时快照分析（写入资源绑定结论）。
+	runtime *runtimeAnalysis
 }
 
 // seqExprText 表达式在源码中的原文（缺失上下文返回空）。
@@ -261,7 +263,8 @@ func seqAnnotateCallEvidence(req CodeSequenceRequest, node *CodeSeqNode, call *a
 	// 值来源/跨入口顺序仍需请求证明，不据此凭空连线。
 	seqAnnotatePersistence(node, call)
 	seqAttachStorageEvidence(node, call, &seqPersistCtx{file: f, pkgPath: curPkg,
-		src: src, fset: fset, guard: req.branchCond, argOrigins: req.callArgOrigins})
+		src: src, fset: fset, guard: req.branchCond, argOrigins: req.callArgOrigins,
+		runtime: req.runtime})
 }
 
 // seqAttachStorageEvidence 把结构化写入证据写到调用节点（不覆盖既有
@@ -270,7 +273,19 @@ func seqAttachStorageEvidence(node *CodeSeqNode, call *ast.CallExpr, c *seqPersi
 	if node == nil || node.Evidence == nil {
 		return
 	}
-	if st := seqStorageEvidence(node, call, c); st != nil {
-		node.Evidence.Storage = st
+	st := seqStorageEvidence(node, call, c)
+	if st == nil {
+		return
 	}
+	// U04d：写入资源绑定（无快照省略；未访问/冲突如实标注）。
+	if c != nil && c.runtime != nil {
+		if res := c.runtime.writeResource(call); res != nil {
+			cp := *res
+			st.Resource = &cp
+		} else {
+			st.Resource = &SeqStorageResource{Status: SeqResourceNotVisited,
+				SnapshotHash: c.runtime.snap.Hash}
+		}
+	}
+	node.Evidence.Storage = st
 }

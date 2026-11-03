@@ -5,7 +5,6 @@ package action
 import (
 	"go/ast"
 	"go/token"
-	"strconv"
 )
 
 func (e *rtEval) evalExpr(frame *rtFrame, expr ast.Expr, s *rtState, depth int) (rtValue, []*rtState) {
@@ -39,12 +38,8 @@ func (e *rtEval) evalExpr(frame *rtFrame, expr ast.Expr, s *rtState, depth int) 
 				return rtFloatValue(-v.f), variants
 			}
 		case token.AND:
-			// &T{...} / &struct{...}{...}：结构体实例（字段值来自复合字面量）。
-			if cl, ok := runtimeUnparen(x.X).(*ast.CompositeLit); ok {
-				if _, isMap := cl.Type.(*ast.MapType); !isMap {
-					return e.evalRuntimeStructLit(frame, cl, s, depth)
-				}
-			}
+			// U04d：`&DB`（包级句柄取址）→ 绑定保守失效；&T{...} 结构体实例。
+			return e.evalUnaryAddr(frame, x, s, depth)
 		}
 		return rtUnknownValue(), variants
 	case *ast.BinaryExpr:
@@ -114,34 +109,15 @@ func (e *rtEval) evalExpr(frame *rtFrame, expr ast.Expr, s *rtState, depth int) 
 	return rtUnknownValue(), []*rtState{s}
 }
 
-func evalRuntimeLiteral(lit *ast.BasicLit) rtValue {
-	switch lit.Kind {
-	case token.INT:
-		i, err := strconv.ParseInt(lit.Value, 0, 64)
-		if err != nil {
-			return rtUnknownValue()
+// evalUnaryAddr 取址表达式（U04d 拆出——行数治理）。
+func (e *rtEval) evalUnaryAddr(frame *rtFrame, x *ast.UnaryExpr, s *rtState, depth int) (rtValue, []*rtState) {
+	e.markAddressTakenGlobal(x.X)
+	if cl, ok := runtimeUnparen(x.X).(*ast.CompositeLit); ok {
+		if _, isMap := cl.Type.(*ast.MapType); !isMap {
+			return e.evalRuntimeStructLit(frame, cl, s, depth)
 		}
-		return rtIntValue(i)
-	case token.FLOAT:
-		f, err := strconv.ParseFloat(lit.Value, 64)
-		if err != nil {
-			return rtUnknownValue()
-		}
-		return rtFloatValue(f)
-	case token.STRING:
-		s, err := strconv.Unquote(lit.Value)
-		if err != nil {
-			return rtUnknownValue()
-		}
-		return rtStringValue(s)
-	case token.CHAR:
-		s, err := strconv.Unquote(lit.Value)
-		if err != nil || len(s) == 0 {
-			return rtUnknownValue()
-		}
-		return rtIntValue(int64([]rune(s)[0]))
 	}
-	return rtUnknownValue()
+	return rtUnknownValue(), []*rtState{s}
 }
 
 func (e *rtEval) evalIdent(frame *rtFrame, id *ast.Ident, s *rtState) rtValue {

@@ -42,9 +42,20 @@ func (e *rtEval) evalFuncWithReceiver(symID domain.CanonicalID, recv *rtValue, a
 		return nil, e.err
 	}
 	if depth >= e.maxDepth || e.stack[string(symID)] {
+		// U04d：解释深度截断/防环 → 全部包级绑定保守失效（不能沿用旧快照
+		// 返回确定行/绑定）。
+		e.an.mutateAllGlobals()
 		return []rtReturn{{vals: []rtValue{rtUnknownValue()}}}, nil
 	}
-	fn, ctx, ok := seqFuncSource(e.a, e.req, string(symID))
+	var fn *ast.FuncDecl
+	var ctx *seqFileCtx
+	ok := false
+	if fs, hit := e.extraFuncs[string(symID)]; hit {
+		fn, ctx, ok = fs.fn, fs.ctx, true
+	}
+	if !ok {
+		fn, ctx, ok = seqFuncSource(e.a, e.req, string(symID))
+	}
 	if !ok {
 		return nil, nil
 	}

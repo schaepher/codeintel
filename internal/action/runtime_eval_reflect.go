@@ -34,6 +34,8 @@ func isReflectPkgCall(frame *rtFrame, call *ast.CallExpr, name string) bool {
 // evalReflectCall reflect 类型链（命中返回 handled=true）。
 func (e *rtEval) evalReflectCall(frame *rtFrame, call *ast.CallExpr, s *rtState,
 	depth int) (rtValue, []*rtState, bool) {
+	// U04d：实参的副作用先求值（TypeOf(ResetArg()) 里的 helper 可能改写句柄）。
+	s = e.evalArgEffects(frame, call.Args, s, depth)
 	if isReflectPkgCall(frame, call, "TypeOf") && len(call.Args) == 1 {
 		if name, ok := runtimeExprStaticTypeName(frame, call.Args[0], s); ok {
 			return rtValue{kind: rtTypeInfo, s: name}, []*rtState{s}, true
