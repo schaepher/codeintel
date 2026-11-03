@@ -117,6 +117,7 @@ func seqSingletonCandidates(a *Actions, req CodeSequenceRequest, f *ast.File, in
 	var cands []seqFieldCandidate
 	factoryID := ""
 	ownerPkg := pkgOfID(domain.CanonicalID(target))
+	unknownWriter := false
 	for _, rel := range seqPackageFilesOf(req, ctx.rel) {
 		fctx := seqFileCtxFor(req, rel)
 		if fctx == nil || fctx.file == nil {
@@ -144,14 +145,26 @@ func seqSingletonCandidates(a *Actions, req CodeSequenceRequest, f *ast.File, in
 						return
 					}
 				}
-				for _, s := range rhsTypes(a, req, fctx.file, importAliases(fctx.file), expr, 3, ownerPkg) {
-					if s.typeName == "" || s.pkgPath == "" {
-						continue
+				srcs := rhsTypes(a, req, fctx.file, importAliases(fctx.file), expr, 3, ownerPkg)
+				if len(srcs) == 0 || hasUnknownWriteSource(srcs) {
+					unknownWriter = true
+					return
+				}
+				for _, s := range srcs {
+					if s.typeName == "" || s.pkgPath == "" || seqRefIsIfaceDecl(req,
+						seqORMTypeRef{pkgPath: s.pkgPath, name: s.typeName}) {
+						// 写者值退回到接口/未证明类型——单例不再唯一。
+						unknownWriter = true
+						return
 					}
 					cands = append(cands, seqFieldCandidate{pkgPath: s.pkgPath, typeName: s.typeName, guard: guard})
 				}
 			})
 		}
+	}
+	if unknownWriter {
+		// 任一写者来源未知（形参/接口/未证明调用）→ 单例不唯一。
+		return nil, "", false
 	}
 	cands = appendUniqueFieldCandidates(cands)
 	if len(cands) == 0 {
