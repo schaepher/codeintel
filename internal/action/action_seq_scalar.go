@@ -143,11 +143,8 @@ func seqScalarOriginDepth(req CodeSequenceRequest, e ast.Expr, depth int) *SeqSt
 		return seqScalarOriginDepth(req, v.X, depth+1)
 	case *ast.Ident:
 		if req.env != nil {
-			if slot, ok := req.env.scalarSlot(v.Obj); ok {
-				if slot.escaped {
-					return nil
-				}
-				return cloneSeqScalarOrigin(slot.origin)
+			if origin, ok := req.env.scalarOriginAt(v.Obj, v.Pos()); ok {
+				return cloneSeqScalarOrigin(origin)
 			}
 		}
 		// 未遮蔽的预声明 true/false 是字面量；被局部/包级变量遮蔽时 Obj

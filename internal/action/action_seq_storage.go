@@ -51,6 +51,8 @@ type seqPersistCtx struct {
 	argOrigins []*SeqStorageOrigin
 	// runtime U04d：运行时快照分析（写入资源绑定结论）。
 	runtime *runtimeAnalysis
+	// originOf U04c/U04f：在**当前求值点**解析表达式标量来源（Where 参数用）。
+	originOf func(ast.Expr) *SeqStorageOrigin
 }
 
 // seqExprText 表达式在源码中的原文（缺失上下文返回空）。
@@ -262,10 +264,13 @@ func seqAnnotateCallEvidence(req CodeSequenceRequest, node *CodeSeqNode, call *a
 	finishSeqEvidence(req, node)
 	// 值来源/跨入口顺序仍需请求证明，不据此凭空连线。
 	seqAnnotatePersistence(node, call)
+	originReq := req
 	c := &seqPersistCtx{file: f, pkgPath: curPkg, src: src, fset: fset,
-		guard: req.branchCond, argOrigins: req.callArgOrigins, runtime: req.runtime}
+		guard: req.branchCond, argOrigins: req.callArgOrigins, runtime: req.runtime,
+		originOf: func(e ast.Expr) *SeqStorageOrigin { return seqScalarOriginOf(originReq, e) }}
 	seqAttachStorageEvidence(node, call, c)
 	seqAttachStorageRead(node, call, c)
+	seqAttachORMEvidence(node, call, c)
 }
 
 // seqAttachStorageEvidence 把结构化写入证据写到调用节点（不覆盖既有

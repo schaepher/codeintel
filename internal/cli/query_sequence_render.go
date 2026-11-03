@@ -213,6 +213,10 @@ func writeSeqNode(b *strings.Builder, alias map[string]string, from, caller stri
 			if note := seqStorageReadNote(n); note != "" {
 				b.WriteString(fmt.Sprintf("  Note over %s,%s: %s\n", alias[from], to, note))
 			}
+			// U04f：XORM 操作边界（模型映射/执行成功未证明）。
+			if note := seqORMNote(n); note != "" {
+				b.WriteString(fmt.Sprintf("  Note over %s,%s: %s\n", alias[from], to, note))
+			}
 			// todo10-3：为什么没继续展开（分析停止 vs 业务流程结束）
 			if n.Stop != nil && n.Stop.Code != "" && n.Stop.Code != action.SeqStopNoCalls {
 				b.WriteString(fmt.Sprintf("  Note over %s,%s: 未继续展开：%s%s\n",

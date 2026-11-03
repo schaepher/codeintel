@@ -24,7 +24,7 @@ func seqMarkScalarEscapes(req CodeSequenceRequest, st ast.Stmt) {
 				seqMarkEscapeIdent(req.env, v.X)
 			case *ast.UnaryExpr:
 				if v.Op == token.AND {
-					seqMarkEscapeIdent(req.env, v.X)
+					seqMarkEscapeIdentAt(req.env, v.X, v.Pos())
 				}
 			}
 			return true
@@ -34,10 +34,12 @@ func seqMarkScalarEscapes(req CodeSequenceRequest, st ast.Stmt) {
 		switch v := n.(type) {
 		case *ast.UnaryExpr:
 			if v.Op == token.AND {
-				seqMarkEscapeIdent(req.env, v.X)
+				seqMarkEscapeIdentAt(req.env, v.X, v.Pos())
 			}
 		case *ast.FuncLit:
 			inspectWrites(v.Body)
+			// 闭包写者的失效从字面量出现处起（同一语句里更早求值的实参仍可用）。
+			seqMarkClosureEscapePositions(req.env, v)
 			return false // 字面量体单独遍历（已含嵌套写者）
 		}
 		return true
@@ -47,9 +49,36 @@ func seqMarkScalarEscapes(req CodeSequenceRequest, st ast.Stmt) {
 // seqMarkEscapeIdent 目标为标识符时标记逃逸（字段/下标取址忽略——标量
 // 槽只按标识符对象跟踪）。
 func seqMarkEscapeIdent(env *seqEnv, e ast.Expr) {
+	seqMarkEscapeIdentAt(env, e, token.NoPos)
+}
+
+// seqMarkEscapeIdentAt 从指定位置起标记逃逸。
+func seqMarkEscapeIdentAt(env *seqEnv, e ast.Expr, pos token.Pos) {
 	if id, ok := e.(*ast.Ident); ok && id.Obj != nil {
-		env.markScalarEscaped(id.Obj)
+		env.markScalarEscapedAt(id.Obj, pos)
 	}
+}
+
+// seqMarkClosureEscapePositions 闭包里的写者按**字面量出现位置**失效。
+func seqMarkClosureEscapePositions(env *seqEnv, lit *ast.FuncLit) {
+	if env == nil || lit == nil || lit.Body == nil {
+		return
+	}
+	ast.Inspect(lit.Body, func(n ast.Node) bool {
+		switch v := n.(type) {
+		case *ast.AssignStmt:
+			for _, lhs := range v.Lhs {
+				seqMarkEscapeIdentAt(env, lhs, lit.Pos())
+			}
+		case *ast.IncDecStmt:
+			seqMarkEscapeIdentAt(env, v.X, lit.Pos())
+		case *ast.UnaryExpr:
+			if v.Op == token.AND {
+				seqMarkEscapeIdentAt(env, v.X, lit.Pos())
+			}
+		}
+		return true
+	})
 }
 
 // seqRecordScalarStatement 赋值/声明/incdec/range 的标量来源记录。

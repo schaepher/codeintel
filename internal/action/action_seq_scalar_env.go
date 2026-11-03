@@ -9,12 +9,18 @@ package action
 //   - 分支合并：来源相同可保留，不同/缺失 → 未知；
 //   - 阴影按 AST 对象隔离（不污染外层同名变量）。
 
-import "go/ast"
+import (
+	"go/ast"
+	"go/token"
+)
 
 // seqScalarSlot 一个标量声明槽的来源状态。
 type seqScalarSlot struct {
-	origin  *SeqStorageOrigin
-	escaped bool // 取址/闭包写者 → 持续失效
+	origin *SeqStorageOrigin
+	// escaped/escapedAt 取址或闭包写者 → 从该位置起持续失效（同一语句里
+	// 之前已求值的实参仍保留来源：Go 求值顺序）。
+	escaped   bool
+	escapedAt token.Pos
 }
 
 // scalarSlot 读取槽状态（父环境 = 闭包捕获）。
@@ -40,7 +46,7 @@ func (e *seqEnv) setScalar(obj *ast.Object, origin *SeqStorageOrigin) {
 	}
 	slot, _ := e.scalarSlot(obj)
 	if slot.escaped {
-		e.scalars[obj] = seqScalarSlot{escaped: true}
+		e.scalars[obj] = seqScalarSlot{escaped: true, escapedAt: slot.escapedAt}
 		return
 	}
 	e.scalars[obj] = seqScalarSlot{origin: cloneSeqScalarOrigin(origin)}
@@ -48,6 +54,11 @@ func (e *seqEnv) setScalar(obj *ast.Object, origin *SeqStorageOrigin) {
 
 // markScalarEscaped 标记持续逃逸（本地层写——阴影对象互不影响）。
 func (e *seqEnv) markScalarEscaped(obj *ast.Object) {
+	e.markScalarEscapedAt(obj, token.NoPos)
+}
+
+// markScalarEscapedAt 从 pos 起失效（同一语句中更早求值的实参不受影响）。
+func (e *seqEnv) markScalarEscapedAt(obj *ast.Object, pos token.Pos) {
 	if e == nil || obj == nil {
 		return
 	}
@@ -56,12 +67,27 @@ func (e *seqEnv) markScalarEscaped(obj *ast.Object) {
 	}
 	slot, ok := e.scalarSlot(obj)
 	if !ok {
-		e.scalars[obj] = seqScalarSlot{escaped: true}
+		e.scalars[obj] = seqScalarSlot{escaped: true, escapedAt: pos}
 		return
 	}
+	// 逃逸点之前的读取仍可用旧来源（位置判定）；之后的读取被 escapedAt 挡住。
 	slot.escaped = true
-	slot.origin = nil
+	slot.escapedAt = pos
 	e.scalars[obj] = slot
+}
+
+// scalarOriginAt 该使用位置是否仍可用槽来源（逃逸从逃逸点起生效）。
+func (e *seqEnv) scalarOriginAt(obj *ast.Object, pos token.Pos) (*SeqStorageOrigin, bool) {
+	slot, ok := e.scalarSlot(obj)
+	if !ok {
+		return nil, false
+	}
+	if slot.escaped {
+		if pos == token.NoPos || slot.escapedAt == token.NoPos || slot.escapedAt <= pos {
+			return nil, true
+		}
+	}
+	return slot.origin, true
 }
 
 // copyScalars 克隆标量槽表（clone 用；始终返回可写表）。
@@ -153,7 +179,14 @@ func seqMergeScalarCandidates(cands []seqScalarSlot) seqScalarSlot {
 		}
 	}
 	if escaped {
-		return seqScalarSlot{escaped: true}
+		at := token.NoPos
+		for _, c := range cands {
+			if c.escaped {
+				at = c.escapedAt
+				break
+			}
+		}
+		return seqScalarSlot{escaped: true, escapedAt: at}
 	}
 	if !same {
 		return seqScalarSlot{}
