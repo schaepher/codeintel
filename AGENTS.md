@@ -27,6 +27,9 @@
   （A=递归查询资源基准已完成；B=后端流程续接/时序图逐节现状与计划）
 - [`docs/todo27-checklist.md`](docs/todo27-checklist.md)：todo27 交付 Checklist
   （U06 已完成；T01–T14/T18/U04 的剩余范围与证据逐项列明）
+- [`docs/todo28-checklist.md`](docs/todo28-checklist.md)：todo28 交付 Checklist
+  （U04a/U04b/U04c 已完成；T19、U04d–U04y、U06b–d、U07 的剩余范围逐项列明）
+  ——**接手先看这张表的"待办"行**
 
 ## 项目一句话
 
