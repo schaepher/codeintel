@@ -39,35 +39,6 @@ const (
 	SeqStorageBoundaryArgs     = "argument_count_unproven"    // 占位符与实参数量不符
 )
 
-// seqPersistCtx 持久化注释所需的调用点上下文（源码/文件/包）。
-type seqPersistCtx struct {
-	file    *ast.File
-	pkgPath string
-	src     []byte
-	fset    *token.FileSet
-	guard   string
-	// argOrigins U04c：调用实参的标量来源（按 call.Args 下标；SQL 之后的值
-	// 实参用 [sqlArg+1:] 对齐 argument 编号）。
-	argOrigins []*SeqStorageOrigin
-	// runtime U04d：运行时快照分析（写入资源绑定结论）。
-	runtime *runtimeAnalysis
-	// originOf U04c/U04f：在**当前求值点**解析表达式标量来源（Where 参数用）。
-	originOf func(ast.Expr) *SeqStorageOrigin
-}
-
-// seqExprText 表达式在源码中的原文（缺失上下文返回空）。
-func (c *seqPersistCtx) exprText(e ast.Expr) string {
-	if c == nil || e == nil || c.fset == nil || len(c.src) == 0 {
-		return ""
-	}
-	start := c.fset.Position(e.Pos()).Offset
-	end := c.fset.Position(e.End()).Offset
-	if start < 0 || end > len(c.src) || start >= end {
-		return ""
-	}
-	return strings.TrimSpace(string(c.src[start:end]))
-}
-
 // seqSQLBinder 按占位符出现顺序绑定实参（不含 context/SQL）。
 type seqSQLBinder struct {
 	args    []ast.Expr
@@ -258,8 +229,8 @@ func seqStorageEvidence(node *CodeSeqNode, call *ast.CallExpr, c *seqPersistCtx)
 
 // seqAnnotateCallEvidence 调用节点的收尾证据：运行时读取、调用证据
 // 收口、持久化边界诊断（U04）与结构化写入证据（U04b/U04c）。
-func seqAnnotateCallEvidence(req CodeSequenceRequest, node *CodeSeqNode, call *ast.CallExpr,
-	f *ast.File, fset *token.FileSet, src []byte, curPkg string) {
+func seqAnnotateCallEvidence(a *Actions, req CodeSequenceRequest, node *CodeSeqNode,
+	call *ast.CallExpr, f *ast.File, fset *token.FileSet, src []byte, curPkg, curFile string) {
 	attachRuntimeEvidence(req, node, call)
 	finishSeqEvidence(req, node)
 	// 值来源/跨入口顺序仍需请求证明，不据此凭空连线。
@@ -267,7 +238,9 @@ func seqAnnotateCallEvidence(req CodeSequenceRequest, node *CodeSeqNode, call *a
 	originReq := req
 	c := &seqPersistCtx{file: f, pkgPath: curPkg, src: src, fset: fset,
 		guard: req.branchCond, argOrigins: req.callArgOrigins, runtime: req.runtime,
-		originOf: func(e ast.Expr) *SeqStorageOrigin { return seqScalarOriginOf(originReq, e) }}
+		originOf: func(e ast.Expr) *SeqStorageOrigin { return seqScalarOriginOf(originReq, e) },
+		actions:  a, repoAbs: req.RepoAbs, fileRel: curFile, req: &originReq,
+		ormModels: req.ormModels}
 	seqAttachStorageEvidence(node, call, c)
 	seqAttachStorageRead(node, call, c)
 	seqAttachORMEvidence(node, call, c)

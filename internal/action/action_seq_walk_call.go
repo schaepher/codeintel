@@ -28,7 +28,9 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		if seqPureTypeConversionCall(call) {
 			return nil
 		}
-		defer func() { seqAnnotateCallEvidence(req, node, call, f, fset, src, curPkg) }()
+		defer func() {
+			seqAnnotateCallEvidence(a, req, node, call, f, fset, src, curPkg, curFile)
+		}()
 		fun := call.Fun
 		pos := fset.Position(call.Lparen)
 		node = &CodeSeqNode{Kind: "call", Label: callLabel(fset, src, fun), Actor: callActor(fset, src, fun), Line: pos.Line}

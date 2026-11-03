@@ -46,4 +46,23 @@ type SeqORM struct {
 	Guard             string                `json:"guard,omitempty"`
 	Outcome           string                `json:"outcome"`
 	Boundary          string                `json:"boundary,omitempty"`
+	// Models U04g：实参的准确模型声明（model_mapping_unproven）。
+	Models []SeqORMModel `json:"models,omitempty"`
+}
+
+// SeqORMModel 模型声明证据（U04g；字段只展示源码声明，不推定列映射）。
+type SeqORMModel struct {
+	Argument int           `json:"argument"`
+	SymbolID string        `json:"symbol_id"`
+	Source   *SymbolSource `json:"source,omitempty"`
+	Fields   []SeqORMField `json:"fields,omitempty"`
+	Boundary string        `json:"boundary"`
+}
+
+// SeqORMField 声明字段（name/go_type/原始 tag/embedded）。
+type SeqORMField struct {
+	Name     string `json:"name"`
+	GoType   string `json:"go_type,omitempty"`
+	Tag      string `json:"tag,omitempty"`
+	Embedded bool   `json:"embedded,omitempty"`
 }

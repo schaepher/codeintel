@@ -211,6 +211,7 @@ func seqXormEvidence(node *CodeSeqNode, call *ast.CallExpr, c *seqPersistCtx) *S
 	if c != nil && c.guard != "" {
 		orm.Guard = c.guard
 	}
+	orm.Models = seqORMModelsFor(call, c)
 	return orm
 }
 

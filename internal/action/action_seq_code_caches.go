@@ -12,6 +12,9 @@ func seqInitRequestCaches(req *CodeSequenceRequest) {
 	if req.fileCache == nil {
 		req.fileCache = map[string]*seqParsedFile{}
 	}
+	if req.ormModels == nil {
+		req.ormModels = map[string]*seqORMStruct{} // U04g：模型声明缓存
+	}
 	if req.litVisited == nil {
 		req.litVisited = map[string]bool{} // todo22 §2：函数字面量展开防环
 	}
