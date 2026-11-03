@@ -3,113 +3,114 @@ package action
 // U04：持久化边界诊断——SQL 字面量 INSERT/UPDATE 的目标表与列写进调用节点
 // 的诊断里；值来源/跨入口顺序仍需请求证明（不凭空连线）。
 //
-// 只识别**完整字面量**（含拼接后的静态串）；动态 SQL 保持原诊断。
+// U04a：只有**准确的 database/sql 写入方法身份**（DB/Tx Exec、
+// DB/Tx/Conn ExecContext）才解析 SQL——自定义同名方法、日志调用、
+// Stmt.Exec 都不是写入。
+//
+// U04b：表/列来自 SQL AST（`action_seq_storage.go`），不再按逗号/字符串
+// 切分；复杂/动态 SQL 不保留看起来确定的部分表列。
 
 import (
 	"go/ast"
+	"go/token"
+	"strconv"
 	"strings"
 )
 
-// seqPersistenceBoundary 调用的持久化边界描述（非持久化调用返回空串）。
-func seqPersistenceBoundary(call *ast.CallExpr) string {
-	if call == nil || len(call.Args) == 0 {
+// 标准库写入方法的 SQL 实参位置（U04a）：Exec(query, args...) 的 query 是
+// 参数 0；ExecContext(ctx, query, args...) 的 query 是参数 1。
+const (
+	seqSQLMethodExec          = "symbol:go:database/sql:(DB).Exec"
+	seqSQLMethodTxExec        = "symbol:go:database/sql:(Tx).Exec"
+	seqSQLMethodDBExecContext = "symbol:go:database/sql:(DB).ExecContext"
+	seqSQLMethodTxExecCtx     = "symbol:go:database/sql:(Tx).ExecContext"
+	seqSQLMethodConnExecCtx   = "symbol:go:database/sql:(Conn).ExecContext"
+)
+
+// seqPersistenceSQLArg 调用点是否为**已证明的 database/sql 写入调用**；
+// 是则返回 SQL 实参索引，-1 表示不是写入（自定义同名方法、Stmt.Exec、
+// 日志/未解析调用都不算）。
+func seqPersistenceSQLArg(node *CodeSeqNode) int {
+	if node == nil || node.Evidence == nil {
+		return -1
+	}
+	switch node.Evidence.SymbolID {
+	case seqSQLMethodExec, seqSQLMethodTxExec:
+		return 0
+	case seqSQLMethodDBExecContext, seqSQLMethodTxExecCtx, seqSQLMethodConnExecCtx:
+		return 1
+	}
+	return -1
+}
+
+// seqPersistenceSQLText 取出 SQL 字面量（Go 字符串语法解码）；未知查询、
+// 非字面量、ellipsis 实参一律未证明（返回空串）。
+func seqPersistenceSQLText(call *ast.CallExpr, arg int) string {
+	if call == nil || arg < 0 || arg >= len(call.Args) {
 		return ""
 	}
-	sql := ""
-	for _, a := range call.Args {
-		if lit, ok := a.(*ast.BasicLit); ok && lit.Kind.String() == "STRING" {
-			sql = strings.Trim(lit.Value, "`\"")
-			break
-		}
-	}
-	if sql == "" {
+	if call.Ellipsis.IsValid() && arg == len(call.Args)-1 {
 		return ""
 	}
-	upper := strings.ToUpper(strings.TrimSpace(sql))
-	switch {
-	case strings.HasPrefix(upper, "INSERT INTO"):
-		if tbl, cols, ok := parseInsertTarget(sql); ok {
-			return "持久化边界：INSERT INTO " + tbl + "(" + strings.Join(cols, ",") + ")（参数值来源未证明；跨入口顺序需请求身份证明）"
-		}
-		return "持久化边界：INSERT（表/列未静态可读）"
-	case strings.HasPrefix(upper, "UPDATE"):
-		if tbl, cols, ok := parseUpdateTarget(sql); ok {
-			return "持久化边界：UPDATE " + tbl + " SET " + strings.Join(cols, ",") + "（值来源未证明）"
-		}
-		return "持久化边界：UPDATE（表/列未静态可读）"
+	lit, ok := call.Args[arg].(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		return ""
+	}
+	if v, err := strconv.Unquote(lit.Value); err == nil {
+		return v
 	}
 	return ""
 }
 
-// parseInsertTarget `INSERT INTO t (a,b) VALUES ...` → (t, [a,b])。
-func parseInsertTarget(sql string) (string, []string, bool) {
-	s := strings.TrimSpace(sql)
-	up := strings.ToUpper(s)
-	i := strings.Index(up, "INSERT INTO")
-	if i < 0 {
-		return "", nil, false
+// seqPersistenceBoundary 调用的持久化边界描述（非持久化调用返回空串）。
+// 表/列来自 SQL AST；形态未证明时只说操作名（不猜表列）。
+func seqPersistenceBoundary(node *CodeSeqNode, call *ast.CallExpr) string {
+	arg := seqPersistenceSQLArg(node)
+	if arg < 0 {
+		return ""
 	}
-	s = strings.TrimSpace(s[i+len("INSERT INTO"):])
-	end := strings.IndexAny(s, "( \t\n")
-	if end < 0 {
-		return "", nil, false
+	sql := seqPersistenceSQLText(call, arg)
+	if sql == "" {
+		return ""
 	}
-	table := s[:end]
-	rest := strings.TrimSpace(s[end:])
-	if !strings.HasPrefix(rest, "(") {
-		return table, nil, table != ""
+	b := &seqSQLBinder{lenient: true}
+	if len(call.Args) > arg+1 {
+		b.args = call.Args[arg+1:]
 	}
-	j := strings.Index(rest, ")")
-	if j < 0 {
-		return "", nil, false
-	}
-	cols := splitTrim(rest[1:j])
-	return table, cols, table != ""
-}
-
-// parseUpdateTarget `UPDATE t SET a=?,b=? ...` → (t, [a,b])。
-func parseUpdateTarget(sql string) (string, []string, bool) {
-	s := strings.TrimSpace(sql)
-	up := strings.ToUpper(s)
-	if !strings.HasPrefix(up, "UPDATE") {
-		return "", nil, false
-	}
-	s = strings.TrimSpace(s[len("UPDATE"):])
-	end := strings.IndexAny(s, " \t\n")
-	if end < 0 {
-		return "", nil, false
-	}
-	table := s[:end]
-	rest := strings.TrimSpace(s[end:])
-	upRest := strings.ToUpper(rest)
-	if !strings.HasPrefix(upRest, "SET") {
-		return table, nil, table != ""
-	}
-	rest = strings.TrimSpace(rest[len("SET"):])
-	if k := strings.Index(upRest, "WHERE"); k >= 0 {
-		_ = k
-	}
-	if k := strings.Index(strings.ToUpper(rest), "WHERE"); k >= 0 {
-		rest = rest[:k]
-	}
-	var cols []string
-	for _, part := range splitTrim(rest) {
-		if eq := strings.Index(part, "="); eq > 0 {
-			cols = append(cols, strings.TrimSpace(part[:eq]))
+	st, code := seqStorageParse(sql, b)
+	if st != nil {
+		switch st.Operation {
+		case SeqStorageInsert:
+			cols := seqStorageWriteColumns(st.Writes)
+			return "持久化边界：INSERT INTO " + st.Table + "(" + strings.Join(cols, ",") + ")（参数值来源未证明；跨入口顺序需请求身份证明）"
+		case SeqStorageUpdate:
+			cols := seqStorageWriteColumns(st.Writes)
+			return "持久化边界：UPDATE " + st.Table + " SET " + strings.Join(cols, ",") + "（值来源未证明）"
 		}
 	}
-	return table, cols, table != ""
+	_ = code
+	return "持久化边界：" + seqStorageOperationGuess(sql) + "（表/列未静态可读）"
 }
 
-func splitTrim(s string) []string {
-	parts := strings.Split(s, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		if v := strings.TrimSpace(p); v != "" {
-			out = append(out, v)
-		}
+// seqStorageWriteColumns 写入列名（诊断文本用）。
+func seqStorageWriteColumns(writes []SeqStorageWrite) []string {
+	out := make([]string, 0, len(writes))
+	for _, w := range writes {
+		out = append(out, w.Column)
 	}
 	return out
+}
+
+// seqStorageOperationGuess 从 SQL 前缀猜操作名（仅用于诊断文本，不用于证据）。
+func seqStorageOperationGuess(sql string) string {
+	upper := strings.ToUpper(strings.TrimSpace(sql))
+	switch {
+	case strings.HasPrefix(upper, "INSERT"):
+		return "INSERT"
+	case strings.HasPrefix(upper, "UPDATE"):
+		return "UPDATE"
+	}
+	return "SQL"
 }
 
 // seqAnnotatePersistence 给调用节点补持久化边界诊断（不覆盖既有 code）。
@@ -117,7 +118,7 @@ func seqAnnotatePersistence(node *CodeSeqNode, call *ast.CallExpr) {
 	if node == nil {
 		return
 	}
-	detail := seqPersistenceBoundary(call)
+	detail := seqPersistenceBoundary(node, call)
 	if detail == "" {
 		return
 	}

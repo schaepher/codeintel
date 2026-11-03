@@ -34,6 +34,9 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 			// U04：持久化边界（INSERT/UPDATE 字面量）写进诊断——值来源/跨入口
 			// 顺序仍需请求证明，不据此凭空连线。
 			seqAnnotatePersistence(node, call)
+			// U04b：结构化写入证据（SQL AST + 实参绑定 + 资源身份边界）。
+			seqAttachStorageEvidence(node, call, &seqPersistCtx{file: f, pkgPath: curPkg,
+				src: src, fset: fset, guard: req.branchCond})
 		}()
 		fun := call.Fun
 		pos := fset.Position(call.Lparen)

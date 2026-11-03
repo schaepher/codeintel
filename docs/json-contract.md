@@ -43,6 +43,17 @@ schema 变更需更新本契约并走 Q 流程（Agent/MCP 依赖字段名解析
 - **query path**：对象（--since 标注）——见 field_trace.md §17
 - **list**：数组——short/path/module/status/worktree_of/workspace
 - **export**：对象——fields{}（field→producers/consumers）或 relations[]（graph --type）
+- **query sequence**：对象——Nodes[]/Else[]/meta（节点字段：Kind/Label/Actor/Type/Args/
+  Returns/Line/Exec/InReturn/Values/Slots/Candidate/stop/evidence）。`evidence` 可含：
+  - `storage`（U04b，SQL **写入**结构化证据）：`operation`（insert|update）、
+    `table`、`writes[]`（column/value）、`predicates[]`（WHERE AND 等式）、
+    `resource_declaration`（仅准确的包级无初始化 `var X *sql.DB`）、`guard`、
+    `outcome`（恒为 `unproven`）、`boundary`（`record_identity_unproven` |
+    `resource_identity_unproven` | `sql_shape_unproven` | `query_not_proven` |
+    `argument_count_unproven`）。`value`：`kind`（argument|literal）、
+    `argument`（零基，不含 context/SQL；字面量 -1）、`expression`（实参在调用处
+    的 Go 原文）、`sql`（字面量原文）。**这组字段只描述语句结构与实参绑定**：
+    值来源、资源身份、写入成功与跨入口顺序都未证明，不得据此生成因果边。
 - **rule list**：数组——RelationRule[]
 
 ## 历史（为何有本文档）

@@ -108,6 +108,9 @@ type SeqEvidence struct {
 	Request *SeqEvidenceRequest `json:"request,omitempty"`
 	// todo25 §13：运行时快照读取证据（SQL/Scan；与静态调用证据共存）。
 	Runtime *SeqRuntimeEvidence `json:"runtime,omitempty"`
+	// U04b：SQL 写入的结构化证据（表/列/谓词/实参绑定；值来源、资源身份、
+	// 写入成功与跨入口顺序仍未证明——outcome 恒为 unproven）。
+	Storage *SeqStorage `json:"storage,omitempty"`
 }
 
 // SeqDiagCount 诊断聚合项（根节点 meta 用）。
