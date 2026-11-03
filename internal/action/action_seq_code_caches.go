@@ -20,6 +20,9 @@ func seqInitRequestCaches(req *CodeSequenceRequest) {
 	if req.writeCalls == nil {
 		req.writeCalls = map[*ast.CallExpr]*SeqWriteErrorResult{} // U04h
 	}
+	if req.rowCalls == nil {
+		req.rowCalls = map[*ast.CallExpr]*SeqORMRowCountResult{} // U04j
+	}
 	if req.acc != nil && req.acc.writeIDs == nil {
 		req.acc.writeIDs = map[*CodeSeqNode]string{}
 	}

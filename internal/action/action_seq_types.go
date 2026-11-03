@@ -222,6 +222,8 @@ type CodeSequenceRequest struct {
 	writeCalls map[*ast.CallExpr]*SeqWriteErrorResult
 	// callArgErrResults U04h：本次调用实参携带的写入错误结果（形参透传）。
 	callArgErrResults []*SeqWriteErrorResult
+	// rowCalls U04j：XORM 写入调用 → 影响行数槽（签名已证明 (int64,error)）。
+	rowCalls map[*ast.CallExpr]*SeqORMRowCountResult
 	// callArgOrigins U04c：本次调用实参的标量来源（在实参求值位置立即捕获，
 	// 被调函数形参绑定用；续查快照带值拷贝，不被后续赋值污染）。
 	callArgOrigins []*SeqStorageOrigin

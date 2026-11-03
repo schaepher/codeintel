@@ -119,10 +119,18 @@ func seqRecordWriteResultPair(req CodeSequenceRequest, lhs, rhs []ast.Expr) {
 			return
 		}
 		var ref *SeqWriteErrorResult
+		var rows *SeqORMRowCountResult
 		if call, ok2 := rhs[0].(*ast.CallExpr); ok2 {
 			ref = req.writeCalls[call]
+			rows = req.rowCalls[call]
 		}
 		req.env.setErr(id.Obj, ref)
+		// U04j：第 0 槽 = 影响行数（XORM 写入签名已证明）。
+		if r0, ok3 := lhs[0].(*ast.Ident); ok3 && r0.Obj != nil && rows != nil {
+			req.env.setRows(r0.Obj, rows)
+			req.env.setScalar(r0.Obj, &SeqStorageOrigin{Kind: SeqOriginWriteRowCount,
+				ScalarType: "int64", RowCount: cloneSeqRowCount(rows)})
+		}
 		return
 	}
 	if len(lhs) != len(rhs) {
@@ -140,6 +148,9 @@ func seqRecordWriteResultPair(req CodeSequenceRequest, lhs, rhs []ast.Expr) {
 		}
 		if req.env.hasErrSlot(id.Obj) {
 			req.env.setErr(id.Obj, nil)
+		}
+		if req.env.hasRowsSlot(id.Obj) {
+			req.env.setRows(id.Obj, nil)
 		}
 	}
 }

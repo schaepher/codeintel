@@ -17,6 +17,8 @@ const (
 	SeqOriginParameter = "parameter"
 	SeqOriginLiteral   = "literal"
 	SeqOriginConcat    = "concat"
+	// U04j：写入影响行数来源。
+	SeqOriginWriteRowCount = "write_row_count"
 )
 
 // 标量来源树的边界（有界展开：超限即未知，不截取部分）。
@@ -37,6 +39,8 @@ type SeqStorageOrigin struct {
 	Repo    string             `json:"repo,omitempty"`
 	Literal string             `json:"literal,omitempty"`
 	Parts   []SeqStorageOrigin `json:"parts,omitempty"`
+	// RowCount U04j：该标量是某次写入的影响行数（kind=write_row_count）。
+	RowCount *SeqORMRowCountResult `json:"row_count,omitempty"`
 }
 
 // cloneSeqScalarOrigin 深拷贝（消费者不得改到请求内的共享来源）。

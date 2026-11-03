@@ -98,6 +98,8 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		node := &CodeSeqNode{Kind: "branch", Label: seqExprText(fset, src, s.Cond), Line: fset.Position(s.Cond.Pos()).Line}
 		// U04h：条件引用某次写入调用的错误返回槽（只描述符号关系）。
 		node.WriteCondition = seqWriteCondition(req, s.Cond)
+		// U04j：行数变量与零值的比较（只描述符号关系）。
+		node.RowCountCondition = seqRowCondition(req, s.Cond)
 		// todo10-5：场景条件判定（taken/excluded/unknown）——排除的分支
 		// 保留节点但剔除内容（用户能看到"此处被场景排除"及其依据）
 		fit := req.Scene.matchCondSrc(s.Cond, req.sceneArgs, req.sceneSrc, req.sceneConsts)

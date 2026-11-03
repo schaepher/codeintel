@@ -22,12 +22,14 @@ type seqEnv struct {
 	scalars map[*ast.Object]seqScalarSlot
 	// errs U04h：写入错误结果变量（覆盖/逃逸/合流后失效）。
 	errs map[*ast.Object]seqErrSlot
+	// rows U04j：写入影响行数变量（同一失效规则）。
+	rows map[*ast.Object]seqRowSlot
 }
 
 func newSeqEnv(parent *seqEnv) *seqEnv {
 	return &seqEnv{parent: parent, vals: map[*ast.Object]seqValue{},
 		types: map[*ast.Object]seqTypeRef{}, scalars: map[*ast.Object]seqScalarSlot{},
-		errs: map[*ast.Object]seqErrSlot{}}
+		errs: map[*ast.Object]seqErrSlot{}, rows: map[*ast.Object]seqRowSlot{}}
 }
 
 func (e *seqEnv) lookup(obj *ast.Object) (seqValue, bool) {
@@ -55,7 +57,8 @@ func (e *seqEnv) clone() *seqEnv {
 		vals:    make(map[*ast.Object]seqValue, len(e.vals)),
 		types:   make(map[*ast.Object]seqTypeRef, len(e.types)),
 		scalars: e.copyScalars(),
-		errs:    e.copyErrs()}
+		errs:    e.copyErrs(),
+		rows:    e.copyRows()}
 	for k, v := range e.vals {
 		out.vals[k] = v
 	}
@@ -104,6 +107,7 @@ func (e *seqEnv) mergeBranches(branches []*seqEnv) {
 	e.mergeScalars(branches)
 	// U04h：错误结果引用同理（不同分支指向不同写入 → 失效）。
 	e.mergeErrs(branches)
+	e.mergeRows(branches)
 }
 
 // sameSeqValue 两个函数值是否同一来源（kind + 字面量/符号/未知原因）。
@@ -167,4 +171,5 @@ func (e *seqEnv) mergePossible(pre *seqEnv) {
 	// U04c：标量槽同理（循环体可能 0 次执行）。
 	e.mergePossibleScalars(pre)
 	e.mergeErrs([]*seqEnv{e, pre})
+	e.mergeRows([]*seqEnv{e, pre})
 }

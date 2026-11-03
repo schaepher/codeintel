@@ -252,6 +252,8 @@ type CodeSeqNode struct {
 	Candidate bool `json:"candidate,omitempty"`
 	// U04h：条件引用某次写入调用的错误返回槽（branch 节点）。
 	WriteCondition *SeqWriteCondition `json:"write_condition,omitempty"`
+	// U04j：条件引用某次写入的影响行数返回槽（branch 节点）。
+	RowCountCondition *SeqRowCountCondition `json:"row_count_condition,omitempty"`
 }
 
 // exprTypeName 类型表达式 → 短名（Ident → 名；SelectorExpr pkg.T → T）

@@ -50,6 +50,8 @@ type SeqORM struct {
 	Models []SeqORMModel `json:"models,omitempty"`
 	// ErrorResult U04i：（int64,error）签名源码证明后的错误返回槽。
 	ErrorResult *SeqORMErrorResult `json:"error_result,omitempty"`
+	// RowCountResult U04j：影响行数返回槽（slot 0，与错误槽共享 call_id）。
+	RowCountResult *SeqORMRowCountResult `json:"row_count_result,omitempty"`
 }
 
 // SeqORMErrorResult XORM 写入错误槽（复用 SeqWriteErrorResult + 签名源码）。

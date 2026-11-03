@@ -237,8 +237,11 @@ func writeSeqNode(b *strings.Builder, alias map[string]string, from, caller stri
 				// todo13-3：值被未知调用改写/深度上限——两个分支保留，但指明原因
 				b.WriteString(fmt.Sprintf("  Note over %s: 场景未定（%s）— 两个分支均保留\n", alias[from], seqSceneNoteSuffix(n.Scene)))
 			}
-			// U04h：条件引用写入错误槽（只描述符号关系）。
+			// U04h/U04j：条件引用写入错误槽/影响行数（只描述符号关系）。
 			if note := seqWriteConditionNote(n); note != "" {
+				b.WriteString(fmt.Sprintf("  Note over %s: %s\n", alias[from], note))
+			}
+			if note := seqRowCountConditionNote(n); note != "" {
 				b.WriteString(fmt.Sprintf("  Note over %s: %s\n", alias[from], note))
 			}
 			b.WriteString(fmt.Sprintf("  alt %s\n", n.Label))

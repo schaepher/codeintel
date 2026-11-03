@@ -100,5 +100,29 @@ func seqEvidenceNotes(n *action.CodeSeqNode) []string {
 	if note := seqWriteErrorNote(n); note != "" {
 		out = append(out, note)
 	}
+	if note := seqRowCountNote(n); note != "" {
+		out = append(out, note)
+	}
 	return out
+}
+
+// seqRowCountNote 影响行数槽 Note（U04j；与 JSON 同一分析结果）。
+func seqRowCountNote(n *action.CodeSeqNode) string {
+	if n == nil || n.Evidence == nil || n.Evidence.ORM == nil ||
+		n.Evidence.ORM.RowCountResult == nil || n.Evidence.ORM.RowCountResult.Write == nil {
+		return ""
+	}
+	rc := n.Evidence.ORM.RowCountResult
+	return "写入影响行数 " + rc.Write.CallID + "[" + itoaSeqInt(rc.Slot) + "]（错误检查与事务提交未证明）"
+}
+
+// seqRowCountConditionNote 行数比较条件 Note（U04j）。
+func seqRowCountConditionNote(n *action.CodeSeqNode) string {
+	if n == nil || n.RowCountCondition == nil || n.RowCountCondition.Result == nil ||
+		n.RowCountCondition.Result.Write == nil {
+		return ""
+	}
+	c := n.RowCountCondition
+	return "写入影响行数 " + c.Result.Write.CallID + "[" + itoaSeqInt(c.Result.Slot) + "]：" +
+		"then=" + c.WhenTrue + "；else=" + c.WhenFalse + "（错误检查与事务提交未证明）"
 }

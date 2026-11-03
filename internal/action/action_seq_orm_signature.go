@@ -131,6 +131,14 @@ func seqAttachORMErrorResult(req CodeSequenceRequest, node *CodeSeqNode, call *a
 	if c.req != nil && c.req.writeCalls != nil {
 		c.req.writeCalls[call] = base
 	}
+	// U04j：影响行数槽（slot 0）与错误槽共享 call_id。
+	if orm.Operation == SeqStorageInsert || orm.Operation == SeqStorageUpdate || orm.Operation == "delete" {
+		rc := &SeqORMRowCountResult{Write: base, Slot: 0}
+		orm.RowCountResult = rc
+		if c.req != nil && c.req.rowCalls != nil {
+			c.req.rowCalls[call] = rc
+		}
+	}
 }
 
 // seqSymbolOfORM 测试/渲染辅助：ORM 签名符号（无则空）。
