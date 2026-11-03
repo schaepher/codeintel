@@ -44,6 +44,17 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		// todo22 P1：本次调用的结构体字段已知值（函数值/回调路径也要用）
 		req.callArgFields = a.resolveSceneArgFields(req, fset, src, call, req.curBody, req.curParams)
 
+		// U04m：`result.RowsAffected()`（接收者是已证明的 Exec 返回槽 0）——
+		// 准确的 database/sql 方法身份，作为影响行数来源终端。
+		if seqMethodNameOfCall(call) == "RowsAffected" && seqSQLResultOf(req, selectorReceiver(call)) != nil {
+			node.Evidence = &SeqEvidence{Source: SeqEvidenceAST, CallFile: curFile, CallLine: pos.Line,
+				SymbolID: seqSQLRowsAffected, Reason: "sql-result-rows-affected",
+				Verdict: SeqVerdictCorroborated}
+			node.Stop = &SeqStop{Code: SeqStopExternalTarget,
+				Detail: "标准库方法终端（影响行数来源；计数读取错误与事务提交未证明）"}
+			return node
+		}
+
 		// todo25 §4.3：标准 HTTP 客户端调用（net/http.Get/Head/Post）——按
 		// 静态 URL + 服务端注册证明续接 handler；动态/HTTPS/未证明保持诊断。
 		if seqExpandHTTPAt(a, req, node, call, f, depth, curFile, pos) {

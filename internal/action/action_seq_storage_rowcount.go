@@ -24,6 +24,23 @@ const (
 type SeqORMRowCountResult struct {
 	Write *SeqWriteErrorResult `json:"write"`
 	Slot  int                  `json:"slot"`
+	// Access U04m：计数来源调用（`(Result).RowsAffected` 等），ORM 行数槽为空。
+	Access *SeqRowCountAccess `json:"access,omitempty"`
+}
+
+// SeqRowCountAccess 影响行数的来源调用（准确 symbol/位置/独立错误槽）。
+type SeqRowCountAccess struct {
+	Symbol       string `json:"symbol"`
+	File         string `json:"file,omitempty"`
+	Offset       int    `json:"offset,omitempty"`
+	ErrorSlot    int    `json:"error_slot"`
+	ErrorOutcome string `json:"error_outcome,omitempty"`
+}
+
+// SeqSQLResult 标准库 Exec 的返回槽 0（sql.Result）来源。
+type SeqSQLResult struct {
+	Write *SeqWriteErrorResult `json:"write"`
+	Slot  int                  `json:"slot"`
 }
 
 // SeqRowCountCondition 行数比较条件。
@@ -102,6 +119,10 @@ func cloneSeqRowCount(r *SeqORMRowCountResult) *SeqORMRowCountResult {
 	if r.Write != nil {
 		w := *r.Write
 		cp.Write = &w
+	}
+	if r.Access != nil {
+		a := *r.Access
+		cp.Access = &a
 	}
 	return &cp
 }

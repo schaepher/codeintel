@@ -3,6 +3,7 @@ package action
 import (
 	"encoding/json"
 	"go/ast"
+	"go/token"
 	"time"
 
 	"github.com/schaepher/codeintel/internal/domain"
@@ -132,6 +133,8 @@ type seqTimingAcc struct {
 	// U04h：写入调用 ID（同一 AST 调用在本次请求内稳定；续查复用）。
 	writeSeq int
 	writeIDs map[*CodeSeqNode]string
+	// fset U04m：调用点偏移（精确 access 证据用）。
+	fset *token.FileSet
 	// U04k：AST 调用 → 最新调用节点；depth=1 的延迟结果绑定。
 	callNodes        map[*ast.CallExpr]*CodeSeqNode
 	pendingVars      []seqPendingVar

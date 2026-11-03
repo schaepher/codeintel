@@ -19,6 +19,8 @@ const (
 	SeqOriginConcat    = "concat"
 	// U04j：写入影响行数来源。
 	SeqOriginWriteRowCount = "write_row_count"
+	// U04m：标准库 Exec 的返回槽 0（sql.Result）。
+	SeqOriginSQLResult = "sql_result"
 )
 
 // 标量来源树的边界（有界展开：超限即未知，不截取部分）。
@@ -43,6 +45,8 @@ type SeqStorageOrigin struct {
 	RowCount *SeqORMRowCountResult `json:"row_count,omitempty"`
 	// WriteError U04l：该返回槽携带写入错误身份（kind=write_error）。
 	WriteError *SeqWriteErrorResult `json:"write_error,omitempty"`
+	// SQLResult U04m：该标量是某次 Exec 的 sql.Result（kind=sql_result）。
+	SQLResult *SeqSQLResult `json:"sql_result,omitempty"`
 }
 
 // cloneSeqScalarOrigin 深拷贝（消费者不得改到请求内的共享来源）。

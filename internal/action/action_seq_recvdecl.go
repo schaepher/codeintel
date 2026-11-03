@@ -139,6 +139,9 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 	req.curRecvObj = recvObj
 	req.curRecvDecl = recvDecl
 	req.curCtx = &seqFileCtx{fset: fset, file: f, src: src, rel: n.FilePath}
+	if req.acc != nil {
+		req.acc.fset = fset // U04m：当前帧的位置基准（access offset）
+	}
 	req.sceneConsts = seqConstValues(a, req, n.FilePath)
 	env := newSeqEnv(nil)
 	bindSeqParams(env, fn.Type.Params, req.paramValues)

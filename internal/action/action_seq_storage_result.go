@@ -125,6 +125,12 @@ func seqRecordWriteResultPair(req CodeSequenceRequest, lhs, rhs []ast.Expr) {
 			callExpr = call
 			ref = req.writeCalls[call]
 			rows = req.rowCalls[call]
+			// U04m：`result, err := DB.Exec(...)` 的槽 0 = sql.Result（写入身份）。
+			seqBindSQLResultOrigin(req, call, lhs)
+			// U04m：`rows, countErr := result.RowsAffected()` 的槽 0 = 影响行数。
+			if rc := seqRowsAffectedRowCount(req, call); rc != nil {
+				rows = rc
+			}
 		}
 		req.env.setErr(id.Obj, ref)
 		// U04j：第 0 槽 = 影响行数（XORM 写入签名已证明）。

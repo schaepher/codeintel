@@ -126,8 +126,13 @@ func seqRowCountConditionNote(n *action.CodeSeqNode) string {
 		return ""
 	}
 	c := n.RowCountCondition
-	return "写入影响行数 " + c.Result.Write.CallID + "[" + itoaSeqInt(c.Result.Slot) + "]：" +
-		"then=" + c.WhenTrue + "；else=" + c.WhenFalse + "（错误检查与事务提交未证明）"
+	head := "写入影响行数 " + c.Result.Write.CallID + "[" + itoaSeqInt(c.Result.Slot) + "]"
+	if c.Result.Access != nil {
+		name := strings.TrimPrefix(c.Result.Access.Symbol, "symbol:go:database/sql:")
+		head = "写入影响行数 " + c.Result.Write.CallID + " via " + name +
+			"[" + itoaSeqInt(c.Result.Slot) + "]"
+	}
+	return head + "：" + "then=" + c.WhenTrue + "；else=" + c.WhenFalse + "（计数读取错误与事务提交未证明）"
 }
 
 // seqRuntimeBoundaryNote 运行时事实边界 Note（T19；JSON 与图同源）。
