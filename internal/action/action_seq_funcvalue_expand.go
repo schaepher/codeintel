@@ -113,6 +113,11 @@ func seqExpandSingleValue(a *Actions, req CodeSequenceRequest, call *ast.CallExp
 		sub.paramValues = nil
 		node.Nodes = walkStmts(a, sub, fv.ctx.fset, fv.ctx.src, fv.lit.Body.List,
 			sub.curTgts, depth, fv.recvType, fv.recvDecl, fv.ctx.file, fv.pkgPath, fv.ctx.rel)
+		// U04x：立即执行的函数字面量（IIFE）对捕获变量的写入回到外层环境
+		// （参数/内部局部不回写）；go/defer 调度的闭包不合并。
+		if lit, ok := call.Fun.(*ast.FuncLit); ok && lit == fv.lit && req.env != nil {
+			seqMergeImmediateClosureEnv(req.env, sub.env, lit)
+		}
 		if len(node.Nodes) == 0 {
 			node.Stop = &SeqStop{Code: SeqStopNoCalls}
 		}

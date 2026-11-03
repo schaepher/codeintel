@@ -141,7 +141,8 @@ type seqTimingAcc struct {
 	// U04v：字段读取观察 ID（每次求值一个）。
 	fieldReadSeq int
 	// U04w：结构体字面量构造观察（请求内计数 + 全值复制观察）。
-	structLitSeq int
+	structLitSeq  int
+	structCopySeq int
 	// U04k：AST 调用 → 最新调用节点；depth=1 的延迟结果绑定。
 	callNodes        map[*ast.CallExpr]*CodeSeqNode
 	pendingVars      []seqPendingVar

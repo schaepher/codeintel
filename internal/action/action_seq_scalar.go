@@ -59,6 +59,8 @@ type SeqStorageOrigin struct {
 	FieldRead *SeqStorageFieldRead `json:"field_read,omitempty"`
 	// StructLiteral U04w：结构体字面量初始化来源（initialization_only）。
 	StructLiteral *SeqStorageStructLiteral `json:"struct_literal,omitempty"`
+	// U04x：整值复制的构造祖先（construction_ancestry_only）。
+	StructCopy *SeqStorageStructCopy `json:"struct_copy,omitempty"`
 }
 
 // cloneSeqScalarOrigin 深拷贝（消费者不得改到请求内的共享来源）。
@@ -90,6 +92,11 @@ func cloneSeqScalarOrigin(o *SeqStorageOrigin) *SeqStorageOrigin {
 		cp.Root = cloneSeqFieldRoot(o.FieldRead.Root)
 		cp.Path = append([]string{}, o.FieldRead.Path...)
 		out.FieldRead = &cp
+	}
+	if o.StructCopy != nil {
+		cp := *o.StructCopy
+		cp.Source = cloneSeqScalarOrigin(o.StructCopy.Source)
+		out.StructCopy = &cp
 	}
 	if o.StructLiteral != nil {
 		cp := *o.StructLiteral
@@ -133,6 +140,12 @@ func sameSeqScalarOrigin(a, b *SeqStorageOrigin) bool {
 		return false
 	}
 	if a.StructLiteral != nil && a.StructLiteral.ID != b.StructLiteral.ID {
+		return false
+	}
+	if (a.StructCopy == nil) != (b.StructCopy == nil) {
+		return false
+	}
+	if a.StructCopy != nil && a.StructCopy.ID != b.StructCopy.ID {
 		return false
 	}
 	pa, pb := 0, 0

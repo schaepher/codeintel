@@ -27,6 +27,8 @@ func walkStmts(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []b
 		seqRecordScalarStatement(req, st)
 		// U04h：`_,err := 写入调用` 的写入错误结果绑定（覆盖/逃逸后失效）。
 		seqRecordWriteResults(req, st)
+		// U04x：`*dst = <expr>` 整值复制的构造祖先（先固定 RHS 再更新 LHS）。
+		seqRecordDerefCopies(req, st)
 		// todo10-2：return 终止当前路径——其后的语句不属于这条路径。
 		// U03：已判定 taken 的分支里含 return 时，后续语句在同一路径上也不
 		// 可达（`if len(m)==0 { Empty(); return }` 之后的业务分支不应再出现）。
