@@ -26,6 +26,12 @@ func seqInitRequestCaches(req *CodeSequenceRequest) {
 	if req.acc != nil && req.acc.writeIDs == nil {
 		req.acc.writeIDs = map[*CodeSeqNode]string{}
 	}
+	if req.acc != nil && req.acc.callNodes == nil {
+		req.acc.callNodes = map[*ast.CallExpr]*CodeSeqNode{}
+	}
+	if req.acc != nil && req.acc.pendingVarsByObj == nil {
+		req.acc.pendingVarsByObj = map[*ast.Object]seqPendingVar{}
+	}
 	if req.litVisited == nil {
 		req.litVisited = map[string]bool{} // todo22 §2：函数字面量展开防环
 	}

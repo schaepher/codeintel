@@ -132,6 +132,12 @@ type seqTimingAcc struct {
 	// U04h：写入调用 ID（同一 AST 调用在本次请求内稳定；续查复用）。
 	writeSeq int
 	writeIDs map[*CodeSeqNode]string
+	// U04k：AST 调用 → 最新调用节点；depth=1 的延迟结果绑定。
+	callNodes        map[*ast.CallExpr]*CodeSeqNode
+	pendingVars      []seqPendingVar
+	pendingVarsByObj map[*ast.Object]seqPendingVar
+	pendingConds     []seqPendingCond
+	pendingOrigins   []seqPendingOrigin
 }
 
 // millis Duration → 毫秒（保留小数——单次阶段可能远小于 1ms）。
@@ -254,6 +260,27 @@ type CodeSeqNode struct {
 	WriteCondition *SeqWriteCondition `json:"write_condition,omitempty"`
 	// U04j：条件引用某次写入的影响行数返回槽（branch 节点）。
 	RowCountCondition *SeqRowCountCondition `json:"row_count_condition,omitempty"`
+	// U04k：return 节点的各结果槽来源 / 调用节点的返回槽来源共识。
+	ValueOrigins  []*SeqStorageOrigin `json:"value_origins,omitempty"`
+	ResultOrigins []*SeqStorageOrigin `json:"result_origins,omitempty"`
+}
+
+// resultObjectsOf 具名结果的对象（无名结果返回 nil 占位）。
+func resultObjectsOf(results *ast.FieldList) []*ast.Object {
+	if results == nil {
+		return nil
+	}
+	var out []*ast.Object
+	for _, field := range results.List {
+		if len(field.Names) == 0 {
+			out = append(out, nil)
+			continue
+		}
+		for _, n := range field.Names {
+			out = append(out, n.Obj)
+		}
+	}
+	return out
 }
 
 // exprTypeName 类型表达式 → 短名（Ident → 名；SelectorExpr pkg.T → T）

@@ -152,3 +152,47 @@ func sameSeqWriteResult(a, b *SeqWriteErrorResult) bool {
 	}
 	return a.CallID == b.CallID && a.Slot == b.Slot
 }
+
+// seqWriteCondSpec 条件里的错误变量与真假结果（不看是否已有 ref）。
+func seqWriteCondSpec(req CodeSequenceRequest, cond ast.Expr) (*ast.Object, string, string, bool) {
+	expr, invert := seqUnwrapNegation(cond)
+	cmp, ok := expr.(*ast.BinaryExpr)
+	if !ok || (cmp.Op != token.EQL && cmp.Op != token.NEQ) {
+		return nil, "", "", false
+	}
+	obj, equalNil := seqErrNilComparisonObj(cmp)
+	if obj == nil {
+		return nil, "", "", false
+	}
+	whenTrue := SeqWriteResultErrorNil
+	if (cmp.Op == token.EQL) != equalNil {
+		whenTrue = SeqWriteResultErrorNonNil
+	}
+	if invert {
+		if whenTrue == SeqWriteResultErrorNil {
+			whenTrue = SeqWriteResultErrorNonNil
+		} else {
+			whenTrue = SeqWriteResultErrorNil
+		}
+	}
+	whenFalse := SeqWriteResultErrorNonNil
+	if whenTrue == SeqWriteResultErrorNonNil {
+		whenFalse = SeqWriteResultErrorNil
+	}
+	return obj, whenTrue, whenFalse, true
+}
+
+// seqErrNilComparisonObj 比较式的错误变量对象（nil 侧不算）。
+func seqErrNilComparisonObj(cmp *ast.BinaryExpr) (*ast.Object, bool) {
+	if seqIsNilIdent(cmp.Y) {
+		if id, ok := cmp.X.(*ast.Ident); ok && id.Obj != nil {
+			return id.Obj, true
+		}
+	}
+	if seqIsNilIdent(cmp.X) {
+		if id, ok := cmp.Y.(*ast.Ident); ok && id.Obj != nil {
+			return id.Obj, true
+		}
+	}
+	return nil, false
+}

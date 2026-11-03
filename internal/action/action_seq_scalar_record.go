@@ -215,3 +215,24 @@ func seqBindParamOrigins(env *seqEnv, params *ast.FieldList, origins []*SeqStora
 		}
 	}
 }
+
+// seqPropagatePendingParams 被调形参继承调用点实参的待解析来源（depth=1）。
+func seqPropagatePendingParams(req CodeSequenceRequest, params *ast.FieldList) {
+	if req.acc == nil || params == nil || len(req.callArgObjs) == 0 {
+		return
+	}
+	idx := 0
+	for _, field := range params.List {
+		names := field.Names
+		if len(names) == 0 {
+			idx++
+			continue
+		}
+		for _, name := range names {
+			if name.Obj != nil && idx < len(req.callArgObjs) {
+				seqPropagatePendingVar(req, req.callArgObjs[idx], name.Obj)
+			}
+			idx++
+		}
+	}
+}

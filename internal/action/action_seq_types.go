@@ -126,7 +126,9 @@ type CodeSequenceRequest struct {
 	// 内部（todo10-2）：当前函数的关注行（字段写入点）+ 具名结果槽 + 焦点配置
 	focusLines  map[int]bool
 	resultNames []string
-	focus       *seqFocus
+	// resultObjs U04k：具名结果的对象身份（裸 return 的来源按对象取）。
+	resultObjs []*ast.Object
+	focus      *seqFocus
 	// 内部（todo10-5/11-2）：条件传播——调用点实参字面量（按位置）与形参映射
 	callArgLits []string
 	callArgSrcs []string // todo12-3：实参值来源（定义位置/传播依据）
@@ -224,6 +226,8 @@ type CodeSequenceRequest struct {
 	callArgErrResults []*SeqWriteErrorResult
 	// rowCalls U04j：XORM 写入调用 → 影响行数槽（签名已证明 (int64,error)）。
 	rowCalls map[*ast.CallExpr]*SeqORMRowCountResult
+	// callArgObjs U04k：本次调用实参的标识符对象（depth=1 延迟来源透传）。
+	callArgObjs []*ast.Object
 	// callArgOrigins U04c：本次调用实参的标量来源（在实参求值位置立即捕获，
 	// 被调函数形参绑定用；续查快照带值拷贝，不被后续赋值污染）。
 	callArgOrigins []*SeqStorageOrigin

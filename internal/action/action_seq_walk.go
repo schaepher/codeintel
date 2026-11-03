@@ -97,9 +97,9 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		}
 		node := &CodeSeqNode{Kind: "branch", Label: seqExprText(fset, src, s.Cond), Line: fset.Position(s.Cond.Pos()).Line}
 		// U04h：条件引用某次写入调用的错误返回槽（只描述符号关系）。
-		node.WriteCondition = seqWriteCondition(req, s.Cond)
+		node.WriteCondition = seqWriteConditionOrRegister(req, node, s.Cond)
 		// U04j：行数变量与零值的比较（只描述符号关系）。
-		node.RowCountCondition = seqRowCondition(req, s.Cond)
+		node.RowCountCondition = seqRowConditionOrRegister(req, node, s.Cond)
 		// todo10-5：场景条件判定（taken/excluded/unknown）——排除的分支
 		// 保留节点但剔除内容（用户能看到"此处被场景排除"及其依据）
 		fit := req.Scene.matchCondSrc(s.Cond, req.sceneArgs, req.sceneSrc, req.sceneConsts)
@@ -220,9 +220,18 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		for _, r := range s.Results {
 			ret.Values = append(ret.Values, seqExprText(fset, src, r))
 		}
-		for i := range ret.Values {
-			ret.Slots = append(ret.Slots, seqResultSlot(i, len(ret.Values), req.resultNames))
+		// U04k：返回槽来源（按声明结果数展开 tuple 转发；嵌套调用的 return
+		// 不属于本函数——由 seqNodeResultOrigins 的遍历边界保证）。
+		tupleSlots := len(ret.Values)
+		if len(s.Results) == 1 && len(req.resultNames) > 1 {
+			if _, ok := s.Results[0].(*ast.CallExpr); ok {
+				tupleSlots = len(req.resultNames)
+			}
 		}
+		for i := 0; i < tupleSlots; i++ {
+			ret.Slots = append(ret.Slots, seqResultSlot(i, tupleSlots, req.resultNames))
+		}
+		ret.ValueOrigins = seqReturnOrigins(req, s.Results, out)
 		// todo12-12：裸 return（具名结果）——没有返回表达式，但槽身份仍按
 		// 声明顺序展开（不能因为没有表达式就丢掉槽）。
 		if len(s.Results) == 0 && len(req.resultNames) > 0 {
@@ -247,42 +256,7 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		}
 		return out
 	case *ast.SelectStmt:
-		// R100 续：select 多路复用——原无 case 整块丢弃；仿 SwitchStmt
-		// 分支结构（case 内调用 + send 分支提取）
-		node := &CodeSeqNode{Kind: "branch", Label: "select", Line: fset.Position(s.Pos()).Line}
-		for _, st := range s.Body.List {
-			if cc, ok := st.(*ast.CommClause); ok {
-				caseLabel := "case "
-				if cc.Comm != nil {
-					caseLabel += commExprText(fset, src, cc.Comm)
-				} else {
-					caseLabel += "default"
-				}
-				caseNode := &CodeSeqNode{Kind: "branch", Label: caseLabel, Line: fset.Position(cc.Pos()).Line}
-				// Comm 通信表达式内的调用（case ch2 <- svc.Get() 的 Get
-				// ——send 分支调用在 Comm 不在 Body）
-				var commExprs []ast.Expr
-				switch comm := cc.Comm.(type) {
-				case *ast.SendStmt:
-					commExprs = []ast.Expr{comm.Value}
-				case *ast.AssignStmt:
-					commExprs = comm.Rhs
-				case *ast.ExprStmt:
-					commExprs = []ast.Expr{comm.X}
-				}
-				for _, e := range commExprs {
-					for _, call := range collectCalls(e) {
-						caseNode.Nodes = append(caseNode.Nodes, seqArgCallNodes(callNode, call)...)
-						if n := callNode(call); n != nil {
-							caseNode.Nodes = append(caseNode.Nodes, n)
-						}
-					}
-				}
-				caseNode.Nodes = append(caseNode.Nodes, walkStmts(a, req, fset, src, cc.Body, tgts, depth, recvType, recvDecl, f, curPkg, curFile)...)
-				node.Nodes = append(node.Nodes, caseNode)
-			}
-		}
-		return []*CodeSeqNode{node}
+		return walkSeqSelectStmt(a, req, fset, src, s, tgts, depth, recvType, recvDecl, f, curPkg, curFile, callNode)
 	case *ast.SwitchStmt, *ast.TypeSwitchStmt:
 		return walkSwitchStmt(a, req, fset, src, s, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
 	case *ast.DeclStmt:

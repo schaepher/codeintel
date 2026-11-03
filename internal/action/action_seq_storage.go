@@ -246,6 +246,8 @@ func seqAnnotateCallEvidence(a *Actions, req CodeSequenceRequest, node *CodeSeqN
 	seqAttachORMEvidence(node, call, c)
 	seqAttachWriteErrorResult(node, call, c)
 	seqAttachORMErrorResult(req, node, call, c)
+	// U04k：实参来源尚待被调返回槽（depth=1）→ 续查后回填。
+	seqRegisterPendingValueOrigins(req, node, call)
 }
 
 // seqAttachStorageEvidence 把结构化写入证据写到调用节点（不覆盖既有

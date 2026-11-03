@@ -120,7 +120,9 @@ func seqRecordWriteResultPair(req CodeSequenceRequest, lhs, rhs []ast.Expr) {
 		}
 		var ref *SeqWriteErrorResult
 		var rows *SeqORMRowCountResult
+		var callExpr *ast.CallExpr
 		if call, ok2 := rhs[0].(*ast.CallExpr); ok2 {
+			callExpr = call
 			ref = req.writeCalls[call]
 			rows = req.rowCalls[call]
 		}
@@ -130,6 +132,10 @@ func seqRecordWriteResultPair(req CodeSequenceRequest, lhs, rhs []ast.Expr) {
 			req.env.setRows(r0.Obj, rows)
 			req.env.setScalar(r0.Obj, &SeqStorageOrigin{Kind: SeqOriginWriteRowCount,
 				ScalarType: "int64", RowCount: cloneSeqRowCount(rows)})
+		}
+		// U04k：返回槽来源来自实际展开（或 depth=1 的续查结果）。
+		if callExpr != nil {
+			seqBindReturnOrigins(req, callExpr, lhs, []int{0, 1})
 		}
 		return
 	}
@@ -141,6 +147,23 @@ func seqRecordWriteResultPair(req CodeSequenceRequest, lhs, rhs []ast.Expr) {
 		if !ok || id.Obj == nil {
 			continue
 		}
+		if origin := seqArgReturnOrigin(req, rhs[i]); origin != nil {
+			if seqBindOriginToVar(req.env, id.Obj, origin) {
+				continue
+			}
+			if origin.Kind == SeqOriginParameter || origin.Kind == SeqOriginLiteral ||
+				origin.Kind == SeqOriginConcat {
+				req.env.setScalar(id.Obj, origin)
+				continue
+			}
+		}
+		if call, ok := rhs[i].(*ast.CallExpr); ok {
+			node := seqCallNodeOf(req, call)
+			if node != nil && len(node.Nodes) == 0 {
+				// U04k：depth=1 未展开——续查完成后回填（error/row_count/标量）。
+				seqRegisterPendingVar(req, call, id.Obj, 0)
+			}
+		}
 		ref := seqErrRefOf(req, rhs[i])
 		if ref != nil {
 			req.env.setErr(id.Obj, ref)
@@ -151,6 +174,45 @@ func seqRecordWriteResultPair(req CodeSequenceRequest, lhs, rhs []ast.Expr) {
 		}
 		if req.env.hasRowsSlot(id.Obj) {
 			req.env.setRows(id.Obj, nil)
+		}
+	}
+}
+
+// seqArgReturnOrigin 单返回调用/变量引用的返回槽来源（深/浅展开统一）。
+func seqArgReturnOrigin(req CodeSequenceRequest, e ast.Expr) *SeqStorageOrigin {
+	call, ok := e.(*ast.CallExpr)
+	if !ok {
+		return nil
+	}
+	return seqNodeResultOriginAt(req, call, 0)
+}
+
+// seqBindReturnOrigins 多槽赋值：按槽来源绑定（error/row_count）；来源未知时
+// 登记 depth=1 的延迟绑定，续查完成后回填。
+func seqBindReturnOrigins(req CodeSequenceRequest, call *ast.CallExpr, lhs []ast.Expr, slots []int) {
+	for _, slot := range slots {
+		if slot >= len(lhs) {
+			continue
+		}
+		id, ok := lhs[slot].(*ast.Ident)
+		if !ok || id.Obj == nil || id.Name == "_" {
+			continue
+		}
+		origin := seqNodeResultOriginAt(req, call, slot)
+		if origin == nil {
+			if seqCallNodeOf(req, call) != nil && len(seqCallNodeOf(req, call).Nodes) == 0 {
+				// depth=1：调用内部尚未展开，续查后回填。
+				seqRegisterPendingVar(req, call, id.Obj, slot)
+			}
+			continue
+		}
+		if seqBindOriginToVar(req.env, id.Obj, origin) {
+			continue
+		}
+		// 普通标量来源（如构造器返回的表单键）也沿返回槽传播。
+		if origin.Kind == SeqOriginParameter || origin.Kind == SeqOriginLiteral ||
+			origin.Kind == SeqOriginConcat {
+			req.env.setScalar(id.Obj, origin)
 		}
 	}
 }

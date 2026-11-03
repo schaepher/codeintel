@@ -131,6 +131,8 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	// todo24 §2：分段续查 depth 前沿（同步完成；新前沿进入下一段）。续查
 	// 属于"展开"阶段，计入 walk_ms；收尾后按剩余 depth 诊断重算 stop。
 	seqContinueSegments(a, req, root)
+	// U04k：depth=1 的调用结果在续查完成后回填（变量绑定/条件/实参来源）。
+	seqResolvePendingResults(req)
 	if req.acc != nil {
 		req.acc.depth = seqHasDepthStop(root)
 	}

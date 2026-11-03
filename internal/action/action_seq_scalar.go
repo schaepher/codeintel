@@ -41,6 +41,8 @@ type SeqStorageOrigin struct {
 	Parts   []SeqStorageOrigin `json:"parts,omitempty"`
 	// RowCount U04j：该标量是某次写入的影响行数（kind=write_row_count）。
 	RowCount *SeqORMRowCountResult `json:"row_count,omitempty"`
+	// WriteError U04l：该返回槽携带写入错误身份（kind=write_error）。
+	WriteError *SeqWriteErrorResult `json:"write_error,omitempty"`
 }
 
 // cloneSeqScalarOrigin 深拷贝（消费者不得改到请求内的共享来源）。
