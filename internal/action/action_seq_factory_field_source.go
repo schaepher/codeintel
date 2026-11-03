@@ -231,6 +231,10 @@ func seqReturnedIdents(fn *ast.FuncDecl) map[*ast.Object]bool {
 			return true
 		}
 		for _, e := range ret.Results {
+			// U07：`return &box`（取址返回局部实例）与直接 return 变量同义。
+			if u, ok := e.(*ast.UnaryExpr); ok && u.Op == token.AND {
+				e = u.X
+			}
 			if id, ok := e.(*ast.Ident); ok && id.Obj != nil {
 				out[id.Obj] = true
 			}
@@ -244,6 +248,21 @@ func seqReturnedIdents(fn *ast.FuncDecl) map[*ast.Object]bool {
 // （无法证明每个候选的实际执行条件）。
 func seqFactoryFallthrough(fn *ast.FuncDecl, returned map[*ast.Object]bool) bool {
 	bad := false
+	// U07：`return &box`（返回局部实例取址）不是逃逸——只有当取址出现在
+	// 非 return 位置（可能被外部持有）才视为来源不完整。
+	returnAddr := map[*ast.UnaryExpr]bool{}
+	ast.Inspect(fn.Body, func(nd ast.Node) bool {
+		ret, ok := nd.(*ast.ReturnStmt)
+		if !ok {
+			return true
+		}
+		for _, e := range ret.Results {
+			if u, ok := e.(*ast.UnaryExpr); ok && u.Op == token.AND {
+				returnAddr[u] = true
+			}
+		}
+		return true
+	})
 	ast.Inspect(fn.Body, func(nd ast.Node) bool {
 		switch x := nd.(type) {
 		case *ast.SwitchStmt:
@@ -261,7 +280,7 @@ func seqFactoryFallthrough(fn *ast.FuncDecl, returned map[*ast.Object]bool) bool
 				bad = true
 			}
 		case *ast.UnaryExpr:
-			if x.Op == token.AND {
+			if x.Op == token.AND && !returnAddr[x] {
 				if id, ok := x.X.(*ast.Ident); ok && returned[id.Obj] {
 					bad = true
 				}

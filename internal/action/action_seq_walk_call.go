@@ -171,6 +171,12 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		if depth <= 1 {
 			return node
 		}
+		// todo25 §3.4：`b.Get().Work()`——被调者来自方法返回的字段时，沿
+		// 工厂 setter 的实参证明具体实现（守卫保留为互斥分支）。这类调用
+		// 常没有索引边（接口方法不建节点）——必须在 resolved 判断之前。
+		if seqExpandFactoryFieldCall(a, req, node, fun, f, curPkg, depth, curFile, pos) {
+			return node
+		}
 		if !resolved {
 			return node
 		}
@@ -179,12 +185,6 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		// 会把无关实例的调用误判为命中）。
 		if req.focusActive() && req.focus.returns && len(req.focus.fields) == 0 &&
 			req.focusLines != nil && !req.focusLines[pos.Line] {
-			return node
-		}
-
-		// todo25 §3.4：`b.Get().Work()`——被调者来自方法返回的字段时，沿
-		// 工厂 setter 的实参证明具体实现（守卫保留为互斥分支）。
-		if seqExpandFactoryFieldCall(a, req, node, fun, f, curPkg, depth, curFile, pos) {
 			return node
 		}
 

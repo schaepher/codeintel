@@ -116,11 +116,14 @@ func seqIdentityBeforeDepth(a *Actions, req CodeSequenceRequest, f *ast.File, fs
 			if req.curRecvOrigin != "" {
 				if impls, field := a.seqFactoryFieldImplsAtDepth1(req, recvType, sel.Sel.Name); len(impls) > 0 {
 					if len(impls) > 1 {
+						// U07：depth=1 也展开工厂候选分支（候选标记，不计确定执行），
+						// 与完整展开同一候选集合与守卫。
 						node.Evidence = &SeqEvidence{Source: SeqEvidenceFieldFlow, CallFile: curFile,
 							CallLine: pos.Line, Candidates: impls, Ambiguous: true,
 							Reason: "factory-field-dataflow", CandidateBudget: seqIfaceBudget(len(impls), false)}
 						node.Stop = &SeqStop{Code: SeqStopIfaceAmbiguous,
-							Detail: "工厂字段有 " + itoaSeq(len(impls)) + " 个候选实现（未消歧，未展开）"}
+							Detail: "工厂字段有 " + itoaSeq(len(impls)) + " 个候选实现（候选分支，不计确定执行）"}
+						seqExpandFactoryCandidatesDepth1(a, req, node, impls, sel.Sel.Name, curFile, pos)
 						return true
 					}
 					node.ImplType = implTypeShort(impls[0])

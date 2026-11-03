@@ -69,3 +69,34 @@ func (a *Actions) seqFactoryFieldImplsAtDepth1(req CodeSequenceRequest, recvType
 	}
 	return impls, field
 }
+
+// seqExpandFactoryCandidatesDepth1 depth=1 的工厂字段候选：每个候选一个
+// branch + 子调用节点（Actor/准确 SymbolID/守卫名），候选子树不计确定执行。
+func seqExpandFactoryCandidatesDepth1(a *Actions, req CodeSequenceRequest, node *CodeSeqNode,
+	impls []string, method, curFile string, pos token.Position) {
+	capped, truncated := capSeqCandidates(impls)
+	for _, impl := range capped {
+		candReq := req
+		candReq.inCandidate = true
+		child := &CodeSeqNode{Kind: "call", Label: method, Actor: implTypeShort(impl),
+			Type: implTypeShort(impl), Line: pos.Line, Candidate: true,
+			Evidence: &SeqEvidence{Source: SeqEvidenceFieldFlow, CallFile: curFile,
+				CallLine: pos.Line, SymbolID: impl, Confidence: 1.0,
+				Reason: "receiver-factory-field", Verdict: SeqVerdictCorroborated}}
+		if sub, stop := codeSeqForSymbol(a, candReq, impl, 1); sub != nil {
+			child.Nodes, child.Stop = sub.Nodes, sub.Stop
+			markSeqCandidateSubtree(child.Nodes)
+		} else if stop != nil {
+			child.Stop = stop
+		}
+		node.Nodes = append(node.Nodes, &CodeSeqNode{Kind: "branch",
+			Label: "factory field: " + implTypeShort(impl), Line: pos.Line, Candidate: true,
+			Nodes: []*CodeSeqNode{child}})
+	}
+	if truncated {
+		node.Nodes = append(node.Nodes, &CodeSeqNode{Kind: "branch",
+			Label: "candidate budget", Line: pos.Line, Candidate: true,
+			Stop: &SeqStop{Code: SeqStopCandidateBudget,
+				Detail: "工厂字段候选超过展开预算（" + itoaSeq(len(capped)) + "/" + itoaSeq(len(impls)) + "）"}})
+	}
+}

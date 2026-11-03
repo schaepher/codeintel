@@ -25,8 +25,20 @@ func seqExpandGetterIfaceCall(a *Actions, req CodeSequenceRequest, node *CodeSeq
 	if !ok {
 		return false
 	}
-	if _, isSel := inner.Fun.(*ast.SelectorExpr); isSel {
-		return false // 方法 getter（b.Get()）走工厂字段/数据流路径
+	if funSel, isSel := inner.Fun.(*ast.SelectorExpr); isSel {
+		// 方法 getter（b.Get()）走工厂字段/数据流路径；**包级函数** getter
+		// （region.Get()，U07 单例）继续走这里。
+		id, ok := funSel.X.(*ast.Ident)
+		if !ok || !seqIsPkgIdent(f, id) {
+			return false
+		}
+	}
+	// U07：单例 getter（无参，返回包级变量）+ 条件工厂（switch 选实现）→
+	// 候选带工厂守卫（保留原调用参与者）。
+	if len(inner.Args) == 0 {
+		if seqExpandSingletonGetterCall(a, req, node, fun, f, curPkg, depth, curFile, pos) {
+			return true
+		}
 	}
 	// T04：有实参的工厂调用（`FromField(kind).Work()`）按守卫裁剪 return；
 	// 无法按工厂解析时退回声明返回类型（无参 getter 的旧路径）。

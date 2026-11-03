@@ -238,6 +238,11 @@ func seqExpandCandidateBranches(a *Actions, req CodeSequenceRequest, node *CodeS
 	candReq := req
 	candReq.inCandidate = true
 	cd := depth - 1
+	if cd < 1 {
+		// depth=1 也要展开候选体一层（Guard/实现子调用可见；候选仍不计
+		// 确定执行）。
+		cd = 1
+	}
 	if cd > candDepth {
 		cd = candDepth
 	}
