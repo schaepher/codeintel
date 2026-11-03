@@ -44,6 +44,8 @@ type seqFileCtx struct {
 	file *ast.File
 	src  []byte
 	rel  string
+	// pkgPath 外部包文件的 import path（仓库内文件为空，用 req 上下文补）。
+	pkgPath string
 	// dir 文件所在绝对目录（外部依赖包：go list 的 cwd 以它为准，保证
 	// 外部包自己的导入能按其模块上下文解析；仓库内文件为空）。
 	dir string

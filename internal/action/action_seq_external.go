@@ -80,7 +80,12 @@ func parseSeqDir(ctx context.Context, dir, relPrefix string) []*seqFileCtx {
 		if err != nil {
 			continue
 		}
-		out = append(out, &seqFileCtx{fset: fset, file: f, src: src, rel: path.Join(relPrefix, name), dir: dir})
+		pkgPath := ""
+		if strings.HasPrefix(relPrefix, "<external>/") {
+			pkgPath = strings.TrimPrefix(relPrefix, "<external>/")
+		}
+		out = append(out, &seqFileCtx{fset: fset, file: f, src: src, rel: path.Join(relPrefix, name),
+			dir: dir, pkgPath: pkgPath})
 	}
 	return out
 }

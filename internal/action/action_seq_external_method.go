@@ -95,10 +95,11 @@ func seqExpandExternalMethodCall(a *Actions, req CodeSequenceRequest, node *Code
 	if !ok || ref.pkgPath == "" || req.pkgSet[ref.pkgPath] {
 		return false
 	}
-	extID := "symbol:go:" + ref.pkgPath + ":(" + ref.typeName + ")." + sel.Sel.Name
 	if pkg := seqExternalPackage(a, req, ref.pkgPath); pkg != nil && pkg.err == nil && pkg.std {
 		// U04s：标准库方法终端——保留准确 canonical ID 与外部目标边界，不展开
-		// 标准库实现（避免噪声），也不回退成 unresolved。
+		// 标准库实现（避免噪声），也不回退成 unresolved（先于 owner 查询：
+		// 标准库源码不解析，无法做嵌入链分析）。
+		extID := "symbol:go:" + ref.pkgPath + ":(" + ref.typeName + ")." + sel.Sel.Name
 		node.Evidence = &SeqEvidence{Source: SeqEvidenceAST, CallFile: curFile, CallLine: line,
 			SymbolID: extID, Reason: "standard-method-declaration",
 			Verdict: SeqVerdictCorroborated}
@@ -106,14 +107,43 @@ func seqExpandExternalMethodCall(a *Actions, req CodeSequenceRequest, node *Code
 			Detail: "标准库方法终端（不展开标准库实现；" + extID + "）"}
 		return true
 	}
+	// U04q：实际方法 owner（自身声明优先，否则沿嵌入链；同层多路径/遮蔽/
+	// 嵌入接口都保守停止）。
+	relFile := ""
+	if req.curCtx != nil {
+		relFile = req.curCtx.rel
+	}
+	owner, methodPath, ambiguous, found := seqExternalMethodOwner(a, req,
+		seqORMTypeRef{pkgPath: ref.pkgPath, name: ref.typeName}, sel.Sel.Name, relFile)
+	if !found {
+		if ambiguous {
+			markSeqUnknownInstance(node, curFile, line, 0.8,
+				"方法 "+sel.Sel.Name+" 的声明 owner 未消歧（嵌入/遮蔽/接口，未展开）")
+			return true
+		}
+		return false
+	}
+	ref = seqTypeRef{pkgPath: owner.pkgPath, typeName: owner.name}
+	extID := "symbol:go:" + ref.pkgPath + ":(" + ref.typeName + ")." + sel.Sel.Name
 	if a.seqExternalIfaceMethod(req, extID) {
 		// U06c：外部接口类型的接收者没有实例来源证明（接口别名/命名类型链
 		// 同样按声明核对）。
 		markSeqUnknownReceiver(node, curFile, line, 1.0, seqMethodRecvType(extID), sel.Sel.Name)
 		return true
 	}
-	return seqExpandExternalDecl(a, req, node, ref.pkgPath, "("+ref.typeName+")."+sel.Sel.Name,
-		extID, depth, call, curFile, line, ref.typeName)
+	if !seqExpandExternalDecl(a, req, node, ref.pkgPath, "("+ref.typeName+")."+sel.Sel.Name,
+		extID, depth, call, curFile, line, ref.typeName) {
+		return false
+	}
+	if node.Evidence != nil {
+		if len(methodPath) > 1 {
+			node.Evidence.MethodPath = methodPath
+			node.Evidence.Reason = "external-promoted-method"
+		} else {
+			node.Evidence.Reason = "external-method-declaration"
+		}
+	}
+	return true
 }
 
 // seqStructFieldTypes 外部包某结构体的字段类型名（receiver 字段调用的

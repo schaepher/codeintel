@@ -119,6 +119,8 @@ type SeqEvidence struct {
 	ORM *SeqORM `json:"orm,omitempty"`
 	// U04n：标准 SQL 事务事件（begin/write/read/commit/rollback）。
 	Transaction *SeqTransaction `json:"transaction,omitempty"`
+	// U04q：外部方法的实际 owner 路径（类型 canonical ID 链；直接声明为空）。
+	MethodPath []string `json:"method_path,omitempty"`
 }
 
 // SeqDiagCount 诊断聚合项（根节点 meta 用）。
