@@ -78,15 +78,28 @@ schema 变更需更新本契约并走 Q 流程（Agent/MCP 依赖字段名解析
   - `runtime`（todo25/T19）：`table`/`columns`/`query`/`source_id`/`symbol`/
     `result`/`reason`/`boundary{kind,code,needs}`；kind = missing_fact |
     analysis_boundary | ambiguous_fact，needs 只列真正需要的事实。
-  - `field_read`（U04v）：`id`（每次求值独立）、`root{kind,symbol,repo,
-    parameter}`、`path`、`type_id`（字段声明 owner）、`source_file/source_line`
-    （声明位置）、`read_file/read_offset`（本次读取位置）。
+    T19b：无有效匹配时缺口优先级固定为 scope_not_covered > columns_missing >
+    incomplete_rows > missing_observation（与 observation 输入顺序无关）；多条
+    有效观测 → ambiguous_observations。相同 source/table/规范化 scope 的观测
+    不再在加载阶段拒绝，保留后由读取端判 ambiguous（不会拼接）。
+  - `field_read`（U04v/U04y）：`id`（每次求值独立）、`root{kind,symbol,repo,
+    parameter,type_id?,id?}`、`path`、`type_id`（字段声明 owner）、
+    `source_file/source_line`（声明位置）、`read_file/read_offset`（本次读取
+    位置）。根支持 parameter_object / struct_literal / struct_copy；构造/复制
+    根带 `type_id` 与观察 `id`（历史对象身份，不是当前值）。
   - `struct_literal`（U04w）：`id`（构造观察）、`type_id`、`semantics=
     initialization_only`、`file/offset`、`fields[{name,origin?}]`（省略字段不
     补零值来源；显式未知字段保留名字、无 origin）。
   - `struct_copy`（U04x）：`id`、`type_id`、`semantics=
     construction_ancestry_only`、`file/offset`、`source`（构造祖先来源）、
     `guard`/`conditional`。
+  - `meta.continuation`（T12b）：`expanded`/`extra_expansions`/`segments_used`
+    都按**实际追加的前沿展开次数**统计（一个前沿一次；不是"一轮展开所有
+    兄弟"）；预算耗尽仍停在 depth 的节点记入 `budget_stops`。identity_changed
+    与预算停止不计入 expanded/extra_expansions/segments_used。
+  - RPC 服务端续接证据 `evidence.source = "rpc_server"`（原 `"rpc"`），
+    `symbol_id` 为实现方法（如 `(Handler).Submit`），`di_register_file/line`
+    是真实注册调用位置。
   - 节点级 `field_writes`（U04y）：每项 `id`、`semantics=assignment_only`、
     `file/offset`、`operator`、`target{type_id,source_file,source_line,path,
     root?}`、`value`（仅右操作数来源）、`expression`、`result_slot`、

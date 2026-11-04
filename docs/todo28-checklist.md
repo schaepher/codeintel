@@ -31,10 +31,10 @@
 | U04s | 显式匿名字段访问 + 标准库方法终端 | **已完成** | `tx.Tx.Commit()` 从匿名字段声明得到 leaf.Tx；`standard-method-declaration` + 事务 `transaction_origin_unproven` |
 | U04t | 导入包变量 receiver | **已完成** | `state.Shared.Work()` 读准确 VAR 声明（显式类型）；接口变量 unknown_receiver；局部遮蔽不借包变量 |
 | U04u | 包变量省略类型时恢复静态类型 | **已完成** | 字面量/&字面量/别名/准确包级函数返回签名（多槽）；接口返回保持未知 |
-| U04v | 请求结构体字段读取来源 | **待办** | `field_read{id,root,path,type_id,source_file/source_line,read_file/read_offset}`；重复读取独立 ID；方法 getter 恢复调用边 |
-| U04w | 结构体字面量构造来源 | **待办** | `struct_literal{type_id,fields,initialization_only}`；观察 ID/预算（64 字段/深度 8/256 观察） |
-| U04x | 整值复制构造祖先 + 函数列表返回来源 | **待办** | `struct_copy{construction_ancestry_only}`；按实际函数列表逐项环境；go/defer 调度上下文 |
-| U04y | 字段赋值观察与求值顺序 | **待办** | `field_writes[]`（assign 节点 + `assignment_only`）；RHS 先于下一 RHS；compound/incdec operator；field_write_budget |
+| U04v | 请求结构体字段读取来源 | **已完成** | `field_read{id,root,path,type_id,source_file/source_line,read_file/read_offset}`；重复读取独立 ID；方法 getter 恢复调用边 |
+| U04w | 结构体字面量构造来源 | **已完成** | `struct_literal{type_id,fields,initialization_only}`；观察 ID/预算（64 字段/深度 8/256 观察） |
+| U04x | 整值复制构造祖先 + 函数列表返回来源 | **已完成** | `struct_copy{construction_ancestry_only}`；按实际函数列表逐项环境；go/defer 调度上下文 |
+| U04y | 字段赋值观察与求值顺序 | **已完成** | `field_writes[]`（assign 节点 + `assignment_only`）；RHS 先于下一 RHS；compound/incdec operator；field_write_budget |
 | U06b | 候选截断与两种续查入口 | **已完成** | 候选后代与 `candidate_budget` 均 `candidate=true`；两个续查入口都不登记前沿/不消耗预算 |
 | U06c | 外部接口缺失类型节点时保留实例边界 | **已完成** | 外部声明类型缺失不算具体类型；接口别名/命名类型链有界解析；具体构造器正例保留 |
 | U06d | 已索引 vendor 源码的包身份校验 | **已完成** | `SymbolSource` 的 vendor 边界（最近 go.mod、modules.txt、离线 go list 选中文件）；反例全拒绝 |

@@ -92,3 +92,33 @@
 - **`field_writes` 缺失**：字段目标需能解析到准确结构体声明；实例来源未知时
   仍保留声明（root 省略）。`scheduled=true` 表示赋值在调度体内。预算 256 项，
   超出项的节点只有 `field_write_budget` 诊断（不部分表示）。
+
+## todo29 新增（运行时缺口/预算/取址/RPC 注册/复制字段）
+
+- **重复 scope 不再报输入错误**：v2 快照里相同 source/table/规范化 scope 的
+  observation 会被保留；查询命中多条有效观测时报告
+  `ambiguous_observations`（不再 `duplicate normalized scope` 失败）。若仍看到
+  旧错误，确认二进制已更新。
+- **运行时缺口总报 incomplete_rows**：T19b 后按"最接近有效匹配"排序
+  （scope_not_covered > columns_missing > incomplete_rows > missing_observation）。
+  要补的事实在 `boundary.needs`：scope/columns/complete_rows/snapshot/resource_binding。
+- **无 Context 的 `DB.QueryRow`/`DB.Query` 报 query_not_proven**：T19c 后 SQL 实参
+  位置按方法身份区分（无 Context 为 0，`*Context` 为 1）；仍报错时确认接收者是
+  已证明的 `database/sql` 句柄（局部变量/自定义同名方法不解析）。
+- **取址后分支仍被裁剪**：`p:=&n; mutate(p)` 后读取 n 应保持 unknown（两分支）。
+  T14b 用逃逸位置失效；若仍只有一条分支，检查是否走了已建模 Scan 目标（不应
+  失效）或二进制未更新。
+- **`--continue-segments 1` 只展开一个 Step**：T12b 后预算是**全请求追加次数**
+  （一个前沿 = 一次），不是"一轮展开所有兄弟"。预算耗尽的前沿保留 depth 并记
+  `budget_stops`；`meta.continuation.expanded` 为实际展开数（旧输出为 null 是
+  未升级）。需要更多兄弟/嵌套时增大预算。
+- **RPC 停在 `rpc_registration_missing`（注册 helper 直接收 `&Handler{...}`）**：
+  源码回退要求 helper 的第二参是 `<X>Handler`、体内真实 `NewHandler(&wrapper{h})`
+  （wrapper 嵌入接口），且实参类型 implements 已证明。实参不实现接口/helper
+  未被调用（删除真实 Register 调用）时保持缺失，不按唯一实现兜底。
+- **depth1+续查与 depth20 不一致**：续查现在也覆盖外部依赖 depth 前沿与 defer/go
+  调度体；RPC/外部方法在续查后才展开的子调用会继承 exec 标签。若仍缺层，确认
+  `--continue-segments` 足够并看 `meta.continuation.budget_stops`。
+- **`write_condition`/`row_count_condition` 在包装函数调用方缺失**：U04k 现在在
+  续查后后序重算 return 槽来源（`return Save()` 等）；冲突写入（不同 DB 写
+  返回到同一错误槽）不再取第一条。defer 改写/取址逃逸的槽保持失效属预期。

@@ -741,6 +741,44 @@ pre-commit 场景的兜底）。
   `--progress plain` 的取值曾被当成子命令（"unknown precompute target:
   plain"）——位置参数解析必须先消费带值 flag。
 
+## todo29 教训（2026-11-06）
+
+- **续查预算是"追加次数"不是"轮次"**：T12b 后每个前沿展开先占 1 次预算（FIFO），
+  兄弟/嵌套/RPC/HTTP/回调/外部源码共享；`meta.continuation.expanded` 与
+  extra_expansions/segments_used 同口径。旧"一轮展开所有兄弟"的测试断言要按
+  新语义改（预算 1 只展开第一个 Step，剩余前沿记 budget_stops）。
+- **外部依赖的 depth 前沿也要登记续查**：`seqExpandExternalDecl` 在 depth<=1
+  时只给诊断，depth1+continue 会漏掉外部框架/事务包装——resume 用原调用点实参
+  重新绑定形参。调度体（defer/go）在续查后展开的子调用要继承 exec 标签。
+- **回填分两阶段且顺序敏感**：续查完成后先**后序**重算 return 槽来源
+  （`seqRefreshReturnOrigins`），再回填 pending 变量/条件；否则 `return Save()`
+  在首轮固化成空，包装函数的 write/row 条件在 depth1 丢失。
+- **"返回槽共识"要比较全部身份字段**：`sameSeqScalarOrigin` 原先漏比
+  WriteError/RowCount/SQLResult，两个不同写入会被当成同源，冲突写入静默取
+  第一条。凡"多路径共识/去重"都必须逐字段比较身份。
+- **逃逸标记要沿 env 父链找，且注意写者互相删除**：`markScalarEscapedAt` 会
+  调 `setTxErr(obj,nil)`，它 `delete(e.errs,obj)` 会抹掉刚写入的错误逃逸标记
+  ——顺序必须"先清事务槽，再标 err/rows"；`setErr/setRows` 也要查父链，否则
+  defer/闭包写者标在父层、赋值写在子层时逃逸失效。
+- **静态 calls 边指向接口方法时可按已证明接收者收窄**：`c:=NewX()` 返回接口但
+  函数体唯一 return 具体实现、且 implements 已证明时，把目标收窄到具体方法
+  （T09b 的 RPC 桩 `(ledgerService).Submit` 才能查到 `grpc_call` 边）；必须
+  同时证明 implements，不能凭"唯一实现"猜。
+- **具体注册实参要证明生成 helper**：`Register<X>Handler` 第二参必须是
+  `<X>Handler`，体内真实 `NewHandler(&wrapper{h})` 且 wrapper 嵌入接口（或直传
+  形参）；具体实参类型必须在 `InterfaceImplements` 列表中。服务身份取生成
+  wrapper（`wire:Ledger`），实现方法 `(Handler).Submit`。
+- **重复 scope：从加载拒绝改为读取端 ambiguous（T19b）**：相同 source/table/
+  规范化 scope 的 observation 保留两份；读取端只在恰好一条完整观测可回答时
+  使用，多条 → `ambiguous_observations`，不拼接部分观测。U01 的安全目标保留，
+  但错误文本/退出码契约变了，旧测试需同步。
+- **整值复制写的是分配对象**：`*alias = *record` 要沿声明把来源记到根变量与
+  全部别名（复制前/后创建）；未知源/条件分支/逃逸使根来源失效。字段读取/写入
+  根支持 parameter_object/struct_literal/struct_copy（带 type_id/观察 id）。
+- **文件拆分别把原有 helper 一起搬走**：从大文件 tail 剪切新增块时，原本位于
+  其后的旧 helper 会被连带迁移，导致目标文件仍 >300 行；按函数边界明确选择，
+  拆完立刻 `go build ./...` + `wc -l` 复核。
+
 ## 常用命令
 
 ```shell

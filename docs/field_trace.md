@@ -7835,8 +7835,10 @@ action；开库前先 `ValidateRuntimeData`）。
   空格不再被当成 URI 片段/参数/转义。回归：`file_uri_test.go`（含 `repo#one` vs
   `repo#two` 不串库、连续重开、WAL/外键/busy_timeout 保持）。
 - **U01 规范化 scope 判重**：v2 快照 IN 值去重 + 稳定排序（`normalizeRuntimeScope`），
-  判重键带类型前缀（int 2 ≠ string "2"）；重复/冲突 observation 拒绝，错误文本
-  `runtime-data: duplicate normalized scope (source=…, table=…, node_id in [2,3])`。
+  判重键带类型前缀（int 2 ≠ string "2"）。**todo29 T19b 调整**：相同规范化
+  scope 的观测不再在加载阶段拒绝（保留两份，读取端只在恰好一条完整观测可回答
+  查询时使用，多条 → `ambiguous_observations`）——避免重复有效观测被误报成
+  输入错误，也不会拼接部分观测。
 - **U02 状态预算不静默截断**：`capStates` 超 64 → `runtime-data: analysis state
   budget exhausted (64)`（不丢尾部状态继续排除分支）；`rtEval` 接入 ctx（执行中
   取消 → `ErrSeqCanceled`、无半棵树）。
@@ -8272,3 +8274,57 @@ action；开库前先 `ValidateRuntimeData`）。
   operator/result_slot/guard/scheduled；LHS 接收者调用先求值；RHS 顺序固定；
   预算 256 项，超出项仅给 `field_write_budget` 诊断。
 - 兼容修正：标量槽逃逸保留逃逸前来源（位置判定），`setScalar` 不再清空旧来源。
+
+## §187 todo29：运行时缺口/追加预算/取址逃逸/RPC 注册/复制字段证据（2026-11-06）
+
+本轮按 todo29 逐项实现；每项真实 `init → CLI` 回归（`integration/todo29_*`）。
+未完成项见 `docs/todo29-checklist.md`（U04 跨入口条件图）。
+
+- **T19b 缺口优先级**：`runtimeObservationFor` 的失败分类改为
+  scope_not_covered > columns_missing > incomplete_rows > missing_observation
+  （最接近有效匹配）；输入顺序无关，多条有效观测 → ambiguous_observations。
+  为满足"重复有效观测 → ambiguous"，相同 source/table/规范化 scope 的观测
+  从**加载拒绝**改为保留（读取端单条匹配，不拼接）——U01 的安全目标不变。
+- **T19c 无 Context SQL**：`runtimeQuerySQLArg`：`QueryRow`/`Query` 的 SQL 实参
+  是 0，`*Context` 版本是 1；值实参从 `sqlArg+1` 开始。接收者仍必须是已证明的
+  `database/sql` 身份，自定义同名方法不走快路径。
+- **T14b 取址逃逸**：`rtState.escaped`（对象 → 逃逸位置）+ `rtGlobal.escapedAt`；
+  `&n`/`&(n)`/`&obj.Field`/`&slice[0]` 标记根对象，逃逸后的读取/赋值保持
+  unknown（位置判定：取址前已求值的读取不受影响）。状态克隆保留逃逸集合；
+  已建模的 `Scan(&x)` 不经过取址失效路径（成功/失败状态仍相关）。
+- **T14b RuntimeData 双入口**：`CodeSequenceRequest.RuntimeData` 改为 `any`，
+  同时接受路径字符串与 `LoadRuntimeData` 返回的 `*RuntimeSnapshot`；typed-nil
+  等同未配置；对象/Runtime/路径同时给出时校验 hash 一致，冲突只报一次
+  `runtime-data:` 前缀。对象入口与路径入口场景/快照 hash 相同。
+- **T12b 统一追加预算**：`ContinueSegments`/`Continue.MaxSegments` 统一为
+  **全请求总追加次数**：循环每展开一个前沿先占用 1 次预算；兄弟/嵌套/RPC/HTTP/
+  回调/外部源码前沿共享；FIFO 让"预算 1 只追加第一个 Step"可复现。
+  `meta.continuation.expanded` 与 extra_expansions/segments_used 同口径；预算
+  耗尽的前沿记 budget_stops（identity_changed 不虚拟成追加次数）。外部依赖
+  depth 前沿也登记续查（否则 depth1+续查会漏外部框架/事务包装）。
+- **T09b 具体注册实参**：源码回退增加 helper 声明证明（第二参 `<X>Handler`、
+  体内真实 `NewHandler(&wrapper{h})` 且 wrapper 嵌入接口；或直接转发形参），
+  具体实参 `&Handler{...}` 的类型 canonical ID 必须出现在
+  `InterfaceImplements(iface)`；服务身份取生成 wrapper（`wire:Ledger`），
+  实现方法 `(Handler).Submit`。静态 calls 边指向接口方法时，若接收者具体类型
+  已由构造器/返回槽证明（且 implements 已证明），收窄到具体方法（RPC 续接/
+  方法展开才拿得到真实桩）。defer/go 调度体内展开出的子调用继承 exec 标签
+  （Cleanup 标 defer）。
+- **U04x 分配对象身份**：整值复制写入的是分配对象——`seqPointerRoot`（别名沿
+  声明初始化递归，函数内重绑定 → 根未知）把来源记到根变量与全部别名；未知
+  来源/类型不符/条件分支/逃逸使根来源失效；`*alias = *Build("second")` 支持
+  解引用调用返回槽；函数列表逐项环境仍由既有机制保证最终祖先。
+- **U04y 字段读写根**：`SeqFieldRoot` 增加 `type_id`/`id`（构造/复制历史根）；
+  字段读取/写入基支持 parameter_object/struct_literal/struct_copy；内建类型
+  转换（`int64(id)`）保留实参来源；`+=` 只记录右操作数。
+- **U04k 返回槽**：`sameSeqScalarOrigin` 补齐 WriteError/RowCount/SQLResult
+  身份比较（此前不同写入错误被当同一来源，冲突写入会误取第一条）；续查完成
+  后**后序**重算全部 `return` 槽来源（`seqRefreshReturnOrigins`），否则
+  `return Save()` 在 depth1 首轮固化成空、包装函数的错误/行数条件丢失；
+  取址/defer 写者的逃逸标记可能在外层环境，`setErr`/`setRows` 沿父链查找
+  逃逸槽（`setTxErr` 的 delete 会抹掉刚写入的错误逃逸标记，顺序需先清事务槽）。
+- **U04 跨入口**：本轮只验证 Submit 单入口树的持久化边界（不凭静态源码加入
+  FinishReview/Complete）；通用入口整合（记录键/过滤/成功路径/请求身份/第二次
+  Finish）尚未实现，条件图输出契约保留为剩余范围。
+- 测试：`internal/action/action_seq_t19b_test.go`、`action_seq_t12b_budget_test.go`、
+  `action_seq_t14b_escape_test.go` + `integration/todo29_*`（真实 init→CLI）。
