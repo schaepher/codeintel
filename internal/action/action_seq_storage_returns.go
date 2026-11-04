@@ -17,7 +17,7 @@ const SeqOriginNil = "nil"
 // SeqOriginWriteError 返回槽携带写入错误身份（U04l）。
 const SeqOriginWriteError = "write_error"
 
-// seqReturnOrigins 计算 return 语句各结果槽的来源（按书写顺序）。
+// seqReturnOrigins 计算 return 各结果槽来源（按书写顺序）。
 func seqReturnOrigins(req CodeSequenceRequest, results []ast.Expr,
 	calls []*CodeSeqNode) []*SeqStorageOrigin {
 	if len(results) == 1 {
@@ -44,7 +44,7 @@ func seqReturnOrigins(req CodeSequenceRequest, results []ast.Expr,
 	return out
 }
 
-// seqBareReturnOrigins 具名裸 return：按结果对象取来源。
+// seqBareReturnOrigins 具名裸 return：按结果对象取来源（守卫见 U04k）。
 func seqBareReturnOrigins(req CodeSequenceRequest) []*SeqStorageOrigin {
 	if len(req.resultObjs) == 0 {
 		return nil
@@ -80,6 +80,12 @@ func seqReturnOriginOf(req CodeSequenceRequest, e ast.Expr) *SeqStorageOrigin {
 	}
 	if id, ok := e.(*ast.Ident); ok {
 		if id.Name == "nil" && id.Obj == nil {
+			// U04k：只有被 `if err != nil { return err }` 守卫过的 nil 路径
+			// 才能参与"同一写入错误槽"等价；未受守卫的 nil 路径使来源未知
+			// （不能把写入错误补成确定返回）。
+			if req.acc == nil || len(req.acc.errNilGuards[req.curSym]) == 0 {
+				return nil
+			}
 			return &SeqStorageOrigin{Kind: SeqOriginNil}
 		}
 		if id.Obj != nil && req.env != nil {
@@ -133,8 +139,7 @@ func seqCallNodeOf(req CodeSequenceRequest, call *ast.CallExpr) *CodeSeqNode {
 	return req.acc.callNodes[call]
 }
 
-// seqNodeResultOrigins 调用节点的返回槽来源共识：只取该被调函数自己的
-// return 节点（进入嵌套调用子树即停），同一槽全部路径一致才保留。
+// seqNodeResultOrigins 返回槽来源共识（只取被调函数自己的 return；同槽全部一致才保留）。
 func seqNodeResultOrigins(node *CodeSeqNode) []*SeqStorageOrigin {
 	if node == nil || len(node.Nodes) == 0 {
 		return nil
@@ -175,11 +180,9 @@ func seqNodeResultOrigins(node *CodeSeqNode) []*SeqStorageOrigin {
 	return out
 }
 
-// seqConsensusOrigin 第 idx 槽的共识来源：nil 路径（错误槽）不参与；
-// 其余来源必须一致。
+// seqConsensusOrigin 第 idx 槽共识来源：nil 路径不参与，其余必须一致。
 func seqConsensusOrigin(paths [][]*SeqStorageOrigin, idx int) *SeqStorageOrigin {
-	// U04l：`return nil` 是成功路径，不否定写入错误/行数来源；全部为 nil
-	// 时保留字面 nil 证据。
+	// U04l：受守卫的 `return nil` 是成功路径；全部 nil 时保留字面证据。
 	var first *SeqStorageOrigin
 	sawNil := false
 	for _, path := range paths {

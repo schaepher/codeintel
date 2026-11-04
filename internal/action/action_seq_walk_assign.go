@@ -13,19 +13,14 @@ func walkSeqAssign(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src
 	// R100 续：表达式内最外层调用提取（x = foo() + bar()——原只认
 	// 顶层 CallExpr，BinaryExpr/Index 等内的调用整条丢失）
 	var out []*CodeSeqNode
-	// U04y：LHS 接收者调用的求值（`Get().ID = 3` 的 Get 在赋值前执行）。
+	// U04y：LHS 的接收者/下标表达式先求值（`Get().ID = 3` 的 Get、`a[f()].ID`
+	// 的 f 都在 RHS 之前执行）。所有 LHS 内调用按书写顺序展开。
 	for _, lhs := range s.Lhs {
-		sel, isSel := lhs.(*ast.SelectorExpr)
-		if !isSel {
-			continue
-		}
-		call, isCall := sel.X.(*ast.CallExpr)
-		if !isCall {
-			continue
-		}
-		out = append(out, seqArgCallNodes(callNode, call)...)
-		if n := callNode(call); n != nil {
-			out = append(out, n)
+		for _, call := range collectCalls(lhs) {
+			out = append(out, seqArgCallNodes(callNode, call)...)
+			if n := callNode(call); n != nil {
+				out = append(out, n)
+			}
 		}
 	}
 	for _, rhs := range s.Rhs {

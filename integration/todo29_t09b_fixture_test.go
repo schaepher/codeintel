@@ -116,6 +116,10 @@ const t29bRegisterOK = `func Register(s server.Server)error { return wire.Regist
 const t29bRegisterMissing = ``
 const t29bRegisterBadType = `type NotHandler struct{}
 func Register(s server.Server)error { return wire.RegisterLedgerHandler(s,&NotHandler{}) }`
+const t29bRegisterConflict = `type ConflictHandler struct{}
+func(h *ConflictHandler) Submit(ctx context.Context,in *wire.Request,out *wire.Response)error{return nil}
+func Register(s server.Server)error { return wire.RegisterLedgerHandler(s,&Handler{work:&Aspect{inner:&Worker{}}}) }
+func RegisterConflict(s server.Server)error { return wire.RegisterLedgerHandler(s,&ConflictHandler{}) }`
 
 func t29bFixture(t *testing.T, registerLine string) string {
 	t.Helper()

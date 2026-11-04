@@ -207,3 +207,94 @@ func t14bSceneSources(root *CodeSeqNode) []string {
 	walk(root)
 	return out
 }
+
+// SQL 字符串指针别名使旧 SELECT 失效；未逃逸对照组仍用快照；同名局部隔离。
+func TestT14bSQLStringAliasAndShadow(t *testing.T) {
+	src := `package flow
+
+import (
+	"context"
+	"database/sql"
+)
+
+var DB *sql.DB
+
+func mutateStr(p *string) { *p = "SELECT 1" }
+
+func SQLAlias(ctx context.Context) {
+	q := "SELECT enabled FROM review_config WHERE region = ? AND node_type = ?"
+	p := &q
+	mutateStr(p)
+	var enabled int
+	if err := DB.QueryRowContext(ctx, q, "ID", 2).Scan(&enabled); err != nil {
+		return
+	}
+	if enabled == 1 {
+		Manual()
+	} else {
+		Auto()
+	}
+}
+
+func SQLNoAlias(ctx context.Context) {
+	q := "SELECT enabled FROM review_config WHERE region = ? AND node_type = ?"
+	var enabled int
+	if err := DB.QueryRowContext(ctx, q, "ID", 2).Scan(&enabled); err != nil {
+		return
+	}
+	if enabled == 1 {
+		Manual()
+	} else {
+		Auto()
+	}
+}
+
+func mutate(p *int) { *p = 0 }
+
+func ShadowEscape() {
+	n := 1
+	{
+		n := 2
+		p := &n
+		mutate(p)
+		if n == 2 {
+			Manual()
+		} else {
+			Auto()
+		}
+	}
+	if n == 1 {
+		Manual()
+	} else {
+		Auto()
+	}
+}
+`
+	acts, dir, snap := seedT14b(t, src)
+	// 未逃逸：快照 enabled=1 → 只走 Manual。
+	manual, auto := t14bBranchesModule(t, acts, dir, snap, "example.com/flow", "SQLNoAlias")
+	if manual != 1 || auto != 0 {
+		t.Fatalf("SQLNoAlias 应使用快照（Manual=%d Auto=%d）", manual, auto)
+	}
+	// SQL 字符串取址逃逸：保持 unknown（两分支），不套旧 SELECT 的值。
+	manual, auto = t14bBranchesModule(t, acts, dir, snap, "example.com/flow", "SQLAlias")
+	if manual != 1 || auto != 1 {
+		t.Fatalf("SQLAlias 应保持 unknown（Manual=%d Auto=%d）", manual, auto)
+	}
+	// 同名局部隔离：内层失效、外层确定。
+	manual, auto = t14bBranchesModule(t, acts, dir, snap, "example.com/flow", "ShadowEscape")
+	if manual != 2 || auto != 1 {
+		t.Fatalf("ShadowEscape 内层失效/外层确定（Manual=%d Auto=%d，want 2/1）", manual, auto)
+	}
+}
+
+func t14bBranchesModule(t *testing.T, acts *Actions, dir, snap, module, entry string) (int, int) {
+	t.Helper()
+	root, err := acts.CodeSequence(CodeSequenceRequest{
+		Target: "symbol:go:" + module + ":" + entry, RepoAbs: dir, Depth: 12,
+		RuntimeDataPath: snap})
+	if err != nil {
+		t.Fatalf("%s: %v", entry, err)
+	}
+	return len(seqCallNodesNamed(root, "Manual")), len(seqCallNodesNamed(root, "Auto"))
+}

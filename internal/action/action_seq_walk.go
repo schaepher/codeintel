@@ -13,6 +13,9 @@ import (
 func walkStmts(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []byte, stmts []ast.Stmt, tgts *seqTargets, depth int, recvType string, recvDecl map[string]string, f *ast.File, curPkg, curFile string) []*CodeSeqNode {
 	var out []*CodeSeqNode
 	for _, st := range stmts {
+		if req.acc != nil {
+			req.acc.stmtSeq++
+		}
 		// todo10-9：逐语句检查取消——及时返回，不留"半条链"当成功
 		if req.ctx().Err() != nil {
 			req.acc.cancel = true
@@ -29,6 +32,14 @@ func walkStmts(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []b
 		seqRecordWriteResults(req, st)
 		// U04x：`*dst = <expr>` 整值复制的构造祖先（先固定 RHS 再更新 LHS）。
 		seqRecordDerefCopies(req, st)
+		// U04k：`if err != nil { return err }` 之后当前路径 err==nil——后续
+		// nil return 可用于错误槽等价；未受守卫的 nil 路径保持未知。
+		if ifStmt, ok := st.(*ast.IfStmt); ok {
+			seqRecordErrNilGuard(req, ifStmt)
+		}
+		// T12b：语句结束即同步续查本语句登记的已证明前沿，再回填调用结果；
+		// 后续语句因此能看到已绑定值（不重放调用方语句）。
+		seqContinueAtStatement(a, req)
 		// todo10-2：return 终止当前路径——其后的语句不属于这条路径。
 		// U03：已判定 taken 的分支里含 return 时，后续语句在同一路径上也不
 		// 可达（`if len(m)==0 { Empty(); return }` 之后的业务分支不应再出现）。
@@ -81,7 +92,8 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		node.TransactionCondition = seqTransactionCondition(req, s.Cond)
 		// todo10-5：场景条件判定（taken/excluded/unknown）——排除的分支
 		// 保留节点但剔除内容（用户能看到"此处被场景排除"及其依据）
-		fit := req.Scene.matchCondSrc(s.Cond, req.sceneArgs, req.sceneSrc, req.sceneConsts)
+		args, srcs := seqSceneArgsWithLocals(req, s.Cond)
+		fit := req.Scene.matchCondSrc(s.Cond, args, srcs, req.sceneConsts)
 		// todo25 §13：静态/--scene 无法判定时，用运行时快照的分支结论补足
 		// （静态已确定的分支优先，不被快照覆盖）。
 		if fit.Status == SceneUnknown && req.runtime != nil {
@@ -264,23 +276,6 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		return []*CodeSeqNode{{Kind: kind, Label: kind, Line: fset.Position(s.Pos()).Line}}
 	}
 	return nil
-}
-
-// seqPropagateExec 调度体（defer/go）内实际执行的调用继承执行时机标签：
-// 内部 Cleanup/Save 等调用不能被渲染成同步执行（T09b：Cleanup 标 defer）。
-func seqPropagateExec(n *CodeSeqNode, exec string) {
-	if n == nil || exec == "" {
-		return
-	}
-	if n.Exec == "" {
-		n.Exec = exec
-	}
-	for _, c := range n.Nodes {
-		seqPropagateExec(c, exec)
-	}
-	for _, c := range n.Else {
-		seqPropagateExec(c, exec)
-	}
 }
 
 // newScheduledCallNode go/defer 调度体专用调用节点构造（scheduled=true）。

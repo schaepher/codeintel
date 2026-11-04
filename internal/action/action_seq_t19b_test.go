@@ -4,6 +4,7 @@ package action
 // 参数位置（database/sql QueryRow/Query 的 SQL 实参是 0）。
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -186,4 +187,35 @@ func validObservation(snap string) string {
 		return ""
 	}
 	return snap[i : len(snap)-2] // 去掉 "]}"
+}
+
+// T19b：三条观测的全部排列输出一致（顺序无关）。
+func TestT19bAllObservationPermutations(t *testing.T) {
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(t19bRuntime), &doc); err != nil {
+		t.Fatal(err)
+	}
+	var obs []json.RawMessage
+	if err := json.Unmarshal(doc["observations"], &obs); err != nil {
+		t.Fatal(err)
+	}
+	if len(obs) != 3 {
+		t.Fatalf("observations = %d", len(obs))
+	}
+	perms := [][]int{{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0}}
+	for _, p := range perms {
+		arr := []json.RawMessage{obs[p[0]], obs[p[1]], obs[p[2]]}
+		raw, _ := json.Marshal(arr)
+		body := strings.Replace(t19bRuntime, string(doc["observations"]), string(raw), 1)
+		acts, dir, snap := seedT19Gap(t, body)
+		root, err := acts.CodeSequence(CodeSequenceRequest{
+			Target: "symbol:go:example.com/gap:ContextEntry", RepoAbs: dir, Depth: 12,
+			RuntimeDataPath: snap})
+		if err != nil {
+			t.Fatalf("perm %v: %v", p, err)
+		}
+		if codes := t19BoundaryCodes(root); len(codes) != 1 || codes[0] != SeqRuntimeCodeScope {
+			t.Fatalf("perm %v 缺口 = %v, want scope_not_covered", p, codes)
+		}
+	}
 }

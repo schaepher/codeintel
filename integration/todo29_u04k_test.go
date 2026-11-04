@@ -21,6 +21,10 @@ func Conflicting(b bool)error {
  return z
 }
 func ConflictingEntry(b bool){err:=Conflicting(b);if err!=nil{Hit()}}
+func Guarded()error{_,err:=DB.Exec("INSERT INTO nodes(id) VALUES (?)",3);if err!=nil{return err};return nil}
+func GuardedEntry(){err:=Guarded();if err!=nil{Hit()}}
+func PartialGuard(flag bool)error{_,err:=DB.Exec("INSERT INTO nodes(id) VALUES (?)",4);if flag{return err};return nil}
+func PartialEntry(flag bool){err:=PartialGuard(flag);if err!=nil{Hit()}}
 `
 
 func u29kCount(t *testing.T, out string, field string) int {
@@ -184,4 +188,67 @@ replace github.com/xormplus/xorm => ../orm
 			t.Fatalf("%s write_condition=%t, want %t\n%s", tc.entry, got, tc.want, out)
 		}
 	}
+}
+
+// 错误守卫等价只适用于 `if err != nil { return err }; return nil`；
+// 未受守卫的 nil 路径不能把写入错误补成确定返回。
+func TestU29kGuardedNilEquivalence(t *testing.T) {
+	if !scipGoAvailable() {
+		t.Skip("scip-go not found")
+	}
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "go.mod"), "module example.com/guardreturned\n\ngo 1.26.2\n")
+	writeFile(t, filepath.Join(dir, "flow.go"), u29kGuardSrc)
+	gitRun(t, dir, "init")
+	gitRun(t, dir, "add", ".")
+	gitRun(t, dir, "commit", "-m", "fixture")
+	clearIndex(t, dir)
+	if code := runCLI(t, "init", "--repo", dir, "--workers", "1", "--progress", "none"); code != 0 {
+		t.Fatalf("init exit = %d", code)
+	}
+	for entry, want := range map[string]int{"GuardedEntry": 1, "PartialEntry": 0} {
+		code, out := runCLIOut(t, "query", "sequence", "symbol:go:example.com/guardreturned:"+entry,
+			"--repo", dir, "--code", "--depth", "12", "--continue-segments", "32",
+			"--evidence", "--json")
+		if code != 0 {
+			t.Fatalf("%s query exit=%d\n%s", entry, code, out)
+		}
+		if got := u29kCallerConds(t, out, entry); got != want {
+			t.Fatalf("%s caller write_condition=%d, want %d", entry, got, want)
+		}
+	}
+}
+
+// u29kCallerConds 只统计入口函数自身（不进入被调函数子树）的错误条件。
+func u29kCallerConds(t *testing.T, out, entry string) int {
+	t.Helper()
+	var doc struct {
+		Nodes []map[string]any `json:"Nodes"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	n := 0
+	var walk func(m map[string]any)
+	walk = func(m map[string]any) {
+		if m["Kind"] == "call" && m["Label"] != entry {
+			return
+		}
+		if _, ok := m["write_condition"].(map[string]any); ok {
+			n++
+		}
+		for _, key := range []string{"Nodes", "Else"} {
+			if arr, ok := m[key].([]any); ok {
+				for _, c := range arr {
+					if cm, ok := c.(map[string]any); ok {
+						walk(cm)
+					}
+				}
+			}
+		}
+	}
+	for _, m := range doc.Nodes {
+		walk(m)
+	}
+	return n
 }

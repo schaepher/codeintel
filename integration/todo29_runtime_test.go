@@ -192,3 +192,57 @@ func containsStr(xs []string, s string) bool {
 	}
 	return false
 }
+
+// T19c 反例：自定义同名 QueryRow 不按 database/sql 标准方法解析（即使快照里
+// 有同名 binding，也不产生运行时读取/缺口）。
+func TestU29T19cCustomQueryRow(t *testing.T) {
+	if !scipGoAvailable() {
+		t.Skip("scip-go not found")
+	}
+	runtime := `{"version":2,"sources":[{"id":"flags","kind":"database"}],"bindings":[{"target":{"symbol":"symbol:go:example.com/gap2:DB"},"source":"flags"}],"observations":[{"source":"flags","provenance":{"observed_at":"2026-10-28T00:00:00Z","revision":"fixture"},"resource":{"table":"config"},"scope":[{"field":"tenant","op":"eq","value":"a"}],"coverage":{"complete":true,"columns":["tenant","enabled"]},"rows":[{"tenant":"a","enabled":1}]}]}`
+	dir := u29InitRepo(t, "example.com/gap2", map[string]string{
+		"flow.go": `package gap2
+import "example.com/gap2/fake"
+var DB fake.Handle
+func Entry(){ var n int; _ = DB.QueryRow("SELECT enabled FROM config WHERE tenant = ?", "a").Scan(&n) }
+`,
+		"fake/fake.go": `package fake
+type Row struct{}
+func(*Row)Scan(...any)error{return nil}
+type Handle struct{}
+func(Handle)QueryRow(string,...any)*Row{return &Row{}}
+`,
+		"runtime.json": runtime,
+	})
+	doc := u29QueryJSON(t, "query", "sequence", "symbol:go:example.com/gap2:Entry",
+		"--repo", dir, "--code", "--depth", "12",
+		"--runtime-data", filepath.Join(dir, "runtime.json"), "--evidence", "--json")
+	var codes []string
+	var walk func(m map[string]any)
+	walk = func(m map[string]any) {
+		if ev, ok := m["evidence"].(map[string]any); ok {
+			if rt, ok := ev["runtime"].(map[string]any); ok {
+				if b, ok := rt["boundary"].(map[string]any); ok {
+					if code, ok := b["code"].(string); ok {
+						codes = append(codes, code)
+					}
+				}
+			}
+		}
+		for _, key := range []string{"Nodes", "Else"} {
+			if arr, ok := m[key].([]any); ok {
+				for _, c := range arr {
+					if cm, ok := c.(map[string]any); ok {
+						walk(cm)
+					}
+				}
+			}
+		}
+	}
+	for _, c := range doc["Nodes"].([]any) {
+		walk(c.(map[string]any))
+	}
+	if len(codes) != 0 {
+		t.Fatalf("自定义 QueryRow 不应产生运行时缺口/读取: %v", codes)
+	}
+}

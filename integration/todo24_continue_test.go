@@ -37,7 +37,9 @@ func Middle()         { Execute(func() { Sink() }) }
 func LoopEntry()      { Again(func() { Wrong() }) }
 func Again(f func())  { Again(f) }
 
+var Bypass bool
 func GuardEntry() { Choose(1) }
+func GuardDynamicEntry() { Choose(Bypass) }
 func Choose(kind int) {
 	if kind == 1 {
 		First(func() { Sink() })
@@ -193,8 +195,10 @@ func TestContinueSegmentsRealCLI(t *testing.T) {
 	if guard.Meta == nil || guard.Meta.Scene == nil || !guard.Meta.Scene.Applied {
 		t.Errorf("应保留场景依据（meta.scene.applied）: %+v", guard.Meta)
 	}
-	// 未知运行时守卫：保留互斥条件（then/else 都在），不谎称串行
-	unknown := seqTreeJSON(t, dir, continueSym("GuardEntry"), 1, "--continue-segments", "16")
+	// 未知运行时守卫：保留互斥条件（then/else 都在），不谎称串行。
+	// 注：GuardEntry 的字面量实参在 T12b 语句内联续查后已知（1），会确定性
+	// 走 then；未知守卫用动态包级变量构造。
+	unknown := seqTreeJSON(t, dir, continueSym("GuardDynamicEntry"), 1, "--continue-segments", "16")
 	var branches int
 	walkSeq(unknown, func(n *action.CodeSeqNode) {
 		if n.Kind == "branch" {

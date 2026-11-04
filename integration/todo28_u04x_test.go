@@ -27,6 +27,7 @@ replace github.com/xormplus/xorm => ../orm
 `)
 	writeFile(t, filepath.Join(root, "app", "model", "model.go"), `package model
 type Record struct{Request string}
+func(r *Record)GetRequest()string{return r.Request}
 `)
 	writeFile(t, filepath.Join(root, "app", "app.go"), `package copyflow
 import("github.com/xormplus/xorm";"example.com/copyflow/model")
@@ -189,7 +190,9 @@ func WrongPtr(){var record **model.Record;clone:=new(model.Record);*clone=**reco
 	// 立即执行字面量：复制现在发生 → 祖先保留。
 	got := u04xArgOrigin(t, dir, "ImmediateArgument")
 	if got == nil || got["kind"] != "struct_copy" {
-		t.Fatalf("ImmediateArgument origin = %+v", got)
+		code, out := runCLIOut(t, "query", "sequence", "symbol:go:example.com/copyflow:ImmediateArgument",
+			"--repo", dir, "--code", "--depth", "12", "--continue-segments", "32", "--evidence", "--json")
+		t.Fatalf("ImmediateArgument origin = %+v (exit=%d)\n%s", got, code, out)
 	}
 	src, _ := got["struct_copy"].(map[string]any)["source"].(map[string]any)
 	if src["kind"] != "struct_literal" {

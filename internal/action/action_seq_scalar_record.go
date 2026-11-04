@@ -24,7 +24,7 @@ func seqMarkScalarEscapes(req CodeSequenceRequest, st ast.Stmt) {
 				seqMarkEscapeIdent(req.env, v.X)
 			case *ast.UnaryExpr:
 				if v.Op == token.AND {
-					seqMarkEscapeIdentAt(req.env, v.X, v.Pos())
+					seqMarkAddrEscapeAt(req.env, v.X, v.Pos())
 				}
 			}
 			return true
@@ -34,7 +34,7 @@ func seqMarkScalarEscapes(req CodeSequenceRequest, st ast.Stmt) {
 		switch v := n.(type) {
 		case *ast.UnaryExpr:
 			if v.Op == token.AND {
-				seqMarkEscapeIdentAt(req.env, v.X, v.Pos())
+				seqMarkAddrEscapeAt(req.env, v.X, v.Pos())
 			}
 		case *ast.FuncLit:
 			inspectWrites(v.Body)
@@ -59,6 +59,13 @@ func seqMarkEscapeIdentAt(env *seqEnv, e ast.Expr, pos token.Pos) {
 	}
 }
 
+// seqMarkAddrEscapeAt 取址操作数：括号/字段/下标至少失效其根对象。
+func seqMarkAddrEscapeAt(env *seqEnv, e ast.Expr, pos token.Pos) {
+	if id := runtimeAddrRoot(e); id != nil && id.Obj != nil {
+		env.markScalarEscapedAt(id.Obj, pos)
+	}
+}
+
 // seqMarkClosureEscapePositions 闭包里的写者按**字面量出现位置**失效。
 func seqMarkClosureEscapePositions(env *seqEnv, lit *ast.FuncLit) {
 	if env == nil || lit == nil || lit.Body == nil {
@@ -74,7 +81,7 @@ func seqMarkClosureEscapePositions(env *seqEnv, lit *ast.FuncLit) {
 			seqMarkEscapeIdentAt(env, v.X, lit.Pos())
 		case *ast.UnaryExpr:
 			if v.Op == token.AND {
-				seqMarkEscapeIdentAt(env, v.X, lit.Pos())
+				seqMarkAddrEscapeAt(env, v.X, lit.Pos())
 			}
 		}
 		return true

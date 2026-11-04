@@ -131,8 +131,12 @@ type seqTimingAcc struct {
 	continueSegment     int // 当前段号（登记时用；0 = 初始展开）
 	continueUsed        int
 	continueBudgetStops int
-	continuation        []SeqContinuationFrontier
-	continueExpansions  int // T12：实际续查展开次数（总额外展开）
+	// T12b（补齐）：预算已占用次数（含身份变化尝试）与逐语句内联续查标记。
+	continueSpent      int
+	stmtSeq            int
+	inContinuation     bool
+	continuation       []SeqContinuationFrontier
+	continueExpansions int // T12：实际续查展开次数（总额外展开）
 	// U04h：写入调用 ID（同一 AST 调用在本次请求内稳定；续查复用）。
 	writeSeq int
 	writeIDs map[*CodeSeqNode]string
@@ -151,30 +155,15 @@ type seqTimingAcc struct {
 	callNodes        map[*ast.CallExpr]*CodeSeqNode
 	pendingVars      []seqPendingVar
 	pendingVarsByObj map[*ast.Object]seqPendingVar
-	pendingConds     []seqPendingCond
-	pendingOrigins   []seqPendingOrigin
+	pendingBound     map[*ast.Object]bool
+	// errNilGuards U04k：已由 `if err != nil {return err}` 证明 err==nil 的
+	// 写入错误身份（当前函数路径；只有这类 nil return 保留错误槽等价）。
+	errNilGuards   map[string]map[*SeqWriteErrorResult]bool
+	pendingConds   []seqPendingCond
+	pendingOrigins []seqPendingOrigin
 	// U04k（todo29）：return 节点的来源上下文——续查完成后按**由深到浅**
 	// 重算（`return Wrap()` 的槽来源依赖内层展开结果，不能在首轮固化）。
 	returnCtx map[*CodeSeqNode]seqReturnCtx
-}
-
-// millis Duration → 毫秒（保留小数——单次阶段可能远小于 1ms）。
-func millis(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
-
-// coverageNum degrade_stats 数值键提取（JSON 反序列化为 float64）。
-func coverageNum(stats map[string]any, key string) int64 {
-	if stats == nil {
-		return 0
-	}
-	switch v := stats[key].(type) {
-	case float64:
-		return int64(v)
-	case int64:
-		return v
-	case int:
-		return int64(v)
-	}
-	return 0
 }
 
 // seqCoverage 构建期覆盖信息（build_metadata → meta.coverage）。

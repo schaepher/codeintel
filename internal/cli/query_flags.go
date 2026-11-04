@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// parseContinueSegments 解析 --continue-segments 的段数预算（todo24 §2）：
+// parseContinueSegments 解析 --continue-segments 的总追加次数预算（T12b）：
 // 合法范围 1–128（0/负数/非数字/超过 128 都是用法错误，不能静默忽略）。
 func parseContinueSegments(raw string) (int, string) {
 	n, err := strconv.Atoi(strings.TrimSpace(raw))

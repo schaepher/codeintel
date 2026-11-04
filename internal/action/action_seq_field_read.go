@@ -117,6 +117,7 @@ func seqFieldBaseOrigin(req CodeSequenceRequest, e ast.Expr) *seqFieldBase {
 		}
 	case *ast.CallExpr:
 		// `Get().ID = 3`：接收者是构造调用的返回值 → struct_literal 根。
+		// 先按已展开的返回槽来源，再按源码单一 return 构造（续查/部署前）。
 		if origin := seqScalarOriginOf(req, x); origin != nil {
 			switch origin.Kind {
 			case SeqOriginStructLiteral:
@@ -133,6 +134,7 @@ func seqFieldBaseOrigin(req CodeSequenceRequest, e ast.Expr) *seqFieldBase {
 				}
 			}
 		}
+		return seqCallCtorFieldBase(req, x)
 	}
 	return nil
 }
@@ -246,54 +248,4 @@ func seqFieldFromExpr(req CodeSequenceRequest, owner seqORMTypeRef, st *seqStruc
 		}
 	}
 	return out, true
-}
-
-// seqIdentStructType 标识符声明类型 → 结构体类型引用（票根为参数/局部变量）。
-func seqIdentStructType(req CodeSequenceRequest, id *ast.Ident) (seqORMTypeRef, bool) {
-	return seqIdentStructTypeDepth(req, id, 0)
-}
-
-func seqIdentStructTypeDepth(req CodeSequenceRequest, id *ast.Ident, depth int) (seqORMTypeRef, bool) {
-	if id == nil || id.Obj == nil || req.curCtx == nil || req.curCtx.file == nil ||
-		depth > seqScalarOriginMaxDepth {
-		return seqORMTypeRef{}, false
-	}
-	var typ ast.Expr
-	var init ast.Expr
-	switch d := id.Obj.Decl.(type) {
-	case *ast.Field:
-		typ = d.Type
-	case *ast.ValueSpec:
-		typ = d.Type
-		for i, name := range d.Names {
-			if name.Obj == id.Obj && i < len(d.Values) {
-				init = d.Values[i]
-			}
-		}
-	case *ast.AssignStmt:
-		if len(d.Lhs) == len(d.Rhs) {
-			for i, lhs := range d.Lhs {
-				if lid, ok := lhs.(*ast.Ident); ok && lid.Obj == id.Obj && i < len(d.Rhs) {
-					init = d.Rhs[i]
-				}
-			}
-		}
-	}
-	if typ == nil && init != nil {
-		// `alias := record`：类型沿初始化来源变量（同一分配身份）解析。
-		if src, ok := runtimeUnparen(init).(*ast.Ident); ok {
-			return seqIdentStructTypeDepth(req, src, depth+1)
-		}
-	}
-	if typ == nil {
-		return seqORMTypeRef{}, false
-	}
-	c := &seqPersistCtx{file: req.curCtx.file, pkgPath: pkgPathOf(req.curSym),
-		src: req.curCtx.src, fset: req.curCtx.fset, repoAbs: req.RepoAbs,
-		fileRel: req.curCtx.rel, req: &req}
-	ref, ok := seqORMTypeExprRef(c, typ, req.curCtx.file, c.pkgPath, 0)
-	if !ok {
-		return seqORMTypeRef{}, false
-	}
-	return ref, true
 }

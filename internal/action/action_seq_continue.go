@@ -9,8 +9,8 @@ import "go/ast"
 // 语义：
 //   - 初始展开仍按 `--depth` 进行；每个停在 depth 的调用节点登记一个前沿
 //     （携带当时的请求快照：场景/实参/回调绑定/receiver/防环祖先路径）。
-//   - 每个追加段对**当前前沿**各展开"原请求 depth 层"，新产生的 depth 前沿
-//     留给下一段；段数预算耗尽时保留 depth 诊断，并明确记录 budget_stops。
+//   - T12b：预算单位是**一次前沿展开**（不是一轮/一段）；每个前沿先占 1 次
+//     预算，新产生的 depth 前沿留给下一批；预算耗尽保留 depth 并记 budget_stops。
 //   - 续查在当前调用上下文退出前同步完成（前沿保存请求值快照 + 祖先集合
 //     副本），不延后使用可能被后续赋值改写的共享环境。
 //   - 同一前沿被回调与普通调用两层登记时只算一次（按节点指针去重）。
@@ -30,6 +30,9 @@ type seqFrontier struct {
 	repo     string
 	reason   string // 原 depth 诊断（用户的 depth 原因原样保留）
 	segment  int    // 登记所属段（0 = 初始展开）
+	// atStmt 登记所在语句序号（T12b：语句结束时只处理本语句的前沿，
+	// 保证"先绑定调用结果、再处理后续语句"且不改变 BFS 预算顺序）。
+	atStmt int
 }
 
 // copyVisited 防环路径集合副本（每个前沿独立一份，互不影响）。
@@ -96,7 +99,7 @@ func seqRegisterFrontier(req CodeSequenceRequest, node *CodeSeqNode, target stri
 	acc.frontiers = append(acc.frontiers, &seqFrontier{
 		node: node, base: req, resume: resume, ancestor: copyVisited(req.visited),
 		callFile: callFile, callLine: callLine, target: target, repo: repo,
-		reason: reason, segment: acc.continueSegment,
+		reason: reason, segment: acc.continueSegment, atStmt: acc.stmtSeq,
 	})
 }
 
@@ -119,33 +122,49 @@ func seqRegisterSymbolFrontier(a *Actions, req CodeSequenceRequest, node *CodeSe
 	}, node.Stop.Detail)
 }
 
-// seqContinueSegments 依次展开前沿直到**总追加次数**预算耗尽（同步，返回前
-// 完成）。T12b：预算单位是一次前沿展开（不是一轮/一段）——兄弟、嵌套、RPC、
-// HTTP 与回调前沿共享同一预算，先占用再展开。
-func seqContinueSegments(a *Actions, req CodeSequenceRequest, root *CodeSeqNode) {
+// seqContinueBatch 展开一批前沿（stmt=-1 表示全部；否则只处理该语句登记的
+// 前沿）。每展开一个前沿先占用 1 次总预算（T12b）；本批展开产生的新前沿
+// 留到下一批/最终收尾（保持 BFS 顺序与预算口径）。
+func seqContinueBatch(a *Actions, req CodeSequenceRequest, stmt int) bool {
 	acc := req.acc
-	if req.ContinueSegments <= 0 || acc == nil || root == nil {
-		return
+	if acc == nil {
+		return false
 	}
-	budget := req.ContinueSegments
-	for budget > 0 && len(acc.frontiers) > 0 {
-		f := acc.frontiers[0]
-		acc.frontiers = acc.frontiers[1:]
-		// 已被上一层展开（同一节点重复登记/重复处理）：不再计一次（也不
-		// 消耗预算——它本就不是一次新的追加）。
+	var batch, rest []*seqFrontier
+	if stmt < 0 {
+		batch, acc.frontiers = acc.frontiers, nil
+	} else {
+		for _, f := range acc.frontiers {
+			if f.atStmt == stmt {
+				batch = append(batch, f)
+			} else {
+				rest = append(rest, f)
+			}
+		}
+		acc.frontiers = rest
+	}
+	if len(batch) == 0 {
+		return false
+	}
+	progress := false
+	for _, f := range batch {
+		// 已被上一层展开（同一节点重复登记）：不消耗预算。
 		if f.node.Stop == nil || f.node.Stop.Code != SeqStopDepthLimit {
+			continue
+		}
+		if acc.continueSpent >= req.ContinueSegments {
+			// 预算已耗尽：前沿放回队列，最终收尾统一记 budget_stops。
+			acc.frontiers = append(acc.frontiers, f)
 			continue
 		}
 		if req.ctx().Err() != nil {
 			acc.cancel = true
-			return
+			return progress
 		}
 		// 先占用一次预算，再校验身份/展开（失败不虚报追加次数）。
-		budget--
+		acc.continueSpent++
 		seg := acc.continueExpansions + 1
 		acc.continueSegment = seg
-		// T12：续查前核对身份——目标身份已变化（同一调用点解析到别的
-		// 符号）时保留原前沿，不按新身份展开；身份变化不充当已追加次数。
 		cur := ""
 		if f.node.Evidence != nil {
 			cur = f.node.Evidence.SymbolID
@@ -164,8 +183,13 @@ func seqContinueSegments(a *Actions, req CodeSequenceRequest, root *CodeSeqNode)
 		// 只恢复**祖先**路径；前沿目标自身的 visit key 由 resume 里的
 		// codeSeqForSymbol 标记（预先标记会把正常展开误判成 cycle）。
 		sub.visited = copyVisited(f.ancestor)
+		sub.acc = acc
+		acc.inContinuation = true
 		f.resume(sub)
-		// 调度体（defer/go）在续查后才展开的子调用同样继承执行时机。
+		acc.inContinuation = false
+		// 包装函数 `return F()` 的槽来源可能在本次展开后才齐备——立即后序
+		// 重算该前沿子树，供后续语句/调用方绑定使用。
+		seqRefreshReturnOrigins(req, f.node)
 		if f.node.Exec != "" {
 			seqPropagateExec(f.node, f.node.Exec)
 		}
@@ -175,6 +199,28 @@ func seqContinueSegments(a *Actions, req CodeSequenceRequest, root *CodeSeqNode)
 		})
 		acc.continueExpansions++
 		acc.continueUsed = acc.continueExpansions
+		progress = true
+	}
+	return progress
+}
+
+// seqContinueSegments 收尾：按 FIFO 依次展开剩余前沿直到总追加次数预算耗尽
+// （同步，返回前完成）；预算耗尽的前沿保留 depth 并记 budget_stops。
+func seqContinueSegments(a *Actions, req CodeSequenceRequest, root *CodeSeqNode) {
+	acc := req.acc
+	if req.ContinueSegments <= 0 || acc == nil || root == nil {
+		return
+	}
+	for acc.continueSpent < req.ContinueSegments && len(acc.frontiers) > 0 {
+		before := len(acc.frontiers)
+		if !seqContinueBatch(a, req, -1) {
+			// 本批只有已展开/身份变化记录：队列可能缩短，继续；若长度未变
+			// 则避免死循环。
+			if len(acc.frontiers) >= before {
+				break
+			}
+		}
+		seqResolvePendingResults(req)
 	}
 	// 预算耗尽时仍停在 depth 的前沿：保留原 depth 诊断 + 记账（同一前沿只计一次）
 	for _, f := range acc.frontiers {
@@ -186,7 +232,6 @@ func seqContinueSegments(a *Actions, req CodeSequenceRequest, root *CodeSeqNode)
 			})
 		}
 	}
-	// 未进预算停止列表的已决前沿（已展开/身份变化）不再留在队列。
 	acc.frontiers = nil
 }
 

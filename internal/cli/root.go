@@ -161,9 +161,10 @@ const usageText = `codeintel - Go 代码库智能索引与查询（MVP）
                                   --focus 只看指定状态字段/返回值；--evidence
                                   逐箭头列证据来源/支持程度，mermaid 带 %% evidence；
                                   --scene k=v 按已知业务条件裁剪分支并标注依据；
-                                  --continue-segments N（1–128）沿 depth 前沿分段
-                                  续查 N 段（每段再展开原 depth 层，结果接回同一
-                                  棵树，meta.continuation 记录预算/前沿/预算停止））
+                                  --continue-segments N（1–128）为全请求总追加
+                                  次数预算（每个 depth 前沿展开占 1 次，兄弟/
+                                  嵌套/RPC/HTTP/回调共享；结果接回同一棵树，
+                                  meta.continuation 记录 expanded/前沿/预算停止））
   codeintel query packages [--json]
                                   包结构清单（包路径/职责/符号数）
   codeintel query architecture [--json]

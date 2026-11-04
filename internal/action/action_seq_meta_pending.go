@@ -9,6 +9,9 @@ type seqPendingVar struct {
 	call *ast.CallExpr
 	obj  *ast.Object
 	slot int
+	// env 登记时的函数环境（T12b：续查完成后把结果绑定回**该**环境，
+	// 而不是收尾时根请求的环境）。
+	env *seqEnv
 }
 
 type seqPendingCond struct {

@@ -98,13 +98,12 @@ type CodeSequenceRequest struct {
 	Target  string // 符号名或 canonical ID
 	RepoAbs string // 仓库绝对路径（源码读取）
 	Depth   int    // 嵌套层级（1 = 只本函数；>1 递归展开被调函数内部）
-	// ContinueSegments todo24 §2：分段续查 depth 前沿（0 = 不启用，维持原深度限制）。
-	// 每段沿当前前沿再展开 Depth 层，结果接回同一棵树；N 的合法范围 1–128
-	// 由 CLI 在开库前校验。
+	// ContinueSegments T12b：全请求总追加次数预算（0 = 不启用，维持原深度
+	// 限制）。每个 depth 前沿展开先占 1 次，兄弟/嵌套/RPC/HTTP/回调共享；
+	// 结果接回同一棵树，N 的合法范围 1–128 由 CLI 在开库前校验。
 	ContinueSegments int
-	// Continue T12：兼容续查入口（{MaxSegments:N}）——与原轮次模式
-	// ContinueSegments 互斥、同语义（在原调用处同步续接，按总额外展开次数
-	// 计数），合法范围 1–128。
+	// Continue T12：兼容续查入口（{MaxSegments:N}）——与 ContinueSegments
+	// 互斥、同语义（全请求总追加次数预算），合法范围 1–128。
 	Continue     *SeqContinuationOptions
 	StopPackages []string  // 停止包列表（cli 从 config.yaml 读取——命中不深入）
 	Filter       SeqFilter // S5：导出过滤（按包/文件/函数/正则——命中不生成节点，如 log 调用）
@@ -253,6 +252,7 @@ type CodeSequenceRequest struct {
 	ormModels map[string]*seqORMStruct
 	// writeCalls U04h：写入 AST 调用 → 错误结果身份（本次请求内）。
 	writeCalls map[*ast.CallExpr]*SeqWriteErrorResult
+
 	// callArgErrResults U04h：本次调用实参携带的写入错误结果（形参透传）。
 	callArgErrResults []*SeqWriteErrorResult
 	// rowCalls U04j：XORM 写入调用 → 影响行数槽（签名已证明 (int64,error)）。

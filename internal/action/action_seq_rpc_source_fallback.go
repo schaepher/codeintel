@@ -30,6 +30,14 @@ func (a *Actions) seqMicroRegisterSourceFallback(req CodeSequenceRequest,
 	if len(helperIDs) == 0 {
 		return nil
 	}
+	// T09b：多个注册调用点指向不同实现 = 冲突注册——不能按首条调用路由。
+	if impls, conflict := a.seqRegistrationConflict(req, helperIDs, helperName); conflict {
+		out := &seqRPCSvc{fullIdentity: fwd.FullIdentity, handler: handler,
+			reason: "register-handler-source"}
+		out.stop = seqAmbiguousService("服务 " + handler + " 存在冲突注册（多个注册实参）：" +
+			strings.Join(impls, " | "))
+		return out
+	}
 	for _, hid := range helperIDs {
 		call, cerr := a.repo.GetFirstCallTo(hid)
 		if cerr != nil || call == nil {

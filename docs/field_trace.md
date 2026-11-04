@@ -8298,7 +8298,11 @@ action；开库前先 `ValidateRuntimeData`）。
   `runtime-data:` 前缀。对象入口与路径入口场景/快照 hash 相同。
 - **T12b 统一追加预算**：`ContinueSegments`/`Continue.MaxSegments` 统一为
   **全请求总追加次数**：循环每展开一个前沿先占用 1 次预算；兄弟/嵌套/RPC/HTTP/
-  回调/外部源码前沿共享；FIFO 让"预算 1 只追加第一个 Step"可复现。
+  回调/外部源码前沿共享；FIFO 让"预算 1 只追加第一个 Step"可复现。第二轮补齐
+  "在调用点完成续查、再绑定结果、处理后续语句"：`walkStmts` 每条语句结束时只
+  展开**本语句登记**的前沿（`seqContinueAtStatement`，保持 BFS 预算顺序），
+  随后 `seqResolvePendingResults` 把返回槽绑定回登记时的函数 env；局部字面量
+  来源参与后续 `if` 的场景判定。
   `meta.continuation.expanded` 与 extra_expansions/segments_used 同口径；预算
   耗尽的前沿记 budget_stops（identity_changed 不虚拟成追加次数）。外部依赖
   depth 前沿也登记续查（否则 depth1+续查会漏外部框架/事务包装）。
@@ -8316,15 +8320,20 @@ action；开库前先 `ValidateRuntimeData`）。
   解引用调用返回槽；函数列表逐项环境仍由既有机制保证最终祖先。
 - **U04y 字段读写根**：`SeqFieldRoot` 增加 `type_id`/`id`（构造/复制历史根）；
   字段读取/写入基支持 parameter_object/struct_literal/struct_copy；内建类型
-  转换（`int64(id)`）保留实参来源；`+=` 只记录右操作数。
+  转换（`int64(id)`）保留实参来源；`+=` 只记录右操作数。第二轮补齐调用构造根
+  （`Get().ID = ...`，`seqCallCtorFieldBase`）与下标元素类型（`box.Items[0].ID`，
+  `seqIndexElemTypeRef`），LHS 内所有调用先于 RHS 求值。
 - **U04k 返回槽**：`sameSeqScalarOrigin` 补齐 WriteError/RowCount/SQLResult
   身份比较（此前不同写入错误被当同一来源，冲突写入会误取第一条）；续查完成
   后**后序**重算全部 `return` 槽来源（`seqRefreshReturnOrigins`），否则
   `return Save()` 在 depth1 首轮固化成空、包装函数的错误/行数条件丢失；
   取址/defer 写者的逃逸标记可能在外层环境，`setErr`/`setRows` 沿父链查找
   逃逸槽（`setTxErr` 的 delete 会抹掉刚写入的错误逃逸标记，顺序需先清事务槽）。
+  第二轮补齐错误守卫：`if err != nil { return err }` 之后登记 err==nil 路径，
+  只有受守卫的 `return nil` 才保留错误槽等价；未受守卫的 nil 路径返回未知。
 - **U04 跨入口**：本轮只验证 Submit 单入口树的持久化边界（不凭静态源码加入
   FinishReview/Complete）；通用入口整合（记录键/过滤/成功路径/请求身份/第二次
-  Finish）尚未实现，条件图输出契约保留为剩余范围。
+  Finish）与条件图输出契约仍未实现——todo29 未给出该输出的命令/API 契约，
+  需先确认接口（精确 Submit 简化 Mermaid 也未替换现有渲染）。
 - 测试：`internal/action/action_seq_t19b_test.go`、`action_seq_t12b_budget_test.go`、
   `action_seq_t14b_escape_test.go` + `integration/todo29_*`（真实 init→CLI）。

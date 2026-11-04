@@ -16,7 +16,9 @@ import (
 const t12bBudgetSrc = `package budget
 func Leaf() {}
 func Step() { Leaf() }
+func One() int { return 1 }
 func Entry() { Step(); Step(); Step() }
+func EntryValue() { n:=One(); if n==1 { Leaf() } else { Step() } }
 `
 
 func seedT12bBudget(t *testing.T) (*Actions, string) {
@@ -48,6 +50,8 @@ func seedT12bBudget(t *testing.T) (*Actions, string) {
 		{ID: domain.CanonicalID(pkg + "Leaf"), Kind: domain.KindFunction, Name: "Leaf", FilePath: "flow.go", LineStart: line("Leaf")},
 		{ID: domain.CanonicalID(pkg + "Step"), Kind: domain.KindFunction, Name: "Step", FilePath: "flow.go", LineStart: line("Step")},
 		{ID: domain.CanonicalID(pkg + "Entry"), Kind: domain.KindFunction, Name: "Entry", FilePath: "flow.go", LineStart: line("Entry")},
+		{ID: domain.CanonicalID(pkg + "One"), Kind: domain.KindFunction, Name: "One", FilePath: "flow.go", LineStart: line("One")},
+		{ID: domain.CanonicalID(pkg + "EntryValue"), Kind: domain.KindFunction, Name: "EntryValue", FilePath: "flow.go", LineStart: line("EntryValue")},
 	}
 	facts := []*domain.Fact{
 		{SourceID: domain.CanonicalID(pkg + "Step"), TargetID: domain.CanonicalID(pkg + "Leaf"),
@@ -58,6 +62,17 @@ func seedT12bBudget(t *testing.T) (*Actions, string) {
 			TargetID: domain.CanonicalID(pkg + "Step"), Kind: domain.FactCalls, Confidence: 0.8,
 			Metadata: map[string]any{"line_num": line("Entry")}})
 	}
+	facts = append(facts,
+		&domain.Fact{SourceID: domain.CanonicalID(pkg + "EntryValue"),
+			TargetID: domain.CanonicalID(pkg + "One"), Kind: domain.FactCalls, Confidence: 0.8,
+			Metadata: map[string]any{"line_num": line("EntryValue")}},
+		&domain.Fact{SourceID: domain.CanonicalID(pkg + "EntryValue"),
+			TargetID: domain.CanonicalID(pkg + "Leaf"), Kind: domain.FactCalls, Confidence: 0.8,
+			Metadata: map[string]any{"line_num": line("EntryValue")}},
+		&domain.Fact{SourceID: domain.CanonicalID(pkg + "EntryValue"),
+			TargetID: domain.CanonicalID(pkg + "Step"), Kind: domain.FactCalls, Confidence: 0.8,
+			Metadata: map[string]any{"line_num": line("EntryValue")}},
+	)
 	if _, err := r.SaveBatchStats(nodes, facts, nil); err != nil {
 		t.Fatalf("save: %v", err)
 	}
@@ -181,5 +196,26 @@ func TestT12bIdentityChangedConsumesBudget(t *testing.T) {
 	}
 	if !sawChanged {
 		t.Fatalf("应记录 identity_changed: %+v", meta.Frontiers)
+	}
+}
+
+// 语句结束即续查：后续 if 能看到 One() 的返回槽（字面量 1），只走 Leaf。
+func TestT12bInlineCallPointBinding(t *testing.T) {
+	acts, dir := seedT12bBudget(t)
+	root, err := acts.CodeSequence(CodeSequenceRequest{
+		Target: "symbol:go:example.com/budget:EntryValue", RepoAbs: dir, Depth: 1,
+		ContinueSegments: 1, Evidence: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(seqCallNodesNamed(root, "Leaf")); got != 1 {
+		t.Fatalf("续查后 n==1 应走 Leaf（got %d）: %v", got, labelsOf(root.Nodes))
+	}
+	if got := len(seqCallNodesNamed(root, "Step")); got != 0 {
+		t.Fatalf("不应走 else 的 Step（got %d）", got)
+	}
+	if root.Meta == nil || root.Meta.Continuation == nil ||
+		root.Meta.Continuation.Expanded != 1 {
+		t.Fatalf("应恰好追加 1 次: %+v", root.Meta)
 	}
 }

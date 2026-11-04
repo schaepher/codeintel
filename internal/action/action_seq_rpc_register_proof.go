@@ -5,6 +5,7 @@ package action
 import (
 	"go/ast"
 	"go/token"
+	"sort"
 	"strings"
 
 	"github.com/schaepher/codeintel/internal/domain"
@@ -227,4 +228,55 @@ func seqContainsString(xs []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// seqRegistrationConflict 扫描 helper 的全部调用点：注册实参解析到不同具体
+// 实现 → 冲突（返回去重后的实现列表）。同一实现重复注册不算冲突。
+func (a *Actions) seqRegistrationConflict(req CodeSequenceRequest,
+	helperIDs []domain.CanonicalID, helperName string) ([]string, bool) {
+	seen := map[string]bool{}
+	var impls []string
+	for _, hid := range helperIDs {
+		calls, err := a.repo.GetCallers(hid, 1, MinConfidence)
+		req.acc.sqlQueries++
+		if err != nil {
+			continue
+		}
+		for _, call := range calls {
+			if call == nil || call.SourceID == "" {
+				continue
+			}
+			line := seqFactLine(call)
+			if line <= 0 {
+				continue
+			}
+			caller, serr := a.repo.GetSymbol(call.SourceID)
+			if serr != nil || caller == nil || caller.FilePath == "" {
+				continue
+			}
+			ctx := seqFileCtxFor(req, caller.FilePath)
+			if ctx == nil {
+				continue
+			}
+			callExpr := seqCallAtLineNamed(ctx.file, ctx.fset, line, helperName)
+			if callExpr == nil || len(callExpr.Args) < 2 {
+				continue
+			}
+			if _, ok := seqRegistrationIfaceArg(ctx, callExpr.Args[1]); ok {
+				// 类型断言路径：实现集合本来就可能多候选，由既有歧义逻辑处理。
+				continue
+			}
+			implID, ok := seqConcreteRegistrationArg(ctx, pkgOfID(call.SourceID), callExpr.Args[1])
+			if !ok || seen[implID] {
+				continue
+			}
+			seen[implID] = true
+			impls = append(impls, implID)
+		}
+	}
+	if len(impls) <= 1 {
+		return nil, false
+	}
+	sort.Strings(impls)
+	return impls, true
 }

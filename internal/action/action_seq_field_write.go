@@ -158,6 +158,17 @@ func seqFieldWriteTarget(req CodeSequenceRequest, sel *ast.SelectorExpr) (SeqFie
 	*SeqFieldRoot, bool) {
 	base := seqFieldBaseOrigin(req, sel.X)
 	if base == nil {
+		// U04y：下标 LHS（`box.Items[0].ID = ...`）——元素类型来自容器声明；
+		// 对象根未证明时省略 root（仍记录准确的字段声明/路径）。
+		if idx, ok := runtimeUnparen(sel.X).(*ast.IndexExpr); ok {
+			if ref, ok2 := seqIndexElemTypeRef(req, idx); ok2 {
+				if field, ok3 := seqResolveFieldDecl(req, ref, sel.Sel.Name); ok3 {
+					return SeqFieldWriteTarget{TypeID: "symbol:go:" + field.ownerpkg + ":" + field.owner,
+						SourceFile: field.sourceFile, SourceLine: field.sourceLine,
+						Path: []string{sel.Sel.Name}}, nil, true
+				}
+			}
+		}
 		// 实例来源未知：仍可给出声明（按静态声明类型）。
 		if id, ok := sel.X.(*ast.Ident); ok && id.Obj != nil {
 			if ref, ok2 := seqIdentStructType(req, id); ok2 {
@@ -178,4 +189,74 @@ func seqFieldWriteTarget(req CodeSequenceRequest, sel *ast.SelectorExpr) (SeqFie
 	return SeqFieldWriteTarget{TypeID: "symbol:go:" + field.ownerpkg + ":" + field.owner,
 			SourceFile: field.sourceFile, SourceLine: field.sourceLine, Path: path},
 		cloneSeqFieldRoot(base.root), true
+}
+
+// seqIndexElemTypeRef 下标表达式 `xs[i]` 的元素类型（`[]T` / `[]*T` / `[N]T`）。
+// 只认声明的容器类型（局部变量/结构体字段），未知容器不猜。
+func seqIndexElemTypeRef(req CodeSequenceRequest, idx *ast.IndexExpr) (seqORMTypeRef, bool) {
+	if idx == nil || req.curCtx == nil {
+		return seqORMTypeRef{}, false
+	}
+	var typ ast.Expr
+	switch x := runtimeUnparen(idx.X).(type) {
+	case *ast.Ident:
+		if x.Obj == nil {
+			return seqORMTypeRef{}, false
+		}
+		switch d := x.Obj.Decl.(type) {
+		case *ast.Field:
+			typ = d.Type
+		case *ast.ValueSpec:
+			typ = d.Type
+		case *ast.AssignStmt:
+			// `xs := []*T{}`：从复合字面量类型取。
+			if len(d.Lhs) == len(d.Rhs) {
+				for i, lhs := range d.Lhs {
+					if lid, ok := lhs.(*ast.Ident); ok && lid.Obj == x.Obj && i < len(d.Rhs) {
+						if cl, ok := runtimeUnparen(d.Rhs[i]).(*ast.CompositeLit); ok {
+							typ = cl.Type
+						}
+					}
+				}
+			}
+		}
+	case *ast.SelectorExpr:
+		base := seqFieldBaseOrigin(req, x.X)
+		if base == nil {
+			return seqORMTypeRef{}, false
+		}
+		if ft, ok := seqStructFieldTypeExpr(req, base.ref, x.Sel.Name); ok {
+			typ = ft
+		}
+	}
+	arr, ok := typ.(*ast.ArrayType)
+	if !ok {
+		return seqORMTypeRef{}, false
+	}
+	c := &seqPersistCtx{file: req.curCtx.file, pkgPath: pkgPathOf(req.curSym),
+		src: req.curCtx.src, fset: req.curCtx.fset, repoAbs: req.RepoAbs,
+		fileRel: req.curCtx.rel, req: &req}
+	return seqORMTypeExprRef(c, arr.Elt, req.curCtx.file, c.pkgPath, 0)
+}
+
+// seqStructFieldTypeExpr 结构体字段的类型表达式（用于下标元素类型解析）。
+func seqStructFieldTypeExpr(req CodeSequenceRequest, ref seqORMTypeRef, field string) (ast.Expr, bool) {
+	_, st, tparams, ok := seqResolveStructType(req, ref, "")
+	if !ok || tparams || st == nil || st.fields == nil {
+		return nil, false
+	}
+	for _, fl := range st.fields.List {
+		if len(fl.Names) == 0 {
+			if exprTypeName(fl.Type) == field {
+				return fl.Type, true
+			}
+			continue
+		}
+		for _, n := range fl.Names {
+			if n.Name == field {
+				return fl.Type, true
+			}
+		}
+	}
+	return nil, false
 }

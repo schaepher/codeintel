@@ -46,7 +46,8 @@ func seedT14b(t *testing.T, src string) (*Actions, string, string) {
 	}
 	var nodes []*domain.CodeEntity
 	var facts []*domain.Fact
-	for _, name := range []string{"Config", "Manual", "Auto", "Failure", "Entry", "Other"} {
+	for _, name := range []string{"Config", "Manual", "Auto", "Failure", "Entry", "Other",
+		"SQLAlias", "SQLNoAlias", "ShadowEscape"} {
 		if !strings.Contains(src, "func "+name+"(") {
 			continue
 		}

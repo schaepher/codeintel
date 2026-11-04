@@ -48,6 +48,28 @@ func seqResolvePendingResults(req CodeSequenceRequest) {
 				WhenTrue: pc.whenTrue, WhenFalse: pc.whenFalse}
 		}
 	}
+	// T12b：把调用结果绑定回登记时的函数环境；已绑定/被后续覆盖的不再倒灌。
+	if acc.pendingBound == nil {
+		acc.pendingBound = map[*ast.Object]bool{}
+	}
+	for obj, origin := range resolved {
+		if acc.pendingBound[obj] {
+			continue
+		}
+		p, ok := acc.pendingVarsByObj[obj]
+		if !ok || p.env == nil {
+			continue
+		}
+		acc.pendingBound[obj] = true
+		if seqBindOriginToVar(p.env, obj, origin) {
+			continue
+		}
+		switch origin.Kind {
+		case SeqOriginParameter, SeqOriginLiteral, SeqOriginConcat,
+			SeqOriginStructCopy, SeqOriginStructLiteral, SeqOriginFieldRead:
+			p.env.setScalar(obj, cloneSeqScalarOrigin(origin))
+		}
+	}
 	for _, po := range acc.pendingOrigins {
 		origin := resolved[po.obj]
 		if origin == nil {
@@ -120,7 +142,7 @@ func seqRegisterPendingVar(req CodeSequenceRequest, call *ast.CallExpr, obj *ast
 	if req.acc.pendingVarsByObj == nil {
 		req.acc.pendingVarsByObj = map[*ast.Object]seqPendingVar{}
 	}
-	p := seqPendingVar{call: call, obj: obj, slot: slot}
+	p := seqPendingVar{call: call, obj: obj, slot: slot, env: req.env}
 	req.acc.pendingVars = append(req.acc.pendingVars, p)
 	req.acc.pendingVarsByObj[obj] = p
 }

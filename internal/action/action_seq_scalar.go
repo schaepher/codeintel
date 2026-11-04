@@ -7,8 +7,6 @@ package action
 import (
 	"go/ast"
 	"go/token"
-	"strconv"
-	"strings"
 )
 
 // 标量来源类别。
@@ -190,43 +188,6 @@ func seqOriginParameter(symbol, repo, scalarType string, idx int) *SeqStorageOri
 	p := idx
 	return &SeqStorageOrigin{Kind: SeqOriginParameter, ScalarType: scalarType,
 		Symbol: symbol, Parameter: &p, Repo: repo}
-}
-
-// seqBasicLitOrigin 字面量来源（Go 语法规范化：字符串解码后重新加引号）。
-func seqBasicLitOrigin(lit *ast.BasicLit) *SeqStorageOrigin {
-	if lit == nil {
-		return nil
-	}
-	switch lit.Kind {
-	case token.STRING:
-		s, err := strconv.Unquote(lit.Value)
-		if err != nil {
-			return nil
-		}
-		return &SeqStorageOrigin{Kind: SeqOriginLiteral, ScalarType: "string", Literal: strconv.Quote(s)}
-	case token.CHAR:
-		r, _, _, err := strconv.UnquoteChar(strings.Trim(lit.Value, "'"), '\'')
-		if err != nil {
-			return nil
-		}
-		return &SeqStorageOrigin{Kind: SeqOriginLiteral, ScalarType: "rune", Literal: strconv.QuoteRune(r)}
-	case token.INT:
-		v, err := strconv.ParseInt(lit.Value, 0, 64)
-		if err != nil {
-			if u, uerr := strconv.ParseUint(lit.Value, 0, 64); uerr == nil {
-				return &SeqStorageOrigin{Kind: SeqOriginLiteral, ScalarType: "uint64", Literal: strconv.FormatUint(u, 10)}
-			}
-			return nil
-		}
-		return &SeqStorageOrigin{Kind: SeqOriginLiteral, ScalarType: "int", Literal: strconv.FormatInt(v, 10)}
-	case token.FLOAT:
-		f, err := strconv.ParseFloat(lit.Value, 64)
-		if err != nil {
-			return nil
-		}
-		return &SeqStorageOrigin{Kind: SeqOriginLiteral, ScalarType: "float64", Literal: strconv.FormatFloat(f, 'g', -1, 64)}
-	}
-	return nil
 }
 
 // seqScalarOriginOf 表达式的标量来源（未知 → nil，不猜）。
