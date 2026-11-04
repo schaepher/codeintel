@@ -111,7 +111,7 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	req.entryID = string(n.ID)
 	// todo25 §13：运行时快照分析（分支裁剪 + 读取值证据）。输入已在 CLI 开库
 	// 前校验；这里只做入口符号执行，失败不产出半棵树。
-	if req.RuntimeDataPath != "" || req.RuntimeData != "" || req.Runtime != nil {
+	if req.hasRuntimeConfig() {
 		an, rerr := a.runRuntimeAnalysis(req, string(n.ID))
 		if rerr != nil {
 			return nil, rerr
@@ -132,6 +132,9 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	// todo24 §2：分段续查 depth 前沿（同步完成；新前沿进入下一段）。续查
 	// 属于"展开"阶段，计入 walk_ms；收尾后按剩余 depth 诊断重算 stop。
 	seqContinueSegments(a, req, root)
+	// U04k（todo29）：续查后先由深到浅重算 return 槽来源（包装函数
+	// `return F()`），再回填 depth=1 的调用结果（变量/条件/实参来源）。
+	seqRefreshReturnOrigins(req, root)
 	// U04k：depth=1 的调用结果在续查完成后回填（变量绑定/条件/实参来源）。
 	seqResolvePendingResults(req)
 	if req.acc != nil {

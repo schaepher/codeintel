@@ -169,6 +169,12 @@ func seqExpandExternalDecl(a *Actions, req CodeSequenceRequest, node *CodeSeqNod
 		req.acc.depth = true
 		node.Stop = &SeqStop{Code: SeqStopDepthLimit,
 			Detail: "depth 上限（--depth " + itoaSeq(req.Depth) + "），未展开外部依赖源码: " + extID}
+		// T09b/T12b：外部依赖前沿同样按总追加预算续查（depth1+续查与
+		// 完整深度得到同一条流程）；resume 用原调用点实参绑定形参。
+		seqRegisterFrontier(req, node, extID, func(sub CodeSequenceRequest) {
+			seqExpandExternalDecl(a, sub, node, importPath, declName, extID, sub.Depth+1,
+				call, curFile, line, recvType)
+		}, node.Stop.Detail)
 		return true
 	}
 	if err := req.ctx().Err(); err != nil {

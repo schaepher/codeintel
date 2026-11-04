@@ -1,6 +1,7 @@
-// U01：规范化后的重复 scope——IN 值去重并按稳定值语义排序后判重；
-// 同源同表 scope 的 [2,3] 与 [3,2,2] 视为相同，拒绝两份 observation。
-// 保留正常不同 scope 及原有类型区别（int 2 与 string "2" 不是同一 scope）。
+// U01/T19b：规范化后的重复 scope——IN 值去重并按稳定值语义排序后仍判为
+// 同一身份；保留两份 observation（加载不拒绝），读取端在只有一条完整观测
+// 可回答查询时才使用，多条候选返回 ambiguous_observations——重复/冲突观测
+// 不会被拼成一份完整结果。
 package action
 
 import (
@@ -34,32 +35,47 @@ func inNodeType(values string) string {
 	return `{"field":"node_type","op":"in","value":[` + values + `]}`
 }
 
-func TestRuntimeDuplicateNormalizedScopeRejected(t *testing.T) {
+// 规范化后的相同 scope 保留两份（不拼接、不在加载阶段拒绝）。
+func TestRuntimeDuplicateNormalizedScopeRetained(t *testing.T) {
 	row2 := `{"node_type":2,"enabled":1}`
 	row3 := `{"node_type":3,"enabled":0}`
 	body := v2Doc(
 		v2Obs(inNodeType("2,3"), row2+","+row3, "true"),
 		v2Obs(inNodeType("3,2,2"), row2+","+row3, "true"),
 	)
-	_, err := LoadRuntimeSnapshot(writeRuntimeDoc(t, body))
-	if err == nil {
-		t.Fatal("duplicate normalized scope should be rejected")
+	snap, err := LoadRuntimeSnapshot(writeRuntimeDoc(t, body))
+	if err != nil {
+		t.Fatalf("重复 scope 不应在加载阶段拒绝: %v", err)
 	}
-	want := "runtime-data: duplicate normalized scope (source=review, table=review_config, node_type in [2,3])"
-	if err.Error() != want {
-		t.Fatalf("error = %q, want %q", err.Error(), want)
+	if len(snap.Observations) != 2 {
+		t.Fatalf("observations = %d, want 2", len(snap.Observations))
+	}
+	if snap.Observations[0].identityKey() != snap.Observations[1].identityKey() {
+		t.Error("归一化后的 scope 应视为同一身份")
 	}
 }
 
-func TestRuntimeDuplicateScopeAcrossCompletenessRejected(t *testing.T) {
-	// 两份部分 observation 也不得拼成一份完整结果。
+// 两份部分 observation 同样保留，但读取端不会拼接成完整结果。
+func TestRuntimeDuplicateScopeAcrossCompletenessRetained(t *testing.T) {
 	body := v2Doc(
 		v2Obs(inNodeType("2,3"), `{"node_type":2,"enabled":1}`, "false"),
 		v2Obs(inNodeType("2,3"), `{"node_type":3,"enabled":0}`, "true"),
 	)
-	if _, err := LoadRuntimeSnapshot(writeRuntimeDoc(t, body)); err == nil ||
-		!strings.Contains(err.Error(), "duplicate normalized scope") {
-		t.Fatalf("partial duplicate should be rejected, got %v", err)
+	snap, err := LoadRuntimeSnapshot(writeRuntimeDoc(t, body))
+	if err != nil {
+		t.Fatalf("partial duplicate 不应在加载阶段拒绝: %v", err)
+	}
+	if len(snap.Observations) != 2 {
+		t.Fatalf("observations = %d, want 2", len(snap.Observations))
+	}
+	matches := 0
+	for _, obs := range snap.Observations {
+		if obs.Complete {
+			matches++
+		}
+	}
+	if matches != 1 {
+		t.Fatalf("完整观测 = %d, want 1（不得拼成两份）", matches)
 	}
 }
 

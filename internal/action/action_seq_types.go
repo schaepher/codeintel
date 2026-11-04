@@ -23,6 +23,23 @@ const (
 	SeqStopCanceled = "canceled" // 调用方取消
 )
 
+// runtimeDataInput RuntimeData 兼容入口归一（T14b）：同时接受路径字符串与
+// 已解析快照。typed-nil 等同未配置；其它类型明确失败。
+func runtimeDataInput(v any) (string, *RuntimeSnapshot, error) {
+	switch x := v.(type) {
+	case nil:
+		return "", nil, nil
+	case string:
+		return x, nil, nil
+	case *RuntimeSnapshot:
+		if x == nil {
+			return "", nil, nil
+		}
+		return "", x, nil
+	}
+	return "", nil, fmt.Errorf("runtime-data: RuntimeData 类型不支持（%T）——只接受路径字符串或 LoadRuntimeData 返回的快照", v)
+}
+
 // runtimeDataPath 合并 RuntimeDataPath/RuntimeData 两个兼容入口（T14）：
 // 都没有 → 空；同时给出且不一致 → 空（由 LoadRuntimeSnapshot 报错语义，
 // 调用方在 CLI 层已做参数校验）。
@@ -30,7 +47,19 @@ func (r CodeSequenceRequest) runtimeDataPath() string {
 	if r.RuntimeDataPath != "" {
 		return r.RuntimeDataPath
 	}
-	return r.RuntimeData
+	if p, _, err := runtimeDataInput(r.RuntimeData); err == nil {
+		return p
+	}
+	return ""
+}
+
+// hasRuntimeConfig 请求是否配置了运行时快照（任一种入口；typed-nil 不算）。
+func (r CodeSequenceRequest) hasRuntimeConfig() bool {
+	if r.RuntimeDataPath != "" || r.Runtime != nil {
+		return true
+	}
+	p, snap, err := runtimeDataInput(r.RuntimeData)
+	return err == nil && (p != "" || snap != nil)
 }
 
 // SeqContinuationOptions 兼容续查选项（T12）。
@@ -89,9 +118,11 @@ type CodeSequenceRequest struct {
 	// Runtime T14 兼容入口：**已解析**快照。typed-nil 等同未配置（不触发
 	// 运行时求值、保留原有 error 分支）；与路径入口同时给出时必须一致。
 	Runtime *RuntimeSnapshot
-	// RuntimeData T14 兼容入口：与 RuntimeDataPath 同一语义（同时给出且
-	// 不一致 → 错误；不静默择一）。
-	RuntimeData string
+	// RuntimeData T14b 兼容入口：**同时接受**路径字符串与 LoadRuntimeData
+	// 返回的已解析快照（`RuntimeData: data` 可直接编译）。字符串与
+	// RuntimeDataPath 同语义（不一致 → 错误）；已解析快照与路径同时给出时
+	// 校验 hash 一致；typed-nil 等同未配置。
+	RuntimeData any
 	// Ctx 取消信号（todo10-9）：递归展开每语句检查一次；nil = 不取消
 	Ctx context.Context
 	// todo22 §4.1：RPC 跨仓续接（与 ext-chain 同款候选范围——cli 按 workspace

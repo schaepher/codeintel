@@ -119,56 +119,62 @@ func seqRegisterSymbolFrontier(a *Actions, req CodeSequenceRequest, node *CodeSe
 	}, node.Stop.Detail)
 }
 
-// seqContinueSegments 依次展开前沿直到段数预算耗尽（同步，返回前完成）。
+// seqContinueSegments 依次展开前沿直到**总追加次数**预算耗尽（同步，返回前
+// 完成）。T12b：预算单位是一次前沿展开（不是一轮/一段）——兄弟、嵌套、RPC、
+// HTTP 与回调前沿共享同一预算，先占用再展开。
 func seqContinueSegments(a *Actions, req CodeSequenceRequest, root *CodeSeqNode) {
 	acc := req.acc
 	if req.ContinueSegments <= 0 || acc == nil || root == nil {
 		return
 	}
-	for seg := 1; seg <= req.ContinueSegments; seg++ {
-		pending := acc.frontiers
-		acc.frontiers = nil
-		if len(pending) == 0 {
-			break
+	budget := req.ContinueSegments
+	for budget > 0 && len(acc.frontiers) > 0 {
+		f := acc.frontiers[0]
+		acc.frontiers = acc.frontiers[1:]
+		// 已被上一层展开（同一节点重复登记/重复处理）：不再计一次（也不
+		// 消耗预算——它本就不是一次新的追加）。
+		if f.node.Stop == nil || f.node.Stop.Code != SeqStopDepthLimit {
+			continue
 		}
+		if req.ctx().Err() != nil {
+			acc.cancel = true
+			return
+		}
+		// 先占用一次预算，再校验身份/展开（失败不虚报追加次数）。
+		budget--
+		seg := acc.continueExpansions + 1
 		acc.continueSegment = seg
-		acc.continueUsed = seg
-		for _, f := range pending {
-			// 已被上一层展开（同一节点重复登记/重复处理）：不再计一次
-			if f.node.Stop == nil || f.node.Stop.Code != SeqStopDepthLimit {
-				continue
-			}
-			if req.ctx().Err() != nil {
-				acc.cancel = true
-				return
-			}
-			// T12：续查前核对身份——目标身份已变化（同一调用点解析到别的
-			// 符号）时保留原前沿，不按新身份展开。
-			cur := ""
-			if f.node.Evidence != nil {
-				cur = f.node.Evidence.SymbolID
-			}
-			if cur != "" && f.target != "" && cur != f.target {
-				acc.continuation = append(acc.continuation, SeqContinuationFrontier{
-					Segment: seg, CallFile: f.callFile, CallLine: f.callLine,
-					TargetID: f.target, Repo: f.repo, DepthReason: f.reason, Continued: false,
-					IdentityChanged: true, IdentityReason: "identity_changed: " + f.target + " → " + cur,
-				})
-				continue
-			}
-			f.node.Nodes = nil
-			f.node.Stop = nil
-			sub := f.base
-			// 只恢复**祖先**路径；前沿目标自身的 visit key 由 resume 里的
-			// codeSeqForSymbol 标记（预先标记会把正常展开误判成 cycle）。
-			sub.visited = copyVisited(f.ancestor)
-			f.resume(sub)
+		// T12：续查前核对身份——目标身份已变化（同一调用点解析到别的
+		// 符号）时保留原前沿，不按新身份展开；身份变化不充当已追加次数。
+		cur := ""
+		if f.node.Evidence != nil {
+			cur = f.node.Evidence.SymbolID
+		}
+		if cur != "" && f.target != "" && cur != f.target {
 			acc.continuation = append(acc.continuation, SeqContinuationFrontier{
 				Segment: seg, CallFile: f.callFile, CallLine: f.callLine,
-				TargetID: f.target, Repo: f.repo, DepthReason: f.reason, Continued: true,
+				TargetID: f.target, Repo: f.repo, DepthReason: f.reason, Continued: false,
+				IdentityChanged: true, IdentityReason: "identity_changed: " + f.target + " → " + cur,
 			})
-			acc.continueExpansions++
+			continue
 		}
+		f.node.Nodes = nil
+		f.node.Stop = nil
+		sub := f.base
+		// 只恢复**祖先**路径；前沿目标自身的 visit key 由 resume 里的
+		// codeSeqForSymbol 标记（预先标记会把正常展开误判成 cycle）。
+		sub.visited = copyVisited(f.ancestor)
+		f.resume(sub)
+		// 调度体（defer/go）在续查后才展开的子调用同样继承执行时机。
+		if f.node.Exec != "" {
+			seqPropagateExec(f.node, f.node.Exec)
+		}
+		acc.continuation = append(acc.continuation, SeqContinuationFrontier{
+			Segment: seg, CallFile: f.callFile, CallLine: f.callLine,
+			TargetID: f.target, Repo: f.repo, DepthReason: f.reason, Continued: true,
+		})
+		acc.continueExpansions++
+		acc.continueUsed = acc.continueExpansions
 	}
 	// 预算耗尽时仍停在 depth 的前沿：保留原 depth 诊断 + 记账（同一前沿只计一次）
 	for _, f := range acc.frontiers {
@@ -180,6 +186,7 @@ func seqContinueSegments(a *Actions, req CodeSequenceRequest, root *CodeSeqNode)
 			})
 		}
 	}
+	// 未进预算停止列表的已决前沿（已展开/身份变化）不再留在队列。
 	acc.frontiers = nil
 }
 
@@ -197,6 +204,7 @@ func seqContinuationMeta(req CodeSequenceRequest) *SeqContinuationMeta {
 		CompatMode:       req.continuationCompat,
 		CompatMaxSegment: req.ContinueSegments,
 		ExtraExpansions:  acc.continueExpansions,
+		Expanded:         acc.continueExpansions,
 	}
 	if len(m.Frontiers) == 0 {
 		m.Note = "没有停在 depth 的可续查前沿（无需追加段）"

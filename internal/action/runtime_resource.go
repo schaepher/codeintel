@@ -109,6 +109,9 @@ func (e *rtEval) markAddressTakenGlobal(expr ast.Expr) {
 	}
 	g := e.an.globalByNameOf(id)
 	g.mutated = true
+	// T14b：包级变量同样持续失效（取址按实际求值位置）。
+	g.escaped = true
+	g.escapedAt = id.Pos()
 }
 
 // markClosureWriters 闭包内的包级写者（未执行也保守失效）。

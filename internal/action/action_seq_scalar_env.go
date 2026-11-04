@@ -69,18 +69,25 @@ func (e *seqEnv) markScalarEscapedAt(obj *ast.Object, pos token.Pos) {
 	slot, ok := e.scalarSlot(obj)
 	if !ok {
 		e.scalars[obj] = seqScalarSlot{escaped: true, escapedAt: pos}
+		e.markRelatedEscaped(obj, pos)
 		return
 	}
 	// 逃逸点之前的读取仍可用旧来源（位置判定）；之后的读取被 escapedAt 挡住。
 	slot.escaped = true
 	slot.escapedAt = pos
 	e.scalars[obj] = slot
+	e.markRelatedEscaped(obj, pos)
+}
+
+// markRelatedEscaped 取址/闭包写者同时使错误/行数/事务槽持续失效。
+func (e *seqEnv) markRelatedEscaped(obj *ast.Object, pos token.Pos) {
+	// U04n：先清事务错误（setTxErr 会删除同变量的写入错误槽），再标记
+	// 写入错误/行数——否则刚写入的逃逸标记会被 setTxErr 的 delete 抹掉。
+	e.markTxEscaped(obj)
+	e.setTxErr(obj, nil)
 	// U04h/U04j：取址/闭包写者同样使错误结果/行数变量失效。
 	e.markErrEscaped(obj, pos)
 	e.markRowsEscaped(obj, pos)
-	// U04n：取址/闭包写者使事务变量与事务错误槽失效。
-	e.markTxEscaped(obj)
-	e.setTxErr(obj, nil)
 }
 
 // scalarOriginAt 该使用位置是否仍可用槽来源（逃逸从逃逸点起生效）。

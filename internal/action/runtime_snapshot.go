@@ -126,17 +126,10 @@ func (s *RuntimeSnapshot) validate() error {
 			return fmt.Errorf("binding %s 引用未知 source %q", sym, src)
 		}
 	}
-	seen := map[string]bool{}
-	for _, obs := range s.Observations {
-		key := obs.identityKey()
-		if seen[key] {
-			// U01：scope 归一化（IN 去重 + 稳定排序）后相同即视为重复——两份
-			// 冲突/重复 observation 不得拼成一份结果。
-			return fmt.Errorf("runtime-data: duplicate normalized scope (source=%s, table=%s, %s)",
-				obs.SourceID, obs.Table, obs.scopeDisplay())
-		}
-		seen[key] = true
-	}
+	// U01/T19b：相同 source/table/规范化 scope 的观测**保留**（不在此拒绝）：
+	// 读取端只在恰好一条完整观测可回答查询时使用，多条候选返回
+	// ambiguous_observations——重复/冲突观测不会被拼成一份结果，也不会在
+	// 加载阶段就阻断整个请求（T19b 要求重复有效观测给出 ambiguous_fact）。
 	return nil
 }
 
@@ -257,41 +250,4 @@ func runtimeTimeValid(s string) bool {
 	}
 	_, err := time.Parse(time.RFC3339, s)
 	return err == nil
-}
-
-// ResolveRuntimeSnapshot 统一解析运行时输入（T14）：
-//   - 两个**路径**入口（RuntimeDataPath / RuntimeData）不一致 → 明确失败，
-//     不静默择一；
-//   - 已解析快照（Runtime，typed-nil = 未配置）与路径同时给出时必须 hash
-//     一致，否则失败；
-//   - 都没有 → (nil, nil)（调用方保留原有 error 分支/不额外求值）。
-//
-// 错误统一用 `runtime-data:` 前缀（只出现一次）。
-func (r CodeSequenceRequest) ResolveRuntimeSnapshot() (*RuntimeSnapshot, error) {
-	p1, p2 := r.RuntimeDataPath, r.RuntimeData
-	if p1 != "" && p2 != "" && p1 != p2 {
-		return nil, fmt.Errorf("runtime-data: 两个路径入口不一致（RuntimeDataPath=%q / RuntimeData=%q）", p1, p2)
-	}
-	path := p1
-	if path == "" {
-		path = p2
-	}
-	if r.Runtime != nil {
-		if path == "" {
-			return r.Runtime, nil
-		}
-		fromPath, err := LoadRuntimeSnapshot(path)
-		if err != nil {
-			return nil, err
-		}
-		if fromPath.Hash != r.Runtime.Hash {
-			return nil, fmt.Errorf("runtime-data: 已解析快照与路径快照不一致（hash %s != %s）",
-				r.Runtime.Hash, fromPath.Hash)
-		}
-		return r.Runtime, nil
-	}
-	if path == "" {
-		return nil, nil
-	}
-	return LoadRuntimeSnapshot(path)
 }

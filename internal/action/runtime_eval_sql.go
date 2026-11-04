@@ -48,7 +48,11 @@ func (e *rtEval) evalQueryCall(frame *rtFrame, call *ast.CallExpr, s *rtState, d
 	if sym != "" {
 		mutated = e.an.globalByNameOf(&ast.Ident{Name: nameOfSymbol(sym)}).mutated
 	}
-	if len(call.Args) < 2 {
+	// T19c：标准库 SQL 实参位置按**方法身份**区分——`QueryRow`/`Query` 的
+	// SQL 实参是 0（无 Context 参数），`*Context` 版本是 1。只按方法名猜
+	// 会让无 Context 的调用被当成 query_not_proven。
+	sqlArg := runtimeQuerySQLArg(sel.Sel.Name)
+	if len(call.Args) <= sqlArg {
 		ev.Reason = "missing-sql"
 		if sym == "" {
 			ev.Reason = "binding-type-unproven"
@@ -56,8 +60,8 @@ func (e *rtEval) evalQueryCall(frame *rtFrame, call *ast.CallExpr, s *rtState, d
 		return rtUnknownValue(), []*rtState{s}, true
 	}
 	var sqlVal rtValue
-	if len(vals) > 1 {
-		sqlVal = vals[1]
+	if len(vals) > sqlArg {
+		sqlVal = vals[sqlArg]
 	}
 	if sqlVal.kind != rtString {
 		ev.Reason = "dynamic-sql"
@@ -67,12 +71,13 @@ func (e *rtEval) evalQueryCall(frame *rtFrame, call *ast.CallExpr, s *rtState, d
 		}
 		return rtUnknownValue(), []*rtState{s}, true
 	}
-	args := make([]rtValue, 0, len(call.Args)-2)
-	rawArgs := call.Args[2:]
+	valueArg := sqlArg + 1
+	args := make([]rtValue, 0, len(call.Args)-valueArg)
+	rawArgs := call.Args[valueArg:]
 	for i := range rawArgs {
 		var v rtValue
-		if len(vals) > 2+i {
-			v = vals[2+i]
+		if len(vals) > valueArg+i {
+			v = vals[valueArg+i]
 		}
 		if call.Ellipsis.IsValid() && i == len(rawArgs)-1 && v.kind == rtSlice {
 			args = append(args, v.elems...)
@@ -158,6 +163,17 @@ func isRuntimeQueryMethod(name string) bool {
 		return true
 	}
 	return false
+}
+
+// runtimeQuerySQLArg 标准库读取方法的 SQL 实参位置（T19c）：QueryRow/Query
+// 没有 Context 参数（SQL 在 0），*Context 版本在 1。调用方已按接收者身份
+// 证明是 database/sql（自定义同名方法走通用调用路径）。
+func runtimeQuerySQLArg(name string) int {
+	switch name {
+	case "QueryRow", "Query":
+		return 0
+	}
+	return 1
 }
 
 // assignScanTarget &x / x（扫描目标只支持局部变量指针）。

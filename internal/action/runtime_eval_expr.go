@@ -112,6 +112,10 @@ func (e *rtEval) evalExpr(frame *rtFrame, expr ast.Expr, s *rtState, depth int) 
 // evalUnaryAddr 取址表达式（U04d 拆出——行数治理）。
 func (e *rtEval) evalUnaryAddr(frame *rtFrame, x *ast.UnaryExpr, s *rtState, depth int) (rtValue, []*rtState) {
 	e.markAddressTakenGlobal(x.X)
+	// T14b：未建模的指针别名——`&n` / `&(n)` / `&obj.Field` / `&slice[0]`
+	// 使根对象从实际求值位置起持续逃逸（后续读取/赋值保持未知，重新赋值
+	// 不能恢复旧证明）。已建模的 Scan 输出不走这里（直接写目标）。
+	e.markAddressEscape(x.X, s)
 	if cl, ok := runtimeUnparen(x.X).(*ast.CompositeLit); ok {
 		if _, isMap := cl.Type.(*ast.MapType); !isMap {
 			return e.evalRuntimeStructLit(frame, cl, s, depth)
@@ -125,6 +129,11 @@ func (e *rtEval) evalIdent(frame *rtFrame, id *ast.Ident, s *rtState) rtValue {
 		return rtUnknownValue()
 	}
 	if id.Obj != nil {
+		// T14b：取址逃逸后的读取保持 unknown（位置判定：取址前已求值的
+		// 读取仍可用旧值，不能被后面的取址倒推污染）。
+		if at, ok := s.escaped[id.Obj]; ok && (at == token.NoPos || id.Pos() >= at) {
+			return rtUnknownValue()
+		}
 		if v, ok := s.env[id.Obj]; ok {
 			return v
 		}
@@ -138,7 +147,11 @@ func (e *rtEval) evalIdent(frame *rtFrame, id *ast.Ident, s *rtState) rtValue {
 			if _, bound := e.an.snap.Bindings[sym]; bound {
 				return rtDBValue(sym)
 			}
-			return e.an.globalByNameOf(id).value
+			g := e.an.globalByNameOf(id)
+			if g.escaped && (g.escapedAt == token.NoPos || id.Pos() >= g.escapedAt) {
+				return rtUnknownValue()
+			}
+			return g.value
 		}
 		return rtUnknownValue()
 	}

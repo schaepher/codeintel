@@ -46,15 +46,18 @@ func TestSeqFrontierBudgetStops(t *testing.T) {
 	req.acc = &seqTimingAcc{}
 	a := depthStopNode("symbol:go:example.com/m:First")
 	b := depthStopNode("symbol:go:example.com/m:Second")
-	// resume 不展开（保留 depth 停止），下一段没有可展开节点 → 都记预算停止。
+	// T12b：预算单位是单个前沿展开（不是一轮）。resume 不展开但已占用预算；
+	// 第二个前沿仍停在 depth → 预算停止 1（不能把"一轮展开所有兄弟"计为一段）。
 	noop := func(CodeSequenceRequest) {}
 	seqRegisterFrontier(req, a, "symbol:go:example.com/m:First", noop, a.Stop.Detail)
 	seqRegisterFrontier(req, b, "symbol:go:example.com/m:Second", noop, b.Stop.Detail)
 	seqContinueSegments(New(nil), req, &CodeSeqNode{})
 	meta := seqContinuationMeta(req)
-	if meta.BudgetStops != 0 {
-		// resume 已把 Stop 清空 → 不算预算停止（前沿确实被处理）
-		t.Errorf("已处理的前沿不应记 budget_stops，got %d", meta.BudgetStops)
+	if meta.BudgetStops != 1 {
+		t.Errorf("预算1只展开第一个前沿；第二个应记 budget_stops=1，got %d", meta.BudgetStops)
+	}
+	if meta.SegmentsUsed != 1 || meta.Expanded != 1 {
+		t.Errorf("已追加次数 = used:%d expanded:%d, want 1/1", meta.SegmentsUsed, meta.Expanded)
 	}
 }
 

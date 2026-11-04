@@ -255,3 +255,43 @@ func seqBindOriginToVar(env *seqEnv, obj *ast.Object, origin *SeqStorageOrigin) 
 	}
 	return false
 }
+
+// seqReturnCtx 一个 return 节点的来源重算上下文（U04k todo29）。
+type seqReturnCtx struct {
+	req     CodeSequenceRequest
+	results []ast.Expr
+}
+
+// seqRecordReturnCtx 记录 return 表达式，供续查后重算槽来源。
+func seqRecordReturnCtx(req CodeSequenceRequest, node *CodeSeqNode, results []ast.Expr) {
+	if req.acc == nil || node == nil {
+		return
+	}
+	if req.acc.returnCtx == nil {
+		req.acc.returnCtx = map[*CodeSeqNode]seqReturnCtx{}
+	}
+	req.acc.returnCtx[node] = seqReturnCtx{req: req, results: append([]ast.Expr(nil), results...)}
+}
+
+// seqRefreshReturnOrigins 续查完成后**后序**重算全部 return 槽来源：内层
+// 包装函数的 return 可能首轮未展开（depth 前沿），固化会把外层 `return F()`
+// 的来源留空，导致调用方丢失错误/行数条件。
+func seqRefreshReturnOrigins(req CodeSequenceRequest, root *CodeSeqNode) {
+	if root == nil {
+		return
+	}
+	for _, c := range root.Nodes {
+		seqRefreshReturnOrigins(req, c)
+	}
+	for _, c := range root.Else {
+		seqRefreshReturnOrigins(req, c)
+	}
+	if req.acc == nil {
+		return
+	}
+	ctx, ok := req.acc.returnCtx[root]
+	if !ok {
+		return
+	}
+	root.ValueOrigins = seqReturnOrigins(ctx.req, ctx.results, nil)
+}

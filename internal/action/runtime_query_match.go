@@ -36,14 +36,16 @@ func runtimeObservationFor(snap *RuntimeSnapshot, q *runtimeQuery) (*runtimeObse
 	}
 	switch len(matches) {
 	case 0:
-		// T19：按实际缺口分类（原因文本保持稳定，边界给出准确类别）。
+		// T19b：按**最接近有效匹配**的缺口分类（失败类别优先级固定，与观测
+		// 输入顺序无关）：完整且列齐全但 scope 不覆盖 > 完整但缺列 > 行集不
+		// 完整 > 没有观测。原因文本保持稳定，边界给出准确类别。
 		switch {
-		case sawIncomplete:
-			gap = SeqRuntimeCodeRows
-		case sawColumns:
-			gap = SeqRuntimeCodeColumns
 		case sawScope:
 			gap = SeqRuntimeCodeScope
+		case sawColumns:
+			gap = SeqRuntimeCodeColumns
+		case sawIncomplete:
+			gap = SeqRuntimeCodeRows
 		case !sawObs:
 			gap = SeqRuntimeCodeObservation
 		}

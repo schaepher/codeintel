@@ -68,6 +68,9 @@ type SeqContinuationMeta struct {
 	CompatMaxSegment int  `json:"compat_max_segments,omitempty"`
 	// ExtraExpansions 实际续查的前沿展开次数（= 已续接的段内前沿数）。
 	ExtraExpansions int `json:"extra_expansions,omitempty"`
+	// Expanded T12b：实际展开的前沿节点数（每次追加一个；与
+	// extra_expansions/segments_used 同口径，不是“一轮展开所有兄弟”）。
+	Expanded int `json:"expanded"`
 }
 
 // SeqContinuationFrontier 一个前沿的续查记录（continued=false = 预算耗尽）。
@@ -150,6 +153,9 @@ type seqTimingAcc struct {
 	pendingVarsByObj map[*ast.Object]seqPendingVar
 	pendingConds     []seqPendingCond
 	pendingOrigins   []seqPendingOrigin
+	// U04k（todo29）：return 节点的来源上下文——续查完成后按**由深到浅**
+	// 重算（`return Wrap()` 的槽来源依赖内层展开结果，不能在首轮固化）。
+	returnCtx map[*CodeSeqNode]seqReturnCtx
 }
 
 // millis Duration → 毫秒（保留小数——单次阶段可能远小于 1ms）。

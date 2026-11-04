@@ -94,8 +94,12 @@ func seqConfigHash(req CodeSequenceRequest) string {
 		cfg.RT = req.runtime.snap.Hash
 	} else if req.Runtime != nil && req.Runtime.Hash != "" {
 		cfg.RT = req.Runtime.Hash
-	} else if req.RuntimeDataPath != "" || req.RuntimeData != "" {
-		cfg.RT = "unloaded"
+	} else if p, obj, err := runtimeDataInput(req.RuntimeData); err == nil {
+		if p != "" || req.RuntimeDataPath != "" {
+			cfg.RT = "unloaded"
+		} else if obj != nil && obj.Hash != "" {
+			cfg.RT = obj.Hash
+		}
 	}
 	b, _ := json.Marshal(cfg)
 	sum := sha256.Sum256(b)
@@ -115,13 +119,15 @@ func seqEvidenceSnapshot(req CodeSequenceRequest, symbol string) *SeqEvidenceReq
 		CLI: "unknown", Analyzer: analyzerVersion(), BuildID: req.buildID, BuiltAt: req.builtAt,
 		ConfigHash: seqConfigHash(req),
 	}
-	if req.RuntimeDataPath != "" || req.RuntimeData != "" {
+	if req.hasRuntimeConfig() {
 		snap.RuntimeData = req.runtimeDataPath()
 		if req.runtime != nil && req.runtime.snap != nil {
 			snap.RuntimeHash = req.runtime.snap.Hash
+		} else if req.Runtime != nil {
+			snap.RuntimeHash = req.Runtime.Hash
+		} else if _, obj, err := runtimeDataInput(req.RuntimeData); err == nil && obj != nil {
+			snap.RuntimeHash = obj.Hash
 		}
-	} else if req.Runtime != nil {
-		snap.RuntimeHash = req.Runtime.Hash
 	}
 	if req.Filter.Pkgs != nil || req.Filter.Files != nil || req.Filter.Fns != nil || req.Filter.Regex != nil {
 		f := req.Filter

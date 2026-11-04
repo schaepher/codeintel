@@ -12,6 +12,9 @@ type rtState struct {
 	env   map[*ast.Object]rtValue
 	types map[*ast.Object]*runtimeType
 	ret   *rtReturn
+	// escaped T14b：取址（未建模指针别名）后的对象 → 从该位置起读取未知；
+	// 状态克隆必须保留（成功/失败/分支变体共享同一失效）。
+	escaped map[*ast.Object]token.Pos
 }
 
 type runtimeType struct {

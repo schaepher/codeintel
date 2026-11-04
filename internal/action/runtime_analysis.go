@@ -7,6 +7,7 @@ package action
 
 import (
 	"go/ast"
+	"go/token"
 
 	"github.com/schaepher/codeintel/internal/domain"
 )
@@ -34,6 +35,9 @@ type runtimeAnalysis struct {
 type rtGlobal struct {
 	value   rtValue
 	mutated bool
+	// T14b：包级变量取址后持续失效（位置判定；NoPos = 始终失效）。
+	escaped   bool
+	escapedAt token.Pos
 }
 
 type rtDecision struct {
