@@ -62,9 +62,10 @@ func seqRecordDerefCopies(req CodeSequenceRequest, st ast.Stmt) {
 			continue
 		}
 		dst, ok := star.X.(*ast.Ident)
-		if !ok || dst.Obj == nil || i >= len(origins) || origins[i] == nil {
+		if !ok || dst.Obj == nil || i >= len(as.Rhs) {
 			continue
 		}
+		// 来源未知也要走失效路径（未知覆写不能保留旧构造祖先）。
 		seqRecordDerefCopy(req, dst, origins[i], as.Rhs[i], as)
 	}
 }
@@ -72,23 +73,33 @@ func seqRecordDerefCopies(req CodeSequenceRequest, st ast.Stmt) {
 // seqRecordDerefCopy 校验目标/来源类型一致后记录复制祖先。
 func seqRecordDerefCopy(req CodeSequenceRequest, dst *ast.Ident, src *SeqStorageOrigin,
 	rhs ast.Expr, at *ast.AssignStmt) {
-	if src.Kind == SeqOriginWriteError || src.Kind == SeqOriginWriteRowCount ||
+	if src != nil && (src.Kind == SeqOriginWriteError || src.Kind == SeqOriginWriteRowCount ||
 		src.Kind == SeqOriginTxError || src.Kind == SeqOriginTransaction ||
-		src.Kind == SeqOriginSQLResult {
+		src.Kind == SeqOriginSQLResult) {
 		return
 	}
-	dstRef, dstOK := seqIdentPointerTargetType(req, dst)
-	srcRef, srcOK := seqDerefSourceType(req, rhs, src)
-	if dstOK && srcOK {
-		if dstRef.pkgPath != srcRef.pkgPath || dstRef.name != srcRef.name {
-			return // 指针层级/类型不符
-		}
+	// U04x（todo29）：整值复制写入的是**分配对象**，不是变量槽——复制前
+	// 创建的别名（`alias := clone`）共享同一分配身份：写入通过别名时
+	// clone 也要看到（未知来源则全部失效）。
+	root := seqPointerRoot(req, dst)
+	dstRef, dstOK := seqIdentPointerTargetType(req, seqPointerRootIdent(req, dst))
+	if src == nil || !dstOK {
+		seqSetAllocationOrigin(req, root, dst, nil)
+		return
 	}
-	if !dstOK || !srcOK {
-		return // 任一侧未证明 → 不建立祖先
+	srcRef, srcOK := seqDerefSourceType(req, rhs, src)
+	if !srcOK {
+		// 来源类型未证明：不得用旧来源声称本次复制。
+		seqSetAllocationOrigin(req, root, dst, nil)
+		return
+	}
+	if dstRef.pkgPath != srcRef.pkgPath || dstRef.name != srcRef.name {
+		return // 指针层级/类型不符
 	}
 	if req.branchCond != "" {
-		// U04x：条件分支内的复制可能未执行——不升级为无条件祖先。
+		// U04x：条件分支内的复制可能未执行——分配对象的来源变为未知（不得
+		// 保留复制前的确定祖先，也不升级为无条件祖先）。
+		seqSetAllocationOrigin(req, root, dst, nil)
 		return
 	}
 	id := seqNextStructCopyID(req)
@@ -101,7 +112,7 @@ func seqRecordDerefCopy(req CodeSequenceRequest, dst *ast.Ident, src *SeqStorage
 		out.File = req.curCtx.rel
 		out.Offset = req.curCtx.fset.Position(at.Pos()).Offset
 	}
-	req.env.setScalar(dst.Obj, &SeqStorageOrigin{Kind: SeqOriginStructCopy,
+	seqSetAllocationOrigin(req, root, dst, &SeqStorageOrigin{Kind: SeqOriginStructCopy,
 		ScalarType: src.ScalarType, StructCopy: out})
 }
 
@@ -146,6 +157,11 @@ func seqDerefValueOrigin(req CodeSequenceRequest, rhs ast.Expr) *SeqStorageOrigi
 	case *ast.StarExpr:
 		if id, ok := v.X.(*ast.Ident); ok {
 			return seqScalarOriginOf(req, id)
+		}
+		// U04x（todo29）：`*Build("second")` —— 解引用返回指针的调用，
+		// 来源按已展开调用的返回槽（不重跑函数体）。
+		if call, ok := runtimeUnparen(v.X).(*ast.CallExpr); ok {
+			return seqNodeResultOriginAt(req, call, 0)
 		}
 		return nil
 	case *ast.Ident:

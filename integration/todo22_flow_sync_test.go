@@ -158,7 +158,7 @@ func TestTodo22SyncFlows(t *testing.T) {
 						flow.terminal, save, remote, store, approve)
 				}
 				// ③ RPC 服务端续接（准确注册身份 + 服务端实现）
-				rpc := firstIndex(evs, func(e seqEv) bool { return e.source == "rpc" })
+				rpc := firstIndex(evs, func(e seqEv) bool { return (e.source == "rpc" || e.source == "rpc_server") })
 				if rpc < 0 {
 					t.Fatalf("应有 RPC 服务端续接节点")
 				}

@@ -171,7 +171,18 @@ func TestU04vVariants(t *testing.T) {
 		t.Fatalf("Mutation origins = %+v", got)
 	}
 	// 失效/未知形态：无来源。
-	for _, entry := range []string{"Reassign", "Escape", "Constructed", "GenericEntry"} {
+	// todo29 U04y：构造实例作为字段读取根（struct_literal）——Constructed
+	// 的 `&model.Request{}` 已证明，不再是"无来源"。
+	got = u04vOrigins(t, dir, "Constructed", "12", "32")
+	if len(got) == 0 {
+		t.Fatalf("Constructed origins = %+v", got)
+	}
+	for _, o := range got {
+		if o["kind"] != "field_read" {
+			t.Fatalf("Constructed origins = %+v", got)
+		}
+	}
+	for _, entry := range []string{"Reassign", "Escape", "GenericEntry"} {
 		got = u04vOrigins(t, dir, entry, "12", "32")
 		for _, o := range got {
 			if o["kind"] != nil {
@@ -179,10 +190,14 @@ func TestU04vVariants(t *testing.T) {
 			}
 		}
 	}
-	// Shadow：仅外层参数读取有来源。
+	// Shadow：内层 `&Request{}` 是 struct_literal 根，外层是入口参数——两次
+	// 读取都有来源且根不同（todo29 U04y）。
 	got = u04vOrigins(t, dir, "Shadow", "12", "32")
-	if len(got) != 2 || got[0]["kind"] != nil || got[1]["kind"] != "field_read" {
+	if len(got) != 2 || got[0]["kind"] != "field_read" || got[1]["kind"] != "field_read" {
 		t.Fatalf("Shadow origins = %+v", got)
+	}
+	if got[0]["read"] == got[1]["read"] {
+		t.Fatalf("Shadow 两次读取应为独立观察: %+v", got)
 	}
 	// Alias 跟随真实 Request 声明。
 	got = u04vOrigins(t, dir, "AliasEntry", "12", "32")
@@ -207,7 +222,8 @@ func TestU04vGetter(t *testing.T) {
 		t.Fatalf("GetterTwice origins = %+v", got)
 	}
 	got = u04vOrigins(t, dir, "GetterOther", "12", "32")
-	if len(got) != 2 || got[0]["kind"] != "field_read" || got[1]["kind"] != nil {
+	// todo29 U04y：getter 的对象根支持 struct_literal（`other:=&Request{}`）。
+	if len(got) != 2 || got[0]["kind"] != "field_read" || got[1]["kind"] != "field_read" {
 		t.Fatalf("GetterOther origins = %+v", got)
 	}
 }

@@ -86,20 +86,24 @@ const todo26U01Snap = `{
   ]
 }`
 
-// U01：归一化后重复的 scope 必须拒绝（stdout 为空、非零退出）。
-func TestTodo26U01DuplicateScopeRejected(t *testing.T) {
+// U01（todo29 T19b 调整）：归一化后重复的 scope 保留两份观测；读取端只在
+// 恰好一条完整观测可回答查询时使用，多条候选报 ambiguous_observations——
+// 不再在加载阶段拒绝（T19b：重复有效观测应给出 ambiguous_fact）。
+func TestTodo26U01DuplicateScopeRetained(t *testing.T) {
 	if !scipGoAvailable() {
 		t.Skip("scip-go not found")
 	}
 	dir, snap := writeTodo26Repo(t, "package flow\nfunc Entry(){}\n", todo26U01Snap)
 	code, out, errOut := runCLIOutErr(t, "query", "sequence", "symbol:go:example.com/flow:Entry",
 		"--code", "--depth", "12", "--format", "mermaid", "--runtime-data", snap, "--repo", dir)
-	if code == 0 || strings.TrimSpace(out) != "" {
-		t.Fatalf("应失败且 stdout 为空: exit=%d out=%q", code, out)
+	if code != 0 {
+		t.Fatalf("重复 scope 不应阻断请求: exit=%d err=%q", code, errOut)
 	}
-	want := "error: runtime-data: duplicate normalized scope (source=review, table=review_config, node_type in [2,3])"
-	if !strings.Contains(errOut, want) {
-		t.Fatalf("stderr 应含 %q，实为 %q", want, errOut)
+	if strings.Contains(errOut, "duplicate normalized scope") {
+		t.Fatalf("不应再按重复 scope 拒绝: %q", errOut)
+	}
+	if !strings.Contains(out, "sequenceDiagram") {
+		t.Fatalf("应输出分析树: %q", out)
 	}
 }
 

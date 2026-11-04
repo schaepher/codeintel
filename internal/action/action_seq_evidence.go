@@ -60,7 +60,7 @@ const (
 	// 数据流证明执行，证据记录绑定/调用位置与依据。
 	SeqEvidenceClosure = "closure"
 	// todo22 §4.1：RPC 客户端桩 → 服务端实现（go-micro NewRequest/Call + 注册）
-	SeqEvidenceRPC = "rpc"
+	SeqEvidenceRPC = "rpc_server"
 )
 
 // SeqReasonAggregatedCallEdge 目标由同函数汇总边的调用名唯一匹配恢复

@@ -11,13 +11,16 @@ import (
 	"github.com/schaepher/codeintel/internal/domain"
 )
 
-// SeqFieldRoot 字段读取的对象根（入口形参对象）。
+// SeqFieldRoot 字段读取/写入的对象根（入口形参、构造实例或整值复制历史）。
 type SeqFieldRoot struct {
-	// Kind parameter_object | struct_literal（构造实例对象根）。
+	// Kind parameter_object | struct_literal | struct_copy。
 	Kind      string `json:"kind,omitempty"`
-	Symbol    string `json:"symbol"`
+	Symbol    string `json:"symbol,omitempty"`
 	Repo      string `json:"repo,omitempty"`
 	Parameter int    `json:"parameter"`
+	// TypeID/ID 构造/复制历史根（U04y：保留同次求值的历史对象身份）。
+	TypeID string `json:"type_id,omitempty"`
+	ID     string `json:"id,omitempty"`
 }
 
 // SeqStorageFieldRead 一次字段读取（请求内独立 ID）。
@@ -83,6 +86,28 @@ func seqFieldBaseOrigin(req CodeSequenceRequest, e ast.Expr) *seqFieldBase {
 			return &seqFieldBase{root: origin.FieldRead.Root, ref: seqORMTypeRef{
 				pkgPath: pkgOfID(domain.CanonicalID(origin.FieldRead.TypeID)), name: pkgNameOfID(origin.FieldRead.TypeID)},
 				path: append([]string{}, origin.FieldRead.Path...)}
+		case SeqOriginStructLiteral:
+			// U04y：构造实例作为字段读写根（initialization_only，不是当前值）。
+			if origin.StructLiteral == nil {
+				return nil
+			}
+			ref, ok := seqIdentStructType(req, x)
+			if !ok {
+				ref = seqTypeRefOfSymbolID(origin.StructLiteral.TypeID)
+			}
+			return &seqFieldBase{root: &SeqFieldRoot{Kind: "struct_literal",
+				TypeID: origin.StructLiteral.TypeID, ID: origin.StructLiteral.ID}, ref: ref}
+		case SeqOriginStructCopy:
+			// U04y：整值复制后的历史对象根（构造祖先，不是当前字段值）。
+			if origin.StructCopy == nil {
+				return nil
+			}
+			ref, ok := seqIdentStructType(req, x)
+			if !ok {
+				ref = seqTypeRefOfCopyTypeID(origin.StructCopy)
+			}
+			return &seqFieldBase{root: &SeqFieldRoot{Kind: "struct_copy",
+				TypeID: origin.StructCopy.TypeID, ID: origin.StructCopy.ID}, ref: ref}
 		}
 	case *ast.SelectorExpr:
 		if origin := seqFieldReadOrigin(req, x); origin != nil && origin.FieldRead != nil {
@@ -96,12 +121,14 @@ func seqFieldBaseOrigin(req CodeSequenceRequest, e ast.Expr) *seqFieldBase {
 			switch origin.Kind {
 			case SeqOriginStructLiteral:
 				if origin.StructLiteral != nil {
-					return &seqFieldBase{root: &SeqFieldRoot{Kind: "struct_literal"},
+					return &seqFieldBase{root: &SeqFieldRoot{Kind: "struct_literal",
+						TypeID: origin.StructLiteral.TypeID, ID: origin.StructLiteral.ID},
 						ref: seqTypeRefOfSymbolID(origin.StructLiteral.TypeID)}
 				}
 			case SeqOriginStructCopy:
 				if origin.StructCopy != nil {
-					return &seqFieldBase{root: &SeqFieldRoot{Kind: "struct_copy"},
+					return &seqFieldBase{root: &SeqFieldRoot{Kind: "struct_copy",
+						TypeID: origin.StructCopy.TypeID, ID: origin.StructCopy.ID},
 						ref: seqTypeRefOfCopyTypeID(origin.StructCopy)}
 				}
 			}
@@ -223,15 +250,40 @@ func seqFieldFromExpr(req CodeSequenceRequest, owner seqORMTypeRef, st *seqStruc
 
 // seqIdentStructType 标识符声明类型 → 结构体类型引用（票根为参数/局部变量）。
 func seqIdentStructType(req CodeSequenceRequest, id *ast.Ident) (seqORMTypeRef, bool) {
-	if id == nil || id.Obj == nil || req.curCtx == nil || req.curCtx.file == nil {
+	return seqIdentStructTypeDepth(req, id, 0)
+}
+
+func seqIdentStructTypeDepth(req CodeSequenceRequest, id *ast.Ident, depth int) (seqORMTypeRef, bool) {
+	if id == nil || id.Obj == nil || req.curCtx == nil || req.curCtx.file == nil ||
+		depth > seqScalarOriginMaxDepth {
 		return seqORMTypeRef{}, false
 	}
 	var typ ast.Expr
+	var init ast.Expr
 	switch d := id.Obj.Decl.(type) {
 	case *ast.Field:
 		typ = d.Type
 	case *ast.ValueSpec:
 		typ = d.Type
+		for i, name := range d.Names {
+			if name.Obj == id.Obj && i < len(d.Values) {
+				init = d.Values[i]
+			}
+		}
+	case *ast.AssignStmt:
+		if len(d.Lhs) == len(d.Rhs) {
+			for i, lhs := range d.Lhs {
+				if lid, ok := lhs.(*ast.Ident); ok && lid.Obj == id.Obj && i < len(d.Rhs) {
+					init = d.Rhs[i]
+				}
+			}
+		}
+	}
+	if typ == nil && init != nil {
+		// `alias := record`：类型沿初始化来源变量（同一分配身份）解析。
+		if src, ok := runtimeUnparen(init).(*ast.Ident); ok {
+			return seqIdentStructTypeDepth(req, src, depth+1)
+		}
 	}
 	if typ == nil {
 		return seqORMTypeRef{}, false

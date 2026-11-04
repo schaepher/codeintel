@@ -2,8 +2,7 @@ package action
 
 // U04c：时序值环境里的**标量来源**（parameter/literal/concat）。
 //
-// 只描述源码中的来源身份，不声明运行时值：origin 不证明写入成功，也不
-// 证明另一个入口的参数与本入口相等。
+// 只描述源码来源身份，不声明运行时值（不证明写入成功/跨入口相等）。
 
 import (
 	"go/ast"
@@ -118,6 +117,26 @@ func sameSeqScalarOrigin(a, b *SeqStorageOrigin) bool {
 	}
 	if a.Kind != b.Kind || a.ScalarType != b.ScalarType || a.Symbol != b.Symbol ||
 		a.Repo != b.Repo || a.Literal != b.Literal || len(a.Parts) != len(b.Parts) {
+		return false
+	}
+	if (a.WriteError == nil) != (b.WriteError == nil) {
+		return false
+	}
+	if a.WriteError != nil && (a.WriteError.CallID != b.WriteError.CallID ||
+		a.WriteError.Slot != b.WriteError.Slot || a.WriteError.Symbol != b.WriteError.Symbol) {
+		return false
+	}
+	if (a.RowCount == nil) != (b.RowCount == nil) {
+		return false
+	}
+	if a.RowCount != nil && !sameSeqRowCount(a.RowCount, b.RowCount) {
+		return false
+	}
+	if (a.SQLResult == nil) != (b.SQLResult == nil) {
+		return false
+	}
+	if a.SQLResult != nil && (a.SQLResult.Slot != b.SQLResult.Slot ||
+		!sameSeqWriteError(a.SQLResult.Write, b.SQLResult.Write)) {
 		return false
 	}
 	if (a.TxOrigin == nil) != (b.TxOrigin == nil) || (a.TxError == nil) != (b.TxError == nil) {
@@ -243,6 +262,17 @@ func seqScalarOriginDepth(req CodeSequenceRequest, e ast.Expr, depth int) *SeqSt
 		// U04v：getter 调用（单一 return：字面量 / receiver 字段）。
 		if o := seqGetterOrigin(req, v); o != nil {
 			return o
+		}
+		// U04y：内建类型转换（`int64(id)`）只改标量类型，不丢失实参来源；
+		// 同名局部/包级函数（Obj 非 nil）不按内建解析。
+		if id, ok := v.Fun.(*ast.Ident); ok && id.Obj == nil && seqBuiltinTypeName(id.Name) &&
+			len(v.Args) == 1 && !v.Ellipsis.IsValid() {
+			if o := seqScalarOriginDepth(req, v.Args[0], depth+1); o != nil {
+				cp := cloneSeqScalarOrigin(o)
+				cp.ScalarType = id.Name
+				return cp
+			}
+			return nil
 		}
 		// U04w：实参位置的调用（`Session.Insert(Build(id))`）——按已展开的
 		// 返回槽来源传播（不重跑函数体）。

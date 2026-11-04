@@ -170,6 +170,7 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		nodes := seqArgCallNodes(schedNode, s.Call)
 		if n := schedNode(s.Call); n != nil {
 			n.Exec = SeqExecDefer
+			seqPropagateExec(n, SeqExecDefer)
 			if n.Evidence != nil && n.Evidence.Transaction != nil {
 				n.Evidence.Transaction.Exec = SeqExecDefer
 			}
@@ -183,6 +184,7 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		nodes := seqArgCallNodes(schedNode, s.Call)
 		if n := schedNode(s.Call); n != nil {
 			n.Exec = SeqExecAsync
+			seqPropagateExec(n, SeqExecAsync)
 			if n.Evidence != nil && n.Evidence.Transaction != nil {
 				n.Evidence.Transaction.Exec = SeqExecAsync
 			}
@@ -222,6 +224,7 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 			ret.Slots = append(ret.Slots, seqResultSlot(i, tupleSlots, req.resultNames))
 		}
 		ret.ValueOrigins = seqReturnOrigins(req, s.Results, out)
+		seqRecordReturnCtx(req, ret, s.Results)
 		// todo12-12：裸 return（具名结果）——没有返回表达式，但槽身份仍按
 		// 声明顺序展开（不能因为没有表达式就丢掉槽）。
 		if len(s.Results) == 0 && len(req.resultNames) > 0 {
@@ -261,6 +264,23 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		return []*CodeSeqNode{{Kind: kind, Label: kind, Line: fset.Position(s.Pos()).Line}}
 	}
 	return nil
+}
+
+// seqPropagateExec 调度体（defer/go）内实际执行的调用继承执行时机标签：
+// 内部 Cleanup/Save 等调用不能被渲染成同步执行（T09b：Cleanup 标 defer）。
+func seqPropagateExec(n *CodeSeqNode, exec string) {
+	if n == nil || exec == "" {
+		return
+	}
+	if n.Exec == "" {
+		n.Exec = exec
+	}
+	for _, c := range n.Nodes {
+		seqPropagateExec(c, exec)
+	}
+	for _, c := range n.Else {
+		seqPropagateExec(c, exec)
+	}
 }
 
 // newScheduledCallNode go/defer 调度体专用调用节点构造（scheduled=true）。

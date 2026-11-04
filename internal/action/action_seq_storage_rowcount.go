@@ -75,6 +75,16 @@ func (e *seqEnv) rowsResultOf(obj *ast.Object, pos token.Pos) *SeqORMRowCountRes
 	return nil
 }
 
+// escapedRowSlot 沿父链找已逃逸行数槽。
+func (e *seqEnv) escapedRowSlot(obj *ast.Object) (seqRowSlot, bool) {
+	for env := e; env != nil; env = env.parent {
+		if slot, ok := env.rows[obj]; ok && slot.escaped {
+			return slot, true
+		}
+	}
+	return seqRowSlot{}, false
+}
+
 func (e *seqEnv) setRows(obj *ast.Object, ref *SeqORMRowCountResult) {
 	if e == nil || obj == nil {
 		return
@@ -82,7 +92,7 @@ func (e *seqEnv) setRows(obj *ast.Object, ref *SeqORMRowCountResult) {
 	if e.rows == nil {
 		e.rows = map[*ast.Object]seqRowSlot{}
 	}
-	if slot, ok := e.rows[obj]; ok && slot.escaped {
+	if slot, ok := e.escapedRowSlot(obj); ok {
 		e.rows[obj] = seqRowSlot{escaped: true, escapedAt: slot.escapedAt}
 		return
 	}
@@ -197,11 +207,15 @@ func sameSeqRowCount(a, b *SeqORMRowCountResult) bool {
 	if a == nil || b == nil {
 		return a == nil && b == nil
 	}
-	if a.Slot != b.Slot {
+	if a.Slot != b.Slot || !sameSeqWriteError(a.Write, b.Write) {
 		return false
 	}
-	if a.Write == nil || b.Write == nil {
-		return a.Write == nil && b.Write == nil
+	if (a.Access == nil) != (b.Access == nil) {
+		return false
 	}
-	return a.Write.CallID == b.Write.CallID
+	if a.Access != nil && (a.Access.Symbol != b.Access.Symbol || a.Access.Offset != b.Access.Offset ||
+		a.Access.ErrorSlot != b.Access.ErrorSlot) {
+		return false
+	}
+	return true
 }

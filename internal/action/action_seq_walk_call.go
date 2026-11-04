@@ -94,7 +94,7 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		// todo23 §3.1：旧行号命中也要核对调用名/包/种类（同行多包不串）。
 		tg, resolved := tgts.lookupCall(pos, fun, f, curPkg, recvType, req.curRecvName, recvDecl)
 		if resolved {
-			tid := tg.tid
+			tid := seqRefineInterfaceTarget(a, req, fun, tg.tid)
 			if seqFilterHit(req.Filter, tid, curFile, node.Label) {
 				return nil
 			}

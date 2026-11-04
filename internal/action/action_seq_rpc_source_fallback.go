@@ -52,15 +52,49 @@ func (a *Actions) seqMicroRegisterSourceFallback(req CodeSequenceRequest,
 		if callExpr == nil || len(callExpr.Args) < 2 {
 			continue
 		}
-		ifaceID, ok := seqRegistrationIfaceArg(ctx, callExpr.Args[1])
+		// T09b：helper 声明证明（第一参 server.Server、第二参 <X>Handler、
+		// 体内真实 NewHandler(&wrapper{...})）+ 生成 wrapper 的接口嵌入。
+		helperFn, helperCtx, helperPkg, pok := a.seqRegisterHelperDecl(req, hid)
+		if !pok {
+			continue
+		}
+		proof, ok := seqRegisterHelperProof(helperCtx, helperFn, helperPkg)
 		if !ok {
 			continue
 		}
-		impls, ierr := a.InterfaceImplements(req.Ctx, ifaceID)
-		if ierr != nil || len(impls) == 0 {
-			continue
+		ifaceID := proof.ifaceID
+		var impls []string
+		if asserted, okArg := seqRegistrationIfaceArg(ctx, callExpr.Args[1]); okArg {
+			// 已有类型断言路径（todo27 T09）：断言目标接口为准。
+			ifaceID = asserted
+			all, ierr := a.InterfaceImplements(req.Ctx, ifaceID)
+			if ierr != nil || len(all) == 0 {
+				continue
+			}
+			impls = all
+		} else {
+			// T09b：注册实参是**具体复合字面量**（&Handler{...}）——按实参
+			// 静态类型得到实现类型，并要求它确实实现 helper 声明的接口。
+			callerPkg := pkgOfID(call.SourceID)
+			implID, okImpl := seqConcreteRegistrationArg(ctx, callerPkg, callExpr.Args[1])
+			if !okImpl {
+				continue
+			}
+			all, ierr := a.InterfaceImplements(req.Ctx, ifaceID)
+			if ierr != nil || !seqContainsString(all, implID) {
+				continue
+			}
+			impls = []string{implID}
+			// 服务身份取生成 wrapper 类型（wire:Ledger）——与客户端声明的
+			// 服务名一致，而不是把接口名当服务名。
+			helperPkgPath := pkgOfID(hid)
+			out := &seqRPCSvc{fullIdentity: fwd.FullIdentity, handler: handler,
+				serviceID: "symbol:go:" + helperPkgPath + ":" + handler,
+				reason:    "register-handler-source", registerFile: caller.FilePath, registerLine: line,
+				methods: seqIfaceMethodsOf(a, req, ifaceID)}
+			out.impls = impls
+			return out
 		}
-
 		if len(impls) > 1 {
 			if narrowed, ok := a.seqRegistrationImplNarrow(req, ctx, caller, callExpr, ifaceID, impls); ok {
 				impls = narrowed

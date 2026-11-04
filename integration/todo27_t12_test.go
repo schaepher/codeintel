@@ -108,7 +108,7 @@ func TestT12FactoryFieldContext(t *testing.T) {
 		t.Skip("scip-go not found")
 	}
 	dir := t12Fixture(t)
-	depth1 := t12Seq(t, dir, "EntryFactory", 1, 3)
+	depth1 := t12Seq(t, dir, "EntryFactory", 1, 16)
 	full := t12Seq(t, dir, "EntryFactory", 12, 0)
 	for _, want := range []string{"One.Work", "Two.Work"} {
 		if !strings.Contains(depth1, want) {

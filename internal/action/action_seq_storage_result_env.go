@@ -76,7 +76,9 @@ func (e *seqEnv) setErr(obj *ast.Object, ref *SeqWriteErrorResult) {
 	if e.errs == nil {
 		e.errs = map[*ast.Object]seqErrSlot{}
 	}
-	if slot, ok := e.errs[obj]; ok && slot.escaped {
+	// 逃逸标记可能在外层环境（闭包/defer 写者按外层对象标记）：任何一层
+	// 已持续逃逸 → 后续赋值不得恢复来源（T14b/U04k）。
+	if slot, ok := e.escapedErrSlot(obj); ok {
 		e.errs[obj] = seqErrSlot{escaped: true, escapedAt: slot.escapedAt}
 		delete(e.txErrs, obj)
 		return
@@ -84,6 +86,16 @@ func (e *seqEnv) setErr(obj *ast.Object, ref *SeqWriteErrorResult) {
 	e.errs[obj] = seqErrSlot{ref: cloneSeqWriteErrorResult(ref)}
 	// U04n：写入错误与事务错误是不同来源（同一变量保留最近绑定的来源）。
 	delete(e.txErrs, obj)
+}
+
+// escapedErrSlot 沿父链找已逃逸错误槽（任何一层逃逸即生效）。
+func (e *seqEnv) escapedErrSlot(obj *ast.Object) (seqErrSlot, bool) {
+	for env := e; env != nil; env = env.parent {
+		if slot, ok := env.errs[obj]; ok && slot.escaped {
+			return slot, true
+		}
+	}
+	return seqErrSlot{}, false
 }
 
 func (e *seqEnv) markErrEscaped(obj *ast.Object, pos token.Pos) {
@@ -105,4 +117,12 @@ func cloneSeqWriteErrorResult(r *SeqWriteErrorResult) *SeqWriteErrorResult {
 	}
 	cp := *r
 	return &cp
+}
+
+// sameSeqWriteError 写入错误身份是否同一（槽/调用/符号）。
+func sameSeqWriteError(a, b *SeqWriteErrorResult) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return a.CallID == b.CallID && a.Slot == b.Slot && a.Symbol == b.Symbol && a.Offset == b.Offset
 }
