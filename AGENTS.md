@@ -29,6 +29,10 @@
   （U06 已完成；T01–T14/T18/U04 的剩余范围与证据逐项列明）
 - [`docs/todo28-checklist.md`](docs/todo28-checklist.md)：todo28 交付 Checklist
   （U04a/U04b/U04c 已完成；T19、U04d–U04y、U06b–d、U07 的剩余范围逐项列明）
+- [`docs/todo29-checklist.md`](docs/todo29-checklist.md)：todo29 交付 Checklist
+  （T09b/T12b/T14b/T19b/T19c/U04k/U04x/U04y 已完成；U04 跨入口整合剩余）
+- [`docs/todo30-checklist.md`](docs/todo30-checklist.md)：todo30 交付 Checklist
+  （U04a/U04c/U07b 已完成；U04b/U04d–U04l/B01–B11 的依赖顺序与剩余范围）
   ——**接手先看这张表的"待办"行**
 
 ## 项目一句话
@@ -810,10 +814,12 @@ go build -o codeintel ./cmd/codeintel
 #                                          # 副作用与返回（表列写入/远程写/事务范围/
 #                                          # 错误覆盖可疑点，各带 verdict）
 #   codeintel query sequence <sym> --code [--scene k=v] [--focus <字段|return>] [--evidence]
-#                 [--continue-segments N]
+#                 [--continue-segments N] [--related-entry <canonical-id>]…
 #                                          # 代码级时序：场景条件裁剪 / 关注目标 / 箭头证据；
 #                                          # --continue-segments（1–128）沿 depth 前沿分段续查，
-#                                          # 每段再展开原 depth 层并接回同一棵树（meta.continuation）
+#                                          # 每段再展开原 depth 层并接回同一棵树（meta.continuation）；
+#                                          # --related-entry 选择关联入口集合（共享预算，
+#                                          # workflow.entries ordering=unproven，入口顺序未证明）
 #   codeintel wiki --yaml wiki.yaml [--init] [--diagram plantuml|mermaid]
 #                 [--max-entries N] [--seq-depth N]
 #                                          # 业务 wiki 生成（--ai 增量补缺写回 yaml 标注 # AI 初稿；

@@ -8337,3 +8337,33 @@ action；开库前先 `ValidateRuntimeData`）。
   需先确认接口（精确 Submit 简化 Mermaid 也未替换现有渲染）。
 - 测试：`internal/action/action_seq_t19b_test.go`、`action_seq_t12b_budget_test.go`、
   `action_seq_t14b_escape_test.go` + `integration/todo29_*`（真实 init→CLI）。
+
+## §188 todo30 U04a/U04c/U07b：关联入口集合、条件操作数与参与者作用域（2026-11-07）
+
+- **U04a 关联入口集合**：`CodeSequenceRequest.RelatedEntries` + CLI 可重复
+  `--related-entry`。**先校验全部入口再分析**（准确 canonical 函数/方法 ID +
+  当前仓库精确 `GetSymbol`），重复入口只分析一次、根入口外按 canonical ID
+  排序、上限 32（含根）；每个入口从**未修改的请求副本**派生独立环境/防环
+  路径（不继承根入口的 env/paramValues/focus），共享 `req.acc` 的取消信号与
+  追加预算、共享 pkgSet。`workflow{entries[{symbol,repo,sequence}],
+  ordering=unproven, continuation{segments_budget,segments_used,expanded,
+  budget_stops}}` 挂在根节点；根入口条目是根的浅拷贝（`workflow` 置空——
+  避免 JSON 自引用）。共享 acc 的 `callNodes`/`pendingVarsByObj`/`writeIDs`
+  按 AST/节点对象键控，进入下一个入口前清空（同一辅助函数被两个入口展开时
+  会互相覆盖绑定）。
+- **U04c 分支条件来源**：branch 节点 `condition`（`operator/left/right/terms/
+  unknown/expression`）。操作数复用 `seqScalarOriginOf`（参数/字面量/字段
+  读取/返回槽/拼接收敛）+ 既有覆盖/取址逃逸规则；未知操作数省略该侧并记
+  `operand_origin_unproven`；64 节点/16 层上限超出时**整项**返回
+  `operator=unknown`+`condition_budget`（不保留部分布尔表达式再判断分支）。
+  只记录来源，不改变 `scene` 判定。
+- **U07b 参与者作用域**：关联入口 Mermaid 参与者以 `入口 canonical ID +
+  actor` 为身份；P0 固定 `External entries`；短名跨入口冲突时入口自身用
+  canonical ID、局部对象用 `<入口ID>.<actor>`（`alpha.Run.db`）。单入口输出
+  保持原 `.Label` 参与者与 `P0 as Run` 形式；JSON 原树 Actor 不被渲染改写。
+- **U04i 现状确认（未实现）**：`req.Child.ID` 的 `field_read.type_id` 取外层
+  `Root`（`action_seq_field_read.go` 只用 x 的静态类型链末段），因此
+  `Root`/`Leaf` 同名 `ID` 无法区分——U04i 需要保留字段值类型引用；本轮未改。
+- 测试：`integration/todo30_u04a_test.go`、`todo30_u04c_test.go`、
+  `todo30_u07b_test.go`（真实 `init` → CLI，含拒绝非法入口/集合预算/
+  逐行 participant 契约）。剩余项与依赖顺序见 `docs/todo30-checklist.md`。

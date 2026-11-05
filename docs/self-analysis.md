@@ -2518,6 +2518,11 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
 保留以便交叉引用。**“需大仓/外部”= 依赖真实系统或大仓 profile 才能验收，
 当前不做**（用户 2026-10-16 指示）。
 
+**2026-11-07 todo30 进行中（逐项状态见 [`todo30-checklist.md`](todo30-checklist.md)）**：
+U04a 关联入口集合（共享预算/workflow.entries）、U04c 分支条件操作数来源、
+U07b 关联入口参与者作用域已完成；U04b/U04d–U04l/B01–B11 未开始，
+依赖顺序与剩余范围写在该 Checklist（下一轮建议 U04d→U04e→U04j）。
+
 **2026-10-26 移除**：P1-02（全扫投影缓存——接入 repo_chain/repo_flows/
 repo_unused；`rg_bfs` 经核查派生图缓存已覆盖、不接入）、P1-04（SSA
 instancePath/recoverVarName/allocTypeShort 缓存 + 节点属性池化序列化）、
