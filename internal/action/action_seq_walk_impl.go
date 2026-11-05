@@ -53,13 +53,20 @@ func seqTryDIAndLocalVar(a *Actions, req CodeSequenceRequest, f *ast.File, sel *
 	if !ok {
 		return false
 	}
-	implMethod := a.localVarImplObj(req, f, pkgPathOf(req.curSym), id.Name, id.Obj, sel.Sel.Name)
+	implMethod, okRT := seqReturnSlotImplMethod(a, req, sel)
+	if !okRT {
+		implMethod = a.localVarImplObj(req, f, pkgPathOf(req.curSym), id.Name, id.Obj, sel.Sel.Name)
+	}
 	if implMethod == "" {
 		return false
 	}
 	node.ImplType = implTypeShort(implMethod)
+	reason := "localvar-init-dataflow"
+	if okRT {
+		reason = "localvar-return-slot"
+	}
 	node.Evidence = &SeqEvidence{Source: SeqEvidenceLocalVar, CallFile: curFile, CallLine: pos.Line,
-		SymbolID: implMethod, Confidence: confidence, Reason: "localvar-init-dataflow"}
+		SymbolID: implMethod, Confidence: confidence, Reason: reason}
 	// T05：局部变量携带的实例来源（工厂调用）要传给子方法——否则
 	// `box.Run → b.Step → b.Get().Work` 在 Step 里丢失工厂身份，字段续接
 	// 直接放弃。

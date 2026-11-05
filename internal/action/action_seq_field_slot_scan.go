@@ -6,6 +6,7 @@ package action
 import (
 	"go/ast"
 	"go/token"
+	"strings"
 )
 
 // seqNewAllocOrigin 已证明的 `new(T)` 分配来源（只接受预声明 new）。
@@ -99,21 +100,36 @@ func seqValueStructTypeRef(req CodeSequenceRequest, id *ast.Ident, depth int) (s
 	return seqORMTypeRef{}, false
 }
 
-// seqScanFieldTarget `&record.Kind` → (根变量, 字段名)。
+// seqScanFieldTarget `&record.Kind` / `&record.Detail.Kind` → (根变量, 字段路径)。
 func seqScanFieldTarget(arg ast.Expr) (*ast.Ident, string, bool) {
 	u, ok := runtimeUnparen(arg).(*ast.UnaryExpr)
 	if !ok || u.Op != token.AND {
 		return nil, "", false
 	}
-	sel, ok := runtimeUnparen(u.X).(*ast.SelectorExpr)
-	if !ok {
+	id, path, ok := seqSelectorFieldPath(runtimeUnparen(u.X))
+	if !ok || len(path) == 0 {
 		return nil, "", false
 	}
-	id, ok := runtimeUnparen(sel.X).(*ast.Ident)
-	if !ok {
-		return nil, "", false
+	return id, strings.Join(path, "."), true
+}
+
+// seqSelectorFieldPath 值字段选择器链 → (根标识符, 路径)。
+func seqSelectorFieldPath(e ast.Expr) (*ast.Ident, []string, bool) {
+	var path []string
+	cur := runtimeUnparen(e)
+	for {
+		sel, ok := cur.(*ast.SelectorExpr)
+		if !ok {
+			break
+		}
+		path = append([]string{sel.Sel.Name}, path...)
+		cur = runtimeUnparen(sel.X)
 	}
-	return id, sel.Sel.Name, true
+	id, ok := cur.(*ast.Ident)
+	if !ok {
+		return nil, nil, false
+	}
+	return id, path, true
 }
 
 // seqBindScanFieldTarget Scan 目标为字段时建立字段槽来源；返回是否成功。
@@ -155,14 +171,31 @@ func seqFieldTypeFromDecl(req CodeSequenceRequest, id *ast.Ident, field string,
 		}
 		ref = seqTypeRefOfSymbolID(alloc.TypeID)
 	}
-	fd, ok := seqResolveFieldDecl(req, ref, field)
-	if !ok || fd.iface {
-		return seqORMTypeRef{}, "", false
+	return seqFieldPathType(req, ref, field)
+}
+
+// seqFieldPathType 逐级解析字段路径（B03：中间字段必须是值类型结构体；最后
+// 一级必须是直接内建标量）。
+func seqFieldPathType(req CodeSequenceRequest, ref seqORMTypeRef, path string) (seqORMTypeRef, string, bool) {
+	parts := strings.Split(path, ".")
+	cur := ref
+	for i, name := range parts {
+		fd, ok := seqResolveFieldDecl(req, cur, name)
+		if !ok || fd.iface {
+			return seqORMTypeRef{}, "", false
+		}
+		if i == len(parts)-1 {
+			if !seqBuiltinTypeName(fd.goType) {
+				return fd.ref, fd.goType, false
+			}
+			return fd.ref, fd.goType, true
+		}
+		if fd.pointer {
+			return seqORMTypeRef{}, "", false
+		}
+		cur = seqCanonicalTypeRef(req, fd.ref)
 	}
-	if !seqBuiltinTypeName(fd.goType) {
-		return fd.ref, fd.goType, false
-	}
-	return fd.ref, fd.goType, true
+	return seqORMTypeRef{}, "", false
 }
 
 // seqTypeRefIsAlias 该类型引用是否由类型别名声明（U04j 不支持别名根）。

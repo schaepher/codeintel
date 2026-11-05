@@ -47,6 +47,10 @@ func seqScalarOriginDepth(req CodeSequenceRequest, e ast.Expr, depth int) *SeqSt
 		if o := seqNewAllocOrigin(req, v, depth); o != nil {
 			return o
 		}
+		// B05：已证明的 LastInsertId → 生成键来源。
+		if o := seqGeneratedKeyOriginAt(req, v); o != nil {
+			return o
+		}
 		// U04e：已证明的 Scan 调用 → 错误槽（Scan 只返回 error）。
 		if o := seqScanErrorOriginAt(req, v); o != nil {
 			return o

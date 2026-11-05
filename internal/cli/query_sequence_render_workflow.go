@@ -26,6 +26,10 @@ func seqTextRoot(root *action.CodeSeqNode) string {
 	if root == nil {
 		return ""
 	}
+	// U04g：实例视图（>1 实例）优先。
+	if txt := seqTextRootInstances(root); txt != "" {
+		return txt
+	}
 	entries := seqWorkflowEntries(root)
 	if entries == nil {
 		return fmt.Sprintf("== %s 代码级时序 ==\n", root.Label) + seqText(root.Nodes, 1) +

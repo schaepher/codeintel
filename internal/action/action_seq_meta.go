@@ -258,6 +258,8 @@ type CodeSeqNode struct {
 	Condition *SeqCondition `json:"condition,omitempty"`
 	// U04a：关联入口分析集合（仅根节点；“没有 --related-entry”时省略）。
 	Workflow *SeqWorkflow `json:"workflow,omitempty"`
+	// U04f：实例内的条件化判定（只在 workflow.instances[].sequence 的副本上）。
+	InstanceCondition *SeqInstanceCondition `json:"instance_condition,omitempty"`
 	// call U04e：该调用节点对应的 AST 调用（Scan 事后补齐证据用；不序列化）。
 	call *ast.CallExpr
 	// U04k：return 节点的各结果槽来源 / 调用节点的返回槽来源共识。

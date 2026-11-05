@@ -23,45 +23,6 @@ const (
 	SeqStopCanceled = "canceled" // 调用方取消
 )
 
-// runtimeDataInput RuntimeData 兼容入口归一（T14b）：同时接受路径字符串与
-// 已解析快照。typed-nil 等同未配置；其它类型明确失败。
-func runtimeDataInput(v any) (string, *RuntimeSnapshot, error) {
-	switch x := v.(type) {
-	case nil:
-		return "", nil, nil
-	case string:
-		return x, nil, nil
-	case *RuntimeSnapshot:
-		if x == nil {
-			return "", nil, nil
-		}
-		return "", x, nil
-	}
-	return "", nil, fmt.Errorf("runtime-data: RuntimeData 类型不支持（%T）——只接受路径字符串或 LoadRuntimeData 返回的快照", v)
-}
-
-// runtimeDataPath 合并 RuntimeDataPath/RuntimeData 两个兼容入口（T14）：
-// 都没有 → 空；同时给出且不一致 → 空（由 LoadRuntimeSnapshot 报错语义，
-// 调用方在 CLI 层已做参数校验）。
-func (r CodeSequenceRequest) runtimeDataPath() string {
-	if r.RuntimeDataPath != "" {
-		return r.RuntimeDataPath
-	}
-	if p, _, err := runtimeDataInput(r.RuntimeData); err == nil {
-		return p
-	}
-	return ""
-}
-
-// hasRuntimeConfig 请求是否配置了运行时快照（任一种入口；typed-nil 不算）。
-func (r CodeSequenceRequest) hasRuntimeConfig() bool {
-	if r.RuntimeDataPath != "" || r.Runtime != nil {
-		return true
-	}
-	p, snap, err := runtimeDataInput(r.RuntimeData)
-	return err == nil && (p != "" || snap != nil)
-}
-
 // SeqContinuationOptions 兼容续查选项（T12）。
 type SeqContinuationOptions struct {
 	MaxSegments int
@@ -98,6 +59,10 @@ type CodeSequenceRequest struct {
 	Target  string // 符号名或 canonical ID
 	RepoAbs string // 仓库绝对路径（源码读取）
 	Depth   int    // 嵌套层级（1 = 只本函数；>1 递归展开被调函数内部）
+	// FrontendRoots B09：前端源码目录（只选择源码范围，不配置业务动作顺序）。
+	FrontendRoots []string
+	// CombinationSelector B10：合法组合选择器（准确 canonical 函数 ID）。
+	CombinationSelector string
 	// RelatedEntries U04a：需要一起分析的关联入口（准确 canonical 函数 ID）。
 	// 只选择入口集合——不提供步骤、顺序、次数或记录键映射；所有入口限定在
 	// 当前仓库，重复入口只分析一次，根入口外按 canonical ID 稳定排序。
@@ -270,6 +235,11 @@ type CodeSequenceRequest struct {
 	// schedFieldMask U04j：被调度的**目标**（不是立即求值的实参）——闭包体
 	// 读取外层可变字段时字段槽视为未知。
 	schedFieldMask bool
+	// B07：实例重新分析时注入的已知值（只读快照；不改变原入口树）。
+	seedVarLits    map[string]string
+	seedParamOrigs []*SeqStorageOrigin
+	// B07：Scan 目标变量的实例读取值（覆盖本次 Scan 的列来源，仅重分析副本）。
+	scanSeeds map[string]string
 	// callArgOrigins U04c：本次调用实参的标量来源（在实参求值位置立即捕获，
 	// 被调函数形参绑定用；续查快照带值拷贝，不被后续赋值污染）。
 	callArgOrigins []*SeqStorageOrigin

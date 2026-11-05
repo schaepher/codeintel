@@ -118,6 +118,7 @@ func seqRecordScalarAssign(req CodeSequenceRequest, s *ast.AssignStmt) {
 		for i := range s.Rhs {
 			origins[i] = seqScalarOriginOf(req, s.Rhs[i])
 		}
+		seqRebaseAssignOrigins(req, s.Rhs, origins)
 	}
 	for i, lhs := range s.Lhs {
 		id, ok := lhs.(*ast.Ident)
@@ -140,7 +141,17 @@ func seqRecordScalarValueSpec(req CodeSequenceRequest, vs *ast.ValueSpec) {
 			continue
 		}
 		if i < len(vs.Values) {
-			req.env.setScalar(name.Obj, seqScalarOriginOf(req, vs.Values[i]))
+			o := seqScalarOriginOf(req, vs.Values[i])
+			if call, ok := runtimeUnparen(vs.Values[i]).(*ast.CallExpr); ok {
+				o = seqRebaseReturnedAllocation(req, call, o)
+			}
+			req.env.setScalar(name.Obj, o)
+			continue
+		}
+		// B07：实例重分析的种子字面量（声明无初始化时也不覆盖）。
+		if lit, ok := req.seedVarLits[name.Name]; ok {
+			req.env.setScalar(name.Obj, &SeqStorageOrigin{Kind: SeqOriginLiteral,
+				ScalarType: "string", Literal: lit})
 			continue
 		}
 		req.env.setScalar(name.Obj, nil)

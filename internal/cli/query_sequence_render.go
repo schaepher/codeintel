@@ -17,6 +17,10 @@ func renderCodeSeqMermaid(root *action.CodeSeqNode) string {
 	if root == nil {
 		return ""
 	}
+	// U04g：条件化请求实例（>1 实例）优先展示实例视图。
+	if seqWorkflowInstances(root) != nil {
+		return renderCodeSeqInstancesMermaid(root)
+	}
 	// U04a/U07b：关联入口集合 → 同一分析树的多入口展示（参与者按入口隔离）。
 	if seqWorkflowEntries(root) != nil {
 		return renderCodeSeqWorkflowMermaid(root)
@@ -130,32 +134,6 @@ func seqBaseTypeActor(actor string) bool {
 	// 类型转换带括号/泛型形态（int64(x) 的 Actor 是纯类型名）
 	return strings.HasPrefix(actor, "[]") || strings.HasPrefix(actor, "map[") ||
 		strings.HasPrefix(actor, "func(") || strings.HasPrefix(actor, "chan ")
-}
-
-// hasRenderableSeqNode 递归检查节点树是否有可渲染内容（R100：基础类型
-// actor 的 call 消息渲染时被跳过——空分支检查须排除它们，否则 alt/end
-// 之间无中间行的空块；return/continue/break 线可渲染）。
-func hasRenderableSeqNode(nodes []*action.CodeSeqNode) bool {
-	for _, n := range nodes {
-		switch n.Kind {
-		case "call":
-			// 基础类型 actor（int32(x) 转换）消息被跳过；嵌套展开仍可渲染
-			if !seqBaseTypeActor(n.Actor) || hasRenderableSeqNode(n.Nodes) {
-				return true
-			}
-		case "branch":
-			if hasRenderableSeqNode(n.Nodes) || hasRenderableSeqNode(n.Else) {
-				return true
-			}
-		case "loop":
-			if hasRenderableSeqNode(n.Nodes) {
-				return true
-			}
-		default: // return/continue/break
-			return true
-		}
-	}
-	return false
 }
 
 // writeSeqNode 递归渲染节点块（call 消息 / branch alt / loop）。

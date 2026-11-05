@@ -202,6 +202,8 @@ type seqResolvedField struct {
 	sourceFile string
 	sourceLine int
 	goType     string
+	// pointer B03：字段声明是否为指针（嵌套路径必须区分值/指针）。
+	pointer bool
 }
 
 // seqResolveFieldDecl 解析类型上的字段（声明的 owner/类型/位置）。
@@ -251,8 +253,9 @@ func seqFieldFromExpr(req CodeSequenceRequest, owner seqORMTypeRef, st *seqStruc
 	if !ok {
 		return seqResolvedField{}, false
 	}
+	_, pointer := runtimeUnparen(typ).(*ast.StarExpr)
 	out := seqResolvedField{ref: ref, owner: owner.name, ownerpkg: owner.pkgPath,
-		iface: seqRefIsIfaceDecl(req, ref)}
+		iface: seqRefIsIfaceDecl(req, ref), pointer: pointer}
 	if st.file != nil && st.file.fset != nil {
 		out.sourceFile = st.file.rel
 		if name != "" {

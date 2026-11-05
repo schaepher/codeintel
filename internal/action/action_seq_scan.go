@@ -227,6 +227,11 @@ func seqAttachScan(req CodeSequenceRequest, node *CodeSeqNode, call *ast.CallExp
 		// 标准 Scan 不保留指针：本次地址传递可以专门绑定；之前已发生的取址
 		// 逃逸仍持续有效（escapedAt 早于本次调用 → 不绑定）。
 		req.env.setScalarScanTarget(id.Obj, col, call.Pos())
+		// B07：实例重分析——用实例读取值覆盖列来源（只读副本）。
+		if lit, ok := req.scanSeeds[id.Name]; ok {
+			req.env.setScalar(id.Obj, &SeqStorageOrigin{Kind: SeqOriginLiteral,
+				ScalarType: scalarType, Literal: lit})
+		}
 	}
 	node.Evidence.Scan = scan
 }

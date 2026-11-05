@@ -32,6 +32,18 @@ type SeqWorkflow struct {
 	Ordering string `json:"ordering"`
 	// Continuation 整个入口集合共享的追加预算统计。
 	Continuation *SeqWorkflowContinuation `json:"continuation,omitempty"`
+	// U04b：条件化读写连接（资源/表/AND 等式键）。
+	Connections []SeqWorkflowConnection `json:"connections,omitempty"`
+	// U04f：条件化请求实例（父/子链；数量不代表请求已经发生）。
+	Instances []SeqWorkflowInstance `json:"instances,omitempty"`
+	// Partial 分析不完整（预算/深度/循环/缺身份）。
+	Partial bool `json:"partial,omitempty"`
+	// InstanceBoundaries 停止原因。
+	InstanceBoundaries []string `json:"instance_boundaries,omitempty"`
+	// B09：前端动作（源码范围输入；动作顺序不代表业务顺序）。
+	Frontend *SeqWorkflowFrontend `json:"frontend,omitempty"`
+	// B10：合法组合覆盖（supported/analyzed/complete/partial）。
+	Coverage *SeqWorkflowCoverage `json:"coverage,omitempty"`
 }
 
 // SeqWorkflowEntry 单个入口的分析树。
@@ -142,6 +154,70 @@ func (a *Actions) seqAnalyzeRelatedEntries(base CodeSequenceRequest, root *CodeS
 		wf.Entries = append(wf.Entries, SeqWorkflowEntry{
 			Symbol: id, Repo: base.RepoAbs, Sequence: tree})
 	}
+	// U04b/U04f：连接与实例（不改变入口树本身）。
+	conns, cpartial := seqWorkflowConnections(wf.Entries, seqWFMatchMax, seqWFConnectionMax)
+	wf.Connections = conns
+	if cpartial {
+		wf.Partial = true
+		wf.InstanceBoundaries = appendUniqueStr(wf.InstanceBoundaries, "connection_budget")
+	}
+	if len(conns) > 0 {
+		reanCount := 0
+		reanLimit := false
+		rean := func(entry string, seeds map[string]string,
+			params []*SeqStorageOrigin) (*CodeSeqNode, error) {
+			if reanCount >= 16 {
+				reanLimit = true
+				return nil, nil
+			}
+			reanCount++
+			sub := base
+			sub.Target = entry
+			sub.RelatedEntries = nil
+			sub.acc = base.acc
+			sub.pkgSet = base.pkgSet
+			sub.visited = map[string]bool{}
+			sub.entryID = ""
+			sub.runtime = nil
+			sub.seedVarLits = seeds
+			sub.seedParamOrigs = params
+			sub.scanSeeds = seeds
+			return a.CodeSequence(sub)
+		}
+		var snap *RuntimeSnapshot
+		if base.Runtime != nil {
+			snap = base.Runtime
+		} else if p := base.runtimeDataPath(); p != "" {
+			if s, err := LoadRuntimeSnapshot(p); err == nil {
+				snap = s
+			}
+		}
+		var wfReads []seqWFRead
+		for _, e := range wf.Entries {
+			seqCollectWorkflowReads(e.Sequence, e.Symbol, e.Repo, &wfReads)
+			wfReads = seqAttachWFScanEntry(e.Sequence, wfReads)
+		}
+		insts, ipartial, boundaries, ierr := seqBuildWorkflowInstances(wf.Entries, conns,
+			func() error { return base.ctx().Err() }, rean, snap, wfReads)
+		if reanLimit {
+			ipartial = true
+			boundaries = appendUniqueStr(boundaries, "instance_reanalysis_budget")
+		}
+		if ierr != nil {
+			return nil, ierr
+		}
+		wf.Instances = insts
+		if ipartial {
+			wf.Partial = true
+		}
+		for _, b := range boundaries {
+			wf.InstanceBoundaries = appendUniqueStr(wf.InstanceBoundaries, b)
+		}
+	}
+	// B09：前端动作（可选）。
+	wf.Frontend = seqAnalyzeFrontend(a, base, wf.Entries)
+	// B10：组合覆盖（可选）。
+	wf.Coverage = seqAnalyzeCoverage(a, base, wf)
 	if base.acc != nil {
 		wf.Continuation = &SeqWorkflowContinuation{
 			SegmentsBudget: base.ContinueSegments,
@@ -151,4 +227,21 @@ func (a *Actions) seqAnalyzeRelatedEntries(base CodeSequenceRequest, root *CodeS
 		}
 	}
 	return wf, nil
+}
+
+// seqAttachWorkflow 分析关联入口并挂 workflow（单入口时无操作）。
+func (a *Actions) seqAttachWorkflow(base, req CodeSequenceRequest, root *CodeSeqNode,
+	relatedEntries []string) error {
+	if len(relatedEntries) == 0 {
+		return nil
+	}
+	wfBase := base
+	wfBase.acc = req.acc
+	wfBase.pkgSet = req.pkgSet
+	wf, werr := a.seqAnalyzeRelatedEntries(wfBase, root, req.entryID, relatedEntries)
+	if werr != nil {
+		return werr
+	}
+	root.Workflow = wf
+	return nil
 }

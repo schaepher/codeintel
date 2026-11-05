@@ -35,6 +35,8 @@ func newSeqCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, sr
 		pos := fset.Position(call.Lparen)
 		node = &CodeSeqNode{Kind: "call", Label: callLabel(fset, src, fun), Actor: callActor(fset, src, fun), Line: pos.Line,
 			call: call}
+		// B02：未知调用前先失效实参对象/分配（被调函数体读不到旧列值）。
+		seqPreInvalidateCall(req, call)
 		// U04k：AST 调用 → 最新节点（调用方绑定返回槽来源用）。
 		if req.acc != nil {
 			if req.acc.callNodes == nil {

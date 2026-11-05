@@ -91,11 +91,19 @@ func seqIdentityBeforeDepth(a *Actions, req CodeSequenceRequest, f *ast.File, fs
 	}
 	// 3) 局部变量数据流（构造器/字面量初始化）
 	if id, isID := sel.X.(*ast.Ident); isID {
-		if impl := a.localVarImplObj(req, f, pkgPathOf(req.curSym), id.Name, id.Obj, sel.Sel.Name); impl != "" {
+		impl, okRT := seqReturnSlotImplMethod(a, req, sel)
+		if !okRT {
+			impl = a.localVarImplObj(req, f, pkgPathOf(req.curSym), id.Name, id.Obj, sel.Sel.Name)
+		}
+		if impl != "" {
+			reason := "localvar-init-dataflow"
+			if okRT {
+				reason = "localvar-return-slot"
+			}
 			node.ImplType = implTypeShort(impl)
 			node.Evidence = &SeqEvidence{Source: SeqEvidenceLocalVar, CallFile: curFile,
 				CallLine: pos.Line, SymbolID: impl, Confidence: confidence,
-				Reason: "localvar-init-dataflow"}
+				Reason: reason}
 			return true
 		}
 	}

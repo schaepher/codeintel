@@ -5,6 +5,7 @@ package action
 import (
 	"go/ast"
 	"go/token"
+	"strconv"
 )
 
 func seqExpandResolvedCall(a *Actions, req CodeSequenceRequest, node *CodeSeqNode, fun ast.Expr,
@@ -91,6 +92,33 @@ func seqExpandResolvedCall(a *Actions, req CodeSequenceRequest, node *CodeSeqNod
 	// todo11-2：实参字面量走有界值流解析（≤2 层），解析不到保持空串。
 	args := a.resolveSceneArgLiterals(fset, src, call, req.curBody, req.curParams,
 		req.incomingArgs, req.incomingSrc, req.sceneConsts, maxSceneFlowDepth)
+	// U04/B07：当前值环境里的确定字面量来源（实例重分析种子变量）优先于
+	// AST 到达定义给的"未知"哨兵；取址逃逸仍由 scalarOriginAt 挡住。
+	for i := range args {
+		if i >= len(call.Args) {
+			break
+		}
+		if args[i].val != "" && args[i].val != sceneArgUnknown {
+			continue
+		}
+		// 只有"没有定义"（空）才用环境来源；"有定义但不可判定"的哨兵在普通
+		// 分析里不得被覆盖（深度上限/取址歧义必须保持未知）。实例重分析
+		// （B07）显式注入的读取值可以覆盖哨兵。
+		if args[i].val == sceneArgUnknown && len(req.seedVarLits) == 0 && len(req.scanSeeds) == 0 {
+			continue
+		}
+		o := seqScalarOriginOf(req, call.Args[i])
+		if o == nil || o.Kind != SeqOriginLiteral || o.Literal == "" {
+			continue
+		}
+		val := o.Literal
+		if o.ScalarType == "string" {
+			if unq, err := strconv.Unquote(o.Literal); err == nil {
+				val = unq
+			}
+		}
+		args[i] = sceneArg{val: val, source: "env:literal"}
+	}
 	req.callArgLits, req.callArgSrcs, req.callArgWhy = sceneArgValues(args)
 	req.callArgFields = a.resolveSceneArgFields(req, fset, src, call, req.curBody, req.curParams)
 	// T04：`Get().Work()` —— 先按 getter 返回来源具体化；来源未知时明确

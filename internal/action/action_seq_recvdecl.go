@@ -152,6 +152,15 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 		seqBindEntryParamOrigins(req, env, fn.Type.Params, fset, src, symID)
 	} else {
 		seqBindParamOrigins(env, fn.Type.Params, req.callArgOrigins)
+		// B02：被调方形参持有分配时复制调用方字段槽快照（只读调用可读当前列值）。
+		seqSeedParamFieldSlots(req, env, fn.Type.Params, req.callArgOrigins)
+		// B07：实例重新分析——覆盖形参来源并注入读取值（只读副本）。
+		if len(req.seedParamOrigs) > 0 {
+			seqBindParamOrigins(env, fn.Type.Params, req.seedParamOrigs)
+		}
+		if len(req.seedVarLits) > 0 {
+			seqSeedVarLits(req, env, fn.Body)
+		}
 		seqPropagatePendingParams(req, fn.Type.Params)
 	}
 	seqBindParamErrResults(env, fn.Type.Params, req.callArgErrResults)

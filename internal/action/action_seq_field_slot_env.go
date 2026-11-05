@@ -4,6 +4,7 @@ package action
 
 import (
 	"go/ast"
+	"strings"
 )
 
 // copyBoolMap bool map 副本（环境 clone 用）。
@@ -84,21 +85,22 @@ func seqFieldSlotLookupSelector(req CodeSequenceRequest, sel *ast.SelectorExpr) 
 	if sel == nil {
 		return nil, false
 	}
-	id, ok := runtimeUnparen(sel.X).(*ast.Ident)
-	if !ok || id.Obj == nil {
+	id, path, ok := seqSelectorFieldPath(sel)
+	if !ok || id.Obj == nil || len(path) == 0 {
 		return nil, false
 	}
+	field := strings.Join(path, ".")
 	alloc := seqAllocOriginOf(req, id)
 	if alloc != nil {
 		if !seqAllocMatchesRequest(req, alloc) || req.env.allocEscaped(alloc.ID) {
 			return nil, true
 		}
-		if o, ok := seqFieldSlotGet(req, seqFieldSlotKey{alloc: alloc.ID, field: sel.Sel.Name}); ok {
+		if o, ok := seqFieldSlotGet(req, seqFieldSlotKey{alloc: alloc.ID, field: field}); ok {
 			return o, true
 		}
 		return nil, true
 	}
-	if o, ok := seqFieldSlotGet(req, seqFieldSlotKey{obj: id.Obj, field: sel.Sel.Name}); ok {
+	if o, ok := seqFieldSlotGet(req, seqFieldSlotKey{obj: id.Obj, field: field}); ok {
 		return o, true
 	}
 	return nil, false

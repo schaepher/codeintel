@@ -23,6 +23,8 @@ const (
 	// U04e：Scan 错误槽 / 列来源。
 	SeqOriginScanError  = "scan_error"
 	SeqOriginReadColumn = "read_column"
+	// B05：数据库生成键（LastInsertId）。
+	SeqOriginGeneratedKey = "generated_key"
 )
 
 // 标量来源树的边界（有界展开：超限即未知，不截取部分）。
@@ -61,6 +63,8 @@ type SeqStorageOrigin struct {
 	ReadColumn *SeqReadColumn `json:"read_column,omitempty"`
 	// U04k：new(T) 分配身份（指针模型；别名共享同一 ID）。
 	Allocation *SeqAllocation `json:"allocation,omitempty"`
+	// B05：生成键来源。
+	GeneratedKey *SeqGeneratedKey `json:"generated_key,omitempty"`
 	// snapshot U04l：该来源在求值时刻就已经固定（getter 返回槽），续查后的
 	// 后序重算不得用后来的字段状态覆盖它。
 	snapshot bool
@@ -110,6 +114,14 @@ func cloneSeqScalarOrigin(o *SeqStorageOrigin) *SeqStorageOrigin {
 	if o.Allocation != nil {
 		cp := *o.Allocation
 		out.Allocation = &cp
+	}
+	if o.GeneratedKey != nil {
+		cp := *o.GeneratedKey
+		if o.GeneratedKey.Access != nil {
+			ac := *o.GeneratedKey.Access
+			cp.Access = &ac
+		}
+		out.GeneratedKey = &cp
 	}
 	if o.FieldRead != nil {
 		cp := *o.FieldRead
@@ -185,6 +197,13 @@ func sameSeqScalarOrigin(a, b *SeqStorageOrigin) bool {
 		return false
 	}
 	if a.ScanResult != nil && a.ScanResult.ID != b.ScanResult.ID {
+		return false
+	}
+	if (a.GeneratedKey == nil) != (b.GeneratedKey == nil) {
+		return false
+	}
+	if a.GeneratedKey != nil && (a.GeneratedKey.CallID != b.GeneratedKey.CallID ||
+		a.GeneratedKey.Slot != b.GeneratedKey.Slot) {
 		return false
 	}
 	if (a.Allocation == nil) != (b.Allocation == nil) {

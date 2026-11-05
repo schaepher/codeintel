@@ -20,8 +20,6 @@ import (
 // CodeSequence 解析目标函数的代码级时序（读源码 AST——纯语法不依赖
 // 类型信息）。depth 为嵌套层级（1 = 只本函数；>1 递归展开被调函数
 // 内部——行号对齐索引调用边定位被调符号）。符号解析失败返回 nil。
-// R84：接口方法入口（grpc 服务入口接口——动态入口无方法体，如
-// (OrderServiceServer).SubmitOrder）→ 具体化到实现方法再解析。
 func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	logger := zap.L()
 	logger.Info("enter (Actions).CodeSequence", zap.String("target", req.Target), zap.Int("depth", req.Depth))
@@ -116,6 +114,19 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	relatedEntries, relErr := a.seqValidateRelatedEntries(req.entryID, req.RelatedEntries)
 	if relErr != nil {
 		return nil, relErr
+	}
+	// B10：组合选择器必须是准确 canonical 函数 ID（先校验再分析）。
+	if req.CombinationSelector != "" {
+		if !seqIsCanonicalFuncID(req.CombinationSelector) {
+			return nil, fmt.Errorf("--combination-selector %q 不是准确 canonical 函数 ID", req.CombinationSelector)
+		}
+		sel, serr := a.repo.GetSymbol(domain.CanonicalID(req.CombinationSelector))
+		if serr != nil {
+			return nil, fmt.Errorf("--combination-selector %s 不存在于当前索引: %w", req.CombinationSelector, serr)
+		}
+		if sel.Kind != domain.KindFunction && sel.Kind != domain.KindMethod {
+			return nil, fmt.Errorf("--combination-selector %s 不是函数/方法", req.CombinationSelector)
+		}
 	}
 	// todo25 §13：运行时快照分析（分支裁剪 + 读取值证据）。输入已在 CLI 开库
 	// 前校验；这里只做入口符号执行，失败不产出半棵树。
@@ -281,17 +292,9 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 		zap.Int("nodes", timing.Nodes), zap.Float64("resolve_ms", timing.ResolveMS),
 		zap.Float64("read_ms", timing.ReadMS), zap.Float64("walk_ms", timing.WalkMS),
 		zap.String("stop", stopCode))
-	// U04a：关联入口集合（根入口外按 canonical ID 排序；共享追加预算）。
-	// 任何入口失败都不返回半份结果。
-	if len(relatedEntries) > 0 {
-		wfBase := base
-		wfBase.acc = req.acc
-		wfBase.pkgSet = req.pkgSet
-		wf, werr := a.seqAnalyzeRelatedEntries(wfBase, root, req.entryID, relatedEntries)
-		if werr != nil {
-			return nil, werr
-		}
-		root.Workflow = wf
+	// U04a：关联入口（共享预算；失败不返回半份结果）。
+	if err := a.seqAttachWorkflow(base, req, root, relatedEntries); err != nil {
+		return nil, err
 	}
 	return root, nil
 }

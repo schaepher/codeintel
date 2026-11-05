@@ -178,8 +178,8 @@ func TestU30U04aSharesBudgetAndRenders(t *testing.T) {
 		t.Fatalf("mermaid exit=%d\n%s", code, mermaid)
 	}
 	if !strings.Contains(mermaid, "entry order unproven") ||
-		!strings.Contains(mermaid, "entry Submit") ||
-		!strings.Contains(mermaid, "entry FinishReview") {
+		!strings.Contains(mermaid, "selected root instance-1: Submit") ||
+		!strings.Contains(mermaid, "conditional external request instance-2: FinishReview") {
 		t.Fatalf("Mermaid 未展示全部入口/顺序未证明:\n%s", mermaid)
 	}
 
@@ -189,8 +189,10 @@ func TestU30U04aSharesBudgetAndRenders(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("text exit=%d\n%s", code, text)
 	}
-	for _, want := range []string{"== Submit 代码级时序（entry order unproven） ==",
-		"== FinishReview 代码级时序（entry order unproven） =="} {
+	// 有请求实例时走实例视图（U04g）；仍展示全部入口且标注顺序未证明。
+	for _, want := range []string{"== selected root instance-1: Submit ==",
+		"== conditional external request instance-2: FinishReview ==",
+		"entry order unproven"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("文本缺少 %q:\n%s", want, text)
 		}
