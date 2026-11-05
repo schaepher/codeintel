@@ -2520,9 +2520,8 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
 
 **2026-11-07 todo30 进行中（逐项状态见 [`todo30-checklist.md`](todo30-checklist.md)）**：
 U04a 关联入口集合（共享预算/workflow.entries）、U04c 分支条件操作数来源、
-U04d SQL 读取结果身份、U04e Scan 列来源/错误身份、U04i 嵌套字段值类型、
-U04j 值模型字段槽、U04k 分配+别名、U04l 只读 getter、B01 getter 返回槽、
-U07b 关联入口参与者作用域已完成；U04b/U04f–U04h、U04/B02–B11 未开始，
+U04a–U04l、U04、B01–B11、U07b 全部按公开示例完成（真实 28 业务流程属
+调用方接入验收；ORM Find/DAO/动态命名等边界见 Checklist）；
 依赖顺序与剩余范围写在该 Checklist（下一轮建议 U04d→U04e→U04j）。
 
 **2026-10-26 移除**：P1-02（全扫投影缓存——接入 repo_chain/repo_flows/

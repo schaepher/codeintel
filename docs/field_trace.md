@@ -8406,3 +8406,34 @@ action；开库前先 `ValidateRuntimeData`）。
   **求值时刻**标 `snapshot`（续查后序重算不覆盖）；defer/go 调度目标闭包体
   读取外层字段时以 `fieldsUnknown` 掩码返回未知，而**实参**（IIFE）仍按
   当前值立即求值。测试：`integration/todo30_field_slots_test.go`。
+
+## §189 todo30 剩余交付：跨入口连接/实例/渲染 + 字段槽链 + B 系列（2026-11-07）
+
+- **U04b/f/g/h/U04**：`action_seq_workflow_conn.go`（资源/表/AND 键匹配、条件化
+  `connections`、4096/256 预算）→ `action_seq_workflow_instance*.go`（BFS 实例、
+  `instance_condition` 真值、64/8/65536 预算、`related_reads` 合并、循环/预算
+  `partial`）→ `internal/cli/query_sequence_render_instances.go`（`opt`/instance
+  消息行、条件真值/读取值/请求键/缺失证明注记；>1 实例优先于 U04a 入口视图）。
+  Scan 错误退出在实例复制树中保留；depth=1+续查与完整深度同流程（测试）。
+- **U04j/k/l/B01**：`action_seq_field_slot*.go` 字段槽（对象/分配 + 字段路径）、
+  `new(T)` 分配与别名、只读 getter、求值时刻快照、调度体 `fieldsUnknown` 掩码。
+  位置敏感的 Scan 地址传递：`seqAllocOriginForScan`/`clearScanPassEscape`；
+  `markScalarEscapedAt` 保留**最早**逃逸点，后续取址不能把失效起点推后。
+- **B02**：构造返回分配在调用方重新归属（`seqRebaseReturnedAllocation`）；
+  `seqReadOnlyObserveCall` 保守只读证明 + `seqPreInvalidateCall`（未知调用前
+  失效）+ `seqSeedParamFieldSlots`（只读调用传字段槽快照）。
+- **B03**：SQL 字段路径逐级解析（`seqFieldPathType`）；ORM 证据 → 工作流
+  `seqORMWritesFromEvidence/seqORMReadsFromEvidence`（xorm 显式 Table + 标签列名，
+  `snakeCase` 默认）。
+- **B04/B05/B06**：同键不同写入合并；`(Result).LastInsertId` → `generated_key`；
+  事务资源取 Begin 接收者的包级 DB 声明 + `transaction_commit` 缺失证明。
+- **B07**：实例读取值种子重分析（`seedVarLits/seedParamOrigs/scanSeeds`，
+  `seqWFMergeBranchConditions` 保留原 read_column 身份）；`localvar-return-slot`
+  按返回槽具体类型解析接口方法；重分析 ≤16 次/请求。
+- **B08**：实例读取值代入快照谓词（`seqWFRuntimeReadValues`/`seqWFSnapshotRow`），
+  唯一行补列值；多行/缺绑定不补（ambiguous/missing_fact）。
+- **B09/B10/B11**：前端 TS/TSX 导出函数/真实 onClick/fetch → http_route handler；
+  选择器常量/条件枚举 → `coverage`；`sequence-batch` 导出 Markdown/SVG/index，
+  失败隔离与重复 id 校验。
+- 测试：`integration/todo30_*_test.go`（真实 init→CLI，覆盖正反例与 depth 一致性）；
+  全量 `go test ./internal/...` + `-tags integration ./integration` 通过。
