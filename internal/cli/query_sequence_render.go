@@ -17,6 +17,10 @@ func renderCodeSeqMermaid(root *action.CodeSeqNode) string {
 	if root == nil {
 		return ""
 	}
+	// U04a/U07b：关联入口集合 → 同一分析树的多入口展示（参与者按入口隔离）。
+	if seqWorkflowEntries(root) != nil {
+		return renderCodeSeqWorkflowMermaid(root)
+	}
 	var b strings.Builder
 	b.WriteString("sequenceDiagram\n")
 	// todo12-13：完整性与投影诊断（mermaid 注释不渲染，但保留可审计行）

@@ -33,7 +33,7 @@ import (
 // out：非空时主输出写文件（plantuml 成功 → PNG 字节；svg → SVG 文本；
 // 否则文本），stdout 打印路径。扩展名与内容必须一致：非 svg 模式写
 // *.svg、svg 模式写 *.png 都直接报错。
-func cmdQuerySequenceCode(acts *action.Actions, abs, target string, depth, contSegments int, mermaid bool, jsonOut bool, diagram, out string, focus []string, evidence bool, scene []string, runtimeData string, timeout time.Duration, verifyEvidence string, allRepos bool) int {
+func cmdQuerySequenceCode(acts *action.Actions, abs, target string, depth, contSegments int, mermaid bool, jsonOut bool, diagram, out string, focus []string, evidence bool, scene []string, runtimeData string, timeout time.Duration, verifyEvidence string, allRepos bool, relatedEntries []string) int {
 	if depth <= 0 {
 		depth = 1
 	}
@@ -73,7 +73,8 @@ func cmdQuerySequenceCode(acts *action.Actions, abs, target string, depth, contS
 		Filter:       loadSeqFilter(), Focus: focus, Scene: action.NewScene(scene),
 		RuntimeDataPath: runtimeData, Ctx: ctx,
 		Evidence: evidence || verifyEvidence != "", Format: diagram, Out: out,
-		CandidateRepos: cands, Open: openRepoActions, Scope: scope, ScopeReason: scopeReason}
+		CandidateRepos: cands, Open: openRepoActions, Scope: scope, ScopeReason: scopeReason,
+		RelatedEntries: relatedEntries}
 	req.SetCLIVersion(version())
 	root, err := acts.CodeSequence(req)
 	// todo21-14.5：无论成功/失败都留一条可断言的预算范围记录（仅诊断开关
@@ -242,8 +243,8 @@ func renderCodeSeq(root *action.CodeSeqNode, mermaid, jsonOut bool, diagram, out
 		fmt.Print(m)
 		return 0, false
 	}
-	// 默认文本：缩进树（源码顺序 + 分支/循环标注）
-	text := fmt.Sprintf("== %s 代码级时序 ==\n", root.Label) + seqText(root.Nodes, 1) + seqDiagText(root) + seqSceneText(root)
+	// 默认文本：缩进树（源码顺序 + 分支/循环标注）；关联入口模式逐入口展示。
+	text := seqTextRoot(root)
 	if evidence {
 		text += seqEvidenceText(root)
 	}

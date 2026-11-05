@@ -43,6 +43,24 @@ func cmdQuery(args []string) int {
 			return 2
 		}
 	}
+	// todo30 U04a：--related-entry 只能用于 `query sequence --code`；空值/后接
+	// flag 在开库前拒绝（不把其它 flag 当入口 ID）。
+	if f.relatedEntrySet {
+		if sub != "sequence" || !f.code {
+			fmt.Fprintln(os.Stderr, "error: --related-entry 只能用于 `query sequence --code`")
+			return 2
+		}
+		for _, e := range f.relatedEntries {
+			if strings.TrimSpace(e) == "" {
+				fmt.Fprintln(os.Stderr, "error: --related-entry 不接受空值（只接受准确 canonical 函数 ID）")
+				return 2
+			}
+			if strings.HasPrefix(e, "-") {
+				fmt.Fprintf(os.Stderr, "error: --related-entry 缺少入口 ID（后接的是 flag：%s）\n", e)
+				return 2
+			}
+		}
+	}
 	// todo25 §13：运行时快照的用法校验必须在**开库之前**（验证逻辑在 action）。
 	if f.runtimeDataErr != "" {
 		fmt.Fprintf(os.Stderr, "error: %s\n", f.runtimeDataErr)
@@ -220,7 +238,7 @@ func cmdQuery(args []string) int {
 		// R76：时序图；R81：--code 代码级时序（--depth 嵌套层级）；
 		// S4：--format plantuml 转 PNG base64
 		if f.code {
-			return cmdQuerySequenceCode(acts, abs, target, f.depth, f.contSegments, f.format == "mermaid" || f.format == "plantuml" || f.format == "svg", f.json, f.format, f.out, f.focus, f.evidence, f.scene, f.runtimeData, f.timeout, f.verifyEvidence, f.allRepos)
+			return cmdQuerySequenceCode(acts, abs, target, f.depth, f.contSegments, f.format == "mermaid" || f.format == "plantuml" || f.format == "svg", f.json, f.format, f.out, f.focus, f.evidence, f.scene, f.runtimeData, f.timeout, f.verifyEvidence, f.allRepos, f.relatedEntries)
 		}
 		return cmdQuerySequence(acts, target, f.depth, f.format == "mermaid", f.json)
 	case "callers", "callees", "impact":

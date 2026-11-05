@@ -207,6 +207,13 @@ func parseQueryFlags(args []string) queryFlags {
 		case strings.HasPrefix(a, "--continue-segments="):
 			f.contSegSet = true
 			f.contSegments, f.contSegErr = parseContinueSegments(strings.TrimPrefix(a, "--continue-segments="))
+		case a == "--related-entry" && i+1 < len(args):
+			f.relatedEntrySet = true
+			f.relatedEntries = append(f.relatedEntries, args[i+1])
+			i++
+		case strings.HasPrefix(a, "--related-entry="):
+			f.relatedEntrySet = true
+			f.relatedEntries = append(f.relatedEntries, strings.TrimPrefix(a, "--related-entry="))
 		case a == "--focus" && i+1 < len(args):
 			f.focus = append(f.focus, splitComma(args[i+1])...)
 			i++

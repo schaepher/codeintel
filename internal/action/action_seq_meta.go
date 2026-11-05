@@ -273,6 +273,8 @@ type CodeSeqNode struct {
 	FieldWrites []SeqFieldWrite `json:"field_writes,omitempty"`
 	// U04c：if 分支条件的结构化来源（运算符 + 操作数来源；不改变 Scene）。
 	Condition *SeqCondition `json:"condition,omitempty"`
+	// U04a：关联入口分析集合（仅根节点；“没有 --related-entry”时省略）。
+	Workflow *SeqWorkflow `json:"workflow,omitempty"`
 	// U04k：return 节点的各结果槽来源 / 调用节点的返回槽来源共识。
 	ValueOrigins  []*SeqStorageOrigin `json:"value_origins,omitempty"`
 	ResultOrigins []*SeqStorageOrigin `json:"result_origins,omitempty"`

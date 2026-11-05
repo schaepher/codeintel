@@ -28,6 +28,9 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	defer logger.Info("exit (Actions).CodeSequence")
 	start := time.Now()
 	req.acts = a
+	// U04a：保存未修改的请求副本——关联入口从它派生独立环境（不继承
+	// 根入口的局部状态），但共享请求取消信号与追加预算。
+	base := req
 	if req.visited == nil {
 		req.visited = map[string]bool{}
 	}
@@ -109,6 +112,11 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	tResolved := time.Now()
 	// todo12-14：证据命令重放入口分析（不是被调节点本身——focus/scene 属于入口）
 	req.entryID = string(n.ID)
+	// U04a：先校验全部关联入口，再执行分析（无效入口不得先跑一半）。
+	relatedEntries, relErr := a.seqValidateRelatedEntries(req.entryID, req.RelatedEntries)
+	if relErr != nil {
+		return nil, relErr
+	}
 	// todo25 §13：运行时快照分析（分支裁剪 + 读取值证据）。输入已在 CLI 开库
 	// 前校验；这里只做入口符号执行，失败不产出半棵树。
 	if req.hasRuntimeConfig() {
@@ -267,6 +275,18 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 		zap.Int("nodes", timing.Nodes), zap.Float64("resolve_ms", timing.ResolveMS),
 		zap.Float64("read_ms", timing.ReadMS), zap.Float64("walk_ms", timing.WalkMS),
 		zap.String("stop", stopCode))
+	// U04a：关联入口集合（根入口外按 canonical ID 排序；共享追加预算）。
+	// 任何入口失败都不返回半份结果。
+	if len(relatedEntries) > 0 {
+		wfBase := base
+		wfBase.acc = req.acc
+		wfBase.pkgSet = req.pkgSet
+		wf, werr := a.seqAnalyzeRelatedEntries(wfBase, root, req.entryID, relatedEntries)
+		if werr != nil {
+			return nil, werr
+		}
+		root.Workflow = wf
+	}
 	return root, nil
 }
 

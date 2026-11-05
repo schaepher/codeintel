@@ -98,6 +98,10 @@ type CodeSequenceRequest struct {
 	Target  string // 符号名或 canonical ID
 	RepoAbs string // 仓库绝对路径（源码读取）
 	Depth   int    // 嵌套层级（1 = 只本函数；>1 递归展开被调函数内部）
+	// RelatedEntries U04a：需要一起分析的关联入口（准确 canonical 函数 ID）。
+	// 只选择入口集合——不提供步骤、顺序、次数或记录键映射；所有入口限定在
+	// 当前仓库，重复入口只分析一次，根入口外按 canonical ID 稳定排序。
+	RelatedEntries []string
 	// ContinueSegments T12b：全请求总追加次数预算（0 = 不启用，维持原深度
 	// 限制）。每个 depth 前沿展开先占 1 次，兄弟/嵌套/RPC/HTTP/回调共享；
 	// 结果接回同一棵树，N 的合法范围 1–128 由 CLI 在开库前校验。

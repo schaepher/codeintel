@@ -50,6 +50,8 @@ type queryFlags struct {
 	contSegments     int      // todo24 §2：sequence --code --continue-segments N（0=未传）
 	contSegSet       bool     // --continue-segments 显式出现（含非法值——须拒绝）
 	contSegErr       string   // --continue-segments 解析错误（缺值/非数字/越界）
+	relatedEntries   []string // U04a：--related-entry（可重复；准确 canonical 函数 ID）
+	relatedEntrySet  bool     // --related-entry 显式出现（用错命令须拒绝）
 	focus            []string // todo10-2：sequence --code --focus——关注目标（字段路径 / return）
 	evidence         bool     // todo10-8：sequence --code --evidence——输出箭头证据清单
 	scene            []string // todo10-5：--scene k=v——场景条件（静态可判定，用于分支裁剪）

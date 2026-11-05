@@ -149,6 +149,7 @@ const usageText = `codeintel - Go 代码库智能索引与查询（MVP）
                                   同名方法；目标仓库经注册表跨仓解析；未续接
                                   原因带诊断）
   codeintel query sequence <sym> [--code] [--depth N] [--continue-segments N]
+                 [--related-entry <canonical-id>]
                  [--format mermaid|plantuml|svg]
                  [--out <file>] [--focus <字段|return>] [--evidence] [--scene k=v]
                  [--runtime-data <snapshot.json>]
@@ -164,7 +165,12 @@ const usageText = `codeintel - Go 代码库智能索引与查询（MVP）
                                   --continue-segments N（1–128）为全请求总追加
                                   次数预算（每个 depth 前沿展开占 1 次，兄弟/
                                   嵌套/RPC/HTTP/回调共享；结果接回同一棵树，
-                                  meta.continuation 记录 expanded/前沿/预算停止））
+                                  meta.continuation 记录 expanded/前沿/预算停止）；
+                                  --related-entry（可重复）选择需要一起分析的入口
+                                  （准确 canonical 函数 ID；最多 32 个；重复入口
+                                  只分析一次、共享取消与追加预算；输出
+                                  workflow.entries/ordering=unproven，入口
+                                  顺序与执行次数仍未证明））
   codeintel query packages [--json]
                                   包结构清单（包路径/职责/符号数）
   codeintel query architecture [--json]
