@@ -8390,3 +8390,19 @@ action；开库前先 `ValidateRuntimeData`）。
   或目标不支持时清掉目标旧值；defer/async 调度体不生成列来源。
   测试：`integration/todo30_u04d_test.go`、`todo30_u04e_test.go`（真实
   init→CLI；含 Rows 前提、辅助函数+别名、depth1+续查身份一致）。
+
+- **U04j 值模型字段槽**：`env.fields`（键 = 对象声明/分配 + 字段名）+ 分支/
+  循环合并（缺失/不同 → 未知）；Scan `&record.Kind` 按 SELECT 列序绑定
+  `read_column`；256 槽/256 根/4096 别名/4096 归属预算 → `scan_field_budget`；
+  普通字段写、整对象覆写、`*alias=...`、方法接收者（未证明只读）、捕获写者、
+  go/defer 目标闭包体读取均失效；类型别名/指针根无分配/嵌套路径/自定义
+  Scanner 不支持。
+- **U04k 分配**：`new(T)` → `allocation`（别名共享 ID；重绑只切分配；传出/
+  全局/通道/未知调用/方法接收者失效；跨入口/仓库不借用）。**位置敏感的
+  取址**：标准 Scan 的 `&record.Kind` 会让 `record` 在 Scan 前被标逃逸，
+  因此分配查找用 `seqAllocOriginForScan`（按调用位置忽略本次地址传递），
+  绑定成功后清除本次逃逸标记（`clearScanPassEscape`）；更早的逃逸仍持续。
+- **U04l/B01 getter 返回槽**：`return getter()` 用调用方对象字段槽来源并在
+  **求值时刻**标 `snapshot`（续查后序重算不覆盖）；defer/go 调度目标闭包体
+  读取外层字段时以 `fieldsUnknown` 掩码返回未知，而**实参**（IIFE）仍按
+  当前值立即求值。测试：`integration/todo30_field_slots_test.go`。

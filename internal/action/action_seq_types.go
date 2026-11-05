@@ -267,6 +267,9 @@ type CodeSequenceRequest struct {
 	acts *Actions
 	// scheduled U04y：当前语句位于 go/defer 调度体（赋值观察标 scheduled）。
 	scheduled bool
+	// schedFieldMask U04j：被调度的**目标**（不是立即求值的实参）——闭包体
+	// 读取外层可变字段时字段槽视为未知。
+	schedFieldMask bool
 	// callArgOrigins U04c：本次调用实参的标量来源（在实参求值位置立即捕获，
 	// 被调函数形参绑定用；续查快照带值拷贝，不被后续赋值污染）。
 	callArgOrigins []*SeqStorageOrigin

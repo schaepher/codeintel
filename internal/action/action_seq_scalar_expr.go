@@ -35,9 +35,18 @@ func seqScalarOriginDepth(req CodeSequenceRequest, e ast.Expr, depth int) *SeqSt
 	case *ast.BasicLit:
 		return seqBasicLitOrigin(v)
 	case *ast.SelectorExpr:
+		// U04j/U04k：字段槽（Scan 得到的列值，按对象/分配 + 字段隔离）。
+		// 分配根已由字段槽跟踪：无槽即显式未知（不回退到旧来源）。
+		if o, tracked := seqFieldSlotLookupSelector(req, v); tracked {
+			return o
+		}
 		// U04v：`req.ID` / `req.Nested.ID` → 字段读取来源（独立读取 ID）。
 		return seqFieldReadOrigin(req, v)
 	case *ast.CallExpr:
+		// U04k：已证明的 `new(T)` 分配身份。
+		if o := seqNewAllocOrigin(req, v, depth); o != nil {
+			return o
+		}
 		// U04e：已证明的 Scan 调用 → 错误槽（Scan 只返回 error）。
 		if o := seqScanErrorOriginAt(req, v); o != nil {
 			return o

@@ -74,6 +74,22 @@ func (e *seqEnv) setScalarScanTarget(obj *ast.Object, origin *SeqStorageOrigin, 
 	return true
 }
 
+// clearScanPassEscape 标准 Scan 的地址传递不保留指针：只清除本次调用
+// （escapedAt >= callPos）的逃逸标记；更早的持续失效保留。
+func (e *seqEnv) clearScanPassEscape(obj *ast.Object, callPos token.Pos) {
+	if e == nil || obj == nil {
+		return
+	}
+	slot, ok := e.scalarSlot(obj)
+	if !ok || !slot.escaped {
+		return
+	}
+	if slot.escapedAt == token.NoPos || slot.escapedAt < callPos {
+		return
+	}
+	e.scalars[obj] = seqScalarSlot{origin: slot.origin}
+}
+
 // markScalarEscaped 标记持续逃逸（本地层写——阴影对象互不影响）。
 func (e *seqEnv) markScalarEscaped(obj *ast.Object) {
 	e.markScalarEscapedAt(obj, token.NoPos)

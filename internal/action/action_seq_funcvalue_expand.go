@@ -86,7 +86,16 @@ func seqExpandSingleValue(a *Actions, req CodeSequenceRequest, call *ast.CallExp
 		if fv.callbackList {
 			sub.inCallbackList = true
 		}
-		sub.env = newSeqEnv(fv.env)
+		// U04j：调度（defer/go）的闭包体读取外层字段时不能沿用当前值；
+		// 立即求值的实参（IIFE 参数）不受影响（req.schedFieldMask 只在目标
+		// 调用上置位）。
+		if req.scheduled && req.schedFieldMask {
+			mask := newSeqEnv(fv.env)
+			mask.fieldsUnknown = true
+			sub.env = newSeqEnv(mask)
+		} else {
+			sub.env = newSeqEnv(fv.env)
+		}
 		bindSeqParams(sub.env, fv.lit.Type.Params, args)
 
 		sub.curSym = fv.enclosing

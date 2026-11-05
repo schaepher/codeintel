@@ -59,7 +59,7 @@ func seqFieldBaseOrigin(req CodeSequenceRequest, e ast.Expr) *seqFieldBase {
 				root.Parameter = *origin.Parameter
 			}
 			root.Symbol = origin.Symbol
-			return &seqFieldBase{root: root, ref: ref}
+			return &seqFieldBase{root: root, ref: ref, obj: x.Obj}
 		case SeqOriginFieldRead:
 			if origin.FieldRead == nil {
 				return nil
@@ -82,7 +82,7 @@ func seqFieldBaseOrigin(req CodeSequenceRequest, e ast.Expr) *seqFieldBase {
 				ref = seqTypeRefOfSymbolID(origin.StructLiteral.TypeID)
 			}
 			return &seqFieldBase{root: &SeqFieldRoot{Kind: "struct_literal",
-				TypeID: origin.StructLiteral.TypeID, ID: origin.StructLiteral.ID}, ref: ref}
+				TypeID: origin.StructLiteral.TypeID, ID: origin.StructLiteral.ID}, ref: ref, obj: x.Obj}
 		case SeqOriginStructCopy:
 			// U04y：整值复制后的历史对象根（构造祖先，不是当前字段值）。
 			if origin.StructCopy == nil {
@@ -93,7 +93,19 @@ func seqFieldBaseOrigin(req CodeSequenceRequest, e ast.Expr) *seqFieldBase {
 				ref = seqTypeRefOfCopyTypeID(origin.StructCopy)
 			}
 			return &seqFieldBase{root: &SeqFieldRoot{Kind: "struct_copy",
-				TypeID: origin.StructCopy.TypeID, ID: origin.StructCopy.ID}, ref: ref}
+				TypeID: origin.StructCopy.TypeID, ID: origin.StructCopy.ID}, ref: ref, obj: x.Obj}
+		case SeqOriginAllocation:
+			// U04k：new(T) 分配根（别名共享同一分配 ID）。
+			if origin.Allocation == nil {
+				return nil
+			}
+			ref, ok := seqValueStructTypeRef(req, x, 0)
+			if !ok {
+				ref = seqTypeRefOfSymbolID(origin.Allocation.TypeID)
+			}
+			return &seqFieldBase{root: &SeqFieldRoot{Kind: "allocation",
+				TypeID: origin.Allocation.TypeID, ID: origin.Allocation.ID}, ref: ref,
+				alloc: origin.Allocation.ID}
 		}
 	case *ast.SelectorExpr:
 		if origin := seqFieldReadOrigin(req, x); origin != nil && origin.FieldRead != nil {
@@ -147,6 +159,9 @@ type seqFieldBase struct {
 	root *SeqFieldRoot
 	ref  seqORMTypeRef
 	path []string
+	// U04j/U04k：字段槽根身份（值类型对象声明 / new(T) 分配）。
+	obj   *ast.Object
+	alloc string
 }
 
 // seqFieldStepFrom 在当前类型上解析字段并生成 field_read 来源。

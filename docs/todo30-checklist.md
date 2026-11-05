@@ -17,11 +17,11 @@
 | U04g | 条件化请求实例用于文本与时序图 | **未开始** | 依赖 U04f；需要同一展示树输出文本/Mermaid/SVG/PNG、selected root / conditional external request / instance id 标注、条件块与 missing_proofs、Scan 错误回外部调用方。 |
 | U04h | 同一源写入的多个读取联合约束 | **未开始** | 依赖 U04b/U04e；需要 `related_reads[]`（独立 read/connection_index/read_values）、各 Scan 独立成功守卫、`joint_read_values_preserved`。 |
 | U04i | 嵌套字段/getter 使用准确字段值类型 | **已完成** | `SeqStorageFieldRead.valueRef`（内部缓存，不进 JSON）保存字段**值类型**；`req.Child.ID`/`child.ID`/`req.Ptr.ID`/`req.GetChild().ID`/`req.Child.GetID()` 的 `type_id` 均为字段值类型 `Leaf`，路径保留 `Child.ID`/`Ptr.ID`；缓存缺失时从 owner+最后一级字段声明恢复；类型别名按真实声明解析（`type Leaf = model.Leaf` → `model.Leaf`/`model/model.go`），新定义类型（`type Leaf model.Leaf`）不借用方法集合；请求根取址失效与 getter 返回非接收者对象保持未知。测试：`integration/todo30_u04i_test.go` |
-| U04j | 标准 SQL Scan 连接值类型模型直接标量字段 | **未开始** | 依赖 U04e；需要值类型结构体字段槽（按声明+字段名隔离，初始未知，分支/循环合并）、256 字段槽/根状态预算、`scan_field_budget`、方法接收者/捕获/调度失效规则。当前 env 只有标量槽，无字段槽。 |
-| U04k | 分配证明连接指针模型及局部别名 | **未开始** | 依赖 U04j；需要 `new(T)` 分配身份（AST 原调用绑定、别名共享、重绑只切分配、传出/取址/容器/全局/通道失效、4096 别名声明/归属预算、`scan_field_budget`）。当前 `SeqFieldRoot` 有构造/复制祖先，但没有"字段列值"槽。 |
-| U04l | 通过静态只读 getter 保留当前 Scan 字段来源 | **未开始** | 依赖 U04j/U04k；需要准确方法声明的零参单标量 `return receiver.Field` 证明（任意方法名/跨包）、读取位置用调用方对象与调用点、复用字段槽与失效规则。 |
+| U04j | 标准 SQL Scan 连接值类型模型直接标量字段 | **已完成** | `env.fields` 字段槽（按对象声明+字段/分配+字段隔离；分支/循环合并缺失即未知）；`&record.Kind` 按 SELECT 列序绑定 `read_column`；预算 256 槽/256 根/4096 别名/4096 归属 → `scan_field_budget`；普通字段写入、整对象覆写、`*=...`、自增、未证明只读的方法调用/接收者、捕获写者、go/defer 调度体读取均失效；类型别名/指针根无分配证明/嵌套路径/自定义 Scanner 不支持。测试：`integration/todo30_field_slots_test.go` |
+| U04k | 分配证明连接指针模型及局部别名 | **已完成** | `new(T)` → `allocation{id,type_id,repo,entry,symbol,file,offset}`（别名共享同一 ID；重绑只切分配不清旧别名；`*alias=...`/字段写/传出/全局/通道/未知调用/方法接收者使分配失效；跨入口/仓库不借用）。测试：`todo30_field_slots_test.go` |
+| U04l | 通过静态只读 getter 保留当前 Scan 字段来源 | **已完成** | 零参单 `return receiver.Field` + 内建标量声明一致 → 调用方对象字段槽来源（任意方法名/跨包）；修改方法/返回其它对象/带实参保持保守；defer 实参立即捕获保留、延迟闭包体不借用。`getter` 返回槽在求值时刻快照（后续字段变化不补历史返回值）。测试：`todo30_field_slots_test.go` |
 | U04 | 跨入口同记录、成功写入与多次 Finish 整合 | **未开始** | 依赖 U04b/U04f/U04g；需要资源/键/过滤/成功路径/请求身份与条件化 Mermaid（含"同一 FinishReview 两次独立请求"）。本轮只完成入口集合与条件操作数基础。 |
-| B01 | getter 实际返回值贯通立即执行匿名函数 | **未开始** | 依赖 U04l；需要 `return getter()` 保存调用时标量结果并传给外层立即执行调用，覆盖 defer/go/普通函数返回与覆写失效。 |
+| B01 | getter 实际返回值贯通立即执行匿名函数 | **已完成（公开示例）** | `return getter()` 在返回求值时刻固定来源（`snapshot` 不被续查后序重算覆盖），经 IIFE 返回槽传给外层调用（`defer Take(func(){return record.Current()}())` → `Take` 的 `kind=="profile"` 得到 `read_column/kind`）；deferred 闭包体读取保持未知。测试：`todo30_field_slots_test.go::Immediate/DeferBody` |
 | B02 | 跨构造函数及只读调用传递模型所有权与字段值 | **未开始** | 依赖 B01；需要构造返回分配身份 + 被调方法体"不修改/不保留"证明（不能把任意指针传参当完成方案）。 |
 | B03 | 嵌套字段/类型别名/ORM 模型到列映射 | **未开始** | 依赖 U04i/U04j；SQL 嵌套路径 + XORM 准确模型/表/列/读取结果接入同一机制（显式 Table + 列标签 → TableName + 命名策略）。 |
 | B04 | 联合不同写入提供的读取条件 | **未开始** | 依赖 U04h/B03；同表不同写入按可达顺序计算覆盖，不混历史值与最终值。 |
@@ -72,16 +72,15 @@ go test -tags integration ./integration -run 'TestU30' -count=1  # OK
 ```
 U04a(完成) → U07b(完成)
 U04a(完成) → U04b → U04f → U04g → U04
-U04b → U04d(完成) → U04e(完成) → U04j → U04k → U04l → B01 → B02 → B03 → B07
+U04b → U04d(完成) → U04e(完成) → U04j(完成) → U04k(完成) → U04l(完成) → B01(完成) → B02 → B03 → B07
 U04e → U04h → B04
 U04i(完成) → B03
 B05/B06 独立于扫描字段链，但跨入口连接需 U04b
 B08 依赖 U04f + 运行时快照；B09 → B10 → B11
 ```
 
-下一轮建议从 **U04j**（值类型模型字段槽）→ U04k → U04l → B01 继续
-（`scan-1/read_column` 已就绪），同时推进 U04b/U04f 让 `workflow.instances`
-可验证 U04l 的公开命令。
+下一轮从 **U04b/U04f/U04g** 开始（`scan_field`/`read_column`/getter 链路已
+就绪，可完成 U04l 的 workflow.instances 公开命令），再到 U04h/U04 与 B02–B11。
 
 ## 已知边界（本轮有意保留）
 

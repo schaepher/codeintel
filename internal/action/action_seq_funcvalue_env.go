@@ -27,13 +27,20 @@ type seqEnv struct {
 	// txs/txErrs U04n：事务变量与事务操作的错误槽。
 	txs    map[*ast.Object]seqTxSlot
 	txErrs map[*ast.Object]seqTxErrSlot
+	// fields U04j/U04k：Scan 字段槽（值类型对象 / 分配 + 字段名）；escapedAllocs
+	// 记录已经传出的分配（之后不能重新当作私有对象）。
+	fields        map[seqFieldSlotKey]seqFieldSlot
+	escapedAllocs map[string]bool
+	// fieldsUnknown 调度体读取外层字段的掩码（本层新建的槽仍可见）。
+	fieldsUnknown bool
 }
 
 func newSeqEnv(parent *seqEnv) *seqEnv {
 	return &seqEnv{parent: parent, vals: map[*ast.Object]seqValue{},
 		types: map[*ast.Object]seqTypeRef{}, scalars: map[*ast.Object]seqScalarSlot{},
 		errs: map[*ast.Object]seqErrSlot{}, rows: map[*ast.Object]seqRowSlot{},
-		txs: map[*ast.Object]seqTxSlot{}, txErrs: map[*ast.Object]seqTxErrSlot{}}
+		txs: map[*ast.Object]seqTxSlot{}, txErrs: map[*ast.Object]seqTxErrSlot{},
+		fields: map[seqFieldSlotKey]seqFieldSlot{}, escapedAllocs: map[string]bool{}}
 }
 
 func (e *seqEnv) lookup(obj *ast.Object) (seqValue, bool) {
@@ -64,7 +71,10 @@ func (e *seqEnv) clone() *seqEnv {
 		scalars: e.copyScalars(),
 		errs:    e.copyErrs(),
 		rows:    e.copyRows(),
-		txs:     txSlots, txErrs: txErrSlots}
+		txs:     txSlots, txErrs: txErrSlots,
+		fields:        e.copyFieldSlots(),
+		escapedAllocs: copyBoolMap(e.escapedAllocs),
+		fieldsUnknown: e.fieldsUnknown}
 	for k, v := range e.vals {
 		out.vals[k] = v
 	}
@@ -116,6 +126,8 @@ func (e *seqEnv) mergeBranches(branches []*seqEnv) {
 	// U04h：错误结果引用同理（不同分支指向不同写入 → 失效）。
 	e.mergeErrs(branches)
 	e.mergeRows(branches)
+	// U04j：字段槽跨分支合并（缺失/不同 → 未知）。
+	e.mergeFieldSlots(branches)
 }
 
 // sameSeqValue 两个函数值是否同一来源（kind + 字面量/符号/未知原因）。
@@ -180,4 +192,5 @@ func (e *seqEnv) mergePossible(pre *seqEnv) {
 	e.mergePossibleScalars(pre)
 	e.mergeErrs([]*seqEnv{e, pre})
 	e.mergeRows([]*seqEnv{e, pre})
+	e.mergeFieldSlots([]*seqEnv{e, pre})
 }

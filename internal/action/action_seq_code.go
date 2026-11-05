@@ -208,6 +208,12 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 				Count: 1, Detail: fmt.Sprintf("焦点投影移除 %d 个节点；原分析诊断保留（筛选不改变分析完整性）", removed)})
 		}
 	}
+	if req.acc != nil && req.acc.scanFieldBudget {
+		analysisDiags = append(analysisDiags, SeqDiagCount{
+			Code: SeqDiagFieldBudget, Count: 1,
+			Detail: "字段槽预算耗尽（256 字段槽/256 根状态/4096 别名声明/4096 归属判断）；" +
+				"不保留部分字段列来源当作完整结果"})
+	}
 	root.Meta = &SeqMeta{Version: 1, Target: req.Target, Timing: timing,
 		Diagnostics: append(analysisDiags, projectionDiags...),
 		Coverage:    seqCoverage(buildMeta)}
@@ -289,9 +295,3 @@ func (a *Actions) CodeSequence(req CodeSequenceRequest) (*CodeSeqNode, error) {
 	}
 	return root, nil
 }
-
-// exprTypeName 类型表达式 → 短名（Ident → 名；SelectorExpr pkg.T → T）
-// ——P0-5 receiver 字段声明类型提取。
-
-// SeqFilter 时序图导出过滤（S5）：按包/文件/函数/正则——命中不生成
-// 节点（如 log 调用）。cli 从 config.yaml 的 seq.filter_* 读取。

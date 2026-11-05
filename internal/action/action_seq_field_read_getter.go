@@ -38,12 +38,33 @@ func seqGetterOrigin(req CodeSequenceRequest, call *ast.CallExpr) *SeqStorageOri
 	// `return <recv>.<field>`：字段读取（读取位置 = getter 内的选择器）。
 	if fs, ok := runtimeUnparen(expr).(*ast.SelectorExpr); ok {
 		if recvBase, ok2 := seqGetterReceiverBase(req, base, fn, fs.X); ok2 {
+			// U04l：调用方对象已有字段槽（Scan 列值）时，直接返回该槽来源
+			// （读取位置使用调用方对象与调用点，不借用 getter 的临时接收者）。
+			if key, ok3 := seqFieldBaseSlotKey(recvBase, fs.Sel.Name); ok3 {
+				if out, found := seqFieldSlotGet(req, key); found {
+					return out
+				}
+			}
 			if out := seqFieldStepAt(req, recvBase, fs, declCtx); out != nil {
 				return out
 			}
 		}
 	}
 	return nil
+}
+
+// seqFieldBaseSlotKey 调用方直根对象的字段槽键（嵌套路径不借用外层槽）。
+func seqFieldBaseSlotKey(base *seqFieldBase, field string) (seqFieldSlotKey, bool) {
+	if base == nil || field == "" || len(base.path) > 0 {
+		return seqFieldSlotKey{}, false
+	}
+	if base.alloc != "" {
+		return seqFieldSlotKey{alloc: base.alloc, field: field}, true
+	}
+	if base.obj != nil {
+		return seqFieldSlotKey{obj: base.obj, field: field}, true
+	}
+	return seqFieldSlotKey{}, false
 }
 
 // seqGetterReceiverBase getter 返回的字段接收者就是方法 receiver。

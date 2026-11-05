@@ -59,6 +59,11 @@ type SeqStorageOrigin struct {
 	// U04e：Scan 错误槽 / 列来源。
 	ScanResult *SeqScan       `json:"scan_result,omitempty"`
 	ReadColumn *SeqReadColumn `json:"read_column,omitempty"`
+	// U04k：new(T) 分配身份（指针模型；别名共享同一 ID）。
+	Allocation *SeqAllocation `json:"allocation,omitempty"`
+	// snapshot U04l：该来源在求值时刻就已经固定（getter 返回槽），续查后的
+	// 后序重算不得用后来的字段状态覆盖它。
+	snapshot bool
 	// StructLiteral U04w：结构体字面量初始化来源（initialization_only）。
 	StructLiteral *SeqStorageStructLiteral `json:"struct_literal,omitempty"`
 	// U04x：整值复制的构造祖先（construction_ancestry_only）。
@@ -101,6 +106,10 @@ func cloneSeqScalarOrigin(o *SeqStorageOrigin) *SeqStorageOrigin {
 	if o.ReadColumn != nil {
 		cp := *o.ReadColumn
 		out.ReadColumn = &cp
+	}
+	if o.Allocation != nil {
+		cp := *o.Allocation
+		out.Allocation = &cp
 	}
 	if o.FieldRead != nil {
 		cp := *o.FieldRead
@@ -176,6 +185,13 @@ func sameSeqScalarOrigin(a, b *SeqStorageOrigin) bool {
 		return false
 	}
 	if a.ScanResult != nil && a.ScanResult.ID != b.ScanResult.ID {
+		return false
+	}
+	if (a.Allocation == nil) != (b.Allocation == nil) {
+		return false
+	}
+	if a.Allocation != nil && (a.Allocation.ID != b.Allocation.ID ||
+		a.Allocation.Entry != b.Allocation.Entry || a.Allocation.Repo != b.Allocation.Repo) {
 		return false
 	}
 	if (a.ReadColumn == nil) != (b.ReadColumn == nil) {

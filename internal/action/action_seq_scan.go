@@ -15,7 +15,6 @@ package action
 
 import (
 	"go/ast"
-	"go/token"
 )
 
 // Scan 相关常量。
@@ -180,6 +179,26 @@ func seqAttachScan(req CodeSequenceRequest, node *CodeSeqNode, call *ast.CallExp
 		if i < len(read.columns) {
 			t.Column = read.columns[i]
 		}
+		// U04j/U04k：`&record.Kind` / `&alias.Kind`（值类型模型或分配证明）。
+		if root, field, ok := seqScanFieldTarget(arg); ok {
+			t.Target = root.Name + "." + field
+			if typ, typOK := seqScanFieldDeclType(req, root, field, call.Pos()); typOK {
+				scan.Targets = append(scan.Targets, t)
+				if !bind || t.Column == "" {
+					seqClearScanFieldTarget(req, root, field)
+					continue
+				}
+				col, ok := seqReadColumnOrigin(scan, t, typ)
+				if !ok || !seqBindScanFieldTarget(req, root, field, col, call.Pos()) {
+					seqClearScanFieldTarget(req, root, field)
+				}
+				continue
+			}
+			t.Unsupported = "target_type_unsupported"
+			scan.Targets = append(scan.Targets, t)
+			seqClearScanFieldTarget(req, root, field)
+			continue
+		}
 		id := seqScanArgIdent(arg)
 		scalarType := ""
 		if id == nil || id.Name == "_" {
@@ -210,82 +229,4 @@ func seqAttachScan(req CodeSequenceRequest, node *CodeSeqNode, call *ast.CallExp
 		req.env.setScalarScanTarget(id.Obj, col, call.Pos())
 	}
 	node.Evidence.Scan = scan
-}
-
-// seqScanArgIdent `&x` → x（其它形态不支持）。
-func seqScanArgIdent(arg ast.Expr) *ast.Ident {
-	u, ok := runtimeUnparen(arg).(*ast.UnaryExpr)
-	if !ok || u.Op != token.AND {
-		return nil
-	}
-	id, ok := runtimeUnparen(u.X).(*ast.Ident)
-	if !ok {
-		return nil
-	}
-	return id
-}
-
-// seqScanTargetType 目标的声明类型（只接受内建标量；无显式类型/指针/复合
-// 类型一律不支持）。
-func seqScanTargetType(id *ast.Ident) (string, bool) {
-	if id == nil || id.Obj == nil {
-		return "", false
-	}
-	var typ ast.Expr
-	switch d := id.Obj.Decl.(type) {
-	case *ast.Field:
-		typ = d.Type
-	case *ast.ValueSpec:
-		typ = d.Type
-	}
-	if typ == nil {
-		return "", false
-	}
-	t := runtimeUnparen(typ)
-	if _, ok := t.(*ast.StarExpr); ok {
-		return "", false
-	}
-	name, ok := t.(*ast.Ident)
-	if !ok || !seqBuiltinTypeName(name.Name) {
-		return "", false
-	}
-	switch name.Name {
-	case "error", "any", "complex64", "complex128":
-		return "", false
-	}
-	return name.Name, true
-}
-
-// seqReadColumnOrigin 目标 → read_column 来源（同一 Scan 身份）。
-func seqReadColumnOrigin(scan *SeqScan, t SeqScanTarget, scalarType string) (*SeqStorageOrigin, bool) {
-	if scan == nil || t.Column == "" {
-		return nil, false
-	}
-	col := &SeqReadColumn{Result: scan, Column: t.Column, Index: t.Index, When: SeqScanWhenSuccess}
-	return &SeqStorageOrigin{Kind: SeqOriginReadColumn, ScalarType: scalarType, ReadColumn: col}, true
-}
-
-// seqBindReadResultOrigin 多槽赋值里槽 0 = 读取结果身份（`rows, err :=
-// DB.Query(...)`；错误槽保持未知）。
-func seqBindReadResultOrigin(req CodeSequenceRequest, call *ast.CallExpr, lhs []ast.Expr) {
-	if req.env == nil || call == nil || len(lhs) == 0 {
-		return
-	}
-	id, ok := lhs[0].(*ast.Ident)
-	if !ok || id.Obj == nil || id.Name == "_" {
-		return
-	}
-	if o := seqReadResultOriginAt(req, call); o != nil {
-		req.env.setScalar(id.Obj, o)
-	}
-}
-
-// seqScanErrorOriginAt 调用是已证明的 Scan → 错误返回槽来源（槽 0 = error）。
-func seqScanErrorOriginAt(req CodeSequenceRequest, call *ast.CallExpr) *SeqStorageOrigin {
-	node := seqCallNodeOf(req, call)
-	if node == nil || node.Evidence == nil || node.Evidence.Scan == nil {
-		return nil
-	}
-	cp := *node.Evidence.Scan
-	return &SeqStorageOrigin{Kind: SeqOriginScanError, ScalarType: "error", ScanResult: &cp}
 }

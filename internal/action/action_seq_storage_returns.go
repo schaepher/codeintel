@@ -8,7 +8,6 @@ package action
 
 import (
 	"go/ast"
-	"go/token"
 )
 
 // SeqOriginNil 字面 nil（U04l：`return nil` 的原始证据保留）。
@@ -23,6 +22,12 @@ func seqReturnOrigins(req CodeSequenceRequest, results []ast.Expr,
 	if len(results) == 1 {
 		// `return F()`：按 F 的声明结果数展开（不把一个 tuple 当一个槽）。
 		if call, ok := results[0].(*ast.CallExpr); ok {
+			// U04l/B01：已证明的单标量 getter 在**返回求值时刻**固定来源
+			// （后续对象变化不得重新读取字段补历史返回值）。
+			if getter := seqGetterOrigin(req, call); getter != nil {
+				getter.snapshot = true
+				return []*SeqStorageOrigin{getter}
+			}
 			if node := seqCallNodeOf(req, call); node != nil {
 				if origins := seqNodeResultOrigins(node); len(origins) > 0 {
 					return origins
@@ -40,35 +45,6 @@ func seqReturnOrigins(req CodeSequenceRequest, results []ast.Expr,
 	out := make([]*SeqStorageOrigin, 0, len(results))
 	for _, r := range results {
 		out = append(out, seqReturnOriginOf(req, r))
-	}
-	return out
-}
-
-// seqBareReturnOrigins 具名裸 return：按结果对象取来源（守卫见 U04k）。
-func seqBareReturnOrigins(req CodeSequenceRequest) []*SeqStorageOrigin {
-	if len(req.resultObjs) == 0 {
-		return nil
-	}
-	out := make([]*SeqStorageOrigin, 0, len(req.resultObjs))
-	for _, obj := range req.resultObjs {
-		if obj == nil || req.env == nil {
-			out = append(out, nil)
-			continue
-		}
-		if ref := req.env.errSlotAt(obj, token.NoPos); ref != nil {
-			out = append(out, &SeqStorageOrigin{Kind: SeqOriginWriteError, WriteError: ref})
-			continue
-		}
-		if rc := req.env.rowsResultOf(obj, token.NoPos); rc != nil {
-			out = append(out, &SeqStorageOrigin{Kind: SeqOriginWriteRowCount,
-				ScalarType: "int64", RowCount: rc})
-			continue
-		}
-		if origin, ok := req.env.scalarOriginAt(obj, token.NoPos); ok && origin != nil {
-			out = append(out, cloneSeqScalarOrigin(origin))
-			continue
-		}
-		out = append(out, nil)
 	}
 	return out
 }
@@ -296,5 +272,21 @@ func seqRefreshReturnOrigins(req CodeSequenceRequest, root *CodeSeqNode) {
 	if !ok {
 		return
 	}
-	root.ValueOrigins = seqReturnOrigins(ctx.req, ctx.results, nil)
+	next := seqReturnOrigins(ctx.req, ctx.results, nil)
+	// U04l：getter 返回槽在求值时刻已固定——保留快照，不用后来的字段状态
+	// 覆盖（其它槽仍需后序重算：包装函数 `return F()` 的续查结果）。
+	if len(root.ValueOrigins) > 0 {
+		kept := append([]*SeqStorageOrigin{}, root.ValueOrigins...)
+		for i := range kept {
+			if kept[i] == nil || !kept[i].snapshot {
+				continue
+			}
+			if i < len(next) {
+				next[i] = kept[i]
+			}
+		}
+		root.ValueOrigins = next
+		return
+	}
+	root.ValueOrigins = next
 }

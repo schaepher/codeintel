@@ -28,6 +28,9 @@ func walkStmts(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []b
 		// U04e：语句节点齐备后补齐 Scan 证据并绑定目标列（chained 调用的
 		// 接收者节点此时已登记）。
 		seqAnnotateScans(req, seq)
+		// U04j/U04k：字段写入/方法调用/捕获写者使旧列值失效（在标量记录之前，
+		// 保证下一条语句读到的是失效后的状态）。
+		seqRecordFieldUpdates(req, st)
 		// U04c：赋值/声明/incdec/range 的标量来源（RHS 读旧值，LHS 从下一
 		// 条语句起生效）。
 		seqRecordScalarStatement(req, st)
@@ -89,6 +92,7 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 			// U04e：`if err := row.Scan(&kind); err != nil`——Init 的 Scan 证据与
 			// 标量来源必须在构建分支条件之前就绪。
 			seqAnnotateScans(req, initSteps)
+			seqRecordFieldUpdates(req, s.Init)
 			seqRecordScalarStatement(req, s.Init)
 		}
 		node := &CodeSeqNode{Kind: "branch", Label: seqExprText(fset, src, s.Cond), Line: fset.Position(s.Cond.Pos()).Line}
@@ -187,9 +191,11 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		// todo10-2：defer 位置保留在声明处，Exec 标注执行时机（不是立即执行）。
 		// T01：defer 的实参在当前流程求值，延迟标记只加在被调度的调用上。
 		// U04y：被调度函数体里的字段赋值标 scheduled。
+		argNode := newScheduledCallNode(a, req, fset, src, tgts, depth, recvType, recvDecl,
+			f, curPkg, curFile, false)
 		schedNode := newScheduledCallNode(a, req, fset, src, tgts, depth, recvType, recvDecl,
-			f, curPkg, curFile)
-		nodes := seqArgCallNodes(schedNode, s.Call)
+			f, curPkg, curFile, true)
+		nodes := seqArgCallNodes(argNode, s.Call)
 		if n := schedNode(s.Call); n != nil {
 			n.Exec = SeqExecDefer
 			seqPropagateExec(n, SeqExecDefer)
@@ -201,9 +207,11 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		return nodes
 	case *ast.GoStmt:
 		// todo10-2：go 是并发启动（完成顺序未知）；T01：实参同样同步求值。
+		argNode := newScheduledCallNode(a, req, fset, src, tgts, depth, recvType, recvDecl,
+			f, curPkg, curFile, false)
 		schedNode := newScheduledCallNode(a, req, fset, src, tgts, depth, recvType, recvDecl,
-			f, curPkg, curFile)
-		nodes := seqArgCallNodes(schedNode, s.Call)
+			f, curPkg, curFile, true)
+		nodes := seqArgCallNodes(argNode, s.Call)
 		if n := schedNode(s.Call); n != nil {
 			n.Exec = SeqExecAsync
 			seqPropagateExec(n, SeqExecAsync)
@@ -286,13 +294,4 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		return []*CodeSeqNode{{Kind: kind, Label: kind, Line: fset.Position(s.Pos()).Line}}
 	}
 	return nil
-}
-
-// newScheduledCallNode go/defer 调度体专用调用节点构造（scheduled=true）。
-func newScheduledCallNode(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []byte,
-	tgts *seqTargets, depth int, recvType string, recvDecl map[string]string, f *ast.File,
-	curPkg, curFile string) func(call *ast.CallExpr) *CodeSeqNode {
-	sched := req
-	sched.scheduled = true
-	return newSeqCallNode(a, sched, fset, src, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
 }
