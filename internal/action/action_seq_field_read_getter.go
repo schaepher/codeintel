@@ -97,7 +97,8 @@ func seqFieldStepAt(req CodeSequenceRequest, base *seqFieldBase, read *ast.Selec
 			Path:       append(append([]string{}, base.path...), read.Sel.Name),
 			TypeID:     "symbol:go:" + field.ownerpkg + ":" + field.owner,
 			SourceFile: field.sourceFile, SourceLine: field.sourceLine,
-			ReadFile: declCtx.rel, ReadOffset: declCtx.fset.Position(read.Sel.Pos()).Offset}}
+			ReadFile: declCtx.rel, ReadOffset: declCtx.fset.Position(read.Sel.Pos()).Offset,
+			valueRef: seqCanonicalTypeRef(req, field.ref)}}
 }
 
 // seqPkgDeclaresType 包内是否有该文件级类型声明（跨文件引用无 Obj 时核对）。

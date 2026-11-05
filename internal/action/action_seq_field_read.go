@@ -7,8 +7,6 @@ package action
 
 import (
 	"go/ast"
-
-	"github.com/schaepher/codeintel/internal/domain"
 )
 
 // SeqFieldRoot 字段读取/写入的对象根（入口形参、构造实例或整值复制历史）。
@@ -33,27 +31,10 @@ type SeqStorageFieldRead struct {
 	SourceLine int           `json:"source_line,omitempty"`
 	ReadFile   string        `json:"read_file,omitempty"`
 	ReadOffset int           `json:"read_offset,omitempty"`
-}
-
-// seqNextFieldReadID 请求内读取 ID（每次求值一个）。
-func seqNextFieldReadID(req CodeSequenceRequest) string {
-	if req.acc == nil {
-		return ""
-	}
-	req.acc.fieldReadSeq++
-	return "field-read-" + itoaSeq(req.acc.fieldReadSeq)
-}
-
-// seqFieldReadOrigin `x.Field`（或其链式嵌套）→ field_read 来源。
-func seqFieldReadOrigin(req CodeSequenceRequest, sel *ast.SelectorExpr) *SeqStorageOrigin {
-	if sel == nil || req.curCtx == nil || req.curCtx.file == nil {
-		return nil
-	}
-	base := seqFieldBaseOrigin(req, sel.X)
-	if base == nil {
-		return nil
-	}
-	return seqFieldStepFrom(req, base, sel)
+	// valueRef U04i：该字段的**值类型**（下一级选择器/方法归属按它解析，
+	// 不能退回外层同名 owner）。内部缓存——不进入 JSON 契约；来源复制时
+	// 随 struct copy 保留，缺失时由 owner+最后一级字段声明恢复。
+	valueRef seqORMTypeRef
 }
 
 // seqFieldBaseOrigin 基表达式的来源：参数对象（直接或别名）或上一层字段读取。
@@ -83,8 +64,13 @@ func seqFieldBaseOrigin(req CodeSequenceRequest, e ast.Expr) *seqFieldBase {
 			if origin.FieldRead == nil {
 				return nil
 			}
-			return &seqFieldBase{root: origin.FieldRead.Root, ref: seqORMTypeRef{
-				pkgPath: pkgOfID(domain.CanonicalID(origin.FieldRead.TypeID)), name: pkgNameOfID(origin.FieldRead.TypeID)},
+			// U04i：下一级选择器按**字段值类型**解析（req.Child.ID 的 ID 属于
+			// Leaf，不是外层 Root 的 ID）。
+			ref, ok := seqFieldReadValueRef(req, origin.FieldRead)
+			if !ok {
+				return nil
+			}
+			return &seqFieldBase{root: origin.FieldRead.Root, ref: ref,
 				path: append([]string{}, origin.FieldRead.Path...)}
 		case SeqOriginStructLiteral:
 			// U04y：构造实例作为字段读写根（initialization_only，不是当前值）。
@@ -111,8 +97,13 @@ func seqFieldBaseOrigin(req CodeSequenceRequest, e ast.Expr) *seqFieldBase {
 		}
 	case *ast.SelectorExpr:
 		if origin := seqFieldReadOrigin(req, x); origin != nil && origin.FieldRead != nil {
-			return &seqFieldBase{root: origin.FieldRead.Root, ref: seqORMTypeRef{
-				pkgPath: pkgOfID(domain.CanonicalID(origin.FieldRead.TypeID)), name: pkgNameOfID(origin.FieldRead.TypeID)},
+			// U04i：继续下一级选择器时用字段值类型（不是 FieldRead.type_id 的
+			// 外层 owner）。
+			ref, ok := seqFieldReadValueRef(req, origin.FieldRead)
+			if !ok {
+				return nil
+			}
+			return &seqFieldBase{root: origin.FieldRead.Root, ref: ref,
 				path: append([]string{}, origin.FieldRead.Path...)}
 		}
 	case *ast.CallExpr:
@@ -120,6 +111,18 @@ func seqFieldBaseOrigin(req CodeSequenceRequest, e ast.Expr) *seqFieldBase {
 		// 先按已展开的返回槽来源，再按源码单一 return 构造（续查/部署前）。
 		if origin := seqScalarOriginOf(req, x); origin != nil {
 			switch origin.Kind {
+			case SeqOriginFieldRead:
+				// U04i：getter 返回字段（`GetChild().ID`）——下一级按字段值
+				// 类型解析，读取位置保留 getter 内路径 + 外层选择器。
+				if origin.FieldRead == nil {
+					return nil
+				}
+				ref, ok := seqFieldReadValueRef(req, origin.FieldRead)
+				if !ok {
+					return nil
+				}
+				return &seqFieldBase{root: origin.FieldRead.Root, ref: ref,
+					path: append([]string{}, origin.FieldRead.Path...)}
 			case SeqOriginStructLiteral:
 				if origin.StructLiteral != nil {
 					return &seqFieldBase{root: &SeqFieldRoot{Kind: "struct_literal",
@@ -170,7 +173,8 @@ func seqFieldStepFrom(req CodeSequenceRequest, base *seqFieldBase, sel *ast.Sele
 		Path:       append(append([]string{}, base.path...), sel.Sel.Name),
 		TypeID:     "symbol:go:" + field.ownerpkg + ":" + field.owner,
 		SourceFile: field.sourceFile, SourceLine: field.sourceLine,
-		ReadFile: req.curCtx.rel, ReadOffset: req.curCtx.fset.Position(sel.Sel.Pos()).Offset}
+		ReadFile: req.curCtx.rel, ReadOffset: req.curCtx.fset.Position(sel.Sel.Pos()).Offset,
+		valueRef: seqCanonicalTypeRef(req, field.ref)}
 	return &SeqStorageOrigin{Kind: SeqOriginFieldRead, ScalarType: field.goType, FieldRead: fr}
 }
 
