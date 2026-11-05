@@ -110,6 +110,13 @@ schema 变更需更新本契约并走 Q 流程（Agent/MCP 依赖字段名解析
     `transaction_condition`（result{call_id,operation,slot}）、
     `value_origins`/`result_origins`（return 槽来源）、`method_path`（外部方法
     owner 链）。
+  - 节点级 `condition`（U04c，branch 节点）：`operator`（`==`/`!=`/`<`/`<=`/
+    `>`/`>=`/`&&`/`||`/`!`/`bool`；预算耗尽为 `unknown`）、`left`/`right`
+    （`SeqStorageOrigin`，未知操作数省略）、`terms[]`（逻辑子表达式按源码
+    嵌套，短路语义不被改写成调用顺序）、`unknown`（`operand_origin_unproven`
+    |`condition_budget`）、`expression`（源码文本，审计用）。只记录来源，
+    不改变 `scene` 判定；上限 64 个条件节点 / 16 层递归，超出整项返回
+    `operator=unknown`+`unknown=condition_budget`（不保留部分逻辑表达式）。
 - **rule list**：数组——RelationRule[]
 
 ## 历史（为何有本文档）

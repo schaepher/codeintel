@@ -90,6 +90,8 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		node.RowCountCondition = seqRowConditionOrRegister(req, node, s.Cond)
 		// U04n：事务错误槽条件（begin/commit/rollback）。
 		node.TransactionCondition = seqTransactionCondition(req, s.Cond)
+		// U04c：条件结构的操作数来源（只记录来源，不改变 Scene 判定）。
+		node.Condition = seqCondition(req, fset, src, s.Cond)
 		// todo10-5：场景条件判定（taken/excluded/unknown）——排除的分支
 		// 保留节点但剔除内容（用户能看到"此处被场景排除"及其依据）
 		args, srcs := seqSceneArgsWithLocals(req, s.Cond)
