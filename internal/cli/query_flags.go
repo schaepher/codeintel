@@ -214,6 +214,16 @@ func parseQueryFlags(args []string) queryFlags {
 		case strings.HasPrefix(a, "--related-entry="):
 			f.relatedEntrySet = true
 			f.relatedEntries = append(f.relatedEntries, strings.TrimPrefix(a, "--related-entry="))
+		case a == "--frontend-root" && i+1 < len(args):
+			f.frontendRoots = append(f.frontendRoots, args[i+1])
+			i++
+		case strings.HasPrefix(a, "--frontend-root="):
+			f.frontendRoots = append(f.frontendRoots, strings.TrimPrefix(a, "--frontend-root="))
+		case a == "--combination-selector" && i+1 < len(args):
+			f.comboSelector, f.comboSelectorSet = args[i+1], true
+			i++
+		case strings.HasPrefix(a, "--combination-selector="):
+			f.comboSelector, f.comboSelectorSet = strings.TrimPrefix(a, "--combination-selector="), true
 		case a == "--focus" && i+1 < len(args):
 			f.focus = append(f.focus, splitComma(args[i+1])...)
 			i++

@@ -48,6 +48,8 @@ func Main(ctx context.Context, args []string) int {
 		return cmdTrace(args[1:])
 	case "batch":
 		return cmdBatch(args[1:])
+	case "sequence-batch":
+		return cmdSequenceBatch(args[1:])
 	case "wiki":
 		return cmdWiki(args[1:])
 	case "domains":

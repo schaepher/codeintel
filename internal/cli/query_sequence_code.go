@@ -33,7 +33,7 @@ import (
 // out：非空时主输出写文件（plantuml 成功 → PNG 字节；svg → SVG 文本；
 // 否则文本），stdout 打印路径。扩展名与内容必须一致：非 svg 模式写
 // *.svg、svg 模式写 *.png 都直接报错。
-func cmdQuerySequenceCode(acts *action.Actions, abs, target string, depth, contSegments int, mermaid bool, jsonOut bool, diagram, out string, focus []string, evidence bool, scene []string, runtimeData string, timeout time.Duration, verifyEvidence string, allRepos bool, relatedEntries []string) int {
+func cmdQuerySequenceCode(acts *action.Actions, abs, target string, depth, contSegments int, mermaid bool, jsonOut bool, diagram, out string, focus []string, evidence bool, scene []string, runtimeData string, timeout time.Duration, verifyEvidence string, allRepos bool, relatedEntries []string, frontendRoots []string, comboSelector string) int {
 	if depth <= 0 {
 		depth = 1
 	}
@@ -74,7 +74,8 @@ func cmdQuerySequenceCode(acts *action.Actions, abs, target string, depth, contS
 		RuntimeDataPath: runtimeData, Ctx: ctx,
 		Evidence: evidence || verifyEvidence != "", Format: diagram, Out: out,
 		CandidateRepos: cands, Open: openRepoActions, Scope: scope, ScopeReason: scopeReason,
-		RelatedEntries: relatedEntries}
+		RelatedEntries: relatedEntries, FrontendRoots: frontendRoots,
+		CombinationSelector: comboSelector}
 	req.SetCLIVersion(version())
 	root, err := acts.CodeSequence(req)
 	// todo21-14.5：无论成功/失败都留一条可断言的预算范围记录（仅诊断开关

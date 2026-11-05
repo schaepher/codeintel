@@ -61,6 +61,23 @@ func cmdQuery(args []string) int {
 			}
 		}
 	}
+	// B09/B10：--frontend-root / --combination-selector 只能用于 sequence --code。
+	if len(f.frontendRoots) > 0 {
+		if sub != "sequence" || !f.code {
+			fmt.Fprintln(os.Stderr, "error: --frontend-root 只能用于 `query sequence --code`")
+			return 2
+		}
+	}
+	if f.comboSelectorSet {
+		if sub != "sequence" || !f.code {
+			fmt.Fprintln(os.Stderr, "error: --combination-selector 只能用于 `query sequence --code`")
+			return 2
+		}
+		if strings.TrimSpace(f.comboSelector) == "" || strings.HasPrefix(f.comboSelector, "-") {
+			fmt.Fprintln(os.Stderr, "error: --combination-selector 需要准确 canonical 函数 ID")
+			return 2
+		}
+	}
 	// todo25 §13：运行时快照的用法校验必须在**开库之前**（验证逻辑在 action）。
 	if f.runtimeDataErr != "" {
 		fmt.Fprintf(os.Stderr, "error: %s\n", f.runtimeDataErr)
@@ -238,7 +255,7 @@ func cmdQuery(args []string) int {
 		// R76：时序图；R81：--code 代码级时序（--depth 嵌套层级）；
 		// S4：--format plantuml 转 PNG base64
 		if f.code {
-			return cmdQuerySequenceCode(acts, abs, target, f.depth, f.contSegments, f.format == "mermaid" || f.format == "plantuml" || f.format == "svg", f.json, f.format, f.out, f.focus, f.evidence, f.scene, f.runtimeData, f.timeout, f.verifyEvidence, f.allRepos, f.relatedEntries)
+			return cmdQuerySequenceCode(acts, abs, target, f.depth, f.contSegments, f.format == "mermaid" || f.format == "plantuml" || f.format == "svg", f.json, f.format, f.out, f.focus, f.evidence, f.scene, f.runtimeData, f.timeout, f.verifyEvidence, f.allRepos, f.relatedEntries, f.frontendRoots, f.comboSelector)
 		}
 		return cmdQuerySequence(acts, target, f.depth, f.format == "mermaid", f.json)
 	case "callers", "callees", "impact":
