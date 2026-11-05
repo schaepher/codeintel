@@ -13,23 +13,6 @@ func seqMarkScalarEscapes(req CodeSequenceRequest, st ast.Stmt) {
 	if req.env == nil || st == nil {
 		return
 	}
-	inspectWrites := func(body *ast.BlockStmt) {
-		ast.Inspect(body, func(n ast.Node) bool {
-			switch v := n.(type) {
-			case *ast.AssignStmt:
-				for _, lhs := range v.Lhs {
-					seqMarkEscapeIdent(req.env, lhs)
-				}
-			case *ast.IncDecStmt:
-				seqMarkEscapeIdent(req.env, v.X)
-			case *ast.UnaryExpr:
-				if v.Op == token.AND {
-					seqMarkAddrEscapeAt(req.env, v.X, v.Pos())
-				}
-			}
-			return true
-		})
-	}
 	ast.Inspect(st, func(n ast.Node) bool {
 		switch v := n.(type) {
 		case *ast.UnaryExpr:
@@ -37,19 +20,14 @@ func seqMarkScalarEscapes(req CodeSequenceRequest, st ast.Stmt) {
 				seqMarkAddrEscapeAt(req.env, v.X, v.Pos())
 			}
 		case *ast.FuncLit:
-			inspectWrites(v.Body)
 			// 闭包写者的失效从字面量出现处起（同一语句里更早求值的实参仍可用）。
+			// 不再另做一次 NoPos 标记：那会把失效点提前到语句开头，同一语句里
+			// 先求值的实参（`r.ID,r.State=id,func(){id=9}()` 的 id）被误清除。
 			seqMarkClosureEscapePositions(req.env, v)
 			return false // 字面量体单独遍历（已含嵌套写者）
 		}
 		return true
 	})
-}
-
-// seqMarkEscapeIdent 目标为标识符时标记逃逸（字段/下标取址忽略——标量
-// 槽只按标识符对象跟踪）。
-func seqMarkEscapeIdent(env *seqEnv, e ast.Expr) {
-	seqMarkEscapeIdentAt(env, e, token.NoPos)
 }
 
 // seqMarkEscapeIdentAt 从指定位置起标记逃逸。

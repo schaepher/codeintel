@@ -8373,3 +8373,20 @@ action；开库前先 `ValidateRuntimeData`）。
 - 测试：`integration/todo30_u04a_test.go`、`todo30_u04c_test.go`、
   `todo30_u07b_test.go`（真实 `init` → CLI，含拒绝非法入口/集合预算/
   逐行 participant 契约）。剩余项与依赖顺序见 `docs/todo30-checklist.md`。
+
+- **U04d 读取结果身份**：`storage_read.result`（`read-N`，按本次求值分配；
+  QueryRow→Row / Query→Rows）+ 标量来源 `sql_read_result`；`row := QueryRow`
+  沿标量环境、别名、return 槽传播，`rows, err := Query` 绑定槽 0。`columns`
+  以内部快照随来源复制（不新增 JSON 列字段）。覆盖/赋 nil/取址逃逸/星号投影/
+  自定义同名方法不产生或恢复身份；错误槽保持未知。
+- **U04e Scan 列来源**：`evidence.scan{id,read,success_conditions,targets,
+  unsupported,outcome}`；按 SELECT 真实列序绑定 `&scalar`（声明类型必须是内建
+  标量），列来源 `read_column{result=Scan,column,index,when=scan_success}`；
+  `scan_error` 与 if-init 错误变量进入条件操作数（nil 操作数给 `kind=nil`）。
+  方法身份优先用索引调用边，变量接收者无调用边时由**读取结果类型**证明；索引
+  解析到其它方法（自定义 Scan）不覆盖。标准 Scan 的本次地址传递可绑定列来源，
+  但**早于**本次调用的取址逃逸持续失效——`markScalarEscapedAt` 改为保留最早
+  逃逸位置（此前后写覆盖会把失效起点推后，正是本项反例暴露的 bug）。列数不符
+  或目标不支持时清掉目标旧值；defer/async 调度体不生成列来源。
+  测试：`integration/todo30_u04d_test.go`、`todo30_u04e_test.go`（真实
+  init→CLI；含 Rows 前提、辅助函数+别名、depth1+续查身份一致）。

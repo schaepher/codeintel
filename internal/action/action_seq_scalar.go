@@ -4,11 +4,6 @@ package action
 //
 // 只描述源码来源身份，不声明运行时值（不证明写入成功/跨入口相等）。
 
-import (
-	"go/ast"
-	"go/token"
-)
-
 // 标量来源类别。
 const (
 	SeqOriginParameter = "parameter"
@@ -23,6 +18,11 @@ const (
 	SeqOriginTxError     = "tx_error"
 	// U04v：请求结构体字段读取。
 	SeqOriginFieldRead = "field_read"
+	// U04d：标准 SQL 读取结果身份（QueryRow→Row / Query→Rows）。
+	SeqOriginReadResult = "sql_read_result"
+	// U04e：Scan 错误槽 / 列来源。
+	SeqOriginScanError  = "scan_error"
+	SeqOriginReadColumn = "read_column"
 )
 
 // 标量来源树的边界（有界展开：超限即未知，不截取部分）。
@@ -54,6 +54,11 @@ type SeqStorageOrigin struct {
 	TxError  *SeqTxOpResult `json:"tx_error,omitempty"`
 	// FieldRead U04v：请求结构体字段读取（独立读取 ID + 声明/读取位置）。
 	FieldRead *SeqStorageFieldRead `json:"field_read,omitempty"`
+	// ReadResult U04d：SQL 读取结果身份（read-N；槽 0）。
+	ReadResult *SeqSQLReadResult `json:"read_result,omitempty"`
+	// U04e：Scan 错误槽 / 列来源。
+	ScanResult *SeqScan       `json:"scan_result,omitempty"`
+	ReadColumn *SeqReadColumn `json:"read_column,omitempty"`
 	// StructLiteral U04w：结构体字面量初始化来源（initialization_only）。
 	StructLiteral *SeqStorageStructLiteral `json:"struct_literal,omitempty"`
 	// U04x：整值复制的构造祖先（construction_ancestry_only）。
@@ -83,6 +88,19 @@ func cloneSeqScalarOrigin(o *SeqStorageOrigin) *SeqStorageOrigin {
 	if o.TxError != nil {
 		cp := *o.TxError
 		out.TxError = &cp
+	}
+	if o.ReadResult != nil {
+		cp := *o.ReadResult
+		cp.columns = append([]string{}, o.ReadResult.columns...)
+		out.ReadResult = &cp
+	}
+	if o.ScanResult != nil {
+		cp := *o.ScanResult
+		out.ScanResult = &cp
+	}
+	if o.ReadColumn != nil {
+		cp := *o.ReadColumn
+		out.ReadColumn = &cp
 	}
 	if o.FieldRead != nil {
 		cp := *o.FieldRead
@@ -147,6 +165,27 @@ func sameSeqScalarOrigin(a, b *SeqStorageOrigin) bool {
 		a.TxError.Slot != b.TxError.Slot) {
 		return false
 	}
+	if (a.ReadResult == nil) != (b.ReadResult == nil) {
+		return false
+	}
+	if a.ReadResult != nil && (a.ReadResult.ID != b.ReadResult.ID ||
+		a.ReadResult.Symbol != b.ReadResult.Symbol || a.ReadResult.Slot != b.ReadResult.Slot) {
+		return false
+	}
+	if (a.ScanResult == nil) != (b.ScanResult == nil) {
+		return false
+	}
+	if a.ScanResult != nil && a.ScanResult.ID != b.ScanResult.ID {
+		return false
+	}
+	if (a.ReadColumn == nil) != (b.ReadColumn == nil) {
+		return false
+	}
+	if a.ReadColumn != nil && (a.ReadColumn.Result == nil || b.ReadColumn.Result == nil ||
+		a.ReadColumn.Result.ID != b.ReadColumn.Result.ID ||
+		a.ReadColumn.Column != b.ReadColumn.Column) {
+		return false
+	}
 	if (a.FieldRead == nil) != (b.FieldRead == nil) {
 		return false
 	}
@@ -188,74 +227,4 @@ func seqOriginParameter(symbol, repo, scalarType string, idx int) *SeqStorageOri
 	p := idx
 	return &SeqStorageOrigin{Kind: SeqOriginParameter, ScalarType: scalarType,
 		Symbol: symbol, Parameter: &p, Repo: repo}
-}
-
-// seqScalarOriginOf 表达式的标量来源（未知 → nil，不猜）。
-func seqScalarOriginOf(req CodeSequenceRequest, e ast.Expr) *SeqStorageOrigin {
-	return seqScalarOriginDepth(req, e, 0)
-}
-
-func seqScalarOriginDepth(req CodeSequenceRequest, e ast.Expr, depth int) *SeqStorageOrigin {
-	if e == nil || depth > seqScalarOriginMaxDepth {
-		return nil
-	}
-	switch v := e.(type) {
-	case *ast.ParenExpr:
-		return seqScalarOriginDepth(req, v.X, depth+1)
-	case *ast.Ident:
-		if req.env != nil {
-			if origin, ok := req.env.scalarOriginAt(v.Obj, v.Pos()); ok {
-				return cloneSeqScalarOrigin(origin)
-			}
-		}
-		// 未遮蔽的预声明 true/false 是字面量；被局部/包级变量遮蔽时 Obj
-		// 非 nil（不借内建名恢复假常量）。
-		if v.Obj == nil && (v.Name == "true" || v.Name == "false") {
-			return &SeqStorageOrigin{Kind: SeqOriginLiteral, ScalarType: "bool", Literal: v.Name}
-		}
-		return nil
-	case *ast.BasicLit:
-		return seqBasicLitOrigin(v)
-	case *ast.SelectorExpr:
-		// U04v：`req.ID` / `req.Nested.ID` → 字段读取来源（独立读取 ID）。
-		return seqFieldReadOrigin(req, v)
-	case *ast.CallExpr:
-		// U04v：getter 调用（单一 return：字面量 / receiver 字段）。
-		if o := seqGetterOrigin(req, v); o != nil {
-			return o
-		}
-		// U04y：内建类型转换（`int64(id)`）只改标量类型，不丢失实参来源；
-		// 同名局部/包级函数（Obj 非 nil）不按内建解析。
-		if id, ok := v.Fun.(*ast.Ident); ok && id.Obj == nil && seqBuiltinTypeName(id.Name) &&
-			len(v.Args) == 1 && !v.Ellipsis.IsValid() {
-			if o := seqScalarOriginDepth(req, v.Args[0], depth+1); o != nil {
-				cp := cloneSeqScalarOrigin(o)
-				cp.ScalarType = id.Name
-				return cp
-			}
-			return nil
-		}
-		// U04w：实参位置的调用（`Session.Insert(Build(id))`）——按已展开的
-		// 返回槽来源传播（不重跑函数体）。
-		return seqNodeResultOriginAt(req, v, 0)
-	case *ast.UnaryExpr:
-		// U04w：`&T{...}` 与 `T{...}` 同义（指针字面量）。
-		if v.Op == token.AND {
-			if lit, ok := runtimeUnparen(v.X).(*ast.CompositeLit); ok {
-				return seqStructLiteralOrigin(req, lit, depth)
-			}
-		}
-		return nil
-	case *ast.CompositeLit:
-		// U04w：`T{...}` 构造来源（initialization_only）。
-		return seqStructLiteralOrigin(req, v, depth)
-	case *ast.BinaryExpr:
-		if v.Op != token.ADD {
-			return nil
-		}
-		left := seqScalarOriginDepth(req, v.X, depth+1)
-		right := seqScalarOriginDepth(req, v.Y, depth+1)
-		return seqConcatOrigin(left, right)
-	}
-	return nil
 }

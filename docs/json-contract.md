@@ -110,6 +110,20 @@ schema 变更需更新本契约并走 Q 流程（Agent/MCP 依赖字段名解析
     `transaction_condition`（result{call_id,operation,slot}）、
     `value_origins`/`result_origins`（return 槽来源）、`method_path`（外部方法
     owner 链）。
+  - `storage_read.result`（U04d）：`id`（read-N；同一调用源码被求值两次也有
+    两个身份）、`repo`、`entry`、`symbol`（标准读取方法 canonical ID）、
+    `file`、`offset`、`slot`（QueryRow/Query 结果槽 0）、`type`（`Row`|`Rows`）。
+    读取结果身份不证明读取成功、记录存在或列值；错误槽保持未知。
+  - 标量来源 `read_result`（U04d）：`{id,repo,entry,symbol,file,offset,slot,
+    type}`——沿变量/别名/返回槽传播；覆盖/取址逃逸后不恢复。
+  - `evidence.scan`（U04e）：`id`（scan-N）、`read`（`storage_read.result`）、
+    `success_conditions`（Row: `scan_success`；Rows: `query_success`,
+    `rows_next_true`, `scan_success`）、`targets[{index,column,target,when,
+    unsupported?}]`、`unsupported`（`argument_count_unproven` 等）、`outcome`
+    （恒为 `unproven`）。
+  - 标量来源 `read_column`（U04e）：`result{id,read,...}`（所属 Scan 身份）、
+    `column`、`index`、`when=scan_success`；只表示"该列在 Scan 成功前提下
+    可能取到"，不是数据库实际返回值。`scan_error` 来源带同一 `scan_result`。
   - 节点级 `condition`（U04c，branch 节点）：`operator`（`==`/`!=`/`<`/`<=`/
     `>`/`>=`/`&&`/`||`/`!`/`bool`；预算耗尽为 `unknown`）、`left`/`right`
     （`SeqStorageOrigin`，未知操作数省略）、`terms[]`（逻辑子表达式按源码

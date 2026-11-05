@@ -127,6 +127,8 @@ func seqRecordWriteResultPair(req CodeSequenceRequest, lhs, rhs []ast.Expr) {
 			rows = req.rowCalls[call]
 			// U04m：`result, err := DB.Exec(...)` 的槽 0 = sql.Result（写入身份）。
 			seqBindSQLResultOrigin(req, call, lhs)
+			// U04d：`rows, err := DB.Query(...)` 的槽 0 = 读取结果身份。
+			seqBindReadResultOrigin(req, call, lhs)
 			// U04m：`rows, countErr := result.RowsAffected()` 的槽 0 = 影响行数。
 			if rc := seqRowsAffectedRowCount(req, call); rc != nil {
 				rows = rc

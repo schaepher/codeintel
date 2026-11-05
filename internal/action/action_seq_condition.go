@@ -155,5 +155,10 @@ func seqConditionOperand(req CodeSequenceRequest, e ast.Expr) *SeqStorageOrigin 
 	if e == nil {
 		return nil
 	}
+	// U04e：预声明 nil 作为条件操作数（`err != nil`）——只描述来源类别，
+	// 不进入标量环境（不影响"覆盖为 nil 清除来源"的规则）。
+	if seqIsNilIdent(e) {
+		return &SeqStorageOrigin{Kind: SeqOriginNil}
+	}
 	return seqScalarOriginOf(req, e)
 }

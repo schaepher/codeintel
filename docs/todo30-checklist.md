@@ -11,8 +11,8 @@
 | U04c | 分支比较操作数的结构化来源 | **已完成** | branch 节点 `condition{operator,left,right,terms,unknown,expression}`；支持 `== != < <= > >=`、`&& || !`、裸布尔；操作数用 `SeqStorageOrigin`（参数/字面量/字段读取/返回槽/拼接，环境覆盖与取址逃逸照旧）；未解析操作数省略对应侧 + `operand_origin_unproven`；上限 64 节点/16 层，超限整项 `operator=unknown`+`condition_budget`；**不改变 Scene 判定**。测试：`integration/todo30_u04c_test.go`（参数/覆盖/len/取址/逻辑嵌套/预算） |
 | U07b | 关联入口中同名参与者的独立身份 | **已完成（渲染层）** | 关联入口 Mermaid 参与者按入口作用域隔离：P0 `External entries` + 每个入口自身/局部对象独立 Pn；短名冲突时入口自身用 canonical ID、局部对象用 `<入口ID>.<actor>`；类型 `<br/>` 保留；JSON 原树 Actor/Nodes/Else 不被渲染修改。测试：`integration/todo30_u07b_test.go`（alpha/beta 同名 Run/db 逐行断言 + 单入口不变） |
 | U04b | 资源、记录键与条件化读写连接 | **未开始** | 依赖 U04a（已就绪）。需要：按准确资源/表/全部 AND 等式匹配可信读写、条件真假与可达 Else、`workflow.connections`/`keys`/`read_values`/`missing_proofs`、4096/256 预算。当前 `storage_read`/`storage` 证据已存在但无跨入口匹配与键作用域。 |
-| U04d | 标准 SQL 读取结果身份及返回槽传播 | **未开始** | 需要 `storage_read.result{id,repo,entry,symbol,file,offset,slot,type}`（QueryRow→Row/Query→Rows）、按调用 AST+环境+仓库+入口分配身份、沿变量/别名/形参/返回槽/续查传播、覆盖/取址失效。当前 `storage_read` 无 id/结果槽。 |
-| U04e | SQL Scan 列来源、错误身份及成功前提 | **未开始** | 依赖 U04d；需要 `Scan` 调用与读取身份连接、按 SELECT 顺序绑定目标、`evidence.scan{目标列,read_column{result,column,index,when=scan_success}}`、`scan_error` 结果槽与 `if err := …Scan(); err != nil` 初始化语句绑定、Rows 的 `query_success/rows_next_true` 前提。 |
+| U04d | 标准 SQL 读取结果身份及返回槽传播 | **已完成** | `storage_read.result{id,repo,entry,symbol,file,offset,slot,type}`（QueryRow→Row / Query→Rows；每次求值 `read-N` 独立）；标量来源 `read_result` 沿 `row := …`/别名/return 槽传播（`rows, err := Query` 绑定槽 0）；覆盖/`nil`/取址逃逸/星号投影/自定义同名方法不产生或恢复身份；错误槽保持未知。测试：`integration/todo30_u04d_test.go`（ReadNode/覆盖/取址/星号/自定义/两次调用不同身份/depth1+续查） |
+| U04e | SQL Scan 列来源、错误身份及成功前提 | **已完成** | `evidence.scan{id,read,success_conditions,targets,unsupported,outcome}`；按 SELECT 真实列序绑定 `&scalar`，列来源 `read_column{result=Scan,column,index,when=scan_success}`；`scan_error` 来源（同一 scan/read 身份）+ if-init 错误变量进入条件操作数（nil 操作数给 `kind=nil`）；Rows 保留 `query_success/rows_next_true/scan_success`；列数不符/目标不支持清掉旧值、Scan 前取址逃逸持续失效、defer/自定义 Scanner/同名方法不借用。测试：`integration/todo30_u04e_test.go`（正例/Rows/辅助函数+别名/覆盖/列数不符/逃逸/defer/自定义/depth1+续查） |
 | U04f | 从条件连接生成独立请求实例 | **未开始** | 依赖 U04b；需要 `workflow.instances`（selected_root/conditional_external_request）、bindings/参数作用域、read_values 代入分支、实例树复制（64 实例/8 层/65536 节点）、`partial`/`instance_boundaries`、取消即失败。 |
 | U04g | 条件化请求实例用于文本与时序图 | **未开始** | 依赖 U04f；需要同一展示树输出文本/Mermaid/SVG/PNG、selected root / conditional external request / instance id 标注、条件块与 missing_proofs、Scan 错误回外部调用方。 |
 | U04h | 同一源写入的多个读取联合约束 | **未开始** | 依赖 U04b/U04e；需要 `related_reads[]`（独立 read/connection_index/read_values）、各 Scan 独立成功守卫、`joint_read_values_preserved`。 |
@@ -50,6 +50,13 @@ go test -tags integration ./integration -run 'TestU30' -count=1  # OK
     `{"entries":2,"ordering":"unproven"}`；重复/含根重复去重后 3 个入口按
     canonical ID 排序；非法/不存在/用错命令非零退出且无半份 JSON；
     `--depth 1 --continue-segments 1` 集合 `expanded≤1`。
+  - U04d：`example.com/flow:ReadNode` —— `return alias` 的
+    `value_origins.read_result = {id:read-1,type:Row,symbol:(DB).QueryRowContext,
+    slot:0}`；覆盖/取址/星号/自定义不保留身份；辅助函数两次调用得到 read-1/read-2。
+  - U04e：`example.com/scanx` —— `if err := …Scan(&kind); err != nil` 的
+    `err!=nil` left=`scan_error{scan-1,read-1}`、`kind=="profile"` left=
+    `read_column{result.id=scan-1,result.read.id=read-1,column=kind,
+    when=scan_success}`；Rows 的 success_conditions 三项齐全；其余反例见测试。
   - U04i：`example.com/nested` —— Entry 5 个 branch 的 `field_read.type_id`
     全部为 `Leaf`（`Child.ID`/`Ptr.ID` 路径保留）；`Escaped`/`WrongGetter` 左
     操作数未知；类型别名解析到 `model.Leaf`（源码 `model/model.go`），新定义
@@ -65,15 +72,15 @@ go test -tags integration ./integration -run 'TestU30' -count=1  # OK
 ```
 U04a(完成) → U07b(完成)
 U04a(完成) → U04b → U04f → U04g → U04
-U04b → U04d → U04e → U04j → U04k → U04l → B01 → B02 → B03 → B07
+U04b → U04d(完成) → U04e(完成) → U04j → U04k → U04l → B01 → B02 → B03 → B07
 U04e → U04h → B04
 U04i(完成) → B03
 B05/B06 独立于扫描字段链，但跨入口连接需 U04b
 B08 依赖 U04f + 运行时快照；B09 → B10 → B11
 ```
 
-下一轮建议从 **U04d → U04e → U04j** 开始（`read-1/scan-1` 与 `read_column`
-是 U04l/B01/B03/B07 的共同前置），再到 U04b/U04f 让 `workflow.instances`
+下一轮建议从 **U04j**（值类型模型字段槽）→ U04k → U04l → B01 继续
+（`scan-1/read_column` 已就绪），同时推进 U04b/U04f 让 `workflow.instances`
 可验证 U04l 的公开命令。
 
 ## 已知边界（本轮有意保留）

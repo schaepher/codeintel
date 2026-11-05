@@ -80,5 +80,6 @@ func seqAttachStorageRead(node *CodeSeqNode, call *ast.CallExpr, c *seqPersistCt
 		// T19：没有快照时，已证明的读取至少给出**可采集的缺口**（不索要配置）。
 		node.Evidence.Runtime = seqNoSnapshotRuntime(rd)
 	}
+	seqAttachReadResult(c.req, node, call, rd)
 	node.Evidence.StorageRead = rd
 }

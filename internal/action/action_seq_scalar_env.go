@@ -53,6 +53,27 @@ func (e *seqEnv) setScalar(obj *ast.Object, origin *SeqStorageOrigin) {
 	e.scalars[obj] = seqScalarSlot{origin: cloneSeqScalarOrigin(origin)}
 }
 
+// setScalarScanTarget U04e：标准 Scan 的地址传递不保留指针——允许在同一次
+// 调用内绑定列来源；**此前的**取址逃逸（escapedAt 早于调用位置）仍然有效。
+func (e *seqEnv) setScalarScanTarget(obj *ast.Object, origin *SeqStorageOrigin, callPos token.Pos) bool {
+	if e == nil || obj == nil || origin == nil {
+		return false
+	}
+	slot, ok := e.scalarSlot(obj)
+	if ok && slot.escaped {
+		// escapedAt == NoPos 视为"更早/不定位"的持续逃逸；只有本次语句里
+		// 本次调用之后出现的取址（escapedAt >= callPos）可被这次 Scan 覆盖。
+		if slot.escapedAt == token.NoPos || slot.escapedAt < callPos {
+			return false
+		}
+	}
+	if e.scalars == nil {
+		e.scalars = map[*ast.Object]seqScalarSlot{}
+	}
+	e.scalars[obj] = seqScalarSlot{origin: cloneSeqScalarOrigin(origin)}
+	return true
+}
+
 // markScalarEscaped 标记持续逃逸（本地层写——阴影对象互不影响）。
 func (e *seqEnv) markScalarEscaped(obj *ast.Object) {
 	e.markScalarEscapedAt(obj, token.NoPos)
@@ -73,8 +94,19 @@ func (e *seqEnv) markScalarEscapedAt(obj *ast.Object, pos token.Pos) {
 		return
 	}
 	// 逃逸点之前的读取仍可用旧来源（位置判定）；之后的读取被 escapedAt 挡住。
-	slot.escaped = true
-	slot.escapedAt = pos
+	// 已有逃逸时保留**最早**的逃逸位置（持续失效：后续语句里的新取址不能
+	// 把失效起点推后，否则标准 Scan 的本次地址传递会误认作首次逃逸）。
+	switch {
+	case !slot.escaped:
+		slot.escaped = true
+		slot.escapedAt = pos
+	case pos == token.NoPos:
+		slot.escapedAt = token.NoPos
+	case slot.escapedAt == token.NoPos:
+		// 保持"从一开始就失效"
+	case pos < slot.escapedAt:
+		slot.escapedAt = pos
+	}
 	e.scalars[obj] = slot
 	e.markRelatedEscaped(obj, pos)
 }

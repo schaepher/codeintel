@@ -25,6 +25,9 @@ func walkStmts(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []b
 		seqMarkScalarEscapes(req, st)
 		seq := walkStmt(a, req, fset, src, st, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
 		out = append(out, seq...)
+		// U04e：语句节点齐备后补齐 Scan 证据并绑定目标列（chained 调用的
+		// 接收者节点此时已登记）。
+		seqAnnotateScans(req, seq)
 		// U04c：赋值/声明/incdec/range 的标量来源（RHS 读旧值，LHS 从下一
 		// 条语句起生效）。
 		seqRecordScalarStatement(req, st)
@@ -81,7 +84,12 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 		var steps []*CodeSeqNode
 
 		if s.Init != nil {
-			steps = append(steps, walkStmt(a, req, fset, src, s.Init, tgts, depth, recvType, recvDecl, f, curPkg, curFile)...)
+			initSteps := walkStmt(a, req, fset, src, s.Init, tgts, depth, recvType, recvDecl, f, curPkg, curFile)
+			steps = append(steps, initSteps...)
+			// U04e：`if err := row.Scan(&kind); err != nil`——Init 的 Scan 证据与
+			// 标量来源必须在构建分支条件之前就绪。
+			seqAnnotateScans(req, initSteps)
+			seqRecordScalarStatement(req, s.Init)
 		}
 		node := &CodeSeqNode{Kind: "branch", Label: seqExprText(fset, src, s.Cond), Line: fset.Position(s.Cond.Pos()).Line}
 		// U04h：条件引用某次写入调用的错误返回槽（只描述符号关系）。

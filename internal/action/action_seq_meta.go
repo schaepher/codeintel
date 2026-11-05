@@ -147,6 +147,9 @@ type seqTimingAcc struct {
 	txIDs map[*CodeSeqNode]string
 	// U04v：字段读取观察 ID（每次求值一个）。
 	fieldReadSeq int
+	// U04d：读取结果身份 / U04e：Scan 身份（每次求值一个）。
+	readSeq int
+	scanSeq int
 	// U04w：结构体字面量构造观察（请求内计数 + 全值复制观察）。
 	structLitSeq  int
 	structCopySeq int
@@ -275,6 +278,8 @@ type CodeSeqNode struct {
 	Condition *SeqCondition `json:"condition,omitempty"`
 	// U04a：关联入口分析集合（仅根节点；“没有 --related-entry”时省略）。
 	Workflow *SeqWorkflow `json:"workflow,omitempty"`
+	// call U04e：该调用节点对应的 AST 调用（Scan 事后补齐证据用；不序列化）。
+	call *ast.CallExpr
 	// U04k：return 节点的各结果槽来源 / 调用节点的返回槽来源共识。
 	ValueOrigins  []*SeqStorageOrigin `json:"value_origins,omitempty"`
 	ResultOrigins []*SeqStorageOrigin `json:"result_origins,omitempty"`
