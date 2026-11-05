@@ -8361,9 +8361,15 @@ action；开库前先 `ValidateRuntimeData`）。
   actor` 为身份；P0 固定 `External entries`；短名跨入口冲突时入口自身用
   canonical ID、局部对象用 `<入口ID>.<actor>`（`alpha.Run.db`）。单入口输出
   保持原 `.Label` 参与者与 `P0 as Run` 形式；JSON 原树 Actor 不被渲染改写。
-- **U04i 现状确认（未实现）**：`req.Child.ID` 的 `field_read.type_id` 取外层
-  `Root`（`action_seq_field_read.go` 只用 x 的静态类型链末段），因此
-  `Root`/`Leaf` 同名 `ID` 无法区分——U04i 需要保留字段值类型引用；本轮未改。
+- **U04i 字段值类型**：`SeqStorageFieldRead` 新增内部 `valueRef`（不进 JSON，
+  `cloneSeqScalarOrigin` 的 struct copy 保留）；`seqFieldReadValueRef` 优先用
+  缓存值类型，缺失时从 `type_id` owner + 最后一级字段声明恢复（不退回外层
+  同名字段）。`seqCanonicalTypeRef` 只沿 `type X = Y` 别名链（Assign 有效）
+  解析，新定义类型保持自身（不借用原类型方法集合）。`req.GetChild().ID` 的
+  CallExpr 基新增 FieldRead 分支；`req.Child.GetID()` 用字段值类型定位方法。
+  实测 `example.com/nested`：5 个条件左操作数全部 `field_read` owner=Leaf
+  （`Child.ID`/`Ptr.ID` 路径保留），`Escaped`/`WrongGetter` 保持未知，别名
+  解析到 `model.Leaf` 且源码位置 `model/model.go`。
 - 测试：`integration/todo30_u04a_test.go`、`todo30_u04c_test.go`、
   `todo30_u07b_test.go`（真实 `init` → CLI，含拒绝非法入口/集合预算/
   逐行 participant 契约）。剩余项与依赖顺序见 `docs/todo30-checklist.md`。

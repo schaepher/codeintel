@@ -16,7 +16,7 @@
 | U04f | 从条件连接生成独立请求实例 | **未开始** | 依赖 U04b；需要 `workflow.instances`（selected_root/conditional_external_request）、bindings/参数作用域、read_values 代入分支、实例树复制（64 实例/8 层/65536 节点）、`partial`/`instance_boundaries`、取消即失败。 |
 | U04g | 条件化请求实例用于文本与时序图 | **未开始** | 依赖 U04f；需要同一展示树输出文本/Mermaid/SVG/PNG、selected root / conditional external request / instance id 标注、条件块与 missing_proofs、Scan 错误回外部调用方。 |
 | U04h | 同一源写入的多个读取联合约束 | **未开始** | 依赖 U04b/U04e；需要 `related_reads[]`（独立 read/connection_index/read_values）、各 Scan 独立成功守卫、`joint_read_values_preserved`。 |
-| U04i | 嵌套字段/getter 使用准确字段值类型 | **未开始** | `field_read.type_id` 目前取外层 owner（实测 `req.Child.ID` 报 Root）；需要区分声明 owner 与字段值类型、逐级解析、缓存保留字段值类型引用，`Root.GetID()` 与 `Leaf.GetID()` 不混用。 |
+| U04i | 嵌套字段/getter 使用准确字段值类型 | **已完成** | `SeqStorageFieldRead.valueRef`（内部缓存，不进 JSON）保存字段**值类型**；`req.Child.ID`/`child.ID`/`req.Ptr.ID`/`req.GetChild().ID`/`req.Child.GetID()` 的 `type_id` 均为字段值类型 `Leaf`，路径保留 `Child.ID`/`Ptr.ID`；缓存缺失时从 owner+最后一级字段声明恢复；类型别名按真实声明解析（`type Leaf = model.Leaf` → `model.Leaf`/`model/model.go`），新定义类型（`type Leaf model.Leaf`）不借用方法集合；请求根取址失效与 getter 返回非接收者对象保持未知。测试：`integration/todo30_u04i_test.go` |
 | U04j | 标准 SQL Scan 连接值类型模型直接标量字段 | **未开始** | 依赖 U04e；需要值类型结构体字段槽（按声明+字段名隔离，初始未知，分支/循环合并）、256 字段槽/根状态预算、`scan_field_budget`、方法接收者/捕获/调度失效规则。当前 env 只有标量槽，无字段槽。 |
 | U04k | 分配证明连接指针模型及局部别名 | **未开始** | 依赖 U04j；需要 `new(T)` 分配身份（AST 原调用绑定、别名共享、重绑只切分配、传出/取址/容器/全局/通道失效、4096 别名声明/归属预算、`scan_field_budget`）。当前 `SeqFieldRoot` 有构造/复制祖先，但没有"字段列值"槽。 |
 | U04l | 通过静态只读 getter 保留当前 Scan 字段来源 | **未开始** | 依赖 U04j/U04k；需要准确方法声明的零参单标量 `return receiver.Field` 证明（任意方法名/跨包）、读取位置用调用方对象与调用点、复用字段槽与失效规则。 |
@@ -50,6 +50,10 @@ go test -tags integration ./integration -run 'TestU30' -count=1  # OK
     `{"entries":2,"ordering":"unproven"}`；重复/含根重复去重后 3 个入口按
     canonical ID 排序；非法/不存在/用错命令非零退出且无半份 JSON；
     `--depth 1 --continue-segments 1` 集合 `expanded≤1`。
+  - U04i：`example.com/nested` —— Entry 5 个 branch 的 `field_read.type_id`
+    全部为 `Leaf`（`Child.ID`/`Ptr.ID` 路径保留）；`Escaped`/`WrongGetter` 左
+    操作数未知；类型别名解析到 `model.Leaf`（源码 `model/model.go`），新定义
+    类型不借用 `model.Leaf.GetID`。
   - U07b：`example.com/flow/alpha:Run` + `beta:Run` 参与者逐行等于契约
     （P0 External entries / P1 canonical alpha.Run / P2 alpha.Run.db<br/>alpha.DB /
     P3 canonical beta.Run / P4 beta.Run.db<br/>beta.DB）。
@@ -60,17 +64,17 @@ go test -tags integration ./integration -run 'TestU30' -count=1  # OK
 
 ```
 U04a(完成) → U07b(完成)
-U04a → U04b → U04f → U04g → U04
+U04a(完成) → U04b → U04f → U04g → U04
 U04b → U04d → U04e → U04j → U04k → U04l → B01 → B02 → B03 → B07
 U04e → U04h → B04
+U04i(完成) → B03
 B05/B06 独立于扫描字段链，但跨入口连接需 U04b
-U04i 独立（字段值类型）→ B03
 B08 依赖 U04f + 运行时快照；B09 → B10 → B11
 ```
 
 下一轮建议从 **U04d → U04e → U04j** 开始（`read-1/scan-1` 与 `read_column`
 是 U04l/B01/B03/B07 的共同前置），再到 U04b/U04f 让 `workflow.instances`
-可验证 U04l 的公开命令；U04i 可并行（独立于读取链）。
+可验证 U04l 的公开命令。
 
 ## 已知边界（本轮有意保留）
 

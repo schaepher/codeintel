@@ -32,7 +32,7 @@
 - [`docs/todo29-checklist.md`](docs/todo29-checklist.md)：todo29 交付 Checklist
   （T09b/T12b/T14b/T19b/T19c/U04k/U04x/U04y 已完成；U04 跨入口整合剩余）
 - [`docs/todo30-checklist.md`](docs/todo30-checklist.md)：todo30 交付 Checklist
-  （U04a/U04c/U07b 已完成；U04b/U04d–U04l/B01–B11 的依赖顺序与剩余范围）
+  （U04a/U04c/U04i/U07b 已完成；U04b/U04d–U04h/U04j–U04l/B01–B11 的依赖顺序与剩余范围）
   ——**接手先看这张表的"待办"行**
 
 ## 项目一句话
