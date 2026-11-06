@@ -67,6 +67,7 @@ type queryFlags struct {
 	targetRetSet   bool
 	pathBudget     int           // todo12-7：effects 路径枚举预算（0=默认 24）
 	timeout        time.Duration // todo12-17：sequence 查询预算（0=不限）
+	timeoutSet     bool          // --timeout 显式出现（非法值须拒绝）
 	verifyEvidence string        // todo13-14：--verify-evidence <file>——比对原证据身份
 	includeSource  bool          // todo22 §6：query symbol --include-source（输出声明源码）
 }

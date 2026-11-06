@@ -179,9 +179,19 @@ func cmdSequenceBatch(args []string) int {
 		var files []string
 		failed := false
 		writeOne := func(baseName, title string, tree *action.CodeSeqNode) {
+			// B10d：Markdown 使用完整流程事实（含关联入口/实例）并写入可渲染
+			// PlantUML 时序图；图与 SVG 复用同一渲染树。
+			m := renderCodeSeqMermaid(tree)
+			puml := mermaidSequenceToPlantuml(m)
+			if puml == "" {
+				failed = true
+				fmt.Fprintf(os.Stderr, "error: flow %s PlantUML 转换为空（不写 Markdown）\n", fl.ID)
+				return
+			}
 			mdPath := filepath.Join(outDir, baseName+".md")
-			md := fmt.Sprintf("# %s\n\n`%s`\n\n%s\n```text\n%s```\n", title, fl.Entry,
-				seqBatchReplayLine(fl, runtimePath, depth), seqText(tree.Nodes, 1))
+			md := fmt.Sprintf("# %s\n\n`%s`\n\n%s\n```text\n%s```\n\n```plantuml\n%s```\n",
+				title, fl.Entry, seqBatchReplayLine(fl, runtimePath, depth),
+				seqTextRoot(tree), puml)
 			if err := os.WriteFile(mdPath, []byte(md), 0o644); err != nil {
 				failed = true
 				fmt.Fprintf(os.Stderr, "error: flow %s 写 Markdown 失败: %v\n", fl.ID, err)
@@ -191,14 +201,8 @@ func cmdSequenceBatch(args []string) int {
 			if failed || !containsStr(formats, "svg") {
 				return
 			}
-			m := renderCodeSeqMermaid(tree)
-			puml := mermaidSequenceToPlantuml(m)
-			var svg []byte
-			var rerr error
-			if puml != "" {
-				svg, rerr = plantumlRenderSVGFunc(puml)
-			}
-			if puml == "" || rerr != nil || len(svg) == 0 {
+			svg, rerr := plantumlRenderSVGFunc(puml)
+			if rerr != nil || len(svg) == 0 {
 				failed = true
 				if rerr == nil {
 					rerr = fmt.Errorf("SVG 渲染结果为空")

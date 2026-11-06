@@ -42,12 +42,13 @@ func seqParsePackageDir(dir string) map[string]*seqParsedGoFile {
 
 // seqResourceFactBuilder 语句顺序遍历（入口用真实位置，被调链用调用点位置）。
 type seqResourceFactBuilder struct {
-	out     *seqEntryFactData
-	pkg     string
-	files   map[string]*seqParsedGoFile
-	pkgVars map[string]bool
-	repo    string
-	entry   string
+	out        *seqEntryFactData
+	pkg        string
+	files      map[string]*seqParsedGoFile
+	pkgVars    map[string]bool
+	pkgVarObjs map[*ast.Object]bool
+	repo       string
+	entry      string
 }
 
 // walkFunc 遍历函数体；eventAt>0 表示被调链（所有事件记在调用点）。
@@ -94,7 +95,7 @@ func (b *seqResourceFactBuilder) walkStmt(st ast.Stmt, file *seqParsedGoFile,
 			}
 		}
 		for _, lhs := range s.Lhs {
-			if id, ok := runtimeUnparen(lhs).(*ast.Ident); ok && b.pkgVars[id.Name] {
+			if id, ok := runtimeUnparen(lhs).(*ast.Ident); ok && b.isPkgVar(id) {
 				b.addEvent(id.Name, pos)
 			}
 		}
@@ -102,21 +103,27 @@ func (b *seqResourceFactBuilder) walkStmt(st ast.Stmt, file *seqParsedGoFile,
 			b.walkExprCalls(rhs, file, pos, isEntry, depth, closures)
 		}
 	case *ast.IncDecStmt:
-		if id, ok := runtimeUnparen(s.X).(*ast.Ident); ok && b.pkgVars[id.Name] {
+		if id, ok := runtimeUnparen(s.X).(*ast.Ident); ok && b.isPkgVar(id) {
 			b.addEvent(id.Name, pos)
 		}
 	case *ast.ExprStmt:
 		b.walkExprCalls(s.X, file, pos, isEntry, depth, closures)
 	case *ast.IfStmt:
-		if s.Cond != nil && seqLiteralFalse(s.Cond) {
-			return
-		}
 		if s.Init != nil {
 			b.walkStmt(s.Init, file, eventAt, isEntry, depth, closures)
 		}
-		b.walkBlock(s.Body, file, eventAt, isEntry, depth, closures)
-		if s.Else != nil {
-			b.walkStmt(s.Else, file, eventAt, isEntry, depth, closures)
+		switch seqStaticCond(s.Cond) {
+		case 1: // 恒真：Else 不可达
+			b.walkBlock(s.Body, file, eventAt, isEntry, depth, closures)
+		case -1: // 恒假：Then 不可达
+			if s.Else != nil {
+				b.walkStmt(s.Else, file, eventAt, isEntry, depth, closures)
+			}
+		default:
+			b.walkBlock(s.Body, file, eventAt, isEntry, depth, closures)
+			if s.Else != nil {
+				b.walkStmt(s.Else, file, eventAt, isEntry, depth, closures)
+			}
 		}
 	case *ast.ForStmt:
 		b.walkBlock(s.Body, file, eventAt, isEntry, depth, closures)
@@ -137,29 +144,6 @@ func (b *seqResourceFactBuilder) walkStmt(st ast.Stmt, file *seqParsedGoFile,
 		b.walkExprCalls(s.Call, file, pos, isEntry, depth, closures)
 	case *ast.GoStmt:
 		b.walkExprCalls(s.Call, file, pos, isEntry, depth, closures)
-	}
-}
-
-// walkDeclClosures var f = func(){...} 记录闭包变量。
-func (b *seqResourceFactBuilder) walkDeclClosures(s *ast.DeclStmt, file *seqParsedGoFile,
-	pos int, isEntry bool, depth int, closures map[*ast.Object]*ast.FuncLit) {
-	gd, ok := s.Decl.(*ast.GenDecl)
-	if !ok || gd.Tok != token.VAR {
-		return
-	}
-	for _, spec := range gd.Specs {
-		vs, ok := spec.(*ast.ValueSpec)
-		if !ok {
-			continue
-		}
-		for i, n := range vs.Names {
-			if i >= len(vs.Values) {
-				continue
-			}
-			if lit, ok := runtimeUnparen(vs.Values[i]).(*ast.FuncLit); ok && n.Obj != nil {
-				closures[n.Obj] = lit
-			}
-		}
 	}
 }
 
@@ -285,8 +269,16 @@ func (b *seqResourceFactBuilder) addEvent(name string, offset int) {
 	b.out.events[sym] = append(b.out.events[sym], offset)
 }
 
-// seqLiteralFalse 条件是否为静态 false（排除分支不执行）。
-func seqLiteralFalse(e ast.Expr) bool {
-	id, ok := runtimeUnparen(e).(*ast.Ident)
-	return ok && id.Name == "false" && id.Obj == nil
+// isPkgVar 赋值目标是否指向包级 var（AST 声明身份；局部同名不命中）。
+func (b *seqResourceFactBuilder) isPkgVar(id *ast.Ident) bool {
+	if id == nil {
+		return false
+	}
+	if id.Obj != nil {
+		return b.pkgVarObjs[id.Obj]
+	}
+	// 跨文件引用在单文件 parser 里没有 Obj：只能按名称回退。
+	return b.pkgVars[id.Name]
 }
+
+// seqResourceFactBuilder 语句顺序遍历（入口用真实位置，被调链用调用点位置）。

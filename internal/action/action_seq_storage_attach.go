@@ -55,6 +55,9 @@ func seqAttachORMEvidence(node *CodeSeqNode, call *ast.CallExpr, c *seqPersistCt
 	}
 	if orm := seqXormEvidence(node, call, c); orm != nil {
 		node.Evidence.ORM = orm
+		if c != nil && c.req != nil {
+			seqBindORMReadResult(*c.req, node, call, orm, c)
+		}
 	}
 }
 

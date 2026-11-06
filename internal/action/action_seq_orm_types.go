@@ -52,6 +52,8 @@ type SeqORM struct {
 	ErrorResult *SeqORMErrorResult `json:"error_result,omitempty"`
 	// RowCountResult U04j：影响行数返回槽（slot 0，与错误槽共享 call_id）。
 	RowCountResult *SeqORMRowCountResult `json:"row_count_result,omitempty"`
+	// ReadResult B03d：Find/Get 的读取结果身份（集合/行来源）。
+	ReadResult *SeqSQLReadResult `json:"read_result,omitempty"`
 }
 
 // SeqORMErrorResult XORM 写入错误槽（复用 SeqWriteErrorResult + 签名源码）。

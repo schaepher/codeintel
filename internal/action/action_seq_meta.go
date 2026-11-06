@@ -264,6 +264,8 @@ type CodeSeqNode struct {
 	call *ast.CallExpr
 	// callOffset 调用点在本文件内的偏移（U04bS 执行位置）。
 	callOffset int
+	// recvDeclOffset 接收者变量的声明偏移（B06d 事务声明身份）。
+	recvDeclOffset int
 	// U04k：return 节点的各结果槽来源 / 调用节点的返回槽来源共识。
 	ValueOrigins  []*SeqStorageOrigin `json:"value_origins,omitempty"`
 	ResultOrigins []*SeqStorageOrigin `json:"result_origins,omitempty"`

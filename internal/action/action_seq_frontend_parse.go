@@ -3,7 +3,6 @@ package action
 // 前端源码解析辅助（从 action_seq_frontend.go 拆出）。
 
 import (
-	"path/filepath"
 	"strings"
 )
 
@@ -102,26 +101,27 @@ func seqFrontendBody(src string, from int) string {
 }
 
 // seqFrontendResolveFetch 沿包装函数链解析 fetch（实参位置传播；深度 ≤3）。
-func seqFrontendResolveFetch(fn seqFrontendFunc, funcs map[string]seqFrontendFunc,
-	imports map[string]map[string]string, bindings map[string]string, depth int) (string, string, bool) {
+func seqFrontendResolve(fn seqFrontendFunc, funcs map[string]seqFrontendFunc,
+	imports map[string]map[string]seqFrontendImport, bindings map[string]string,
+	depth int) (string, string, map[string]seqFrontendBodyOrigin, bool) {
 	if depth > 3 {
-		return "", "", false
+		return "", "", nil, false
 	}
-	if fn.fetchArg != "" {
-		if p, ok := seqFrontendEvalArg(fn.fetchArg, bindings); ok {
-			m := fn.method
-			if m == "" {
-				m = "GET"
+	// 有 fetch 的函数：解析最终路径/方法与请求体（相对本函数形参）。
+	if fn.fetchArg != "" || fn.path != "" {
+		path := fn.path
+		if fn.fetchArg != "" {
+			p, ok := seqFrontendEvalArg(fn.fetchArg, bindings)
+			if !ok {
+				return "", "", nil, false
 			}
-			return p, m, true
+			path = p
 		}
-	}
-	if fn.path != "" {
 		m := fn.method
 		if m == "" {
 			m = "GET"
 		}
-		return fn.path, m, true
+		return path, m, seqFrontendBodyOrigins(fn), true
 	}
 	for _, c := range fn.calls {
 		next, ok := seqFrontendLookup(c.name, fn.file, funcs, imports)
@@ -129,6 +129,7 @@ func seqFrontendResolveFetch(fn seqFrontendFunc, funcs map[string]seqFrontendFun
 			continue
 		}
 		nb := map[string]string{}
+		argOrigins := map[string]seqFrontendBodyOrigin{}
 		for i, arg := range c.args {
 			if i >= len(next.params) {
 				break
@@ -136,67 +137,137 @@ func seqFrontendResolveFetch(fn seqFrontendFunc, funcs map[string]seqFrontendFun
 			if v, ok := seqFrontendEvalArg(arg, bindings); ok {
 				nb[next.params[i]] = v
 			}
+			argOrigins[next.params[i]] = seqFrontendArgOrigin(arg, fn.params)
 		}
-		if p, m, ok2 := seqFrontendResolveFetch(next, funcs, imports, nb, depth+1); ok2 {
-			return p, m, true
+		if p, m, body, ok2 := seqFrontendResolve(next, funcs, imports, nb, depth+1); ok2 {
+			return p, m, seqFrontendRebaseBody(body, next.params, argOrigins), true
 		}
 	}
-	return "", "", false
+	return "", "", nil, false
 }
 
-// seqFrontendLookup 按文件/导入解析函数身份（同名不跨文件覆盖）。
-func seqFrontendLookup(name, file string, funcs map[string]seqFrontendFunc,
-	imports map[string]map[string]string) (seqFrontendFunc, bool) {
-	if fn, ok := funcs[file+"\x00"+name]; ok {
-		return fn, true
-	}
-	if imp := imports[file][name]; strings.HasPrefix(imp, ".") {
-		if rel := seqFrontendImportFile(file, imp, funcs); rel != "" {
-			if fn, ok := funcs[rel+"\x00"+name]; ok {
-				return fn, true
-			}
-		}
-	}
-	return seqFrontendFunc{}, false
+// seqFrontendResolveFetch 兼容入口：只取路径/方法。
+func seqFrontendResolveFetch(fn seqFrontendFunc, funcs map[string]seqFrontendFunc,
+	imports map[string]map[string]seqFrontendImport, bindings map[string]string,
+	depth int) (string, string, bool) {
+	p, m, _, ok := seqFrontendResolve(fn, funcs, imports, bindings, depth)
+	return p, m, ok
 }
 
-// seqFrontendImportFile 相对导入路径 → 已解析文件（尝试常见扩展名）。
-func seqFrontendImportFile(cur, imp string, funcs map[string]seqFrontendFunc) string {
-	base := strings.TrimSuffix(filepath.ToSlash(filepath.Dir(cur)), "/")
-	rel := filepath.ToSlash(filepath.Join(base, imp))
-	for _, ext := range []string{"", ".ts", ".tsx", ".js", ".jsx"} {
-		cand := rel + ext
-		for key := range funcs {
-			if strings.HasPrefix(key, cand+"\x00") {
-				return cand
-			}
+// seqFrontendArgOrigin 调用实参相对调用者形参的来源。
+func seqFrontendArgOrigin(arg string, params []string) seqFrontendBodyOrigin {
+	arg = strings.TrimSpace(arg)
+	if lit, ok := seqFrontendStringLit(arg); ok {
+		return seqFrontendBodyOrigin{kind: "literal", literal: lit}
+	}
+	for i, p := range params {
+		if p == arg {
+			return seqFrontendBodyOrigin{kind: "parameter", parameter: i}
 		}
 	}
-	return ""
+	return seqFrontendBodyOrigin{kind: "unknown"}
 }
 
-// seqFrontendRouteMap 后端路由表 → "METHOD path" → handler id（HandleFunc 空
-// method 匹配所有方法）。
-func seqFrontendRouteMap(a *Actions) map[string][]string {
-	out := map[string][]string{}
-	nodes, err := a.repo.GetHTTPRouteNodes()
-	if err != nil {
-		return out
+// seqFrontendRebaseBody 把被调函数体内的形参来源替换为调用点来源。
+func seqFrontendRebaseBody(body map[string]seqFrontendBodyOrigin, calleeParams []string,
+	argOrigins map[string]seqFrontendBodyOrigin) map[string]seqFrontendBodyOrigin {
+	if len(body) == 0 {
+		return nil
 	}
-	for _, n := range nodes {
-		p := n.Property("path")
-		h := n.Property("handler_id")
-		if p == "" || h == "" {
-			continue
-		}
-		m := strings.ToUpper(n.Property("method"))
-		if m == "" {
-			for _, verb := range []string{"GET", "POST", "PUT", "DELETE", "PATCH"} {
-				out[verb+" "+p] = append(out[verb+" "+p], h)
+	out := map[string]seqFrontendBodyOrigin{}
+	for name, o := range body {
+		if o.kind == "parameter" && o.parameter >= 0 && o.parameter < len(calleeParams) {
+			if rebased, ok := argOrigins[calleeParams[o.parameter]]; ok {
+				o = rebased
+			} else {
+				o = seqFrontendBodyOrigin{kind: "unknown"}
 			}
-			continue
 		}
-		out[m+" "+p] = append(out[m+" "+p], h)
+		out[name] = o
 	}
 	return out
+}
+
+// seqFrontendBodyOrigins 函数自身请求体的字段来源（相对本函数形参）。
+func seqFrontendBodyOrigins(fn seqFrontendFunc) map[string]seqFrontendBodyOrigin {
+	if len(fn.body) == 0 {
+		return nil
+	}
+	out := map[string]seqFrontendBodyOrigin{}
+	for _, f := range fn.body {
+		expr := strings.TrimSpace(f.expr)
+		if lit, ok := seqFrontendStringLit(expr); ok {
+			out[f.name] = seqFrontendBodyOrigin{kind: "literal", literal: lit}
+			continue
+		}
+		idx := -1
+		for i, p := range fn.params {
+			if p == expr {
+				idx = i
+				break
+			}
+		}
+		if idx >= 0 {
+			out[f.name] = seqFrontendBodyOrigin{kind: "parameter", parameter: idx}
+			continue
+		}
+		out[f.name] = seqFrontendBodyOrigin{kind: "unknown"}
+	}
+	return out
+}
+
+// seqFrontendBodyJSON 内部来源 → JSON 契约。
+func seqFrontendBodyJSON(body map[string]seqFrontendBodyOrigin) map[string]SeqFrontendBodyValue {
+	if len(body) == 0 {
+		return nil
+	}
+	out := map[string]SeqFrontendBodyValue{}
+	for name, o := range body {
+		v := SeqFrontendBodyValue{Kind: o.kind, Literal: o.literal}
+		if o.kind == "parameter" {
+			idx := o.parameter
+			v.Parameter = &idx
+		}
+		out[name] = v
+	}
+	return out
+}
+
+// seqFrontendParseBody 从 fetch options 提取 body 对象字段。
+func seqFrontendParseBody(body string) []seqFrontendBodyField {
+	m := seqFrontendBodyRe.FindStringSubmatch(body)
+	if m == nil {
+		return nil
+	}
+	var out []seqFrontendBodyField
+	for _, raw := range strings.Split(m[1], ",") {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		name, expr := raw, raw
+		if i := strings.Index(raw, ":"); i >= 0 {
+			name = strings.TrimSpace(raw[:i])
+			expr = strings.TrimSpace(raw[i+1:])
+		}
+		name = strings.Trim(name, `"'`)
+		if name == "" {
+			continue
+		}
+		out = append(out, seqFrontendBodyField{name: name, expr: expr})
+	}
+	return out
+}
+
+// seqFrontendImportSpec `click as submitClick` → (submitClick, click)。
+func seqFrontendImportSpec(spec string) (local, exported string) {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		return "", ""
+	}
+	parts := strings.Fields(spec)
+	if len(parts) >= 3 && parts[1] == "as" {
+		return parts[2], parts[0]
+	}
+	return parts[0], parts[0]
 }

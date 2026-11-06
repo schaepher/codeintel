@@ -20,8 +20,30 @@ type SeqFrontendAction struct {
 	File   string   `json:"file,omitempty"`
 	Line   int      `json:"line,omitempty"`
 	Params []string `json:"params,omitempty"`
+	// RequestBody B09d：请求体各字段相对当前动作形参的来源。
+	RequestBody map[string]SeqFrontendBodyValue `json:"request_body,omitempty"`
 	// Unknown 无法唯一连接的原因（缺 handler 源码/动态 URL/多候选）。
 	Unknown string `json:"unknown,omitempty"`
+}
+
+// SeqFrontendBodyValue 请求体字段来源（parameter/literal/unknown）。
+type SeqFrontendBodyValue struct {
+	Kind      string `json:"kind"`
+	Parameter *int   `json:"parameter,omitempty"`
+	Literal   string `json:"literal,omitempty"`
+}
+
+// seqFrontendBodyOrigin 解析期请求体来源（相对当前函数形参下标）。
+type seqFrontendBodyOrigin struct {
+	kind      string
+	parameter int
+	literal   string
+}
+
+// seqFrontendImport 导入声明（本地名 → 导出名 + 路径）。
+type seqFrontendImport struct {
+	path     string
+	exported string
 }
 
 // SeqWorkflowFrontend 前端动作集合。
@@ -39,6 +61,13 @@ type seqFrontendFunc struct {
 	fetchArg string
 	method   string
 	calls    []seqFrontendCall
+	body     []seqFrontendBodyField
+}
+
+// seqFrontendBodyField 请求体字段（name → 表达式）。
+type seqFrontendBodyField struct {
+	name string
+	expr string
 }
 
 // seqFrontendCall 调用（包装函数传播实参位置）。
@@ -59,8 +88,8 @@ func seqAnalyzeFrontend(a *Actions, base CodeSequenceRequest,
 	if a == nil || len(base.FrontendRoots) == 0 {
 		return nil
 	}
-	funcs := map[string]seqFrontendFunc{}     // file\x00name
-	imports := map[string]map[string]string{} // file → 本地名 → import 路径
+	funcs := map[string]seqFrontendFunc{}                // file\x00name
+	imports := map[string]map[string]seqFrontendImport{} // file → 本地名 → 导入
 	var bindings []seqFrontendBinding
 	for _, root := range base.FrontendRoots {
 		dir := root
@@ -100,9 +129,10 @@ func seqAnalyzeFrontend(a *Actions, base CodeSequenceRequest,
 		if !ok {
 			continue
 		}
-		path, method, ok := seqFrontendResolveFetch(fn, funcs, imports, map[string]string{}, 0)
+		path, method, body, ok := seqFrontendResolve(fn, funcs, imports, map[string]string{}, 0)
 		act := SeqFrontendAction{Action: b.name, Method: method, Path: path,
-			File: fn.file, Line: fn.line, Params: fn.params}
+			File: fn.file, Line: fn.line, Params: fn.params,
+			RequestBody: seqFrontendBodyJSON(body)}
 		if !ok || path == "" {
 			act.Unknown = "dynamic_url_or_missing_fetch"
 			actions = append(actions, act)
@@ -135,11 +165,13 @@ var (
 	seqFrontendCallRe     = regexp.MustCompile(`\b([A-Za-z_]\w*)\s*\(([^()]*)\)`)
 	seqFrontendBindRe     = regexp.MustCompile(`on[A-Za-z]+\s*=\s*\{\s*\(\s*\)\s*=>\s*([A-Za-z_]\w*)\s*\(`)
 	seqFrontendImportRe   = regexp.MustCompile(`(?m)import\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]`)
+	seqFrontendReexportRe = regexp.MustCompile(`(?m)export\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]`)
+	seqFrontendBodyRe     = regexp.MustCompile(`body\s*:\s*(?:JSON\.stringify\s*\(\s*)?\{([^}]*)\}`)
 )
 
 // seqParseFrontendFile 解析一个前端文件的导出函数、导入与事件绑定。
 func seqParseFrontendFile(src, rel string, funcs map[string]seqFrontendFunc,
-	imports map[string]map[string]string, bindings *[]seqFrontendBinding) {
+	imports map[string]map[string]seqFrontendImport, bindings *[]seqFrontendBinding) {
 	locs := seqFrontendExportRe.FindAllStringSubmatchIndex(src, -1)
 	for _, loc := range locs {
 		name := src[loc[2]:loc[3]]
@@ -160,6 +192,7 @@ func seqParseFrontendFile(src, rel string, funcs map[string]seqFrontendFunc,
 		} else if fn.path != "" {
 			fn.method = "GET"
 		}
+		fn.body = seqFrontendParseBody(body)
 		for _, m := range seqFrontendCallRe.FindAllStringSubmatch(body, -1) {
 			name := m[1]
 			if name == "fetch" || name == "function" || name == "if" || name == "return" ||
@@ -171,18 +204,31 @@ func seqParseFrontendFile(src, rel string, funcs map[string]seqFrontendFunc,
 		}
 		funcs[rel+"\x00"+name] = fn
 	}
-	// 导入：`import {click} from './a'` → 本地名 → 导入路径（B09c）。
+	// 导入/重导出：`import {click as submitClick} from './a'`（B09c/B09d）。
 	for _, m := range seqFrontendImportRe.FindAllStringSubmatch(src, -1) {
 		if imports[rel] == nil {
-			imports[rel] = map[string]string{}
+			imports[rel] = map[string]seqFrontendImport{}
 		}
 		path := strings.TrimSpace(m[2])
-		for _, name := range strings.Split(m[1], ",") {
-			name = strings.TrimSpace(name)
-			if name == "" {
+		for _, spec := range strings.Split(m[1], ",") {
+			local, exported := seqFrontendImportSpec(spec)
+			if local == "" {
 				continue
 			}
-			imports[rel][name] = path
+			imports[rel][local] = seqFrontendImport{path: path, exported: exported}
+		}
+	}
+	for _, m := range seqFrontendReexportRe.FindAllStringSubmatch(src, -1) {
+		if imports[rel] == nil {
+			imports[rel] = map[string]seqFrontendImport{}
+		}
+		path := strings.TrimSpace(m[2])
+		for _, spec := range strings.Split(m[1], ",") {
+			local, exported := seqFrontendImportSpec(spec)
+			if local == "" {
+				continue
+			}
+			imports[rel][local] = seqFrontendImport{path: path, exported: exported}
 		}
 	}
 	for _, loc := range seqFrontendBindRe.FindAllStringSubmatchIndex(src, -1) {

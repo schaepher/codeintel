@@ -198,21 +198,21 @@ type valueTraceCompletenessT struct {
 	StopFile   string `json:"stop_file,omitempty"`
 	StopLine   int    `json:"stop_line,omitempty"`
 	// todo12-17 R1 / todo13-17：分阶段计数（SQL/符号）与缓存命中
-	ElapsedMS     float64 `json:"elapsed_ms,omitempty"`
-	SQLMS         float64 `json:"sql_ms,omitempty"`
-	SQLQueries    int     `json:"sql_queries,omitempty"`
-	SymbolMS      float64 `json:"symbol_ms,omitempty"`
-	SymbolLookups int     `json:"symbol_lookups,omitempty"`
-	ConditionMS   float64 `json:"condition_ms,omitempty"`
-	ConditionRows int     `json:"condition_rows,omitempty"`
-	DispatchMS    float64 `json:"dispatch_ms,omitempty"`
-	DispatchCalls int     `json:"dispatch_calls,omitempty"`
-	CacheHits     int     `json:"cache_hits,omitempty"`
-	CacheMisses   int     `json:"cache_misses,omitempty"`
-	CacheEntries  int     `json:"cache_entries,omitempty"`
-	CacheEvictions int    `json:"cache_evictions,omitempty"`
-	CoveredOps    []string `json:"covered_ops,omitempty"`
-	UncoveredOps  []string `json:"uncovered_ops,omitempty"`
+	ElapsedMS      float64  `json:"elapsed_ms,omitempty"`
+	SQLMS          float64  `json:"sql_ms,omitempty"`
+	SQLQueries     int      `json:"sql_queries,omitempty"`
+	SymbolMS       float64  `json:"symbol_ms,omitempty"`
+	SymbolLookups  int      `json:"symbol_lookups,omitempty"`
+	ConditionMS    float64  `json:"condition_ms,omitempty"`
+	ConditionRows  int      `json:"condition_rows,omitempty"`
+	DispatchMS     float64  `json:"dispatch_ms,omitempty"`
+	DispatchCalls  int      `json:"dispatch_calls,omitempty"`
+	CacheHits      int      `json:"cache_hits,omitempty"`
+	CacheMisses    int      `json:"cache_misses,omitempty"`
+	CacheEntries   int      `json:"cache_entries,omitempty"`
+	CacheEvictions int      `json:"cache_evictions,omitempty"`
+	CoveredOps     []string `json:"covered_ops,omitempty"`
+	UncoveredOps   []string `json:"uncovered_ops,omitempty"`
 }
 
 func valueTraceCompleteness(rows []*domain.TraceRow, depth int) valueTraceCompletenessT {

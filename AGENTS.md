@@ -39,6 +39,9 @@
 - [`docs/todo32-checklist.md`](docs/todo32-checklist.md)：todo32 剩余连接
   （B06c/U04bS/B09c/B03c/B10c/B11c 全部完成；事务/资源位置/前端身份/DAO/
   组合完整流程/批量预校验边界与真实 28 流程验收说明）
+- [`docs/todo33-checklist.md`](docs/todo33-checklist.md)：todo33 剩余连接
+  （B06d/U04bT/B09d/B03d/B10d/B11d 全部完成；条件提交路径、资源声明身份、
+  前端别名/请求体、DAO Find 元素、组合 Markdown/图、timeout 全串解析边界）
   ——**接手先看这张表的"待办"行**
 
 ## 项目一句话

@@ -10,22 +10,23 @@ import (
 
 // seqWFWrite 分析树里的可信写入。
 type seqWFWrite struct {
-	Entry    string
-	Repo     string
-	File     string
-	Line     int
-	Offset   int
-	Path     string
-	ID       string
-	Table    string
-	Op       string
-	Guard    string
-	Values   []SeqStorageWrite
-	Preds    []SeqStoragePredicate
-	Resource string
-	Tx       bool
-	TxID     string
-	TxVar    string
+	Entry        string
+	Repo         string
+	File         string
+	Line         int
+	Offset       int
+	Path         string
+	ID           string
+	Table        string
+	Op           string
+	Guard        string
+	Values       []SeqStorageWrite
+	Preds        []SeqStoragePredicate
+	Resource     string
+	Tx           bool
+	TxID         string
+	TxVar        string
+	TxDeclOffset int
 }
 
 // seqWFScan Scan 目标映射（read id + column → 变量/Scan 身份）。
@@ -90,12 +91,14 @@ func seqCollectWorkflowWrites(tree *CodeSeqNode, entry, repo, path string, out *
 	tx := false
 	txID := ""
 	txVar := ""
+	txDeclOffset := 0
 	if st.ErrorResult != nil {
 		// 事务写入的接收者变量（B06c：Commit 必须绑定同一事务）。
 		if call := tree.call; call != nil {
 			if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
 				if id, ok := runtimeUnparen(sel.X).(*ast.Ident); ok {
 					txVar = id.Name
+					txDeclOffset = tree.recvDeclOffset
 				}
 			}
 		}
@@ -108,7 +111,8 @@ func seqCollectWorkflowWrites(tree *CodeSeqNode, entry, repo, path string, out *
 		Line: tree.Evidence.CallLine, ID: id, Table: st.Table, Op: st.Operation,
 		Guard: st.Guard, Values: st.Writes, Preds: st.Predicates, Path: path,
 		Resource: st.ResourceDeclaration, Tx: tx, TxID: txID, TxVar: txVar,
-		Offset: seqWFWriteOffset(tree)})
+		TxDeclOffset: txDeclOffset,
+		Offset:       seqWFWriteOffset(tree)})
 }
 
 // seqWFWriteOffset 写入调用点偏移（错误返回槽的身份偏移）。

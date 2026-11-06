@@ -8494,3 +8494,22 @@ action；开库前先 `ValidateRuntimeData`）。
   continueSegments/scene/selector/runtimeData（相对 manifest、防越界、JSON
   校验），失败 stdout 为空、exit=1、不创建输出目录；运行期失败仍按失败隔离。
 - 测试：`integration/todo32_*.go`；全量 internal + integration 通过。
+
+## §192 todo33：条件提交路径/资源声明身份/前端别名请求体/Find 元素/组合导出（2026-11-07）
+
+- **B06d**：事务身份由行号改为**声明偏移**（同一行多声明可区分）；新增
+  `seqCommitSuccessVars` 路径分析（If/Else/循环/静态条件；Commit 错误检查必须
+  覆盖全部正常出口），`SubmitConditionalTx` 不再借用 `commit_success`。
+- **U04bT**：资源赋值目标按 AST `*ast.Object` 包级声明身份（pkgVarObjs），局部
+  遮蔽不命中；静态 true/false 裁剪不可达分支；包内文件按 basename 映射，子目录
+  包入口事件不再丢失。
+- **B09d**：前端导入结构保留本地/导出名（alias/重导出）；`body:` 对象字段
+  记录相对当前动作形参的来源，包装链按实参位置重绑定；新增 `request_body` JSON。
+- **B03d**：ORM select 生成读取结果身份（列+Go 字段名），绑定集合变量并沿返回槽
+  传播；`range` 元素字段槽绑定 `read_column`（Find/DAO 包装路径）；同语句
+  `&records` 地址传递用 `setScalarScanTarget` 覆盖。
+- **B10d**：batch 每个组合导出使用完整 `scenario.workflow`（`seqTextRoot`）+
+  ` ```plantuml ` 图块，SVG 复用同一 puml；转换/渲染为空明确失败。
+- **B11d**：`parseBatchTimeout` 改为复用 `parseTimeout`（整串解析）；单流程
+  `--timeout` 显式非法在开库前拒绝（`timeoutSet`）。
+- 测试：`integration/todo33_*.go`；全量 internal + integration 通过。

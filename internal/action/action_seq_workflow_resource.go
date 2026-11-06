@@ -27,7 +27,7 @@ var seqModulePathCache sync.Map
 // seqEntryFactData 单个入口的资源改写事件与提交证明。
 type seqEntryFactData struct {
 	events     map[string][]int // resource symbol → 事件偏移（升序）
-	commitVars map[string]bool  // 已证明成功检查 Commit 的事务变量名
+	commitVars map[int]bool     // 已证明成功检查 Commit 的事务声明偏移
 	partial    bool
 }
 
@@ -52,11 +52,11 @@ func (f *seqWorkflowFacts) mutatedAt(entry, resource string, offset int) bool {
 
 // commitFor 该写入所在事务是否在入口成功路径上被检查过 Commit。
 func (f *seqWorkflowFacts) commitFor(w seqWFWrite) bool {
-	if !w.Tx || w.TxVar == "" {
+	if !w.Tx || w.TxDeclOffset == 0 {
 		return false
 	}
 	d := f.byEntry[w.Entry]
-	return d != nil && d.commitVars[w.TxVar]
+	return d != nil && d.commitVars[w.TxDeclOffset]
 }
 
 func (f *seqWorkflowFacts) partial() bool {
@@ -70,7 +70,7 @@ func (f *seqWorkflowFacts) partial() bool {
 
 // seqEntryFacts 解析入口函数与可证明调用链（事件位置 = 调用点偏移）。
 func seqEntryFacts(a *Actions, repo, entry string) *seqEntryFactData {
-	out := &seqEntryFactData{events: map[string][]int{}, commitVars: map[string]bool{}}
+	out := &seqEntryFactData{events: map[string][]int{}, commitVars: map[int]bool{}}
 	if a == nil || entry == "" {
 		return out
 	}
@@ -84,7 +84,7 @@ func seqEntryFacts(a *Actions, repo, entry string) *seqEntryFactData {
 	if len(files) == 0 {
 		return out
 	}
-	entryFile := files[n.FilePath]
+	entryFile := files[filepath.Base(n.FilePath)]
 	if entryFile == nil {
 		return out
 	}
@@ -93,10 +93,11 @@ func seqEntryFacts(a *Actions, repo, entry string) *seqEntryFactData {
 		return out
 	}
 	pkgVars := seqPkgVarNames(files)
+	pkgVarObjs := seqPkgVarObjects(files)
 	b := &seqResourceFactBuilder{out: out, pkg: pkg, files: files, pkgVars: pkgVars,
-		repo: repo, entry: entry}
-	// 入口函数里的 Commit 检查（只认入口自身，嵌套函数 return 不算）。
-	out.commitVars = seqCommitGuardedVars(fn)
+		pkgVarObjs: pkgVarObjs, repo: repo, entry: entry}
+	// 入口函数里的 Commit 检查（路径敏感；只认入口自身，嵌套函数 return 不算）。
+	out.commitVars = seqCommitSuccessVars(fn, entryFile)
 	b.walkFunc(fn, entryFile, 0, true, 0)
 	for res := range out.events {
 		sort.Ints(out.events[res])

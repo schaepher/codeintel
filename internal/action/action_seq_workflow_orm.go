@@ -12,11 +12,32 @@ func seqORMColumnName(tag, field string) string {
 			tag = tag[i+1:]
 		}
 		tag = strings.Trim(tag, `"' `)
-		if i := strings.Index(tag, ","); i >= 0 {
-			tag = tag[:i]
+		// xorm 常见：`pk autoincr 'id'` / `'kind'` / `column:id`。
+		if i := strings.IndexAny(tag, "'\""); i >= 0 {
+			q := tag[i]
+			if j := strings.IndexByte(tag[i+1:], q); j >= 0 {
+				if col := strings.TrimSpace(tag[i+1 : i+1+j]); col != "" {
+					return col
+				}
+			}
 		}
-		if tag != "" && tag != "-" {
-			return tag
+		for _, tok := range strings.FieldsFunc(tag, func(r rune) bool {
+			return r == ',' || r == ' ' || r == '\t'
+		}) {
+			tok = strings.TrimSpace(tok)
+			if tok == "" {
+				continue
+			}
+			if strings.HasPrefix(tok, "column:") {
+				return strings.TrimPrefix(tok, "column:")
+			}
+			low := strings.ToLower(tok)
+			switch low {
+			case "pk", "autoincr", "not", "null", "notnull", "unique", "index",
+				"default", "-", "->", "<-":
+				continue
+			}
+			return tok
 		}
 	}
 	return snakeCase(field)

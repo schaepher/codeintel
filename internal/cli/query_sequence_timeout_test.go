@@ -58,7 +58,7 @@ func TestSequenceQueryTimeoutBudget(t *testing.T) {
 			if fun, ok := call.Fun.(*ast.Ident); ok {
 				facts = append(facts, &domain.Fact{SourceID: id,
 					TargetID: domain.CanonicalID("symbol:go:example.com/m:" + fun.Name),
-					Kind: domain.FactCalls, Confidence: 0.8,
+					Kind:     domain.FactCalls, Confidence: 0.8,
 					Metadata: map[string]any{"line_num": fset.Position(call.Pos()).Line}})
 			}
 			return true

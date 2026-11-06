@@ -5,79 +5,142 @@ package action
 import (
 	"go/ast"
 	"go/token"
-	"os"
-	"path/filepath"
 	"strings"
 )
 
-// seqCommitGuardedVars 入口内被 `if err = tx.Commit(); err != nil { return }`
-// 检查过且函数存在正常 return 的事务变量名。
-func seqCommitGuardedVars(fn *ast.FuncDecl) map[string]bool {
-	out := map[string]bool{}
-	if fn == nil || fn.Body == nil {
+// seqCommitSuccessVars 路径敏感证明：事务变量的 Commit 错误检查必须出现在
+// 所有正常成功出口之前（条件 Commit/遗漏出口都不算）。返回声明行 → true。
+func seqCommitSuccessVars(fn *ast.FuncDecl, file *seqParsedGoFile) map[int]bool {
+	out := map[int]bool{}
+	if fn == nil || fn.Body == nil || file == nil {
 		return out
 	}
-	hasSuccessReturn := false
-	ast.Inspect(fn.Body, func(n ast.Node) bool {
-		switch v := n.(type) {
-		case *ast.IfStmt:
-			call := seqIfInitCall(v.Init)
-			if call == nil || !seqIsCommitCall(call) || !seqCondErrNonNil(v.Cond) ||
-				!seqBlockHasFailureReturn(v.Body) {
-				break
+	type state map[int]bool
+	clone := func(st state) state {
+		cp := state{}
+		for k := range st {
+			cp[k] = true
+		}
+		return cp
+	}
+	var exits []state
+	var walkStmts func(stmts []ast.Stmt, st state)
+	var walkStmt func(st ast.Stmt, cur state)
+	walkStmt = func(st ast.Stmt, cur state) {
+		switch s := st.(type) {
+		case *ast.ReturnStmt:
+			if len(s.Results) == 0 ||
+				(len(s.Results) == 1 && seqIsNilIdent(s.Results[0])) {
+				exits = append(exits, clone(cur))
 			}
-			if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-				if id, ok := runtimeUnparen(sel.X).(*ast.Ident); ok {
-					out[id.Name] = true
+		case *ast.BlockStmt:
+			walkStmts(s.List, cur)
+		case *ast.IfStmt:
+			if s.Init != nil {
+				walkStmt(s.Init, cur)
+			}
+			// 本 if 自身是 Commit 成功检查时，成功延续路径标记已检查。
+			if call := seqIfInitCall(s.Init); call != nil && seqIsCommitCall(call) &&
+				seqCondErrNonNil(s.Cond) && seqBlockHasFailureReturn(s.Body) {
+				if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+					if id, ok := runtimeUnparen(sel.X).(*ast.Ident); ok && id.Obj != nil {
+						line := file.fset.Position(seqDeclPosOf(id.Obj.Decl)).Offset
+						next := clone(cur)
+						next[line] = true
+						if s.Else != nil {
+							walkStmt(s.Else, next)
+						}
+						return // 成功延续在 if 之后由调用方继续
+					}
 				}
 			}
-		case *ast.ReturnStmt:
-			if len(v.Results) == 0 || (len(v.Results) == 1 && seqIsNilIdent(v.Results[0])) {
-				hasSuccessReturn = true
+			switch seqStaticCond(s.Cond) {
+			case 1:
+				walkStmt(s.Body, cur)
+			case -1:
+				if s.Else != nil {
+					walkStmt(s.Else, cur)
+				}
+			default:
+				walkStmt(s.Body, cur)
+				if s.Else != nil {
+					walkStmt(s.Else, cur)
+				}
+			}
+		case *ast.ForStmt:
+			// 循环可能 0 次：体内路径与跳过路径都存在。
+			walkStmt(s.Body, cur)
+		case *ast.RangeStmt:
+			walkStmt(s.Body, cur)
+		case *ast.SwitchStmt:
+			walkStmt(s.Body, cur)
+		case *ast.TypeSwitchStmt:
+			walkStmt(s.Body, cur)
+		case *ast.SelectStmt:
+			walkStmt(s.Body, cur)
+		case *ast.DeferStmt, *ast.GoStmt:
+			// 延迟/异步执行不构成当前成功路径。
+		}
+	}
+	walkStmts = func(stmts []ast.Stmt, st state) {
+		for _, stmt := range stmts {
+			// Commit guard 的 if 之后的路径要带上已检查状态。
+			if ifs, ok := stmt.(*ast.IfStmt); ok {
+				if call := seqIfInitCall(ifs.Init); call != nil && seqIsCommitCall(call) &&
+					seqCondErrNonNil(ifs.Cond) && seqBlockHasFailureReturn(ifs.Body) {
+					if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+						if id, ok := runtimeUnparen(sel.X).(*ast.Ident); ok && id.Obj != nil {
+							line := file.fset.Position(seqDeclPosOf(id.Obj.Decl)).Offset
+							next := clone(st)
+							next[line] = true
+							if ifs.Else != nil {
+								walkStmt(ifs.Else, next)
+							}
+							st = next
+							continue
+						}
+					}
+				}
+			}
+			walkStmt(stmt, st)
+		}
+	}
+	walkStmts(fn.Body.List, state{})
+	// 同一事务变量只有"所有正常出口都已检查"才成立。
+	txLines := map[int]bool{}
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		ifs, ok := n.(*ast.IfStmt)
+		if !ok {
+			return true
+		}
+		call := seqIfInitCall(ifs.Init)
+		if call == nil || !seqIsCommitCall(call) || !seqCondErrNonNil(ifs.Cond) ||
+			!seqBlockHasFailureReturn(ifs.Body) {
+			return true
+		}
+		if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+			if id, ok := runtimeUnparen(sel.X).(*ast.Ident); ok && id.Obj != nil {
+				txLines[file.fset.Position(seqDeclPosOf(id.Obj.Decl)).Offset] = true
 			}
 		}
 		return true
 	})
-	if !hasSuccessReturn {
-		return map[string]bool{}
+	if len(exits) == 0 {
+		return out
 	}
-	return out
-}
-
-// seqRepoPkgDirFor 模块内 import path → 仓库相对目录。
-func seqRepoPkgDirFor(repo, importPath string) (string, bool) {
-	mod := seqReadModulePath(repo)
-	if mod == "" || importPath == "" {
-		return "", false
-	}
-	switch {
-	case importPath == mod:
-		return "", true
-	case strings.HasPrefix(importPath, mod+"/"):
-		return strings.TrimPrefix(importPath, mod+"/"), true
-	}
-	return "", false
-}
-
-// seqReadModulePath 读取仓库根 go.mod 的 module 路径（带缓存）。
-func seqReadModulePath(repo string) string {
-	if v, ok := seqModulePathCache.Load(repo); ok {
-		s, _ := v.(string)
-		return s
-	}
-	data, err := os.ReadFile(filepath.Join(repo, "go.mod"))
-	path := ""
-	if err == nil {
-		for _, line := range strings.Split(string(data), "\n") {
-			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, "module ") {
-				path = strings.TrimSpace(strings.TrimPrefix(line, "module "))
+	for line := range txLines {
+		all := true
+		for _, st := range exits {
+			if !st[line] {
+				all = false
 				break
 			}
 		}
+		if all {
+			out[line] = true
+		}
 	}
-	seqModulePathCache.Store(repo, path)
-	return path
+	return out
 }
 
 // seqIfInitCall if 初始化语句里的调用（`if err = tx.Commit(); ...`）。
@@ -139,6 +202,29 @@ func seqPkgVarNames(files map[string]*seqParsedGoFile) map[string]bool {
 				if vs, ok := spec.(*ast.ValueSpec); ok {
 					for _, n := range vs.Names {
 						out[n.Name] = true
+					}
+				}
+			}
+		}
+	}
+	return out
+}
+
+// seqPkgVarObjects 包级 var 的 AST 对象集合（声明身份）。
+func seqPkgVarObjects(files map[string]*seqParsedGoFile) map[*ast.Object]bool {
+	out := map[*ast.Object]bool{}
+	for _, f := range files {
+		for _, d := range f.file.Decls {
+			gd, ok := d.(*ast.GenDecl)
+			if !ok || gd.Tok != token.VAR {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				if vs, ok := spec.(*ast.ValueSpec); ok {
+					for _, n := range vs.Names {
+						if n.Obj != nil {
+							out[n.Obj] = true
+						}
 					}
 				}
 			}

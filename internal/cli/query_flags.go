@@ -185,9 +185,11 @@ func parseQueryFlags(args []string) queryFlags {
 		case strings.HasPrefix(a, "--target-return="):
 			f.targetReturn, f.targetRetSet = strings.TrimPrefix(a, "--target-return="), true
 		case a == "--timeout" && i+1 < len(args):
+			f.timeoutSet = true
 			f.timeout = parseTimeout(args[i+1])
 			i++
 		case strings.HasPrefix(a, "--timeout="):
+			f.timeoutSet = true
 			f.timeout = parseTimeout(strings.TrimPrefix(a, "--timeout="))
 		case a == "--path-budget" && i+1 < len(args):
 			f.pathBudget, _ = strconv.Atoi(args[i+1])

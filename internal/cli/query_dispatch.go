@@ -61,6 +61,11 @@ func cmdQuery(args []string) int {
 			}
 		}
 	}
+	// B11d：--timeout 必须完整解析（非法后缀/零/负值/溢出在开库前拒绝）。
+	if f.timeoutSet && f.timeout <= 0 {
+		fmt.Fprintln(os.Stderr, "error: --timeout 非法（需要正数秒或 Go duration，且必须完整消费输入）")
+		return 2
+	}
 	// B09/B10：--frontend-root / --combination-selector 只能用于 sequence --code。
 	if len(f.frontendRoots) > 0 {
 		if sub != "sequence" || !f.code {

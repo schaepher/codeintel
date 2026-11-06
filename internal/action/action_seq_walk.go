@@ -177,6 +177,8 @@ func walkStmt(a *Actions, req CodeSequenceRequest, fset *token.FileSet, src []by
 				Stop: &SeqStop{Code: SeqStopFuncValueUnbound, Detail: why}}}
 		}
 		pre := req.env.clone()
+		// B03d：range 元素字段 ← 集合读取结果（ORM Find/Query 结果）。
+		seqBindRangeReadElement(req, s)
 		// todo24 §11.5：range 赋值目标若是已绑定函数值，循环内不得沿用循环前
 		// 的来源（未知元素列表）。
 		seqInvalidateRangeFuncSlots(req, s)

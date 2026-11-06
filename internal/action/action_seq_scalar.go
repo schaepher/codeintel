@@ -101,6 +101,7 @@ func cloneSeqScalarOrigin(o *SeqStorageOrigin) *SeqStorageOrigin {
 	if o.ReadResult != nil {
 		cp := *o.ReadResult
 		cp.columns = append([]string{}, o.ReadResult.columns...)
+		cp.fields = append([]string{}, o.ReadResult.fields...)
 		out.ReadResult = &cp
 	}
 	if o.ScanResult != nil {

@@ -64,6 +64,7 @@ type SeqSQLReadResult struct {
 	// columns U04d/U04e：读取的 SELECT 列（内部快照；Scan 绑定按真实列序）。
 	// 不进入 JSON 契约——列结构已由 storage_read.columns 输出。
 	columns []string
+	fields  []string // B03d：模型 Go 字段名（与 columns 对齐）
 }
 
 // seqReadResultType 已证明读取方法的槽 0 类型（未知 → 空）。
@@ -105,7 +106,13 @@ func seqAttachReadResult(req *CodeSequenceRequest, node *CodeSeqNode, call *ast.
 // seqReadResultOriginAt 调用表达式是已证明读取时，返回结果身份来源。
 func seqReadResultOriginAt(req CodeSequenceRequest, call *ast.CallExpr) *SeqStorageOrigin {
 	node := seqCallNodeOf(req, call)
-	if node == nil || node.Evidence == nil || node.Evidence.StorageRead == nil {
+	if node == nil || node.Evidence == nil {
+		return nil
+	}
+	if node.Evidence.ORM != nil && node.Evidence.ORM.ReadResult != nil {
+		return seqORMReadResultOriginAt(req, call)
+	}
+	if node.Evidence.StorageRead == nil {
 		return nil
 	}
 	r := node.Evidence.StorageRead.Result
@@ -126,35 +133,6 @@ func seqStorageReadSQLArg(node *CodeSeqNode) int {
 		return arg
 	}
 	return -1
-}
-
-// SeqStorageReadDebugText 渲染用：按读取证据还原可核对的 SELECT 文本。
-func SeqStorageReadDebugText(r *SeqStorageRead) string {
-	if r == nil || r.Table == "" || len(r.Columns) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString("SELECT ")
-	b.WriteString(strings.Join(r.Columns, ","))
-	b.WriteString(" FROM ")
-	b.WriteString(r.Table)
-	if len(r.Predicates) > 0 {
-		b.WriteString(" WHERE ")
-		for i, p := range r.Predicates {
-			if i > 0 {
-				b.WriteString(" AND ")
-			}
-			b.WriteString(p.Column)
-			b.WriteString("=")
-			switch p.Value.Kind {
-			case SeqStorageValueLiteral:
-				b.WriteString(p.Value.SQL)
-			default:
-				b.WriteString(p.Value.Expression)
-			}
-		}
-	}
-	return b.String()
 }
 
 // seqFoldSQLText 标量来源 → SQL 文本（只有全字面量可折叠；未知/参数 → 空）。
