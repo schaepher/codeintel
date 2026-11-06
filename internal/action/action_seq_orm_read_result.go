@@ -7,6 +7,40 @@ import (
 	"go/token"
 )
 
+// SeqReadError 读取错误槽来源（B03e）。
+//
+// ORM 读取方法的真实签名：Find(target) error → 槽 0 是 error；Get(target)
+// (bool, error) → 槽 0 bool、槽 1 error。集合/行本身来自目标实参，不是返回值。
+type SeqReadError struct {
+	// Result 本次读取身份（同一次 ORM 读取）。
+	Result *SeqSQLReadResult `json:"result,omitempty"`
+	// Slot 实际返回槽（Find=0，Get=1）。
+	Slot int `json:"slot"`
+}
+
+// seqORMReadErrorSlot 已证明 ORM 读取方法的错误返回槽（未知 → -1）。
+func seqORMReadErrorSlot(method string) int {
+	switch method {
+	case "Find":
+		return 0
+	case "Get":
+		return 1
+	}
+	return -1
+}
+
+// seqORMReadErrorOrigin 读取错误槽来源（Kind=read_error）。
+func seqORMReadErrorOrigin(rr *SeqSQLReadResult) *SeqStorageOrigin {
+	if rr == nil {
+		return nil
+	}
+	cp := *rr
+	cp.columns = append([]string{}, rr.columns...)
+	cp.fields = append([]string{}, rr.fields...)
+	return &SeqStorageOrigin{Kind: SeqOriginReadError, ScalarType: "error",
+		ReadError: &SeqReadError{Result: &cp, Slot: rr.errSlot}}
+}
+
 // seqBindORMReadResult 已证明 ORM select → 读取结果身份，并绑定到目标集合/行变量。
 func seqBindORMReadResult(req CodeSequenceRequest, node *CodeSeqNode, call *ast.CallExpr,
 	orm *SeqORM, c *seqPersistCtx) {
@@ -26,6 +60,10 @@ func seqBindORMReadResult(req CodeSequenceRequest, node *CodeSeqNode, call *ast.
 	if method == "Get" {
 		typ = SeqReadResultRow
 	}
+	errSlot := seqORMReadErrorSlot(method)
+	if errSlot < 0 {
+		return
+	}
 	// 列顺序与模型字段声明一致（只取直接字段）。
 	cols := make([]string, 0, len(m.Fields))
 	fields := make([]string, 0, len(m.Fields))
@@ -43,6 +81,7 @@ func seqBindORMReadResult(req CodeSequenceRequest, node *CodeSeqNode, call *ast.
 	id := "orm-read-" + itoaSeq(req.acc.readSeq)
 	rr := &SeqSQLReadResult{ID: id, Repo: req.RepoAbs, Entry: req.entryID,
 		Symbol: node.Evidence.SymbolID, File: node.Evidence.CallFile, Slot: 0, Type: typ,
+		errSlot: errSlot,
 		columns: append([]string{}, cols...), fields: append([]string{}, fields...)}
 	if c != nil && c.fset != nil && call.Lparen.IsValid() {
 		rr.Offset = c.fset.Position(call.Lparen).Offset
@@ -61,6 +100,25 @@ func seqBindORMReadResult(req CodeSequenceRequest, node *CodeSeqNode, call *ast.
 	// 同语句内的逃逸（更早的逃逸仍有效）。
 	req.env.setScalarScanTarget(idIdent.Obj, &SeqStorageOrigin{Kind: SeqOriginReadResult,
 		ScalarType: "sql." + typ, ReadResult: rr}, call.Pos())
+}
+
+// seqORMReadSlotOriginAt 调用表达式第 slot 个返回槽的 ORM 读取来源。
+//
+// Find(槽 0=error) / Get(槽 1=error)；Get 的槽 0 是 bool（此处不给来源）。
+// 其它（未知方法）返回 nil，不按"槽 0 一律是行/集合"推断。
+func seqORMReadSlotOriginAt(req CodeSequenceRequest, call *ast.CallExpr, slot int) *SeqStorageOrigin {
+	node := seqCallNodeOf(req, call)
+	if node == nil || node.Evidence == nil || node.Evidence.ORM == nil {
+		return nil
+	}
+	rr := node.Evidence.ORM.ReadResult
+	if rr == nil {
+		return nil
+	}
+	if rr.errSlotOf() != slot {
+		return nil
+	}
+	return seqORMReadErrorOrigin(rr)
 }
 
 // seqBindRangeReadElement range 元素 ← 集合读取结果（字段槽 = read_column）。

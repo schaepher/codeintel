@@ -20,6 +20,8 @@ const (
 	SeqOriginFieldRead = "field_read"
 	// U04d：标准 SQL 读取结果身份（QueryRow→Row / Query→Rows）。
 	SeqOriginReadResult = "sql_read_result"
+	// B03e：读取错误槽（ORM Find 槽 0 / Get 槽 1）——不是集合/行结果。
+	SeqOriginReadError = "read_error"
 	// U04e：Scan 错误槽 / 列来源。
 	SeqOriginScanError  = "scan_error"
 	SeqOriginReadColumn = "read_column"
@@ -65,6 +67,9 @@ type SeqStorageOrigin struct {
 	Allocation *SeqAllocation `json:"allocation,omitempty"`
 	// B05：生成键来源。
 	GeneratedKey *SeqGeneratedKey `json:"generated_key,omitempty"`
+	// B03e：读取错误槽来源（Find 槽 0 / Get 槽 1 的真实 error）。
+	ReadError *SeqReadError `json:"read_error,omitempty"`
+
 	// snapshot U04l：该来源在求值时刻就已经固定（getter 返回槽），续查后的
 	// 后序重算不得用后来的字段状态覆盖它。
 	snapshot bool
@@ -103,6 +108,16 @@ func cloneSeqScalarOrigin(o *SeqStorageOrigin) *SeqStorageOrigin {
 		cp.columns = append([]string{}, o.ReadResult.columns...)
 		cp.fields = append([]string{}, o.ReadResult.fields...)
 		out.ReadResult = &cp
+	}
+	if o.ReadError != nil {
+		cp := *o.ReadError
+		if o.ReadError.Result != nil {
+			rr := *o.ReadError.Result
+			rr.columns = append([]string{}, o.ReadError.Result.columns...)
+			rr.fields = append([]string{}, o.ReadError.Result.fields...)
+			cp.Result = &rr
+		}
+		out.ReadError = &cp
 	}
 	if o.ScanResult != nil {
 		cp := *o.ScanResult
@@ -185,6 +200,13 @@ func sameSeqScalarOrigin(a, b *SeqStorageOrigin) bool {
 	}
 	if a.TxError != nil && (a.TxError.CallID != b.TxError.CallID || a.TxError.Operation != b.TxError.Operation ||
 		a.TxError.Slot != b.TxError.Slot) {
+		return false
+	}
+	if (a.ReadError == nil) != (b.ReadError == nil) {
+		return false
+	}
+	if a.ReadError != nil && (a.ReadError.Result == nil || b.ReadError.Result == nil ||
+		a.ReadError.Result.ID != b.ReadError.Result.ID || a.ReadError.Slot != b.ReadError.Slot) {
 		return false
 	}
 	if (a.ReadResult == nil) != (b.ReadResult == nil) {

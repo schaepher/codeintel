@@ -66,7 +66,8 @@ func seqResolvePendingResults(req CodeSequenceRequest) {
 		}
 		switch origin.Kind {
 		case SeqOriginParameter, SeqOriginLiteral, SeqOriginConcat,
-			SeqOriginStructCopy, SeqOriginStructLiteral, SeqOriginFieldRead:
+			SeqOriginReadError, SeqOriginStructCopy, SeqOriginStructLiteral,
+			SeqOriginFieldRead:
 			p.env.setScalar(obj, cloneSeqScalarOrigin(origin))
 		}
 	}

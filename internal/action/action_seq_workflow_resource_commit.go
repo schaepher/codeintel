@@ -1,157 +1,16 @@
 package action
 
 // 提交证明与模块路径辅助（从 resource builder 拆出）。
+//
+// B06e 的数据流分析在 action_seq_workflow_resource_commit_dataflow.go；
+// 这里只保留 AST 谓词与包级声明辅助。
 
 import (
 	"go/ast"
 	"go/token"
+	"path/filepath"
 	"strings"
 )
-
-// seqCommitSuccessVars 路径敏感证明：事务变量的 Commit 错误检查必须出现在
-// 所有正常成功出口之前（条件 Commit/遗漏出口都不算）。返回声明行 → true。
-func seqCommitSuccessVars(fn *ast.FuncDecl, file *seqParsedGoFile) map[int]bool {
-	out := map[int]bool{}
-	if fn == nil || fn.Body == nil || file == nil {
-		return out
-	}
-	type state map[int]bool
-	clone := func(st state) state {
-		cp := state{}
-		for k := range st {
-			cp[k] = true
-		}
-		return cp
-	}
-	var exits []state
-	var walkStmts func(stmts []ast.Stmt, st state)
-	var walkStmt func(st ast.Stmt, cur state)
-	walkStmt = func(st ast.Stmt, cur state) {
-		switch s := st.(type) {
-		case *ast.ReturnStmt:
-			if len(s.Results) == 0 ||
-				(len(s.Results) == 1 && seqIsNilIdent(s.Results[0])) {
-				exits = append(exits, clone(cur))
-			}
-		case *ast.BlockStmt:
-			walkStmts(s.List, cur)
-		case *ast.IfStmt:
-			if s.Init != nil {
-				walkStmt(s.Init, cur)
-			}
-			// 本 if 自身是 Commit 成功检查时，成功延续路径标记已检查。
-			if call := seqIfInitCall(s.Init); call != nil && seqIsCommitCall(call) &&
-				seqCondErrNonNil(s.Cond) && seqBlockHasFailureReturn(s.Body) {
-				if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-					if id, ok := runtimeUnparen(sel.X).(*ast.Ident); ok && id.Obj != nil {
-						line := file.fset.Position(seqDeclPosOf(id.Obj.Decl)).Offset
-						next := clone(cur)
-						next[line] = true
-						if s.Else != nil {
-							walkStmt(s.Else, next)
-						}
-						return // 成功延续在 if 之后由调用方继续
-					}
-				}
-			}
-			switch seqStaticCond(s.Cond) {
-			case 1:
-				walkStmt(s.Body, cur)
-			case -1:
-				if s.Else != nil {
-					walkStmt(s.Else, cur)
-				}
-			default:
-				walkStmt(s.Body, cur)
-				if s.Else != nil {
-					walkStmt(s.Else, cur)
-				}
-			}
-		case *ast.ForStmt:
-			// 循环可能 0 次：体内路径与跳过路径都存在。
-			walkStmt(s.Body, cur)
-		case *ast.RangeStmt:
-			walkStmt(s.Body, cur)
-		case *ast.SwitchStmt:
-			walkStmt(s.Body, cur)
-		case *ast.TypeSwitchStmt:
-			walkStmt(s.Body, cur)
-		case *ast.SelectStmt:
-			walkStmt(s.Body, cur)
-		case *ast.DeferStmt, *ast.GoStmt:
-			// 延迟/异步执行不构成当前成功路径。
-		}
-	}
-	walkStmts = func(stmts []ast.Stmt, st state) {
-		for _, stmt := range stmts {
-			// Commit guard 的 if 之后的路径要带上已检查状态。
-			if ifs, ok := stmt.(*ast.IfStmt); ok {
-				if call := seqIfInitCall(ifs.Init); call != nil && seqIsCommitCall(call) &&
-					seqCondErrNonNil(ifs.Cond) && seqBlockHasFailureReturn(ifs.Body) {
-					if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-						if id, ok := runtimeUnparen(sel.X).(*ast.Ident); ok && id.Obj != nil {
-							line := file.fset.Position(seqDeclPosOf(id.Obj.Decl)).Offset
-							next := clone(st)
-							next[line] = true
-							if ifs.Else != nil {
-								walkStmt(ifs.Else, next)
-							}
-							st = next
-							continue
-						}
-					}
-				}
-			}
-			walkStmt(stmt, st)
-		}
-	}
-	walkStmts(fn.Body.List, state{})
-	// 同一事务变量只有"所有正常出口都已检查"才成立。
-	txLines := map[int]bool{}
-	ast.Inspect(fn.Body, func(n ast.Node) bool {
-		ifs, ok := n.(*ast.IfStmt)
-		if !ok {
-			return true
-		}
-		call := seqIfInitCall(ifs.Init)
-		if call == nil || !seqIsCommitCall(call) || !seqCondErrNonNil(ifs.Cond) ||
-			!seqBlockHasFailureReturn(ifs.Body) {
-			return true
-		}
-		if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-			if id, ok := runtimeUnparen(sel.X).(*ast.Ident); ok && id.Obj != nil {
-				txLines[file.fset.Position(seqDeclPosOf(id.Obj.Decl)).Offset] = true
-			}
-		}
-		return true
-	})
-	if len(exits) == 0 {
-		return out
-	}
-	for line := range txLines {
-		all := true
-		for _, st := range exits {
-			if !st[line] {
-				all = false
-				break
-			}
-		}
-		if all {
-			out[line] = true
-		}
-	}
-	return out
-}
-
-// seqIfInitCall if 初始化语句里的调用（`if err = tx.Commit(); ...`）。
-func seqIfInitCall(init ast.Stmt) *ast.CallExpr {
-	as, ok := init.(*ast.AssignStmt)
-	if !ok || len(as.Rhs) != 1 {
-		return nil
-	}
-	call, _ := as.Rhs[0].(*ast.CallExpr)
-	return call
-}
 
 // seqIsCommitCall selector 方法名为 Commit。
 func seqIsCommitCall(call *ast.CallExpr) bool {
@@ -159,7 +18,8 @@ func seqIsCommitCall(call *ast.CallExpr) bool {
 	return ok && sel.Sel.Name == "Commit"
 }
 
-// seqCondErrNonNil `err != nil` / `nil != err`。
+// seqCondErrNonNil `err != nil` / `nil != err`（旧口径：按 err 前缀；B06e 的
+// 提交证明改用 seqCondNonNilObj 比较实际错误槽，这里只服务其它读取方）。
 func seqCondErrNonNil(e ast.Expr) bool {
 	b, ok := runtimeUnparen(e).(*ast.BinaryExpr)
 	if !ok || b.Op != token.NEQ {
@@ -187,6 +47,11 @@ func seqBlockHasFailureReturn(body *ast.BlockStmt) bool {
 		return true
 	})
 	return found
+}
+
+// filepathBase 事务来源键里的文件身份（同包内 basename 唯一）。
+func filepathBase(p string) string {
+	return filepath.Base(p)
 }
 
 // seqPkgVarNames 包级 var 名称集合（跨文件）。

@@ -21,10 +21,11 @@ type seqBatchFlowInputs struct {
 func seqBatchValidateFlows(flows []seqBatchFlow, baseDir string) ([]seqBatchFlowInputs, error) {
 	out := make([]seqBatchFlowInputs, len(flows))
 	for i, fl := range flows {
-		// B11c：非法 timeout 在打开索引/创建目录前拒绝。
+		// B11c/B11e：非法 timeout 在打开索引/创建目录前拒绝（整串消费 +
+		// 整数秒乘 time.Second 前检查范围）。
 		if fl.Timeout != "" {
-			dur := parseBatchTimeout(fl.Timeout)
-			if dur <= 0 {
+			dur, terr := parseBatchTimeout(fl.Timeout)
+			if terr != nil || dur <= 0 {
 				return nil, fmt.Errorf("flow %s timeout 非法 %q", fl.ID, fl.Timeout)
 			}
 			out[i].timeout = dur

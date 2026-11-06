@@ -12,9 +12,9 @@ import (
 	"time"
 )
 
-// parseBatchTimeout 秒数或 Go duration：必须消费整个输入（B11d）。
-func parseBatchTimeout(raw string) time.Duration {
-	return parseTimeout(raw)
+// parseBatchTimeout 秒数或 Go duration：必须消费整个输入（B11d/B11e）。
+func parseBatchTimeout(raw string) (time.Duration, error) {
+	return parseTimeoutExact(raw)
 }
 
 // seqBatchParams 场景参数 → 稳定文本。

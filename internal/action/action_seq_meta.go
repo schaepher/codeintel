@@ -144,7 +144,7 @@ type seqTimingAcc struct {
 	fset *token.FileSet
 	// U04n：事务身份（同一 Begin 节点稳定；请求内唯一）。
 	txSeq int
-	txIDs map[*CodeSeqNode]string
+	txIDs map[*CodeSeqNode]*SeqTxOrigin
 	// U04v：字段读取观察 ID（每次求值一个）。
 	fieldReadSeq int
 	// U04d：读取结果身份 / U04e：Scan 身份（每次求值一个）。

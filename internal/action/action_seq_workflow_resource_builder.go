@@ -49,6 +49,14 @@ type seqResourceFactBuilder struct {
 	pkgVarObjs map[*ast.Object]bool
 	repo       string
 	entry      string
+	// log 事件插入顺序（块终止时按区间回填 die 边界）。
+	log []seqResEventRef
+}
+
+// seqResEventRef 已记录事件的定位（资源符号 + 该符号事件切片下标）。
+type seqResEventRef struct {
+	name string
+	idx  int
 }
 
 // walkFunc 遍历函数体；eventAt>0 表示被调链（所有事件记在调用点）。
@@ -65,13 +73,26 @@ func (b *seqResourceFactBuilder) walkFunc(fn *ast.FuncDecl, file *seqParsedGoFil
 }
 
 // walkBlock 顺序遍历语句块。
+//
+// U04bU：块内改写事件在**块终止**（return/panic 分支）时打上 die 边界——
+// 已返回路径的改写不能污染继续执行的读取；未终止块保持无边界（保守）。
 func (b *seqResourceFactBuilder) walkBlock(body *ast.BlockStmt, file *seqParsedGoFile,
 	eventAt int, isEntry bool, depth int, closures map[*ast.Object]*ast.FuncLit) {
 	if body == nil {
 		return
 	}
+	mark := len(b.log)
 	for _, st := range body.List {
 		b.walkStmt(st, file, eventAt, isEntry, depth, closures)
+	}
+	if isEntry && seqBlockTerminates(body) && file.fset != nil && body.Rbrace.IsValid() {
+		die := file.fset.Position(body.Rbrace).Offset
+		for _, ref := range b.log[mark:] {
+			ev := &b.out.events[ref.name][ref.idx]
+			if ev.die == 0 || die < ev.die {
+				ev.die = die
+			}
+		}
 	}
 }
 
@@ -126,7 +147,18 @@ func (b *seqResourceFactBuilder) walkStmt(st ast.Stmt, file *seqParsedGoFile,
 			}
 		}
 	case *ast.ForStmt:
+		// U04bU：Init 无条件执行一次；静态 false 的循环体（及 Post）零次执行。
+		if s.Init != nil {
+			b.walkStmt(s.Init, file, eventAt, isEntry, depth, closures)
+		}
+		if s.Cond != nil && seqStaticCond(s.Cond) == -1 {
+			return
+		}
 		b.walkBlock(s.Body, file, eventAt, isEntry, depth, closures)
+		// Post 每次迭代后执行（≥1 次）；不改写被跳过。
+		if s.Post != nil {
+			b.walkStmt(s.Post, file, eventAt, isEntry, depth, closures)
+		}
 	case *ast.RangeStmt:
 		b.walkBlock(s.Body, file, eventAt, isEntry, depth, closures)
 	case *ast.SwitchStmt:
@@ -224,49 +256,14 @@ func (b *seqResourceFactBuilder) pkgFunc(name string) *ast.FuncDecl {
 	return found
 }
 
-// fileOfFunc 函数声明所在文件。
-func (b *seqResourceFactBuilder) fileOfFunc(fd *ast.FuncDecl) *seqParsedGoFile {
-	for _, f := range b.files {
-		for _, d := range f.file.Decls {
-			if d == ast.Decl(fd) {
-				return f
-			}
-		}
-	}
-	return nil
-}
-
-// importFunc 仓内导入包函数（外部依赖不加载源码）。
-func (b *seqResourceFactBuilder) importFunc(importPath, name string) (*ast.FuncDecl, *seqParsedGoFile) {
-	dir, ok := seqRepoPkgDirFor(b.repo, importPath)
-	if !ok {
-		return nil, nil
-	}
-	files := seqParsePackageDir(filepath.Join(b.repo, dir))
-	var found *ast.FuncDecl
-	var foundFile *seqParsedGoFile
-	for _, f := range files {
-		for _, d := range f.file.Decls {
-			fd, ok := d.(*ast.FuncDecl)
-			if !ok || fd.Recv != nil || fd.Name == nil || fd.Name.Name != name {
-				continue
-			}
-			if found != nil {
-				return nil, nil
-			}
-			found, foundFile = fd, f
-		}
-	}
-	return found, foundFile
-}
-
 // addEvent 记录一次资源改写事件。
 func (b *seqResourceFactBuilder) addEvent(name string, offset int) {
 	if b == nil || b.out == nil || name == "" {
 		return
 	}
 	sym := "symbol:go:" + b.pkg + ":" + name
-	b.out.events[sym] = append(b.out.events[sym], offset)
+	b.out.events[sym] = append(b.out.events[sym], seqResEvent{off: offset})
+	b.log = append(b.log, seqResEventRef{name: sym, idx: len(b.out.events[sym]) - 1})
 }
 
 // isPkgVar 赋值目标是否指向包级 var（AST 声明身份；局部同名不命中）。
@@ -280,5 +277,3 @@ func (b *seqResourceFactBuilder) isPkgVar(id *ast.Ident) bool {
 	// 跨文件引用在单文件 parser 里没有 Obj：只能按名称回退。
 	return b.pkgVars[id.Name]
 }
-
-// seqResourceFactBuilder 语句顺序遍历（入口用真实位置，被调链用调用点位置）。

@@ -10,16 +10,26 @@ import (
 // seqFrontendLookup 按文件/导入解析函数身份（同名不跨文件覆盖）。
 func seqFrontendLookup(name, file string, funcs map[string]seqFrontendFunc,
 	imports map[string]map[string]seqFrontendImport) (seqFrontendFunc, bool) {
+	return seqFrontendLookupDepth(name, file, funcs, imports, 0)
+}
+
+// seqFrontendLookupDepth 沿导入/重导出链解析（B09e.2：可证明的重导出；
+// 深度有界，环即失败——不按扫描顺序挑一个）。
+func seqFrontendLookupDepth(name, file string, funcs map[string]seqFrontendFunc,
+	imports map[string]map[string]seqFrontendImport, depth int) (seqFrontendFunc, bool) {
+	if depth > 8 {
+		return seqFrontendFunc{}, false
+	}
 	if fn, ok := funcs[file+"\x00"+name]; ok {
 		return fn, true
 	}
 	if imp, ok := imports[file][name]; ok && strings.HasPrefix(imp.path, ".") {
-		if rel := seqFrontendImportFile(file, imp.path, funcs); rel != "" {
+		if rel := seqFrontendImportFile(file, imp.path, funcs, imports); rel != "" {
 			exported := imp.exported
 			if exported == "" {
 				exported = name
 			}
-			if fn, ok := funcs[rel+"\x00"+exported]; ok {
+			if fn, ok := seqFrontendLookupDepth(exported, rel, funcs, imports, depth+1); ok {
 				return fn, true
 			}
 		}
@@ -28,7 +38,11 @@ func seqFrontendLookup(name, file string, funcs map[string]seqFrontendFunc,
 }
 
 // seqFrontendImportFile 相对导入路径 → 已解析文件（尝试常见扩展名）。
-func seqFrontendImportFile(cur, imp string, funcs map[string]seqFrontendFunc) string {
+//
+// B09e：只做重导出（没有导出函数）的文件也要能被解析——只看函数表会把
+// `export {default} from './a'` 这类桥接文件当成不存在。
+func seqFrontendImportFile(cur, imp string, funcs map[string]seqFrontendFunc,
+	imports map[string]map[string]seqFrontendImport) string {
 	base := strings.TrimSuffix(filepath.ToSlash(filepath.Dir(cur)), "/")
 	rel := filepath.ToSlash(filepath.Join(base, imp))
 	for _, ext := range []string{"", ".ts", ".tsx", ".js", ".jsx"} {
@@ -37,6 +51,9 @@ func seqFrontendImportFile(cur, imp string, funcs map[string]seqFrontendFunc) st
 			if strings.HasPrefix(key, cand+"\x00") {
 				return cand
 			}
+		}
+		if _, ok := imports[cand]; ok {
+			return cand
 		}
 	}
 	return ""

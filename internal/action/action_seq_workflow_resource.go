@@ -24,11 +24,21 @@ const seqResourceFactMaxDepth = 8
 
 var seqModulePathCache sync.Map
 
+// seqResEvent 一次资源改写事件。
+//
+// die > 0 表示该事件所在分支在 die（块结束偏移）之后不可达（例如
+// `if stop { DB=nil; return }`）：它只能影响 die 之前的读取，不能污染
+// 继续执行路径上的资源绑定。
+type seqResEvent struct {
+	off int
+	die int
+}
+
 // seqEntryFactData 单个入口的资源改写事件与提交证明。
 type seqEntryFactData struct {
-	events     map[string][]int // resource symbol → 事件偏移（升序）
-	commitVars map[int]bool     // 已证明成功检查 Commit 的事务声明偏移
-	partial    bool
+	events        map[string][]seqResEvent // resource symbol → 事件（按偏移升序）
+	commitSites   map[string]bool          // 已证明成功检查的 Commit 调用位置（file:offset）
+	partial       bool
 }
 
 // seqWorkflowFacts 入口事实集合。
@@ -43,20 +53,79 @@ func (f *seqWorkflowFacts) mutatedAt(entry, resource string, offset int) bool {
 		return false
 	}
 	for _, ev := range d.events[resource] {
-		if ev < offset {
-			return true
+		if ev.off >= offset {
+			continue
 		}
+		if ev.die > 0 && offset >= ev.die {
+			// 该分支在到达此读取之前已经退出（return/panic）——改写不可达。
+			continue
+		}
+		return true
 	}
 	return false
 }
 
-// commitFor 该写入所在事务是否在入口成功路径上被检查过 Commit。
-func (f *seqWorkflowFacts) commitFor(w seqWFWrite) bool {
-	if !w.Tx || w.TxDeclOffset == 0 {
+// commitProven 该写入所在事务是否在入口成功路径上被检查过 Commit。
+//
+// B06e：身份 = 事务来源（Begin 调用评估）+ 该来源的 **Commit 调用位置**：
+//   - 同一声明重绑到另一事务后，Commit 属于另一个 origin，不能证明原写入；
+//   - 同一 helper 被调用两次产生两个事务（origin 不同），不能互相借用；
+//   - 同一事务的所有 Commit 调用点都必须通过成功检查（分支里遗漏一个即失败）。
+func (f *seqWorkflowFacts) commitProven(entries []SeqWorkflowEntry, w seqWFWrite) bool {
+	d := f.byEntry[w.Entry]
+	if d == nil || !w.Tx || w.TxID == "" {
 		return false
 	}
-	d := f.byEntry[w.Entry]
-	return d != nil && d.commitVars[w.TxDeclOffset]
+	sites := seqWFCommitSites(entries, w.Entry, w.TxID)
+	if len(sites) == 0 {
+		return false
+	}
+	for _, site := range sites {
+		if !d.commitSites[site] {
+			return false
+		}
+	}
+	return true
+}
+
+// seqWFCommitSites 入口树里提交该事务（origin id）的 Commit 调用位置键。
+func seqWFCommitSites(entries []SeqWorkflowEntry, entry, txID string) []string {
+	tree := seqWFEntryTree(entries, entry)
+	if tree == nil {
+		return nil
+	}
+	var out []string
+	var walk func(nodes []*CodeSeqNode)
+	walk = func(nodes []*CodeSeqNode) {
+		for _, n := range nodes {
+			if n == nil {
+				continue
+			}
+			tx := n.Evidence
+			if tx != nil && tx.Transaction != nil && tx.Transaction.Action == SeqTxCommit &&
+				tx.Transaction.Origin != nil && tx.Transaction.Origin.ID == txID &&
+				n.call != nil && n.call.Lparen.IsValid() {
+				// 位置键用 Commit 调用在**其所在文件**里的偏移（与 AST 事实同口径）。
+				origin := tx.Transaction.Origin
+				offset := 0
+				if n.callOffset > 0 {
+					offset = n.callOffset
+				}
+				rel := tx.CallFile
+				if rel == "" && origin != nil {
+					rel = origin.File
+				}
+				if offset > 0 && rel != "" {
+					out = append(out, filepathBase(rel)+":"+itoaSeq(offset))
+				}
+			}
+			walk(n.Nodes)
+			walk(n.Else)
+		}
+	}
+	walk(tree.Nodes)
+	sort.Strings(out)
+	return out
 }
 
 func (f *seqWorkflowFacts) partial() bool {
@@ -70,7 +139,7 @@ func (f *seqWorkflowFacts) partial() bool {
 
 // seqEntryFacts 解析入口函数与可证明调用链（事件位置 = 调用点偏移）。
 func seqEntryFacts(a *Actions, repo, entry string) *seqEntryFactData {
-	out := &seqEntryFactData{events: map[string][]int{}, commitVars: map[int]bool{}}
+	out := &seqEntryFactData{events: map[string][]seqResEvent{}, commitSites: map[string]bool{}}
 	if a == nil || entry == "" {
 		return out
 	}
@@ -97,10 +166,12 @@ func seqEntryFacts(a *Actions, repo, entry string) *seqEntryFactData {
 	b := &seqResourceFactBuilder{out: out, pkg: pkg, files: files, pkgVars: pkgVars,
 		pkgVarObjs: pkgVarObjs, repo: repo, entry: entry}
 	// 入口函数里的 Commit 检查（路径敏感；只认入口自身，嵌套函数 return 不算）。
-	out.commitVars = seqCommitSuccessVars(fn, entryFile)
+	out.commitSites = seqCommitSuccessVars(fn, entryFile, files)
 	b.walkFunc(fn, entryFile, 0, true, 0)
 	for res := range out.events {
-		sort.Ints(out.events[res])
+		sort.SliceStable(out.events[res], func(i, j int) bool {
+			return out.events[res][i].off < out.events[res][j].off
+		})
 	}
 	return out
 }

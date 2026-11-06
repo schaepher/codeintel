@@ -21,6 +21,11 @@ func seqScalarOriginDepth(req CodeSequenceRequest, e ast.Expr, depth int) *SeqSt
 	case *ast.ParenExpr:
 		return seqScalarOriginDepth(req, v.X, depth+1)
 	case *ast.Ident:
+		// B06e.1：事务变量/别名（`alias := tx`）——事务来源在 env.txs 槽里，
+		// 优先按它给出（重新赋值为非事务来源时槽已被 clearTx 清掉）。
+		if tx := seqTxVarOrigin(req, v); tx != nil {
+			return &SeqStorageOrigin{Kind: SeqOriginTransaction, TxOrigin: tx}
+		}
 		if req.env != nil {
 			if origin, ok := req.env.scalarOriginAt(v.Obj, v.Pos()); ok {
 				return cloneSeqScalarOrigin(origin)
@@ -53,6 +58,10 @@ func seqScalarOriginDepth(req CodeSequenceRequest, e ast.Expr, depth int) *SeqSt
 		}
 		// U04e：已证明的 Scan 调用 → 错误槽（Scan 只返回 error）。
 		if o := seqScanErrorOriginAt(req, v); o != nil {
+			return o
+		}
+		// B03e：已证明的 ORM 读取错误槽（Find 槽 0 / Get 槽 1）。
+		if o := seqORMReadSlotOriginAt(req, v, 0); o != nil {
 			return o
 		}
 		// U04d：已证明的标准 SQL 读取调用 → 结果身份（槽 0）。

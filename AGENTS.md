@@ -42,6 +42,10 @@
 - [`docs/todo33-checklist.md`](docs/todo33-checklist.md)：todo33 剩余连接
   （B06d/U04bT/B09d/B03d/B10d/B11d 全部完成；条件提交路径、资源声明身份、
   前端别名/请求体、DAO Find 元素、组合 Markdown/图、timeout 全串解析边界）
+- [`docs/todo34-checklist.md`](docs/todo34-checklist.md)：todo34 剩余连接
+  （B06e/U04bU/B03e/B09e/B10e/B11e：Commit 事务来源与错误槽、零次循环/
+  终止路径、ORM 读取错误槽、前端默认导入/重导出、图内前端动作、timeout
+  整数秒溢出；含逐条状态与未覆盖边界）
 - [`docs/checklist-template.md`](docs/checklist-template.md)：Checklist/新任务模板
   ——逐条独立验收 + 反例矩阵 + 反捷径检查（写新 todo 必用）
   ——**接手先看这张表的"待办"行**

@@ -196,6 +196,11 @@ func seqNodeResultOriginAt(req CodeSequenceRequest, call *ast.CallExpr, slot int
 	if node == nil {
 		return nil
 	}
+	// B03e：已证明的 ORM 读取按真实签名取槽（Find 槽 0=error / Get 槽 1=error）；
+	// 空方法体 stub 的 return 不能替代读取错误槽。
+	if o := seqORMReadSlotOriginAt(req, call, slot); o != nil {
+		return o
+	}
 	origins := seqNodeResultOrigins(node)
 	if slot < 0 || slot >= len(origins) {
 		return nil

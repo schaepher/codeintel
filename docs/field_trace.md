@@ -8513,3 +8513,32 @@ action；开库前先 `ValidateRuntimeData`）。
 - **B11d**：`parseBatchTimeout` 改为复用 `parseTimeout`（整串解析）；单流程
   `--timeout` 显式非法在开库前拒绝（`timeoutSet`）。
 - 测试：`integration/todo33_*.go`；全量 internal + integration 通过。
+
+## §193 todo34：Commit 来源/资源路径/ORM 错误槽/默认导入/图内前端动作/timeout 溢出（2026-11-07）
+
+- **B06e**：事务身份改为"Begin 调用来源"，证明落到**Commit 调用位置**：
+  `seqCommitSuccessVars` 重写为数据流分析（`..._commit_dataflow.go` +
+  `..._commit_origins.go`）——事务绑定沿 `tx,err:=BeginTx` / 同包 helper 唯一
+  return / 别名赋值传播，重绑或非事务赋值清槽；被检查的错误必须是该次
+  `Commit` 的赋值 LHS（别名沿赋值链，不按 `err` 前缀）；连接侧用写入的
+  `Origin.ID` 找该事务的**全部** Commit 调用点，全部通过才 `commit_success`。
+  `SubmitWrongError`/`SubmitReboundTx` 从错误的 `commit_success` 变为保留
+  `transaction_commit`；`SubmitTx`/`SubmitErrAlias`/`SubmitHelperTx` 保持正例。
+  `seqTxOriginForBegin` 首次分配即写全 `File/Offset`（只给 ID 会让写入侧丢身份）。
+- **U04bU**：资源事件带 `die` 可达边界（终止块里 `DB=nil; return` 不影响后续
+  读取）；`for false` 执行 Init、跳过 Body/Post；Post 参与改写；`mutatedAt`
+  只认能到达调用点的改写。`ReviewZeroLoop`/`ReviewEarlyReset` 恢复 1 个连接。
+- **B03e**：ORM 结果 `SeqSQLReadResult` 增加 `errSlot`（Find=0 / Get=1）；
+  新增 `SeqOriginReadError` + `SeqReadError`，沿调用槽/返回槽/别名传播；
+  `seqReadResultOriginAt` 不再把 ORM 槽 0 当集合/行。`ReviewDAO` 的
+  `err!=nil` 从 `sql_read_result` 变为 `read_error`，`r.Kind` 列来源保持。
+- **B09e**：前端解析支持 `export default function`、默认导入、默认值重导出
+  （深度 ≤8；冲突默认导出 → unknown）与"只有重导出的桥接文件"；未解析事件
+  保留动作 + `declaration_not_found`。
+- **B10e**：`workflow.frontend` 进入文本/Mermaid/PlantUML/SVG：动作参与者、
+  请求消息、请求体来源与 handler 同图，并标注"动作顺序不代表真实请求顺序"。
+- **B11e**：`parseTimeoutExact` 整串解析；整数秒在乘 `time.Second` **之前**
+  检查 `floor(MaxInt64/time.Second)`；单流程与 batch 共用；非法值在开库/
+  建目录前拒绝（stderr 一行、stdout 空、exit=1）。
+- 测试：`integration/todo34_*.go` + `internal/cli/timeout_parse_test.go`；
+  全量 internal + integration 通过。

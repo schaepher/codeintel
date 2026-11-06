@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // parseContinueSegments 解析 --continue-segments 的总追加次数预算（T12b）：
@@ -186,11 +185,11 @@ func parseQueryFlags(args []string) queryFlags {
 			f.targetReturn, f.targetRetSet = strings.TrimPrefix(a, "--target-return="), true
 		case a == "--timeout" && i+1 < len(args):
 			f.timeoutSet = true
-			f.timeout = parseTimeout(args[i+1])
+			f.setTimeout(args[i+1])
 			i++
 		case strings.HasPrefix(a, "--timeout="):
 			f.timeoutSet = true
-			f.timeout = parseTimeout(strings.TrimPrefix(a, "--timeout="))
+			f.setTimeout(strings.TrimPrefix(a, "--timeout="))
 		case a == "--path-budget" && i+1 < len(args):
 			f.pathBudget, _ = strconv.Atoi(args[i+1])
 			i++
@@ -272,17 +271,13 @@ func splitComma(s string) []string {
 	return out
 }
 
-// parseTimeout --timeout 解析：纯数字按秒；否则 time.ParseDuration。
-func parseTimeout(s string) time.Duration {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return 0
+// setTimeout --timeout 解析（B11e：整串消费 + 乘 time.Second 前检查范围）。
+func (f *queryFlags) setTimeout(raw string) {
+	d, err := parseTimeoutExact(raw)
+	if err != nil {
+		f.timeoutErr = err.Error()
+		f.timeout = 0
+		return
 	}
-	if n, err := strconv.Atoi(s); err == nil && n > 0 {
-		return time.Duration(n) * time.Second
-	}
-	if d, err := time.ParseDuration(s); err == nil && d > 0 {
-		return d
-	}
-	return 0
+	f.timeout = d
 }

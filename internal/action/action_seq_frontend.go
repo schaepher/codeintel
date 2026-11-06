@@ -126,7 +126,11 @@ func seqAnalyzeFrontend(a *Actions, base CodeSequenceRequest,
 		}
 		seen[key] = true
 		fn, ok := seqFrontendLookup(b.name, b.file, funcs, imports)
-		if !ok {
+		if !ok || fn.file == "" || fn.name == "" {
+			// B09e：事件已识别但声明/源码不足（缺文件、默认导出冲突、
+			// 非函数导出）→ 保留动作 + 明确 unknown，不能静默丢掉事件。
+			actions = append(actions, SeqFrontendAction{Action: b.name, File: b.file,
+				Unknown: "declaration_not_found"})
 			continue
 		}
 		path, method, body, ok := seqFrontendResolve(fn, funcs, imports, map[string]string{}, 0)
@@ -160,6 +164,10 @@ func seqAnalyzeFrontend(a *Actions, base CodeSequenceRequest,
 
 var (
 	seqFrontendExportRe   = regexp.MustCompile(`(?m)^\s*export\s+(?:async\s+)?function\s+(\w+)\s*\(([^)]*)\)`)
+	// B09e：`export default function send(...)`——默认导出声明。
+	seqFrontendDefaultExportRe = regexp.MustCompile(`(?m)^\s*export\s+default\s+(?:async\s+)?function\s+(\w+)\s*\(([^)]*)\)`)
+	// B09e：`import send from './actions'` / `import send, { click } from './a'`。
+	seqFrontendDefaultImportRe = regexp.MustCompile(`(?m)^\s*import\s+([A-Za-z_$][\w$]*)\s*(?:,\s*\{([^}]*)\})?\s*from\s*['"]([^'"]+)['"]`)
 	seqFrontendFetchArgRe = regexp.MustCompile(`fetch\s*\(\s*([^,)]+)`)
 	seqFrontendMethodRe   = regexp.MustCompile(`method\s*:\s*['"]([A-Za-z]+)['"]`)
 	seqFrontendCallRe     = regexp.MustCompile(`\b([A-Za-z_]\w*)\s*\(([^()]*)\)`)
@@ -172,37 +180,35 @@ var (
 // seqParseFrontendFile 解析一个前端文件的导出函数、导入与事件绑定。
 func seqParseFrontendFile(src, rel string, funcs map[string]seqFrontendFunc,
 	imports map[string]map[string]seqFrontendImport, bindings *[]seqFrontendBinding) {
+	// B09e：默认导出声明（`export default function send`）与命名导出同样按
+	// 文件的真实声明登记；同一文件多个默认导出 = 冲突（不按扫描顺序选）。
+	defaultLocs := seqFrontendDefaultExportRe.FindAllStringSubmatchIndex(src, -1)
+	for _, loc := range defaultLocs {
+		name := src[loc[2]:loc[3]]
+		fn := seqFrontendFuncFromSrc(src, rel, name, src[loc[4]:loc[5]], loc[0])
+		funcs[rel+"\x00"+name] = fn
+		if _, exists := funcs[rel+"\x00default"]; exists {
+			// 冲突：不挑第一个/最后一个，明确无法解析默认导出。
+			funcs[rel+"\x00default"] = seqFrontendFunc{file: rel}
+			continue
+		}
+		funcs[rel+"\x00default"] = fn
+	}
 	locs := seqFrontendExportRe.FindAllStringSubmatchIndex(src, -1)
 	for _, loc := range locs {
 		name := src[loc[2]:loc[3]]
-		params := seqFrontendParams(src[loc[4]:loc[5]])
-		line := 1 + strings.Count(src[:loc[0]], "\n")
-		body := seqFrontendBody(src, loc[1])
-		fn := seqFrontendFunc{name: name, file: rel, line: line, params: params}
-		if m := seqFrontendFetchArgRe.FindStringSubmatch(body); m != nil {
-			arg := strings.TrimSpace(m[1])
-			if lit, ok := seqFrontendStringLit(arg); ok {
-				fn.path = lit
-			} else {
-				fn.fetchArg = arg
-			}
-		}
-		if m := seqFrontendMethodRe.FindStringSubmatch(body); m != nil {
-			fn.method = strings.ToUpper(m[1])
-		} else if fn.path != "" {
-			fn.method = "GET"
-		}
-		fn.body = seqFrontendParseBody(body)
-		for _, m := range seqFrontendCallRe.FindAllStringSubmatch(body, -1) {
-			name := m[1]
-			if name == "fetch" || name == "function" || name == "if" || name == "return" ||
-				name == "JSON" || name == "stringify" {
-				continue
-			}
-			fn.calls = append(fn.calls, seqFrontendCall{name: name,
-				args: seqFrontendSplitArgs(m[2])})
-		}
+		fn := seqFrontendFuncFromSrc(src, rel, name, src[loc[4]:loc[5]], loc[0])
 		funcs[rel+"\x00"+name] = fn
+	}
+	// B09e：默认导入 `import send from './actions'`（导出名为 default）。
+	for _, m := range seqFrontendDefaultImportRe.FindAllStringSubmatch(src, -1) {
+		if imports[rel] == nil {
+			imports[rel] = map[string]seqFrontendImport{}
+		}
+		local := strings.TrimSpace(m[1])
+		if local != "" {
+			imports[rel][local] = seqFrontendImport{path: strings.TrimSpace(m[3]), exported: "default"}
+		}
 	}
 	// 导入/重导出：`import {click as submitClick} from './a'`（B09c/B09d）。
 	for _, m := range seqFrontendImportRe.FindAllStringSubmatch(src, -1) {

@@ -90,17 +90,21 @@ func seqTxOriginForBegin(req CodeSequenceRequest, node *CodeSeqNode) *SeqTxOrigi
 		return nil
 	}
 	if req.acc.txIDs == nil {
-		req.acc.txIDs = map[*CodeSeqNode]string{}
+		req.acc.txIDs = map[*CodeSeqNode]*SeqTxOrigin{}
 	}
-	if id, ok := req.acc.txIDs[node]; ok {
-		return &SeqTxOrigin{ID: id}
+	// B06e：来源身份（文件 + Begin 调用偏移）必须在**第一次**分配时就完整，
+	// 后续调用返回同一份字段（只给 ID 会让写入侧丢失来源身份）。
+	if cached, ok := req.acc.txIDs[node]; ok {
+		cp := *cached
+		return &cp
 	}
 	req.acc.txSeq++
-	id := "tx-" + itoaSeq(req.acc.txSeq)
-	req.acc.txIDs[node] = id
-	return &SeqTxOrigin{ID: id, Repo: req.RepoAbs, Entry: req.entryID,
-		Symbol: node.Evidence.SymbolID, File: node.Evidence.CallFile,
-		Slot: 0}
+	origin := &SeqTxOrigin{ID: "tx-" + itoaSeq(req.acc.txSeq), Repo: req.RepoAbs,
+		Entry: req.entryID, Symbol: node.Evidence.SymbolID, File: node.Evidence.CallFile,
+		Offset: node.callOffset, Slot: 0}
+	req.acc.txIDs[node] = origin
+	cp := *origin
+	return &cp
 }
 
 // seqTxReceiverOrigin 接收者变量上的事务来源。
@@ -146,6 +150,14 @@ func (e *seqEnv) setTx(obj *ast.Object, origin *SeqTxOrigin) {
 	}
 	cp := *origin
 	e.txs[obj] = seqTxSlot{origin: &cp}
+}
+
+// clearTx 变量被重新赋值为非事务来源（或显式未知）时清掉事务槽。
+func (e *seqEnv) clearTx(obj *ast.Object) {
+	if e == nil || obj == nil {
+		return
+	}
+	delete(e.txs, obj)
 }
 
 func (e *seqEnv) markTxEscaped(obj *ast.Object) {

@@ -26,13 +26,15 @@ func seqTextRoot(root *action.CodeSeqNode) string {
 	if root == nil {
 		return ""
 	}
+	// B10e：文本与 JSON/Mermaid 共用同一份前端动作事实。
+	prefix := seqFrontendText(root)
 	// U04g：实例视图（>1 实例）优先。
 	if txt := seqTextRootInstances(root); txt != "" {
-		return txt
+		return prefix + txt
 	}
 	entries := seqWorkflowEntries(root)
 	if entries == nil {
-		return fmt.Sprintf("== %s 代码级时序 ==\n", root.Label) + seqText(root.Nodes, 1) +
+		return prefix + fmt.Sprintf("== %s 代码级时序 ==\n", root.Label) + seqText(root.Nodes, 1) +
 			seqDiagText(root) + seqSceneText(root)
 	}
 	var b strings.Builder
@@ -48,7 +50,7 @@ func seqTextRoot(root *action.CodeSeqNode) string {
 		b.WriteString(seqSceneText(e.Sequence))
 	}
 	b.WriteString("entry order unproven：入口集合不表示请求顺序或执行次数\n")
-	return b.String()
+	return prefix + b.String()
 }
 
 // seqEntryShort 入口 canonical ID → 短名（末段）。
@@ -132,6 +134,8 @@ func renderCodeSeqWorkflowMermaid(root *action.CodeSeqNode) string {
 		}
 		b.WriteString(fmt.Sprintf("  participant %s as %s\n", alias[key], label))
 	}
+	// B10e：前端动作与请求必须在同一张图里（不能只在图下注释补名字）。
+	seqRenderFrontendMermaid(&b, root.Workflow, alias)
 	// 每个入口一个独立作用域块；顺序只按入口集合（entry order unproven）。
 	for i, e := range entries {
 		if e.Sequence == nil {

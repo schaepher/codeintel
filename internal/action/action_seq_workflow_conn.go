@@ -8,6 +8,7 @@ package action
 
 import (
 	"go/ast"
+	"path/filepath"
 
 	"github.com/schaepher/codeintel/internal/domain"
 )
@@ -104,7 +105,8 @@ func seqWorkflowConnections(entries []SeqWorkflowEntry, maxAttempts, maxConns in
 	// B06：事务写入的底层资源 = Begin 调用的 DB 声明。
 	for i := range writes {
 		if writes[i].Tx && writes[i].Resource == "" && writes[i].TxID != "" {
-			writes[i].Resource = seqWFResolveTxResource(entries, writes[i].Entry, writes[i].TxID)
+			writes[i].Resource = seqWFResolveTxResource(entries, writes[i].Entry, writes[i].TxID,
+				writes[i].Repo)
 		}
 	}
 	for _, w := range writes {
@@ -143,7 +145,7 @@ func seqWorkflowConnections(entries []SeqWorkflowEntry, maxAttempts, maxConns in
 				continue
 			}
 			// B06b：源入口显式检查 Commit 错误 → 成功路径携带 commit_success。
-			if fact != nil && w.Tx && fact.commitFor(w) {
+			if fact != nil && w.Tx && fact.commitProven(entries, w) {
 				conn.SuccessConditions = appendUniqueStr(conn.SuccessConditions, "commit_success")
 				var proofs []string
 				for _, p := range conn.MissingProofs {
@@ -245,8 +247,15 @@ func seqBuildConnection(w seqWFWrite, r seqWFRead) (SeqWorkflowConnection, bool)
 }
 
 // seqWFResolveTxResource 事务 Begin 调用接收者的包级 DB 声明符号。
-func seqWFResolveTxResource(entries []SeqWorkflowEntry, entry, txID string) string {
+//
+// 跨文件引用在单文件 parser 里没有 ast.Object——按**包级 var 名称表**回退
+// （局部同名变量仍不命中，因为只有包级声明在表里）。
+func seqWFResolveTxResource(entries []SeqWorkflowEntry, entry, txID, repo string) string {
 	tree := seqWFEntryTree(entries, entry)
+	if tree == nil {
+		return ""
+	}
+	var pkgVars map[string]bool
 	var found string
 	var walk func(nodes []*CodeSeqNode)
 	walk = func(nodes []*CodeSeqNode) {
@@ -259,8 +268,18 @@ func seqWFResolveTxResource(entries []SeqWorkflowEntry, entry, txID string) stri
 				tx.Transaction.Origin.ID == txID && tx.Transaction.Action == SeqTxBegin &&
 				n.call != nil {
 				if sel, ok := n.call.Fun.(*ast.SelectorExpr); ok {
-					if id, ok2 := runtimeUnparen(sel.X).(*ast.Ident); ok2 && id.Obj != nil {
-						found = "symbol:go:" + pkgOfID(domain.CanonicalID(entry)) + ":" + id.Name
+					if id, ok2 := runtimeUnparen(sel.X).(*ast.Ident); ok2 {
+						if id.Obj != nil {
+							found = "symbol:go:" + pkgOfID(domain.CanonicalID(entry)) + ":" + id.Name
+						} else {
+							if pkgVars == nil {
+								dir := filepath.Dir(filepath.Join(repo, tx.CallFile))
+								pkgVars = seqPkgVarNames(seqParsePackageDir(dir))
+							}
+							if pkgVars[id.Name] {
+								found = "symbol:go:" + pkgOfID(domain.CanonicalID(entry)) + ":" + id.Name
+							}
+						}
 					}
 				}
 			}

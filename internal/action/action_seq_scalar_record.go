@@ -128,9 +128,16 @@ func seqRecordScalarAssign(req CodeSequenceRequest, s *ast.AssignStmt) {
 		if len(s.Rhs) != len(s.Lhs) {
 			// 多返回值/多重赋值未能逐个对齐 → 未知（但保留逃逸状态）。
 			req.env.setScalar(id.Obj, nil)
+			req.env.clearTx(id.Obj)
 			continue
 		}
 		req.env.setScalar(id.Obj, origins[i])
+		// B06e.1：事务来源随赋值传播（`alias := tx`），非事务来源清掉旧事务槽。
+		if origins[i] != nil && origins[i].Kind == SeqOriginTransaction && origins[i].TxOrigin != nil {
+			req.env.setTx(id.Obj, origins[i].TxOrigin)
+		} else {
+			req.env.clearTx(id.Obj)
+		}
 	}
 }
 
@@ -146,6 +153,11 @@ func seqRecordScalarValueSpec(req CodeSequenceRequest, vs *ast.ValueSpec) {
 				o = seqRebaseReturnedAllocation(req, call, o)
 			}
 			req.env.setScalar(name.Obj, o)
+			if o != nil && o.Kind == SeqOriginTransaction && o.TxOrigin != nil {
+				req.env.setTx(name.Obj, o.TxOrigin)
+			} else {
+				req.env.clearTx(name.Obj)
+			}
 			continue
 		}
 		// B07：实例重分析的种子字面量（声明无初始化时也不覆盖）。

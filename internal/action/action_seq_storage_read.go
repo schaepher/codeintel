@@ -65,6 +65,17 @@ type SeqSQLReadResult struct {
 	// 不进入 JSON 契约——列结构已由 storage_read.columns 输出。
 	columns []string
 	fields  []string // B03d：模型 Go 字段名（与 columns 对齐）
+	// errSlot B03e：该读取方法的**错误**返回槽（Find=0 / Get=1）；
+	// -1/0 缺省表示标准库 Query/QueryRow 的错误槽未知（不借用结果槽）。
+	errSlot int
+}
+
+// errSlotOf 错误返回槽（未建模时返回 -1）。
+func (r *SeqSQLReadResult) errSlotOf() int {
+	if r == nil {
+		return -1
+	}
+	return r.errSlot
 }
 
 // seqReadResultType 已证明读取方法的槽 0 类型（未知 → 空）。
@@ -109,7 +120,12 @@ func seqReadResultOriginAt(req CodeSequenceRequest, call *ast.CallExpr) *SeqStor
 	if node == nil || node.Evidence == nil {
 		return nil
 	}
-	if node.Evidence.ORM != nil && node.Evidence.ORM.ReadResult != nil {
+	if orm := node.Evidence.ORM; orm != nil && orm.ReadResult != nil {
+		// B03e：ORM 的结果槽与错误槽分开建模——Find 的槽 0 是 error，
+		// Get 的槽 0 是 bool；两者都不能当成"读取结果"。
+		if orm.ReadResult.errSlotOf() >= 0 {
+			return nil
+		}
 		return seqORMReadResultOriginAt(req, call)
 	}
 	if node.Evidence.StorageRead == nil {

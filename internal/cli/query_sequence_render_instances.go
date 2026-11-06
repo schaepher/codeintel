@@ -94,6 +94,8 @@ func renderCodeSeqInstancesMermaid(root *action.CodeSeqNode) string {
 		}
 		b.WriteString(fmt.Sprintf("  participant %s as %s\n", alias[key], label))
 	}
+	// B10e：前端动作与请求（同一 workflow.frontend 事实）。
+	seqRenderFrontendMermaid(&b, root.Workflow, alias)
 	for _, inst := range instances {
 		actors := perEntry[inst.Entry]
 		if len(actors) == 0 {

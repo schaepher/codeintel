@@ -234,8 +234,8 @@ func seqBindReturnOrigins(req CodeSequenceRequest, call *ast.CallExpr, lhs []ast
 		// 普通标量来源（如构造器返回的表单键）也沿返回槽传播。
 		if origin.Kind == SeqOriginParameter || origin.Kind == SeqOriginLiteral ||
 			origin.Kind == SeqOriginConcat || origin.Kind == SeqOriginReadResult ||
-			origin.Kind == SeqOriginStructLiteral || origin.Kind == SeqOriginStructCopy ||
-			origin.Kind == SeqOriginFieldRead {
+			origin.Kind == SeqOriginReadError || origin.Kind == SeqOriginStructLiteral ||
+			origin.Kind == SeqOriginStructCopy || origin.Kind == SeqOriginFieldRead {
 			req.env.setScalar(id.Obj, origin)
 		}
 	}
