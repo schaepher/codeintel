@@ -28,6 +28,11 @@
 9. **文档落档**：field_trace.md 加 Q 节（设计先行：先写设计再实施）；
    skill/AGENTS.md/runbook 同步更新
 10. **推送**：验证全绿后 `git push`（不留未推提交）
+11. **条款级验收**：每条「实现要求/独立验收」都有正例+反例测试；只通过公开
+    示例最多标“部分”。写新 todo/Checklist 必须套用
+    [`checklist-template.md`](checklist-template.md) 的漏点复查表，并 grep
+    “名称集合/任意 Commit/只解析前缀/先 append 后检查预算/单文件模型”等反捷径模式
+    （todo30–33 复发源）
 
 改动图构建/查询层（ssa/scip/ast 适配器、`repo_path`/`repo_trace` 等）
 的轮次，额外跑两件（Q252c）：
