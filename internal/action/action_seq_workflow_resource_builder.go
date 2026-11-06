@@ -49,6 +49,7 @@ type seqResourceFactBuilder struct {
 	pkgVarObjs map[*ast.Object]bool
 	repo       string
 	entry      string
+	fileDir    string // 入口文件所在包目录（仓库相对；来源键前缀）
 	// log 事件插入顺序（块终止时按区间回填 die 边界）。
 	log []seqResEventRef
 }

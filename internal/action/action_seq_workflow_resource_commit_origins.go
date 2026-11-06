@@ -7,6 +7,7 @@ package action
 import (
 	"go/ast"
 	"go/token"
+	"path/filepath"
 )
 
 // exprBind 表达式的事务来源 / Commit 错误槽 / 错误别名。
@@ -116,12 +117,12 @@ func (a *seqCommitAnalyzer) offset(call *ast.CallExpr) int {
 	return a.fset.Position(call.Lparen).Offset
 }
 
-// siteKey 调用位置键（file:offset）。
+// siteKey 调用位置键（仓库相对 file:offset）。
 func (a *seqCommitAnalyzer) siteKey(offset int, rel string) string {
 	if offset <= 0 || rel == "" {
 		return ""
 	}
-	return filepathBase(rel) + ":" + itoaSeq(offset)
+	return a.relPath(rel) + ":" + itoaSeq(offset)
 }
 
 // key 事务来源键（Begin 调用的 file:offset；helper 场景也解析到实际 Begin）。
@@ -129,15 +130,15 @@ func (a *seqCommitAnalyzer) key(offset int, rel string) string {
 	if offset <= 0 || rel == "" {
 		return ""
 	}
-	return filepathBase(rel) + ":" + itoaSeq(offset)
+	return a.relPath(rel) + ":" + itoaSeq(offset)
 }
 
-// seqTxOriginKey 事务来源键（Begin 调用的 file:offset）。
-func seqTxOriginKey(o *SeqTxOrigin) string {
-	if o == nil || o.Offset <= 0 || o.File == "" {
-		return ""
+// relPath 包内文件 → 仓库相对路径（与写入证据的 Origin.File 同口径）。
+func (a *seqCommitAnalyzer) relPath(rel string) string {
+	if a.dir == "" || a.dir == "." {
+		return filepath.ToSlash(rel)
 	}
-	return filepathBase(o.File) + ":" + itoaSeq(o.Offset)
+	return filepath.ToSlash(filepath.Join(a.dir, rel))
 }
 
 // receiverIdentObj 方法调用接收者的变量对象。

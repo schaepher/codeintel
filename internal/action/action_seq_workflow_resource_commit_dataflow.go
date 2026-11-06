@@ -63,6 +63,7 @@ func (a *seqCommitAnalyzer) aliasRoot(st *seqCommitState, obj *ast.Object) *ast.
 type seqCommitAnalyzer struct {
 	fset  *token.FileSet
 	rel   string
+	dir   string
 	files map[string]*seqParsedGoFile
 	exits []*seqCommitState
 }
@@ -75,12 +76,12 @@ const seqCommitHelperMaxDepth = 4
 // B06e.4：同包 helper 的唯一 return 是 Begin 调用（或另一个这样的 helper）时，
 // `tx, err := openTx()` 的事务来源按**实际 Begin 调用**解析（不按变量名）。
 func seqCommitSuccessVars(fn *ast.FuncDecl, file *seqParsedGoFile,
-	files map[string]*seqParsedGoFile) map[string]bool {
+	files map[string]*seqParsedGoFile, fileDir string) map[string]bool {
 	out := map[string]bool{}
 	if fn == nil || fn.Body == nil || file == nil {
 		return out
 	}
-	a := &seqCommitAnalyzer{fset: file.fset, rel: file.rel, files: files}
+	a := &seqCommitAnalyzer{fset: file.fset, rel: file.rel, files: files, dir: fileDir}
 	a.walkStmts(fn.Body.List, newSeqCommitState())
 	if len(a.exits) == 0 {
 		return out

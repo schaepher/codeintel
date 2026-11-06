@@ -116,7 +116,8 @@ func seqWFCommitSites(entries []SeqWorkflowEntry, entry, txID string) []string {
 					rel = origin.File
 				}
 				if offset > 0 && rel != "" {
-					out = append(out, filepathBase(rel)+":"+itoaSeq(offset))
+					// 仓库相对路径（同名 basename 的其它包文件不碰撞）。
+					out = append(out, filepath.ToSlash(rel)+":"+itoaSeq(offset))
 				}
 			}
 			walk(n.Nodes)
@@ -164,9 +165,9 @@ func seqEntryFacts(a *Actions, repo, entry string) *seqEntryFactData {
 	pkgVars := seqPkgVarNames(files)
 	pkgVarObjs := seqPkgVarObjects(files)
 	b := &seqResourceFactBuilder{out: out, pkg: pkg, files: files, pkgVars: pkgVars,
-		pkgVarObjs: pkgVarObjs, repo: repo, entry: entry}
+		pkgVarObjs: pkgVarObjs, repo: repo, entry: entry, fileDir: filepath.Dir(n.FilePath)}
 	// 入口函数里的 Commit 检查（路径敏感；只认入口自身，嵌套函数 return 不算）。
-	out.commitSites = seqCommitSuccessVars(fn, entryFile, files)
+	out.commitSites = seqCommitSuccessVars(fn, entryFile, files, filepath.Dir(n.FilePath))
 	b.walkFunc(fn, entryFile, 0, true, 0)
 	for res := range out.events {
 		sort.SliceStable(out.events[res], func(i, j int) bool {

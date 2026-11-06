@@ -27,9 +27,6 @@ type seqWFWrite struct {
 	TxID         string
 	TxVar        string
 	TxDeclOffset int
-	// TxOriginKey B06e：写入时事务来源（Begin 调用的 file:offset）——
-	// 同一声明先后持有不同事务时靠它区分。
-	TxOriginKey string
 }
 
 // seqWFScan Scan 目标映射（read id + column → 变量/Scan 身份）。
@@ -106,17 +103,15 @@ func seqCollectWorkflowWrites(tree *CodeSeqNode, entry, repo, path string, out *
 			}
 		}
 	}
-	txOriginKey := ""
 	if tree.Evidence.Transaction != nil && tree.Evidence.Transaction.Origin != nil {
 		tx = true
 		txID = tree.Evidence.Transaction.Origin.ID
-		txOriginKey = seqTxOriginKey(tree.Evidence.Transaction.Origin)
 	}
 	*out = append(*out, seqWFWrite{Entry: entry, Repo: repo, File: tree.Evidence.CallFile,
 		Line: tree.Evidence.CallLine, ID: id, Table: st.Table, Op: st.Operation,
 		Guard: st.Guard, Values: st.Writes, Preds: st.Predicates, Path: path,
 		Resource: st.ResourceDeclaration, Tx: tx, TxID: txID, TxVar: txVar,
-		TxDeclOffset: txDeclOffset, TxOriginKey: txOriginKey,
+		TxDeclOffset: txDeclOffset,
 		Offset:       seqWFWriteOffset(tree)})
 }
 

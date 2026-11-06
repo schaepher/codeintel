@@ -8,7 +8,6 @@ package action
 import (
 	"go/ast"
 	"go/token"
-	"path/filepath"
 	"strings"
 )
 
@@ -47,11 +46,6 @@ func seqBlockHasFailureReturn(body *ast.BlockStmt) bool {
 		return true
 	})
 	return found
-}
-
-// filepathBase 事务来源键里的文件身份（同包内 basename 唯一）。
-func filepathBase(p string) string {
-	return filepath.Base(p)
 }
 
 // seqPkgVarNames 包级 var 名称集合（跨文件）。
