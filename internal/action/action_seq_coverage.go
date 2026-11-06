@@ -32,6 +32,15 @@ func seqAnalyzeCoverage(a *Actions, base CodeSequenceRequest, wf *SeqWorkflow) *
 		return &SeqWorkflowCoverage{Reasons: []string{"combination_selector_unproven"}}
 	}
 	cov := &SeqWorkflowCoverage{Supported: combos, Analyzed: combos}
+	if wf.Scenarios != nil {
+		// B10b：analyzed 只统计实际完成分析的组合，不能直接复制 supported。
+		cov.Analyzed = 0
+		for _, sc := range wf.Scenarios {
+			if sc.Sequence != nil {
+				cov.Analyzed++
+			}
+		}
+	}
 	partial := false
 	if wf.Partial {
 		cov.Reasons = append(cov.Reasons, "analysis_partial")
@@ -65,29 +74,36 @@ func seqAnalyzeCoverage(a *Actions, base CodeSequenceRequest, wf *SeqWorkflow) *
 
 // seqSelectorCombos 枚举选择器为真的组合数（≤64；不可判定 → false）。
 func (a *Actions) seqSelectorCombos(base CodeSequenceRequest, selector string) (int, bool) {
+	combos, ok := a.seqSelectorCombosDetail(base, selector)
+	return len(combos), ok
+}
+
+// seqSelectorCombosDetail 选择器为真的合法组合（参数名 → 值）。
+func (a *Actions) seqSelectorCombosDetail(base CodeSequenceRequest,
+	selector string) ([]map[string]string, bool) {
 	if !seqIsCanonicalFuncID(selector) {
-		return 0, false
+		return nil, false
 	}
 	n, err := a.repo.GetSymbol(domain.CanonicalID(selector))
 	if err != nil || n.FilePath == "" {
-		return 0, false
+		return nil, false
 	}
 	src, err := os.ReadFile(filepath.Join(base.RepoAbs, n.FilePath))
 	if err != nil {
-		return 0, false
+		return nil, false
 	}
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, n.FilePath, src, 0)
 	if err != nil {
-		return 0, false
+		return nil, false
 	}
 	fn := findFuncByLine(f, fset, n.LineStart)
 	if fn == nil || fn.Body == nil || len(fn.Body.List) != 1 {
-		return 0, false
+		return nil, false
 	}
 	ret, ok := fn.Body.List[0].(*ast.ReturnStmt)
 	if !ok || len(ret.Results) != 1 {
-		return 0, false
+		return nil, false
 	}
 	consts := map[string]string{}
 	for _, d := range f.Decls {
@@ -116,13 +132,13 @@ func (a *Actions) seqSelectorCombos(base CodeSequenceRequest, selector string) (
 		}
 	}
 	if len(params) == 0 {
-		return 0, false
+		return nil, false
 	}
 	vals := map[string][]string{}
 	seqCollectSelectorValues(ret.Results[0], params, consts, vals)
 	for _, p := range params {
 		if len(vals[p]) == 0 {
-			return 0, false
+			return nil, false
 		}
 		vals[p] = uniqueStrings(vals[p])
 	}
@@ -142,22 +158,22 @@ func (a *Actions) seqSelectorCombos(base CodeSequenceRequest, selector string) (
 	}
 	build(0, nil)
 	if len(combos) == 0 || len(combos) > 64 {
-		return 0, false
+		return nil, false
 	}
-	count := 0
+	var out []map[string]string
 	for _, c := range combos {
 		env := map[string]string{}
 		for i, p := range params {
 			env[p] = c[i]
 		}
 		if v, ok := seqEvalSelectorExpr(ret.Results[0], consts, env); ok && v == "true" {
-			count++
+			out = append(out, env)
 		}
 	}
-	if count == 0 {
-		return 0, false
+	if len(out) == 0 {
+		return nil, false
 	}
-	return count, true
+	return out, true
 }
 
 // findFuncByLine 索引行号所在函数声明。

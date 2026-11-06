@@ -44,6 +44,8 @@ type SeqWorkflow struct {
 	Frontend *SeqWorkflowFrontend `json:"frontend,omitempty"`
 	// B10：合法组合覆盖（supported/analyzed/complete/partial）。
 	Coverage *SeqWorkflowCoverage `json:"coverage,omitempty"`
+	// B10b：逐合法组合的实际场景树。
+	Scenarios []SeqWorkflowScenario `json:"scenarios,omitempty"`
 }
 
 // SeqWorkflowEntry 单个入口的分析树。
@@ -155,7 +157,13 @@ func (a *Actions) seqAnalyzeRelatedEntries(base CodeSequenceRequest, root *CodeS
 			Symbol: id, Repo: base.RepoAbs, Sequence: tree})
 	}
 	// U04b/U04f：连接与实例（不改变入口树本身）。
-	conns, cpartial := seqWorkflowConnections(wf.Entries, seqWFMatchMax, seqWFConnectionMax)
+	facts := &seqWorkflowFacts{mutated: map[string]map[string]bool{}, commit: map[string]bool{}}
+	for _, e := range wf.Entries {
+		mut, commit := seqEntryFacts(a, e.Repo, e.Symbol)
+		facts.mutated[e.Symbol] = mut
+		facts.commit[e.Symbol] = commit
+	}
+	conns, cpartial := seqWorkflowConnections(wf.Entries, seqWFMatchMax, seqWFConnectionMax, facts)
 	wf.Connections = conns
 	if cpartial {
 		wf.Partial = true
@@ -194,7 +202,7 @@ func (a *Actions) seqAnalyzeRelatedEntries(base CodeSequenceRequest, root *CodeS
 		}
 		var wfReads []seqWFRead
 		for _, e := range wf.Entries {
-			seqCollectWorkflowReads(e.Sequence, e.Symbol, e.Repo, &wfReads)
+			seqCollectWorkflowReads(e.Sequence, e.Symbol, e.Repo, "", &wfReads)
 			wfReads = seqAttachWFScanEntry(e.Sequence, wfReads)
 		}
 		insts, ipartial, boundaries, ierr := seqBuildWorkflowInstances(wf.Entries, conns,
@@ -216,6 +224,8 @@ func (a *Actions) seqAnalyzeRelatedEntries(base CodeSequenceRequest, root *CodeS
 	}
 	// B09：前端动作（可选）。
 	wf.Frontend = seqAnalyzeFrontend(a, base, wf.Entries)
+	// B10b：逐合法组合实际分析（场景树）。
+	wf.Scenarios = a.seqBuildScenarios(base, wf)
 	// B10：组合覆盖（可选）。
 	wf.Coverage = seqAnalyzeCoverage(a, base, wf)
 	if base.acc != nil {

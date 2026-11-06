@@ -5,16 +5,58 @@ package action
 
 import "strconv"
 
+// seqWFWrite 分析树里的可信写入。
+type seqWFWrite struct {
+	Entry    string
+	Repo     string
+	File     string
+	Line     int
+	Offset   int
+	Path     string
+	ID       string
+	Table    string
+	Op       string
+	Guard    string
+	Values   []SeqStorageWrite
+	Preds    []SeqStoragePredicate
+	Resource string
+	Tx       bool
+	TxID     string
+}
+
+// seqWFScan Scan 目标映射（read id + column → 变量/Scan 身份）。
+type seqWFScan struct {
+	ReadID  string
+	ScanID  string
+	Columns map[string]string
+}
+
+// seqWFRead 分析树里的可信读取。
+type seqWFRead struct {
+	Entry    string
+	Repo     string
+	File     string
+	Line     int
+	Path     string
+	ReadID   string
+	Table    string
+	Columns  []string
+	Preds    []SeqStoragePredicate
+	Resource string
+	Guard    string
+	Scans    []seqWFScan
+}
+
 // seqCollectWorkflowWrites 收集写入（跳过候选/歧义节点）。
-func seqCollectWorkflowWrites(tree *CodeSeqNode, entry, repo string, out *[]seqWFWrite) {
+func seqCollectWorkflowWrites(tree *CodeSeqNode, entry, repo, path string, out *[]seqWFWrite) {
 	if tree == nil {
 		return
 	}
-	for _, n := range tree.Nodes {
-		seqCollectWorkflowWrites(n, entry, repo, out)
+	for i, n := range tree.Nodes {
+		seqCollectWorkflowWrites(n, entry, repo, path+"/Nodes/"+itoaSeq(i), out)
 	}
-	for _, n := range tree.Else {
-		seqCollectWorkflowWrites(n, entry, repo, out)
+	for i, n := range tree.Else {
+		seqCollectWorkflowWrites(n, entry, repo, path+"/Else/"+itoaSeq(i), out)
 	}
 	if tree.Candidate || tree.Evidence == nil || tree.Evidence.Ambiguous {
 		return
@@ -22,7 +64,11 @@ func seqCollectWorkflowWrites(tree *CodeSeqNode, entry, repo string, out *[]seqW
 	st := tree.Evidence.Storage
 	if st == nil {
 		// B03：ORM 写入（xorm 风格模型/表列映射）。
-		*out = append(*out, seqORMWritesFromEvidence(tree, entry, repo)...)
+		items := seqORMWritesFromEvidence(tree, entry, repo)
+		for i := range items {
+			items[i].Path = path
+		}
+		*out = append(*out, items...)
 		return
 	}
 	if (st.Operation != SeqStorageInsert && st.Operation != SeqStorageUpdate) ||
@@ -44,20 +90,20 @@ func seqCollectWorkflowWrites(tree *CodeSeqNode, entry, repo string, out *[]seqW
 	}
 	*out = append(*out, seqWFWrite{Entry: entry, Repo: repo, File: tree.Evidence.CallFile,
 		Line: tree.Evidence.CallLine, ID: id, Table: st.Table, Op: st.Operation,
-		Guard: st.Guard, Values: st.Writes, Preds: st.Predicates,
+		Guard: st.Guard, Values: st.Writes, Preds: st.Predicates, Path: path,
 		Resource: st.ResourceDeclaration, Tx: tx, TxID: txID})
 }
 
 // seqCollectWorkflowReads 收集读取（需要读取结果身份 + 明确列 + AND 等式键）。
-func seqCollectWorkflowReads(tree *CodeSeqNode, entry, repo string, out *[]seqWFRead) {
+func seqCollectWorkflowReads(tree *CodeSeqNode, entry, repo, path string, out *[]seqWFRead) {
 	if tree == nil {
 		return
 	}
-	for _, n := range tree.Nodes {
-		seqCollectWorkflowReads(n, entry, repo, out)
+	for i, n := range tree.Nodes {
+		seqCollectWorkflowReads(n, entry, repo, path+"/Nodes/"+itoaSeq(i), out)
 	}
-	for _, n := range tree.Else {
-		seqCollectWorkflowReads(n, entry, repo, out)
+	for i, n := range tree.Else {
+		seqCollectWorkflowReads(n, entry, repo, path+"/Else/"+itoaSeq(i), out)
 	}
 	if tree.Candidate || tree.Evidence == nil || tree.Evidence.Ambiguous {
 		return
@@ -65,7 +111,11 @@ func seqCollectWorkflowReads(tree *CodeSeqNode, entry, repo string, out *[]seqWF
 	rd := tree.Evidence.StorageRead
 	if rd == nil {
 		// B03：ORM 读取（Get/Find 的模型列 + Where 等式）。
-		*out = append(*out, seqORMReadsFromEvidence(tree, entry, repo)...)
+		items := seqORMReadsFromEvidence(tree, entry, repo)
+		for i := range items {
+			items[i].Path = path
+		}
+		*out = append(*out, items...)
 		return
 	}
 	if rd.Result == nil || rd.Table == "" || len(rd.Columns) == 0 ||
@@ -73,7 +123,7 @@ func seqCollectWorkflowReads(tree *CodeSeqNode, entry, repo string, out *[]seqWF
 		return
 	}
 	*out = append(*out, seqWFRead{Entry: entry, Repo: repo, File: tree.Evidence.CallFile,
-		Line: tree.Evidence.CallLine, ReadID: rd.Result.ID, Table: rd.Table,
+		Line: tree.Evidence.CallLine, Path: path, ReadID: rd.Result.ID, Table: rd.Table,
 		Columns: rd.Columns, Preds: rd.Predicates, Resource: rd.ResourceDeclaration,
 		Guard: rd.Guard})
 }

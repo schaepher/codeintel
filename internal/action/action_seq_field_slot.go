@@ -16,6 +16,7 @@ package action
 import (
 	"go/ast"
 	"go/token"
+	"strings"
 )
 
 // 来源类别与预算。
@@ -238,7 +239,11 @@ func (e *seqEnv) clearObjField(obj *ast.Object, field string) {
 	if e == nil || obj == nil {
 		return
 	}
-	delete(e.fields, seqFieldSlotKey{obj: obj, field: field})
+	for k := range e.fields {
+		if k.obj == obj && (k.field == field || strings.HasPrefix(k.field, field+".")) {
+			delete(e.fields, k)
+		}
+	}
 }
 
 // clearAllocField 清空某分配的单个字段槽。
@@ -246,5 +251,9 @@ func (e *seqEnv) clearAllocField(alloc, field string) {
 	if e == nil || alloc == "" {
 		return
 	}
-	delete(e.fields, seqFieldSlotKey{alloc: alloc, field: field})
+	for k := range e.fields {
+		if k.alloc == alloc && (k.field == field || strings.HasPrefix(k.field, field+".")) {
+			delete(e.fields, k)
+		}
+	}
 }

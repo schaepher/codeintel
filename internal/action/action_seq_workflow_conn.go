@@ -7,10 +7,8 @@ package action
 // 真实请求已经发生。
 
 import (
-	"go/ast"
-	"strings"
-
 	"github.com/schaepher/codeintel/internal/domain"
+	"go/ast"
 )
 
 // 连接预算与证明代码。
@@ -40,6 +38,8 @@ type SeqConnEndpoint struct {
 	Repo  string `json:"repo,omitempty"`
 	File  string `json:"file,omitempty"`
 	Line  int    `json:"line,omitempty"`
+	// Path 入口 sequence 树内的实际节点路径（如 /Nodes/0）。
+	Path string `json:"path,omitempty"`
 }
 
 // SeqConnValue 键值（来源身份 + 作用域）。
@@ -67,67 +67,34 @@ type SeqReadValue struct {
 
 // SeqWorkflowConnection 条件化连接。
 type SeqWorkflowConnection struct {
-	From          SeqConnEndpoint `json:"from"`
-	To            SeqConnEndpoint `json:"to"`
-	Keys          []SeqConnKey    `json:"keys,omitempty"`
-	ReadValues    []SeqReadValue  `json:"read_values,omitempty"`
-	Verdict       string          `json:"verdict"`
-	MissingProofs []string        `json:"missing_proofs,omitempty"`
-	WriteID       string          `json:"write_id,omitempty"`
-	ReadID        string          `json:"read_id,omitempty"`
-	Table         string          `json:"table,omitempty"`
-}
-
-// seqWFWrite 分析树里的可信写入。
-type seqWFWrite struct {
-	Entry    string
-	Repo     string
-	File     string
-	Line     int
-	Offset   int
-	ID       string
-	Table    string
-	Op       string
-	Guard    string
-	Values   []SeqStorageWrite
-	Preds    []SeqStoragePredicate
-	Resource string
-	Tx       bool
-	TxID     string
-}
-
-// seqWFScan Scan 目标映射（read id + column → 变量/Scan 身份）。
-type seqWFScan struct {
-	ReadID  string
-	ScanID  string
-	Columns map[string]string
-}
-
-// seqWFRead 分析树里的可信读取。
-type seqWFRead struct {
-	Entry    string
-	Repo     string
-	File     string
-	Line     int
-	ReadID   string
-	Table    string
-	Columns  []string
-	Preds    []SeqStoragePredicate
-	Resource string
-	Guard    string
-	Scans    []seqWFScan
+	From       SeqConnEndpoint `json:"from"`
+	To         SeqConnEndpoint `json:"to"`
+	Keys       []SeqConnKey    `json:"keys,omitempty"`
+	ReadValues []SeqReadValue  `json:"read_values,omitempty"`
+	Verdict    string          `json:"verdict"`
+	// B06b：该连接实际依赖的成功路径约束（如 commit_success）。
+	SuccessConditions []string `json:"success_conditions,omitempty"`
+	MissingProofs     []string `json:"missing_proofs,omitempty"`
+	WriteID           string   `json:"write_id,omitempty"`
+	ReadID            string   `json:"read_id,omitempty"`
+	Table             string   `json:"table,omitempty"`
 }
 
 // seqWorkflowConnections 生成条件化连接（跨入口 + 同入口两次请求）。
-func seqWorkflowConnections(entries []SeqWorkflowEntry, maxAttempts, maxConns int) ([]SeqWorkflowConnection, bool) {
+func seqWorkflowConnections(entries []SeqWorkflowEntry, maxAttempts, maxConns int,
+	facts ...*seqWorkflowFacts) ([]SeqWorkflowConnection, bool) {
+	var fact *seqWorkflowFacts
+	if len(facts) > 0 {
+		fact = facts[0]
+	}
 	var out []SeqWorkflowConnection
 	partial := false
 	attempts := 0
 	var writes []seqWFWrite
 	var reads []seqWFRead
 	for _, e := range entries {
-		seqCollectWorkflowWrites(e.Sequence, e.Symbol, e.Repo, &writes)
-		seqCollectWorkflowReads(e.Sequence, e.Symbol, e.Repo, &reads)
+		seqCollectWorkflowWrites(e.Sequence, e.Symbol, e.Repo, "", &writes)
+		seqCollectWorkflowReads(e.Sequence, e.Symbol, e.Repo, "", &reads)
 	}
 	// Scan 目标映射按入口树补齐。
 	for _, e := range entries {
@@ -148,6 +115,12 @@ func seqWorkflowConnections(entries []SeqWorkflowEntry, maxAttempts, maxConns in
 			if w.Table != r.Table {
 				continue
 			}
+			// U04bR：资源声明被改写（binding_mutated）后不能再按同名匹配。
+			if fact != nil {
+				if fact.mutated[w.Entry][w.Resource] || fact.mutated[r.Entry][r.Resource] {
+					continue
+				}
+			}
 			if len(r.Preds) == 0 {
 				continue
 			}
@@ -158,6 +131,17 @@ func seqWorkflowConnections(entries []SeqWorkflowEntry, maxAttempts, maxConns in
 			conn, ok := seqBuildConnection(w, r)
 			if !ok {
 				continue
+			}
+			// B06b：源入口显式检查 Commit 错误 → 成功路径携带 commit_success。
+			if fact != nil && w.Tx && fact.commit[w.Entry] {
+				conn.SuccessConditions = appendUniqueStr(conn.SuccessConditions, "commit_success")
+				var proofs []string
+				for _, p := range conn.MissingProofs {
+					if p != SeqProofTransaction {
+						proofs = append(proofs, p)
+					}
+				}
+				conn.MissingProofs = proofs
 			}
 			if len(out) >= maxConns {
 				return out, true
@@ -238,8 +222,8 @@ func seqBuildConnection(w seqWFWrite, r seqWFRead) (SeqWorkflowConnection, bool)
 		proofs = append(proofs, SeqProofTransaction)
 	}
 	return SeqWorkflowConnection{
-		From:          SeqConnEndpoint{Entry: w.Entry, Repo: w.Repo, File: w.File, Line: w.Line},
-		To:            SeqConnEndpoint{Entry: r.Entry, Repo: r.Repo, File: r.File, Line: r.Line},
+		From:          SeqConnEndpoint{Entry: w.Entry, Repo: w.Repo, File: w.File, Line: w.Line, Path: w.Path},
+		To:            SeqConnEndpoint{Entry: r.Entry, Repo: r.Repo, File: r.File, Line: r.Line, Path: r.Path},
 		Keys:          keys,
 		ReadValues:    vals,
 		Verdict:       "conditional",
@@ -276,25 +260,4 @@ func seqWFResolveTxResource(entries []SeqWorkflowEntry, entry, txID string) stri
 	}
 	walk(tree.Nodes)
 	return found
-}
-
-// seqWFOriginKey 键来源的身份文本（用于实例分组去重）。
-func seqWFOriginKey(o *SeqStorageOrigin) string {
-	if o == nil {
-		return ""
-	}
-	parts := []string{o.Kind}
-	if o.Symbol != "" {
-		parts = append(parts, o.Symbol)
-	}
-	if o.Parameter != nil {
-		parts = append(parts, itoaSeq(*o.Parameter))
-	}
-	if o.Literal != "" {
-		parts = append(parts, o.Literal)
-	}
-	for i := range o.Parts {
-		parts = append(parts, seqWFOriginKey(&o.Parts[i]))
-	}
-	return strings.Join(parts, "|")
 }

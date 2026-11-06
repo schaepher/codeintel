@@ -83,6 +83,16 @@ func seqScalarOriginDepth(req CodeSequenceRequest, e ast.Expr, depth int) *SeqSt
 			if lit, ok := runtimeUnparen(v.X).(*ast.CompositeLit); ok {
 				return seqStructLiteralOrigin(req, lit, depth)
 			}
+			// B03b：`&record`（record 是构造字面量/分配）沿变量来源传递，
+			// 供 ORM Update 模型值使用（普通标量取址仍不继承来源）。
+			if id, ok := runtimeUnparen(v.X).(*ast.Ident); ok {
+				if o := seqScalarOriginAtAddr(req, id, v.Pos()); o != nil {
+					switch o.Kind {
+					case SeqOriginStructLiteral, SeqOriginStructCopy, SeqOriginAllocation:
+						return o
+					}
+				}
+			}
 		}
 		return nil
 	case *ast.CompositeLit:

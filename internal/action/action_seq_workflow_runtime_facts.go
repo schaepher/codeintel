@@ -2,7 +2,10 @@ package action
 
 // B08：运行时事实范围（从 action_seq_workflow_instance.go 拆出）。
 
-import "strconv"
+import (
+	"encoding/json"
+	"strconv"
+)
 
 // B08：运行时事实范围（每个入口/实例接收同一不可变快照；实例读取值参与
 // 配置表查询）。缺 scope/列/资源绑定属 missing_fact，静态不可分析属
@@ -163,4 +166,45 @@ func seqWFObsScopeMatches(obs *runtimeObservation, preds map[string]string) bool
 		}
 	}
 	return true
+}
+
+// U04fR：来源大小上限（序列化后 > 64KiB 不能参与替换/连接）。
+func seqWFOriginOversize(o *SeqStorageOrigin) bool {
+	if o == nil {
+		return false
+	}
+	b, err := json.Marshal(o)
+	if err != nil {
+		return true
+	}
+	return len(b) > 65536
+}
+
+// seqWFHasOversizeWrite 实例写入里是否有超大来源值。
+func seqWFHasOversizeWrite(ws []seqWFWrite) bool {
+	for _, w := range ws {
+		for _, v := range w.Values {
+			if seqWFOriginOversize(v.Value.Origin) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// seqWFDropOversizeReadValues 丢弃超大读取值（保留 partial 诊断）。
+func seqWFDropOversizeReadValues(vals map[string]map[string]*SeqStorageOrigin) bool {
+	dropped := false
+	for rid, cols := range vals {
+		for col, o := range cols {
+			if seqWFOriginOversize(o) {
+				cols[col] = nil
+				dropped = true
+			}
+		}
+		if len(cols) == 0 {
+			delete(vals, rid)
+		}
+	}
+	return dropped
 }

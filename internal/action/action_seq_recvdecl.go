@@ -155,13 +155,14 @@ func codeSeqForSymbol(a *Actions, req CodeSequenceRequest, symID string, depth i
 		// B02：被调方形参持有分配时复制调用方字段槽快照（只读调用可读当前列值）。
 		seqSeedParamFieldSlots(req, env, fn.Type.Params, req.callArgOrigins)
 		// B07：实例重新分析——覆盖形参来源并注入读取值（只读副本）。
-		if len(req.seedParamOrigs) > 0 {
-			seqBindParamOrigins(env, fn.Type.Params, req.seedParamOrigs)
-		}
-		if len(req.seedVarLits) > 0 {
-			seqSeedVarLits(req, env, fn.Body)
-		}
 		seqPropagatePendingParams(req, fn.Type.Params)
+	}
+	// B07/B10b：实例/场景重分析对入口与被调函数都要注入已知值。
+	if len(req.seedParamOrigs) > 0 {
+		seqBindParamOrigins(env, fn.Type.Params, req.seedParamOrigs)
+	}
+	if len(req.seedVarLits) > 0 {
+		seqSeedVarLits(req, env, fn.Body)
 	}
 	seqBindParamErrResults(env, fn.Type.Params, req.callArgErrResults)
 	req.env = env

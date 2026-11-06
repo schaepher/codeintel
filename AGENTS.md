@@ -33,6 +33,9 @@
   （T09b/T12b/T14b/T19b/T19c/U04k/U04x/U04y 已完成；U04 跨入口整合剩余）
 - [`docs/todo30-checklist.md`](docs/todo30-checklist.md)：todo30 交付 Checklist
   （U04a–U04l/U04、B01–B11、U07b 全部完成；真实 28 业务流程与 ORM 扩展边界见该表）
+- [`docs/todo31-checklist.md`](docs/todo31-checklist.md)：todo31 剩余连接
+  （U04bR/U04hR/U04fR、B02b/B03a/B03b/B05b/B06b/B09b/B10b/B11b 全部完成；
+  真实 28 流程/DAO/动态命名等边界逐项列明）
   ——**接手先看这张表的"待办"行**
 
 ## 项目一句话

@@ -7,7 +7,6 @@ package action
 
 import (
 	"go/ast"
-	"go/token"
 
 	"github.com/schaepher/codeintel/internal/domain"
 )
@@ -72,120 +71,6 @@ func seqIsStandardScanCandidate(req CodeSequenceRequest, call *ast.CallExpr) boo
 		return false
 	}
 	return seqScanReceiverRead(req, call) != nil
-}
-
-// seqReadOnlyObserveCall 已证明只读的参数调用（函数/方法体只读字段、不保留
-// 对象、不把对象交给其它调用）。
-func seqReadOnlyObserveCall(req CodeSequenceRequest, call *ast.CallExpr) bool {
-	if call == nil || req.curCtx == nil {
-		return false
-	}
-	fn, ok := seqCalleeDecl(req, call)
-	if !ok || fn == nil || fn.Body == nil {
-		return false
-	}
-	params := map[string]bool{}
-	for _, f := range fn.Type.Params.List {
-		for _, n := range f.Names {
-			params[n.Name] = true
-		}
-	}
-	if fn.Recv != nil {
-		for _, f := range fn.Recv.List {
-			for _, n := range f.Names {
-				params[n.Name] = true
-			}
-		}
-	}
-	if len(params) == 0 {
-		return false
-	}
-	bad := false
-	ast.Inspect(fn.Body, func(n ast.Node) bool {
-		if bad {
-			return false
-		}
-		switch v := n.(type) {
-		case *ast.FuncLit:
-			bad = true
-			return false
-		case *ast.AssignStmt:
-			for _, lhs := range v.Lhs {
-				if seqExprRootsAny(lhs, params) {
-					bad = true
-				}
-			}
-		case *ast.IncDecStmt:
-			if seqExprRootsAny(v.X, params) {
-				bad = true
-			}
-		case *ast.ReturnStmt:
-			for _, r := range v.Results {
-				if id, ok := runtimeUnparen(r).(*ast.Ident); ok && params[id.Name] {
-					bad = true
-				}
-			}
-		case *ast.CallExpr:
-			// 实参里直接出现参数对象（不是字段读取）→ 可能被保留。
-			for _, a := range v.Args {
-				if id, ok := runtimeUnparen(a).(*ast.Ident); ok && params[id.Name] {
-					bad = true
-				}
-				if u, ok := runtimeUnparen(a).(*ast.UnaryExpr); ok && u.Op == token.AND {
-					if id, ok := runtimeUnparen(u.X).(*ast.Ident); ok && params[id.Name] {
-						bad = true
-					}
-				}
-			}
-		}
-		return true
-	})
-	return !bad
-}
-
-// seqExprRootsAny 表达式根（含字段读取的基）是否命中参数对象。
-func seqExprRootsAny(e ast.Expr, params map[string]bool) bool {
-	if e == nil {
-		return false
-	}
-	var hit bool
-	ast.Inspect(e, func(n ast.Node) bool {
-		if hit {
-			return false
-		}
-		if id, ok := n.(*ast.Ident); ok && params[id.Name] {
-			hit = true
-			return false
-		}
-		return true
-	})
-	return hit
-}
-
-// seqCalleeDecl 调用的本地函数/方法声明（外部/多候选 → false）。
-func seqCalleeDecl(req CodeSequenceRequest, call *ast.CallExpr) (*ast.FuncDecl, bool) {
-	switch fun := call.Fun.(type) {
-	case *ast.Ident:
-		if fun.Obj != nil && fun.Obj.Kind != ast.Fun {
-			return nil, false
-		}
-		decl, count := findFuncDeclInFile(req.curCtx.file, fun.Name)
-		if count != 1 {
-			return nil, false
-		}
-		return decl, true
-	case *ast.SelectorExpr:
-		base := seqFieldBaseOrigin(req, fun.X)
-		if base == nil {
-			return nil, false
-		}
-		fn, _, ok := seqMethodDeclOf(req, base.ref, fun.Sel.Name)
-		if !ok {
-			return nil, false
-		}
-		return fn, true
-	}
-	return nil, false
 }
 
 // seqSeedParamFieldSlots 被调函数形参持有分配时，把调用方该分配的字段槽快照

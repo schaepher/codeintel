@@ -22,6 +22,9 @@ func seqORMArgTypeRef(c *seqPersistCtx, e ast.Expr, depth int) (seqORMTypeRef, b
 		return seqORMTypeRef{}, false
 	case *ast.CompositeLit:
 		return seqORMTypeExprRef(c, v.Type, c.file, c.pkgPath, depth+1)
+	case *ast.ArrayType:
+		// Find(&records)：[]T 的元素类型是模型。
+		return seqORMTypeExprRef(c, v.Elt, c.file, c.pkgPath, depth+1)
 	case *ast.Ident:
 		return seqORMIdentTypeRef(c, v, depth)
 	case *ast.CallExpr:
@@ -99,13 +102,17 @@ func seqORMTypeExprRef(c *seqPersistCtx, typ ast.Expr, file *ast.File, pkgPath s
 		}
 		// 局部类型声明不借同名包级声明（对象身份优先）。
 		if t.Obj != nil {
-			if ts, ok := t.Obj.Decl.(*ast.TypeSpec); ok && !seqFileLevelTypeSpecObj(file, ts) {
+			if ts, ok := t.Obj.Decl.(*ast.TypeSpec); ok && seqTypeSpecLocalInFile(file, ts) {
 				return seqORMTypeRef{}, false
 			}
-		} else if !seqFileLevelTypeSpec(file, t.Name) && !seqBuiltinTypeName(t.Name) {
+		} else if !seqFileLevelTypeSpec(file, t.Name) && !seqBuiltinTypeName(t.Name) &&
+			!seqPkgDeclaresFileLevelType(c, pkgPath, t.Name) {
 			return seqORMTypeRef{}, false
 		}
 		return seqORMTypeRef{pkgPath: pkgPath, name: t.Name}, true
+	case *ast.ArrayType:
+		// []T（Find 目标切片）→ 元素模型。
+		return seqORMTypeExprRef(c, t.Elt, file, pkgPath, depth+1)
 	case *ast.SelectorExpr:
 		id, ok := t.X.(*ast.Ident)
 		if !ok || t.Sel.Name == "" {
@@ -118,6 +125,43 @@ func seqORMTypeExprRef(c *seqPersistCtx, typ ast.Expr, file *ast.File, pkgPath s
 		return seqORMTypeRef{pkgPath: p, name: t.Sel.Name}, true
 	}
 	return seqORMTypeRef{}, false
+}
+
+// seqPkgDeclaresFileLevelType 包内其它文件是否有该文件级类型声明。
+func seqPkgDeclaresFileLevelType(c *seqPersistCtx, pkgPath, name string) bool {
+	if c == nil || c.req == nil || pkgPath == "" || name == "" {
+		return false
+	}
+	for _, ctx := range seqPkgFilesForReq(*c.req, pkgPath, "") {
+		if ctx == nil || ctx.file == nil || seqFileHasBuildConstraint(ctx) {
+			continue
+		}
+		if seqFileLevelTypeSpec(ctx.file, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// seqTypeSpecLocalInFile 该 TypeSpec 是否是**当前文件内的局部（函数内）**声明；
+// 跨文件包级声明（Obj 指向其它文件）不能因当前文件不同而拒绝。
+func seqTypeSpecLocalInFile(f *ast.File, ts *ast.TypeSpec) bool {
+	if f == nil || ts == nil {
+		return false
+	}
+	if ts.Pos() < f.Pos() || ts.End() > f.End() {
+		return false
+	}
+	for _, d := range f.Decls {
+		fd, ok := d.(*ast.FuncDecl)
+		if !ok || fd.Body == nil {
+			continue
+		}
+		if ts.Pos() >= fd.Body.Pos() && ts.End() <= fd.Body.End() {
+			return true
+		}
+	}
+	return false
 }
 
 // seqFileLevelTypeSpecObj 该 TypeSpec 是否为文件级声明。

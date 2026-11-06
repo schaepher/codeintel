@@ -87,76 +87,6 @@ func seqInvalidateFieldLHS(req CodeSequenceRequest, lhs ast.Expr, tok token.Toke
 	}
 }
 
-// seqEscapeStoredAllocations 直接把分配存入全局/字段/容器/接口等不透明位置
-// 时标为传出（`Global = record` / `s.rec = record` / `x = any`）。
-func seqEscapeStoredAllocations(req CodeSequenceRequest, s *ast.AssignStmt) {
-	if req.env == nil || s == nil || len(s.Lhs) != len(s.Rhs) {
-		return
-	}
-	for i, lhs := range s.Lhs {
-		origin := seqScalarOriginOf(req, s.Rhs[i])
-		if origin == nil || origin.Kind != SeqOriginAllocation || origin.Allocation == nil {
-			continue
-		}
-		l := runtimeUnparen(lhs)
-		if s.Tok == token.DEFINE {
-			// 局部短声明是别名（同一分配）。
-			continue
-		}
-		if id, ok := l.(*ast.Ident); ok {
-			if id.Obj == nil {
-				continue
-			}
-			if seqAllocOriginOf(req, id) != nil {
-				continue // 指针变量重绑/别名
-			}
-			if seqIdentLocalDecl(req, id) && seqIdentDeclaredPointer(id) {
-				continue // 新声明/既有局部指针别名
-			}
-			seqMarkAllocEscaped(req, origin.Allocation)
-			continue
-		}
-		// 字段/下标/解引用目标：不透明存储。
-		seqMarkAllocEscaped(req, origin.Allocation)
-	}
-}
-
-// seqEscapeOriginAlloc 单个表达式位置把分配交给外部（通道发送等）。
-func seqEscapeOriginAlloc(req CodeSequenceRequest, e ast.Expr) {
-	origin := seqScalarOriginOf(req, e)
-	if origin != nil && origin.Kind == SeqOriginAllocation && origin.Allocation != nil {
-		seqMarkAllocEscaped(req, origin.Allocation)
-	}
-}
-
-// seqIdentLocalDecl 标识符声明是否在当前函数体内（非包级全局）。
-func seqIdentLocalDecl(req CodeSequenceRequest, id *ast.Ident) bool {
-	if id == nil || id.Obj == nil || req.curBody == nil {
-		return false
-	}
-	pos := seqDeclPosOf(id.Obj.Decl)
-	return pos.IsValid() && pos >= req.curBody.Pos() && pos <= req.curBody.End()
-}
-
-// seqIdentDeclaredPointer 标识符声明的类型是否为指针。
-func seqIdentDeclaredPointer(id *ast.Ident) bool {
-	if id == nil || id.Obj == nil {
-		return false
-	}
-	var typ ast.Expr
-	switch d := id.Obj.Decl.(type) {
-	case *ast.Field:
-		typ = d.Type
-	case *ast.ValueSpec:
-		typ = d.Type
-	}
-	if typ == nil {
-		return false
-	}
-	_, ok := runtimeUnparen(typ).(*ast.StarExpr)
-	return ok
-}
-
 // seqInvalidateByCall 调用对字段槽的影响（未证明只读即失效）。
 func seqInvalidateByCall(req CodeSequenceRequest, call *ast.CallExpr) {
 	if req.env == nil || call == nil {
@@ -165,6 +95,15 @@ func seqInvalidateByCall(req CodeSequenceRequest, call *ast.CallExpr) {
 	// 标准 Scan 的地址传递不保留指针（本次目标可以绑定）；其接收者是读取
 	// 结果，不需要按未知调用失效。其它自定义 Scanner 仍走普通规则。
 	if seqIsProvenScanCall(req, call) {
+		return
+	}
+	// B05b：已证明的 ORM Insert 会回填主键——不按未知调用清除对象字段槽。
+	if node := seqCallNodeOf(req, call); node != nil && node.Evidence != nil &&
+		node.Evidence.ORM != nil && node.Evidence.ORM.Operation == SeqStorageInsert {
+		return
+	}
+	// B02b：已证明只读的参数调用不使对象传出（跨包同样适用）。
+	if seqReadOnlyObserveCall(req, call) {
 		return
 	}
 	readOnly := seqReadOnlyGetterCall(req, call)
@@ -193,7 +132,9 @@ func seqInvalidateReceiver(req CodeSequenceRequest, id *ast.Ident) {
 // seqInvalidateEscapedArg 实参把对象/分配交给未知调用 → 传出。
 func seqInvalidateEscapedArg(req CodeSequenceRequest, arg ast.Expr) {
 	a := runtimeUnparen(arg)
+	wasAddr := false
 	if u, ok := a.(*ast.UnaryExpr); ok && u.Op == token.AND {
+		wasAddr = true
 		a = runtimeUnparen(u.X)
 	}
 	switch x := a.(type) {
@@ -201,14 +142,21 @@ func seqInvalidateEscapedArg(req CodeSequenceRequest, arg ast.Expr) {
 		if x.Obj == nil {
 			return
 		}
+		// 指针值（分配）传给未知调用即传出（不论是否取址）。
 		if alloc := seqAllocOriginOf(req, x); alloc != nil {
 			seqMarkAllocEscaped(req, alloc)
 			return
 		}
-		// 值类型对象取址交给未知调用：保守清除字段槽（对象可能被改写）。
-		req.env.clearObjFieldSlotsDeep(x.Obj)
+		// 值类型结构体：只有取址传参才可能被改写/保留；按值复制不失效。
+		if wasAddr {
+			req.env.clearObjFieldSlotsDeep(x.Obj)
+		}
 	case *ast.SelectorExpr:
-		// `&record.Kind` 交给未知调用：该字段值失效。
+		// 只有 `&record.Kind`（地址）交给未知调用才使该字段失效；
+		// 读取 `record.Kind` 作为实参是值复制（B05b 生成键传递）。
+		if !wasAddr {
+			return
+		}
 		id, ok := runtimeUnparen(x.X).(*ast.Ident)
 		if !ok || id.Obj == nil {
 			return

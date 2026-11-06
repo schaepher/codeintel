@@ -74,6 +74,22 @@ func (e *seqEnv) setScalarScanTarget(obj *ast.Object, origin *SeqStorageOrigin, 
 	return true
 }
 
+// seqScalarOriginAtAddr 取址操作数的来源：`&x` 自身造成的逃逸从 `&` 起生效，
+// 不应挡住操作数在**同一地址表达式**里的读取；更早的逃逸仍然有效。
+func seqScalarOriginAtAddr(req CodeSequenceRequest, id *ast.Ident, ampPos token.Pos) *SeqStorageOrigin {
+	if req.env == nil || id == nil || id.Obj == nil {
+		return nil
+	}
+	slot, ok := req.env.scalarSlot(id.Obj)
+	if !ok || slot.origin == nil {
+		return nil
+	}
+	if slot.escaped && (slot.escapedAt == token.NoPos || slot.escapedAt < ampPos) {
+		return nil
+	}
+	return cloneSeqScalarOrigin(slot.origin)
+}
+
 // clearScanPassEscape 标准 Scan 的地址传递不保留指针：只清除本次调用
 // （escapedAt >= callPos）的逃逸标记；更早的持续失效保留。
 func (e *seqEnv) clearScanPassEscape(obj *ast.Object, callPos token.Pos) {

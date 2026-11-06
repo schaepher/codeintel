@@ -44,7 +44,7 @@ func seqORMWritesFromEvidence(node *CodeSeqNode, entry, repo string) []seqWFWrit
 	var out []seqWFWrite
 	w := seqWFWrite{Entry: entry, Repo: repo, File: node.Evidence.CallFile,
 		Line: node.Evidence.CallLine, Table: orm.Table, Op: orm.Operation, Guard: orm.Guard,
-		Resource: seqORMSessionResource(node)}
+		Preds: orm.Predicates, Resource: seqORMSessionResource(node)}
 	w.ID = "orm-write@" + node.Evidence.CallFile + ":" + itoaSeq(node.Evidence.CallLine)
 	for _, m := range orm.Models {
 		if m.Argument < 0 || m.Argument >= len(orm.Arguments) {
@@ -98,3 +98,15 @@ func seqORMReadsFromEvidence(node *CodeSeqNode, entry, repo string) []seqWFRead 
 // seqORMSessionResource ORM 调用的资源声明（框架证据不提供句柄符号 → 空；
 // 两侧都空时连接带 resource_binding 缺失证明）。
 func seqORMSessionResource(*CodeSeqNode) string { return "" }
+
+// B05b：ORM 自动主键声明（pk + autoincr 标签）。
+func seqORMPKField(m SeqORMModel) (string, string, bool) {
+	for _, f := range m.Fields {
+		low := strings.ToLower(f.Tag)
+		if !strings.Contains(low, "pk") || !strings.Contains(low, "autoincr") {
+			continue
+		}
+		return f.Name, seqORMColumnName(f.Tag, f.Name), true
+	}
+	return "", "", false
+}

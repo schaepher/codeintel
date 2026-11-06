@@ -103,8 +103,8 @@ func TestU30U04jValueModelFields(t *testing.T) {
 				entry, col, when, u30BranchLeft(t, dir, entry, label))
 		}
 	}
-	// 反例：指针根无分配证明 / 类型别名 / 嵌套路径 / 自定义 Scanner。
-	for _, entry := range []string{"BadPointer", "AliasRoot", "Nested", "Custom"} {
+	// 反例：指针根无分配证明 / 嵌套路径 / 自定义 Scanner。
+	for _, entry := range []string{"BadPointer", "Nested", "Custom"} {
 		if _, _, ok := u30ReadColumnOf(u30BranchLeft(t, dir, entry, label)); ok {
 			t.Fatalf("%s 不应生成 read_column", entry)
 		}

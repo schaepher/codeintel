@@ -8437,3 +8437,40 @@ action；开库前先 `ValidateRuntimeData`）。
   失败隔离与重复 id 校验。
 - 测试：`integration/todo30_*_test.go`（真实 init→CLI，覆盖正反例与 depth 一致性）；
   全量 `go test ./internal/...` + `-tags integration ./integration` 通过。
+
+## §190 todo31 剩余连接项：资源失效/字段键/实例预算 + B02b–B11b（2026-11-07）
+
+- **U04bR**：`action_seq_workflow_resource.go` 解析入口及本地调用链（≤4）的包级
+  资源改写（`Reset(){DB=nil}`）→ `binding_mutated` 拒绝连接；连接端点增加
+  `from.path`/`to.path`（入口 sequence 节点路径）。跨文件包级 `var DB *sql.DB`
+  通过包内文件回退解析（单文件 parser 不解析跨文件 Obj）。
+- **U04hR**：`seqWFOriginKey` 纳入字段读取 type_id/路径/根身份与读取列/分配/
+  生成键/Scan 身份；不同字段连接不合并；`seqCollect*` 记录节点路径。
+- **U04fR**：实例根/子加入结果前检查 65536 节点（超限 0 实例 +
+  `instance_node_budget`）；来源 JSON >64KiB 丢弃读取替换并标
+  `instance_value_origin`。公开预算测试 `remaining_budget_public_test.go` 逐字匹配。
+- **B02b**：`seqCalleeDecl` 按导入路径解析仓库内包函数（外部依赖不加载源码，
+  保持 T10 depth=1 无外部加载）；只读证明要求至少读取一次参数字段且无写入/
+  保留/捕获/未知转手；`seqPreInvalidateCall`/`seqInvalidateByCall` 共用证明。
+- **B03a**：指针中间字段由同对象 `new(T)`/`&T{}` 证明（`seqPointerFieldAllocated`）；
+  别名根按真实声明；提升字段唯一命中；`clearObjField/clearAllocField` 前缀清除
+  嵌套槽（指针字段重绑使 `Detail.Kind` 失效）；值根要求本地变量/值参数。
+- **B03b/B05b**：ORM Update 的 `&record` 取址来源（位置敏感，不被本次取址逃逸
+  挡住）进入写入模型值；Find `[]T` 元素模型解析；ORM Insert `pk autoincr` 回填
+  绑定对象字段槽 `generated_key{backfill_field}`（在 ORM 错误槽附加之后绑定，
+  ORM Insert 不按未知调用清槽）。
+- **B06b**：源入口 AST 检测显式 Commit 错误检查 + 正常返回 →
+  `success_conditions=["commit_success"]`，移除 `transaction_commit`。
+- **B09b**：前端解析记录 fetch 实参表达式与包装调用实参，沿函数链传播常量
+  方法/路径（`request('/requests',id)` → `fetch(path)`）。
+- **B10b**：选择器组合明细（参数→值）；按 Supported 调用实参映射入口形参，
+  逐组合重分析（`seedParamOrigs` 对入口生效）→ `workflow.scenarios`；
+  `coverage.analyzed` 按实际完成场景统计。
+- **B11b**：manifest 支持 runtimeData/combinationSelector/depth/continueSegments/
+  scene/timeout；相对 runtime 路径、重放参数与 sha256 写入 Markdown；
+  组合场景逐项导出。
+- **回归修复**：`seqInvalidateEscapedArg` 区分值复制与取址（`record.ID` 传参不再
+  清槽）；只读证明要求字段读取（空方法体/纯转手不算只读）；`clearObjField` 前缀
+  清除；`seqAllocOriginForScan` 检查 `escapedAllocs`。
+- 测试：`integration/todo31_*.go`、`internal/action/remaining_budget_public_test.go`；
+  全量 internal + integration 通过。

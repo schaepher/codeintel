@@ -147,21 +147,29 @@ func seqBindScanFieldTarget(req CodeSequenceRequest, id *ast.Ident, field string
 		req.env.clearScanPassEscape(id.Obj, callPos)
 		return seqFieldSlotSet(req, seqFieldSlotKey{alloc: alloc.ID, field: field}, origin)
 	}
-	// 值类型模型：只接受值类型结构体根（指针根没有分配证明；类型别名、
-	// 提升字段/嵌套路径不支持）。
-	ref, ok := seqValueStructTypeRef(req, id, 0)
-	if !ok || seqTypeRefIsAlias(req, ref) {
+	// 值类型模型：只接受本地值对象/值参数（全局对象没有当前调用内的
+	// 构造/读取证据）。
+	if !seqScanRootAllowed(req, id) {
 		return false
 	}
+	ref, ok := seqValueStructTypeRef(req, id, 0)
+	if !ok {
+		return false
+	}
+	// B03a：类型别名根按真实声明解析（不再整体拒绝）。
+	ref = seqCanonicalTypeRef(req, ref)
 	return seqFieldSlotSet(req, seqFieldSlotKey{obj: id.Obj, field: field}, origin)
 }
 
 // seqFieldTypeFromDecl 字段声明的内建标量类型（U04j：只支持直接标量字段）。
 func seqFieldTypeFromDecl(req CodeSequenceRequest, id *ast.Ident, field string,
 	callPos token.Pos) (seqORMTypeRef, string, bool) {
-	ref, ok := seqValueStructTypeRef(req, id, 0)
-	if ok && seqTypeRefIsAlias(req, ref) {
+	if seqAllocOriginForScan(req, id, callPos) == nil && !seqScanRootAllowed(req, id) {
 		return seqORMTypeRef{}, "", false
+	}
+	ref, ok := seqValueStructTypeRef(req, id, 0)
+	if ok {
+		ref = seqCanonicalTypeRef(req, ref)
 	}
 	if !ok {
 		// 分配根：按分配类型解析。
@@ -171,7 +179,34 @@ func seqFieldTypeFromDecl(req CodeSequenceRequest, id *ast.Ident, field string,
 		}
 		ref = seqTypeRefOfSymbolID(alloc.TypeID)
 	}
-	return seqFieldPathType(req, ref, field)
+	return seqFieldPathTypeProven(req, id, ref, field, callPos)
+}
+
+// seqFieldPathTypeProven 逐级解析字段路径；中间指针字段必须由同一对象的
+// 分配/初始化证明指向可解析的具体对象（B03a）。
+func seqFieldPathTypeProven(req CodeSequenceRequest, root *ast.Ident, ref seqORMTypeRef,
+	path string, callPos token.Pos) (seqORMTypeRef, string, bool) {
+	parts := strings.Split(path, ".")
+	cur := ref
+	for i, name := range parts {
+		fd, ok := seqResolveFieldDecl(req, cur, name)
+		if !ok || fd.iface {
+			return seqORMTypeRef{}, "", false
+		}
+		if i == len(parts)-1 {
+			if !seqBuiltinTypeName(fd.goType) {
+				return fd.ref, fd.goType, false
+			}
+			return fd.ref, fd.goType, true
+		}
+		if fd.pointer {
+			if !seqPointerFieldAllocated(req, root, parts[:i+1], fd, callPos) {
+				return seqORMTypeRef{}, "", false
+			}
+		}
+		cur = seqCanonicalTypeRef(req, fd.ref)
+	}
+	return seqORMTypeRef{}, "", false
 }
 
 // seqFieldPathType 逐级解析字段路径（B03：中间字段必须是值类型结构体；最后
@@ -196,6 +231,17 @@ func seqFieldPathType(req CodeSequenceRequest, ref seqORMTypeRef, path string) (
 		cur = seqCanonicalTypeRef(req, fd.ref)
 	}
 	return seqORMTypeRef{}, "", false
+}
+
+// seqScanRootAllowed 值类型根必须是本地变量或值参数（全局对象不借用）。
+func seqScanRootAllowed(req CodeSequenceRequest, id *ast.Ident) bool {
+	if id == nil || id.Obj == nil {
+		return false
+	}
+	if _, ok := id.Obj.Decl.(*ast.Field); ok {
+		return true
+	}
+	return seqIdentLocalDecl(req, id)
 }
 
 // seqTypeRefIsAlias 该类型引用是否由类型别名声明（U04j 不支持别名根）。

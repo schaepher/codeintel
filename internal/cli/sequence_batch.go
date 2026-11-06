@@ -20,13 +20,19 @@ type seqBatchManifest struct {
 	Formats []string       `json:"formats,omitempty"`
 }
 
-// seqBatchFlow 单个流程。
+// seqBatchFlow 单个流程（B11b：可带运行时事实/组合选择/预算与场景）。
 type seqBatchFlow struct {
-	ID             string   `json:"id"`
-	Repo           string   `json:"repo"`
-	Entry          string   `json:"entry"`
-	RelatedEntries []string `json:"relatedEntries,omitempty"`
-	FrontendRoots  []string `json:"frontendRoots,omitempty"`
+	ID                  string   `json:"id"`
+	Repo                string   `json:"repo"`
+	Entry               string   `json:"entry"`
+	RelatedEntries      []string `json:"relatedEntries,omitempty"`
+	FrontendRoots       []string `json:"frontendRoots,omitempty"`
+	RuntimeData         string   `json:"runtimeData,omitempty"`
+	CombinationSelector string   `json:"combinationSelector,omitempty"`
+	Depth               int      `json:"depth,omitempty"`
+	ContinueSegments    int      `json:"continueSegments,omitempty"`
+	Scene               []string `json:"scene,omitempty"`
+	Timeout             string   `json:"timeout,omitempty"`
 }
 
 // seqBatchSummary JSON 摘要（稳定字段）。
@@ -126,9 +132,31 @@ func cmdSequenceBatch(args []string) int {
 			index.WriteString(fmt.Sprintf("| %s | %s | failed（%s） | - |\n", fl.ID, fl.Entry, escapeMD(oerr.Error())))
 			continue
 		}
-		req := action.CodeSequenceRequest{Target: fl.Entry, RepoAbs: repo, Depth: 12,
+		depth := fl.Depth
+		if depth <= 0 {
+			depth = 12
+		}
+		ctx := context.Background()
+		var cancel context.CancelFunc
+		if fl.Timeout != "" {
+			if dur := parseBatchTimeout(fl.Timeout); dur > 0 {
+				ctx, cancel = context.WithTimeout(ctx, dur)
+			} else {
+				fmt.Fprintf(os.Stderr, "error: flow %s timeout 非法 %q\n", fl.ID, fl.Timeout)
+			}
+		}
+		runtimePath := ""
+		if fl.RuntimeData != "" {
+			runtimePath = fl.RuntimeData
+			if !filepath.IsAbs(runtimePath) {
+				runtimePath = filepath.Join(baseDir, runtimePath)
+			}
+		}
+		req := action.CodeSequenceRequest{Target: fl.Entry, RepoAbs: repo, Depth: depth,
+			ContinueSegments: fl.ContinueSegments, Scene: action.NewScene(fl.Scene),
+			RuntimeDataPath: runtimePath, CombinationSelector: fl.CombinationSelector,
 			RelatedEntries: fl.RelatedEntries, FrontendRoots: fl.FrontendRoots,
-			Ctx: context.Background()}
+			Ctx: ctx}
 		if fl.FrontendRoots != nil {
 			for i := range fl.FrontendRoots {
 				if !filepath.IsAbs(fl.FrontendRoots[i]) {
@@ -138,6 +166,9 @@ func cmdSequenceBatch(args []string) int {
 			req.FrontendRoots = fl.FrontendRoots
 		}
 		root, cerr := acts.CodeSequence(req)
+		if cancel != nil {
+			cancel()
+		}
 		closeFn()
 		if cerr != nil || root == nil {
 			summary.Failed++
@@ -151,16 +182,20 @@ func cmdSequenceBatch(args []string) int {
 		}
 		var files []string
 		failed := false
-		mdPath := filepath.Join(outDir, fl.ID+".md")
-		md := fmt.Sprintf("# %s\n\n`%s`\n\n```text\n%s```\n", fl.ID, fl.Entry, seqTextRoot(root))
-		if err := os.WriteFile(mdPath, []byte(md), 0o644); err != nil {
-			failed = true
-			fmt.Fprintf(os.Stderr, "error: flow %s 写 Markdown 失败: %v\n", fl.ID, err)
-		} else {
-			files = append(files, fl.ID+".md")
-		}
-		if !failed && containsStr(formats, "svg") {
-			m := renderCodeSeqMermaid(root)
+		writeOne := func(baseName, title string, tree *action.CodeSeqNode) {
+			mdPath := filepath.Join(outDir, baseName+".md")
+			md := fmt.Sprintf("# %s\n\n`%s`\n\n%s\n```text\n%s```\n", title, fl.Entry,
+				seqBatchReplayLine(fl, runtimePath, depth), seqText(tree.Nodes, 1))
+			if err := os.WriteFile(mdPath, []byte(md), 0o644); err != nil {
+				failed = true
+				fmt.Fprintf(os.Stderr, "error: flow %s 写 Markdown 失败: %v\n", fl.ID, err)
+			} else {
+				files = append(files, baseName+".md")
+			}
+			if failed || !containsStr(formats, "svg") {
+				return
+			}
+			m := renderCodeSeqMermaid(tree)
 			puml := mermaidSequenceToPlantuml(m)
 			var svg []byte
 			var rerr error
@@ -173,12 +208,26 @@ func cmdSequenceBatch(args []string) int {
 					rerr = fmt.Errorf("SVG 渲染结果为空")
 				}
 				fmt.Fprintf(os.Stderr, "error: flow %s SVG 渲染失败: %v\n", fl.ID, rerr)
-			} else if werr := os.WriteFile(filepath.Join(outDir, fl.ID+".svg"), svg, 0o644); werr != nil {
+				return
+			}
+			if werr := os.WriteFile(filepath.Join(outDir, baseName+".svg"), svg, 0o644); werr != nil {
 				failed = true
 				fmt.Fprintf(os.Stderr, "error: flow %s 写 SVG 失败: %v\n", fl.ID, werr)
-			} else {
-				files = append(files, fl.ID+".svg")
+				return
 			}
+			files = append(files, baseName+".svg")
+		}
+		// B10b/B11b：有组合场景时逐场景导出（不把同一张图复制多份）。
+		if root.Workflow != nil && len(root.Workflow.Scenarios) > 0 {
+			for i, sc := range root.Workflow.Scenarios {
+				if sc.Sequence == nil {
+					continue
+				}
+				name := fl.ID + "-scenario-" + itoaSeqInt(i+1)
+				writeOne(name, fl.ID+"（"+seqBatchParams(sc.Parameters)+"）", sc.Sequence)
+			}
+		} else {
+			writeOne(fl.ID, fl.ID, root)
 		}
 		status := "exported"
 		if root.Workflow != nil && root.Workflow.Partial {

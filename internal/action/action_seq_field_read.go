@@ -206,33 +206,6 @@ type seqResolvedField struct {
 	pointer bool
 }
 
-// seqResolveFieldDecl 解析类型上的字段（声明的 owner/类型/位置）。
-func seqResolveFieldDecl(req CodeSequenceRequest, ref seqORMTypeRef, field string) (seqResolvedField, bool) {
-	ownerRef, st, tparams, ok := seqResolveStructType(req, ref, "")
-	if !ok || tparams || st == nil || st.fields == nil {
-		return seqResolvedField{}, false
-	}
-	for _, fl := range st.fields.List {
-		if len(fl.Names) == 0 {
-			t := fl.Type
-			if star, ok := t.(*ast.StarExpr); ok {
-				t = star.X
-			}
-			if exprTypeName(t) != field {
-				continue
-			}
-			return seqFieldFromExpr(req, ownerRef, st, t, "")
-		}
-		for _, n := range fl.Names {
-			if n.Name != field {
-				continue
-			}
-			return seqFieldFromExpr(req, ownerRef, st, fl.Type, n.Name)
-		}
-	}
-	return seqResolvedField{}, false
-}
-
 // seqFieldFromExpr 字段声明的类型引用与位置。
 func seqFieldFromExpr(req CodeSequenceRequest, owner seqORMTypeRef, st *seqStructTypeWrap,
 	typ ast.Expr, name string) (seqResolvedField, bool) {

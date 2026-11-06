@@ -156,14 +156,28 @@ func seqStorageResourceDecl(call *ast.CallExpr, c *seqPersistCtx) string {
 		return ""
 	}
 	id, ok := sel.X.(*ast.Ident)
-	if !ok || id.Name == "" || id.Obj == nil || id.Obj.Kind != ast.Var {
+	if !ok || id.Name == "" {
+		return ""
+	}
+	// 跨文件包级变量：单文件 parser 不解析跨文件标识符（Obj == nil）。
+	if id.Obj == nil {
+		if seqPackageLevelSQLDBVar(c, id.Name) {
+			return "symbol:go:" + c.pkgPath + ":" + id.Name
+		}
+		return ""
+	}
+	if id.Obj.Kind != ast.Var {
 		return ""
 	}
 	vs, ok := id.Obj.Decl.(*ast.ValueSpec)
-	if !ok || !seqFileLevelVarSpec(c.file, vs) {
+	if !ok {
 		return ""
 	}
-	if !runtimeIsSQLDBDecl(id, c.file) {
+	declFile := seqDeclFileFor(c, vs)
+	if declFile == nil {
+		return ""
+	}
+	if !runtimeIsSQLDBDecl(id, declFile) {
 		return ""
 	}
 	return "symbol:go:" + c.pkgPath + ":" + id.Name
@@ -246,6 +260,10 @@ func seqAnnotateCallEvidence(a *Actions, req CodeSequenceRequest, node *CodeSeqN
 	seqAttachORMEvidence(node, call, c)
 	seqAttachWriteErrorResult(node, call, c)
 	seqAttachORMErrorResult(req, node, call, c)
+	// B05b：主键回填需要 ORM 错误/签名证据（在错误槽附加之后）。
+	if node != nil && node.Evidence != nil && node.Evidence.ORM != nil {
+		seqBindORMGeneratedKey(req, node, call, node.Evidence.ORM)
+	}
 	// U04n：事务事件（begin/write/read/commit/rollback）+ 独立错误槽。
 	seqAttachTransaction(req, node, call, c)
 	// U04k：实参来源尚待被调返回槽（depth=1）→ 续查后回填。

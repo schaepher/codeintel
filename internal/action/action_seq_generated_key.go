@@ -20,14 +20,17 @@ type SeqGeneratedKeyAccess struct {
 
 // SeqGeneratedKey 生成键来源（关联原始写入）。
 type SeqGeneratedKey struct {
-	CallID   string                 `json:"call_id,omitempty"`
-	Slot     int                    `json:"slot,omitempty"`
-	Symbol   string                 `json:"symbol,omitempty"`
-	Guard    string                 `json:"guard,omitempty"`
-	Access   *SeqGeneratedKeyAccess `json:"access,omitempty"`
-	Premises []string               `json:"success_conditions,omitempty"`
-	Outcome  string                 `json:"outcome"`
-	Unproven bool                   `json:"unproven,omitempty"`
+	CallID string                 `json:"call_id,omitempty"`
+	Slot   int                    `json:"slot,omitempty"`
+	Symbol string                 `json:"symbol,omitempty"`
+	Guard  string                 `json:"guard,omitempty"`
+	Access *SeqGeneratedKeyAccess `json:"access,omitempty"`
+	// BackfillField B05b：ORM 自动主键回填字段名（如 ID）。
+	BackfillField string   `json:"backfill_field,omitempty"`
+	BackfillType  string   `json:"backfill_type,omitempty"`
+	Premises      []string `json:"success_conditions,omitempty"`
+	Outcome       string   `json:"outcome"`
+	Unproven      bool     `json:"unproven,omitempty"`
 }
 
 // seqGeneratedKeyOriginAt 已证明的 LastInsertId 调用 → 生成键来源。
