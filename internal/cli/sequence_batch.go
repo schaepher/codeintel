@@ -111,15 +111,21 @@ func cmdSequenceBatch(args []string) int {
 		}
 		seen[fl.ID] = true
 	}
+	baseDir := filepath.Dir(manifestPath)
+	// B11c：manifest 参数错误必须在打开索引/创建文件之前拒绝。
+	inputs, verr := seqBatchValidateFlows(mf.Flows, baseDir)
+	if verr != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", verr)
+		return 1
+	}
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		fmt.Fprintf(os.Stderr, "error: 创建输出目录失败: %v\n", err)
 		return 1
 	}
-	baseDir := filepath.Dir(manifestPath)
 	summary := seqBatchSummary{Total: len(mf.Flows)}
 	var index strings.Builder
 	index.WriteString("# sequence-batch 导出\n\n| flow | entry | 状态 | 文件 |\n|---|---|---|---|\n")
-	for _, fl := range mf.Flows {
+	for fi, fl := range mf.Flows {
 		repo := fl.Repo
 		if !filepath.IsAbs(repo) {
 			repo = filepath.Join(baseDir, repo)
@@ -138,20 +144,10 @@ func cmdSequenceBatch(args []string) int {
 		}
 		ctx := context.Background()
 		var cancel context.CancelFunc
-		if fl.Timeout != "" {
-			if dur := parseBatchTimeout(fl.Timeout); dur > 0 {
-				ctx, cancel = context.WithTimeout(ctx, dur)
-			} else {
-				fmt.Fprintf(os.Stderr, "error: flow %s timeout 非法 %q\n", fl.ID, fl.Timeout)
-			}
+		if inputs[fi].timeout > 0 {
+			ctx, cancel = context.WithTimeout(ctx, inputs[fi].timeout)
 		}
-		runtimePath := ""
-		if fl.RuntimeData != "" {
-			runtimePath = fl.RuntimeData
-			if !filepath.IsAbs(runtimePath) {
-				runtimePath = filepath.Join(baseDir, runtimePath)
-			}
-		}
+		runtimePath := inputs[fi].runtimePath
 		req := action.CodeSequenceRequest{Target: fl.Entry, RepoAbs: repo, Depth: depth,
 			ContinueSegments: fl.ContinueSegments, Scene: action.NewScene(fl.Scene),
 			RuntimeDataPath: runtimePath, CombinationSelector: fl.CombinationSelector,

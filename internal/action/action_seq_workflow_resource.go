@@ -1,231 +1,156 @@
 package action
 
-// U04bR：资源绑定失效与 B06b 提交成功路径约束的源码证明。
+// U04bS/B06c：资源失效按执行位置计算；提交证明绑定实际写入事务。
+//
+// 位置事实来自入口函数及其可证明调用链（同包/仓内跨包，深度 ≤8）：
+//   - 直接 `DB = ...` 在语句位置生效；
+//   - 本地/闭包调用在**调用点**生效（闭包未调用不计）；
+//   - 写入/读取按其 SQL 调用点偏移比较，后续改写不倒推。
+//
+// Commit 证明只认入口函数里 `if err = tx.Commit(); err != nil { return }`
+// 且同一事务变量；另一事务/覆盖错误/嵌套 return 不算。
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/schaepher/codeintel/internal/domain"
 )
 
-// seqWorkflowFacts 入口级源码事实（资源改写 / 显式 Commit 成功路径）。
-type seqWorkflowFacts struct {
-	mutated map[string]map[string]bool // entry → resource symbol → true
-	commit  map[string]bool            // entry → commit_success 成立
+const seqResourceFactMaxDepth = 8
+
+var seqModulePathCache sync.Map
+
+// seqEntryFactData 单个入口的资源改写事件与提交证明。
+type seqEntryFactData struct {
+	events     map[string][]int // resource symbol → 事件偏移（升序）
+	commitVars map[string]bool  // 已证明成功检查 Commit 的事务变量名
+	partial    bool
 }
 
-// seqEntryFacts 解析入口函数及其本地调用链（深度 ≤4）。
-func seqEntryFacts(a *Actions, repo, entry string) (map[string]bool, bool) {
-	mut := map[string]bool{}
+// seqWorkflowFacts 入口事实集合。
+type seqWorkflowFacts struct {
+	byEntry map[string]*seqEntryFactData
+}
+
+// mutatedAt 调用点之前是否已发生该资源的改写（严格小于调用偏移）。
+func (f *seqWorkflowFacts) mutatedAt(entry, resource string, offset int) bool {
+	d := f.byEntry[entry]
+	if d == nil || resource == "" {
+		return false
+	}
+	for _, ev := range d.events[resource] {
+		if ev < offset {
+			return true
+		}
+	}
+	return false
+}
+
+// commitFor 该写入所在事务是否在入口成功路径上被检查过 Commit。
+func (f *seqWorkflowFacts) commitFor(w seqWFWrite) bool {
+	if !w.Tx || w.TxVar == "" {
+		return false
+	}
+	d := f.byEntry[w.Entry]
+	return d != nil && d.commitVars[w.TxVar]
+}
+
+func (f *seqWorkflowFacts) partial() bool {
+	for _, d := range f.byEntry {
+		if d != nil && d.partial {
+			return true
+		}
+	}
+	return false
+}
+
+// seqEntryFacts 解析入口函数与可证明调用链（事件位置 = 调用点偏移）。
+func seqEntryFacts(a *Actions, repo, entry string) *seqEntryFactData {
+	out := &seqEntryFactData{events: map[string][]int{}, commitVars: map[string]bool{}}
 	if a == nil || entry == "" {
-		return mut, false
+		return out
 	}
 	n, err := a.repo.GetSymbol(domain.CanonicalID(entry))
 	if err != nil || n.FilePath == "" {
-		return mut, false
+		return out
 	}
-	path := filepath.Join(repo, n.FilePath)
-	src, err := os.ReadFile(path)
-	if err != nil {
-		return mut, false
-	}
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, n.FilePath, src, 0)
-	if err != nil {
-		return mut, false
-	}
-	fn := findFuncByLine(f, fset, n.LineStart)
-	if fn == nil || fn.Body == nil {
-		return mut, false
-	}
-	pkgVars := seqPackageVarNames(f)
-	pkgVarNames := seqPackageVarNameSet(filepath.Dir(path))
 	pkg := pkgOfID(domain.CanonicalID(entry))
-	visited := map[*ast.FuncDecl]bool{}
-	var inspect func(fd *ast.FuncDecl, depth int)
-	inspect = func(fd *ast.FuncDecl, depth int) {
-		if fd == nil || fd.Body == nil || depth > 4 || visited[fd] {
-			return
-		}
-		visited[fd] = true
-		ast.Inspect(fd.Body, func(node ast.Node) bool {
-			switch v := node.(type) {
-			case *ast.AssignStmt:
-				for _, lhs := range v.Lhs {
-					if id, ok := runtimeUnparen(lhs).(*ast.Ident); ok {
-						if (id.Obj != nil && pkgVars[id.Obj]) ||
-							(id.Obj == nil && pkgVarNames[id.Name]) {
-							mut["symbol:go:"+pkg+":"+id.Name] = true
-						}
-					}
-				}
-			case *ast.IncDecStmt:
-				if id, ok := runtimeUnparen(v.X).(*ast.Ident); ok {
-					if (id.Obj != nil && pkgVars[id.Obj]) ||
-						(id.Obj == nil && pkgVarNames[id.Name]) {
-						mut["symbol:go:"+pkg+":"+id.Name] = true
-					}
-				}
-			case *ast.CallExpr:
-				// 同包本地函数（含包级函数）递归展开其体内副作用。
-				if id, ok := v.Fun.(*ast.Ident); ok {
-					if decl, count := findFuncDeclInFile(f, id.Name); count == 1 && decl != nil {
-						inspect(decl, depth+1)
-					}
-				}
-			}
-			return true
-		})
-	}
-	inspect(fn, 0)
-	return mut, seqFuncHasCommitSuccess(fn)
-}
-
-// seqPackageVarNames 文件里的包级 var 对象集合。
-func seqPackageVarNames(f *ast.File) map[*ast.Object]bool {
-	out := map[*ast.Object]bool{}
-	if f == nil {
+	dir := filepath.Dir(filepath.Join(repo, n.FilePath))
+	files := seqParsePackageDir(dir)
+	if len(files) == 0 {
 		return out
 	}
-	for _, d := range f.Decls {
-		gd, ok := d.(*ast.GenDecl)
-		if !ok || gd.Tok != token.VAR {
-			continue
-		}
-		for _, spec := range gd.Specs {
-			vs, ok := spec.(*ast.ValueSpec)
-			if !ok {
-				continue
-			}
-			for _, name := range vs.Names {
-				if name.Obj != nil {
-					out[name.Obj] = true
-				}
-			}
-		}
-	}
-	return out
-}
-
-// seqPackageVarNameSet 目录内所有 Go 文件的包级 var 名称集合。
-func seqPackageVarNameSet(dir string) map[string]bool {
-	out := map[string]bool{}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
+	entryFile := files[n.FilePath]
+	if entryFile == nil {
 		return out
 	}
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
-			continue
-		}
-		fset := token.NewFileSet()
-		f, err := parser.ParseFile(fset, filepath.Join(dir, e.Name()), nil, 0)
-		if err != nil {
-			continue
-		}
-		for _, d := range f.Decls {
-			gd, ok := d.(*ast.GenDecl)
-			if !ok || gd.Tok != token.VAR {
-				continue
-			}
-			for _, spec := range gd.Specs {
-				if vs, ok := spec.(*ast.ValueSpec); ok {
-					for _, n := range vs.Names {
-						out[n.Name] = true
-					}
-				}
-			}
-		}
-	}
-	return out
-}
-
-// seqFuncHasCommitSuccess 函数里是否存在"显式检查 Commit 错误并失败返回"的模式：
-//
-//	if err = tx.Commit(); err != nil { return err }
-//	if err := tx.Commit(); err != nil { return }
-//
-// 只有这种失败路径 + 正常返回路径同时存在，才认为源入口成功返回携带
-// commit_success（仍不证明真实提交发生）。
-func seqFuncHasCommitSuccess(fn *ast.FuncDecl) bool {
+	fn := findFuncByLine(entryFile.file, entryFile.fset, n.LineStart)
 	if fn == nil || fn.Body == nil {
-		return false
+		return out
 	}
-	found := false
-	hasSuccessReturn := false
-	ast.Inspect(fn.Body, func(n ast.Node) bool {
-		switch v := n.(type) {
-		case *ast.IfStmt:
-			if v.Cond == nil || v.Body == nil {
-				break
-			}
-			call := seqIfInitCall(v.Init)
-			if call == nil || !seqIsCommitCall(call) {
-				break
-			}
-			if !seqCondErrNonNil(v.Cond) {
-				break
-			}
-			if seqBlockHasFailureReturn(v.Body) {
-				found = true
-			}
-		case *ast.ReturnStmt:
-			if len(v.Results) == 0 || (len(v.Results) == 1 && seqIsNilIdent(v.Results[0])) {
-				hasSuccessReturn = true
-			}
-		}
-		return true
-	})
-	return found && hasSuccessReturn
+	pkgVars := seqPkgVarNames(files)
+	b := &seqResourceFactBuilder{out: out, pkg: pkg, files: files, pkgVars: pkgVars,
+		repo: repo, entry: entry}
+	// 入口函数里的 Commit 检查（只认入口自身，嵌套函数 return 不算）。
+	out.commitVars = seqCommitGuardedVars(fn)
+	b.walkFunc(fn, entryFile, 0, true, 0)
+	for res := range out.events {
+		sort.Ints(out.events[res])
+	}
+	return out
 }
 
-// seqIfInitCall if 初始化语句里的调用（`if err = tx.Commit(); ...`）。
-func seqIfInitCall(init ast.Stmt) *ast.CallExpr {
-	as, ok := init.(*ast.AssignStmt)
-	if !ok || len(as.Rhs) != 1 {
+// seqWFExecOffset 入口树 path **首段**节点的执行偏移（读取/写入实际发生的
+// 顶层调用点；嵌套被调函数体在进入该调用时才执行）。
+func seqWFExecOffset(entries []SeqWorkflowEntry, entry, path string) int {
+	tree := seqWFEntryTree(entries, entry)
+	if tree == nil || path == "" {
+		return 0
+	}
+	segs := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	if len(segs) < 2 || segs[0] != "Nodes" {
+		return 0
+	}
+	idx, err := strconv.Atoi(segs[1])
+	if err != nil || idx < 0 || idx >= len(tree.Nodes) {
+		return 0
+	}
+	return tree.Nodes[idx].callOffset
+}
+
+// seqWFNodeAtPath 按 /Nodes/i|/Else/i 路径取节点。
+func seqWFNodeAtPath(root *CodeSeqNode, path string) *CodeSeqNode {
+	if root == nil || path == "" {
 		return nil
 	}
-	call, _ := as.Rhs[0].(*ast.CallExpr)
-	return call
-}
-
-// seqIsCommitCall selector 方法名为 Commit。
-func seqIsCommitCall(call *ast.CallExpr) bool {
-	sel, ok := call.Fun.(*ast.SelectorExpr)
-	return ok && sel.Sel.Name == "Commit"
-}
-
-// seqCondErrNonNil `err != nil` / `nil != err`。
-func seqCondErrNonNil(e ast.Expr) bool {
-	b, ok := runtimeUnparen(e).(*ast.BinaryExpr)
-	if !ok || b.Op != token.NEQ {
-		return false
-	}
-	return (seqIsNilIdent(b.Y) && seqIsErrIdent(b.X)) || (seqIsNilIdent(b.X) && seqIsErrIdent(b.Y))
-}
-
-func seqIsErrIdent(e ast.Expr) bool {
-	id, ok := runtimeUnparen(e).(*ast.Ident)
-	return ok && strings.HasPrefix(id.Name, "err")
-}
-
-// seqBlockHasFailureReturn 失败分支里返回（return/return err）。
-func seqBlockHasFailureReturn(body *ast.BlockStmt) bool {
-	if body == nil {
-		return false
-	}
-	found := false
-	ast.Inspect(body, func(n ast.Node) bool {
-		if _, ok := n.(*ast.ReturnStmt); ok {
-			found = true
-			return false
+	cur := root
+	for _, seg := range strings.Split(strings.TrimPrefix(path, "/"), "/") {
+		parts := strings.SplitN(seg, "/", 1)
+		idx := -1
+		kind := ""
+		if strings.HasPrefix(seg, "Nodes/") {
+			kind = "Nodes"
+			idx, _ = strconv.Atoi(strings.TrimPrefix(seg, "Nodes/"))
+		} else if strings.HasPrefix(seg, "Else/") {
+			kind = "Else"
+			idx, _ = strconv.Atoi(strings.TrimPrefix(seg, "Else/"))
 		}
-		return true
-	})
-	return found
+		_ = parts
+		if kind == "" || idx < 0 {
+			return nil
+		}
+		list := cur.Nodes
+		if kind == "Else" {
+			list = cur.Else
+		}
+		if idx >= len(list) {
+			return nil
+		}
+		cur = list[idx]
+	}
+	return cur
 }

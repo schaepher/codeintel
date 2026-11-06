@@ -36,6 +36,9 @@
 - [`docs/todo31-checklist.md`](docs/todo31-checklist.md)：todo31 剩余连接
   （U04bR/U04hR/U04fR、B02b/B03a/B03b/B05b/B06b/B09b/B10b/B11b 全部完成；
   真实 28 流程/DAO/动态命名等边界逐项列明）
+- [`docs/todo32-checklist.md`](docs/todo32-checklist.md)：todo32 剩余连接
+  （B06c/U04bS/B09c/B03c/B10c/B11c 全部完成；事务/资源位置/前端身份/DAO/
+  组合完整流程/批量预校验边界与真实 28 流程验收说明）
   ——**接手先看这张表的"待办"行**
 
 ## 项目一句话

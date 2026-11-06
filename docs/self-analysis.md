@@ -2521,8 +2521,9 @@ TestProcGrpcMethodsNoCallees（覆盖条件回归）+ seed 小写场景。
 **2026-11-07 todo30 进行中（逐项状态见 [`todo30-checklist.md`](todo30-checklist.md)）**：
 U04a 关联入口集合（共享预算/workflow.entries）、U04c 分支条件操作数来源、
 U04a–U04l、U04、B01–B11、U07b、todo31 的 U04bR/U04hR/U04fR 与
-B02b/B03a/B03b/B05b/B06b/B09b/B10b/B11b 均按公开示例完成（真实 28 业务流程
-与 ORM DAO/动态命名边界见 todo31 Checklist）；
+B02b/B03a/B03b/B05b/B06b/B09b/B10b/B11b、todo32 的 B06c/U04bS/B09c/B03c/
+B10c/B11c 均按公开示例完成（真实 28 业务流程与各扩展边界见 todo31/todo32
+Checklist）；
 依赖顺序与剩余范围写在该 Checklist（下一轮建议 U04d→U04e→U04j）。
 
 **2026-10-26 移除**：P1-02（全扫投影缓存——接入 repo_chain/repo_flows/

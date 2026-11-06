@@ -113,8 +113,12 @@ func seqXormCollectChain(call *ast.CallExpr, c *seqPersistCtx) *seqXormChain {
 // seqXormSessionExpr 表达式是否为已证明的 *xorm.Session（声明类型 + 导入路径）。
 func seqXormSessionExpr(e ast.Expr, c *seqPersistCtx) bool {
 	id, ok := e.(*ast.Ident)
-	if !ok || id.Obj == nil || c == nil || c.file == nil {
+	if !ok || c == nil || c.file == nil {
 		return false
+	}
+	// 跨文件包级句柄：单文件 parser 不解析其它文件的 var（Obj == nil）。
+	if id.Obj == nil {
+		return seqPkgLevelXormSession(c, id.Name)
 	}
 	var typ ast.Expr
 	switch d := id.Obj.Decl.(type) {

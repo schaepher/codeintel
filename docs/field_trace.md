@@ -8474,3 +8474,23 @@ action；开库前先 `ValidateRuntimeData`）。
   清除；`seqAllocOriginForScan` 检查 `escapedAllocs`。
 - 测试：`integration/todo31_*.go`、`internal/action/remaining_budget_public_test.go`；
   全量 internal + integration 通过。
+
+## §191 todo32：提交事务绑定/资源位置/前端身份/DAO/组合流程/批量预校验（2026-11-07）
+
+- **B06c**：`seqEntryFacts` 现在返回入口级事实：资源事件（按执行偏移）+
+  `commitVars`（`if err = tx.Commit(); err != nil { return }` 的事务变量名）；
+  `seqWFWrite` 增加 `TxVar`（调用接收者），连接只在同变量 + 正常返回时加
+  `commit_success`/移除 `transaction_commit`。另一事务/忽略错误保留缺失证明。
+- **U04bS**：资源事件遍历按语句顺序（入口用真实偏移，被调链/闭包用调用点偏移；
+  未执行闭包不计；仓内跨包/同包跨文件解析；深度 ≤8 超限 partial）；写入/读取用
+  入口树 path **首段调用节点**的 `callOffset` 比较，后续改写不倒推。
+- **B09c**：前端函数表键改为 `file+name`；事件绑定/调用按当前文件→命名导入
+  （相对路径、多扩展名）解析，`z.ts` 同名 request 不再覆盖 `a.ts`。
+- **B03c**：`seqPkgLevelXormSession` 回退解析跨文件包级 `var Session *xorm.Session`
+  （单文件 parser 的 Obj==nil），DAO 内 Find 保留 table/模型/键。
+- **B10c**：组合场景重分析携带 `RelatedEntries`/前端，生成独立
+  `scenario.workflow`（entries/connections/instances），不复制公共 workflow。
+- **B11c**：`seqBatchValidateFlows` 在执行前统一校验 timeout/depth/
+  continueSegments/scene/selector/runtimeData（相对 manifest、防越界、JSON
+  校验），失败 stdout 为空、exit=1、不创建输出目录；运行期失败仍按失败隔离。
+- 测试：`integration/todo32_*.go`；全量 internal + integration 通过。

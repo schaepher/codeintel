@@ -7,8 +7,9 @@ package action
 // 真实请求已经发生。
 
 import (
-	"github.com/schaepher/codeintel/internal/domain"
 	"go/ast"
+
+	"github.com/schaepher/codeintel/internal/domain"
 )
 
 // 连接预算与证明代码。
@@ -117,7 +118,16 @@ func seqWorkflowConnections(entries []SeqWorkflowEntry, maxAttempts, maxConns in
 			}
 			// U04bR：资源声明被改写（binding_mutated）后不能再按同名匹配。
 			if fact != nil {
-				if fact.mutated[w.Entry][w.Resource] || fact.mutated[r.Entry][r.Resource] {
+				wExec := seqWFExecOffset(entries, w.Entry, w.Path)
+				if wExec == 0 {
+					wExec = w.Offset
+				}
+				rExec := seqWFExecOffset(entries, r.Entry, r.Path)
+				if rExec == 0 {
+					rExec = r.Offset
+				}
+				if fact.mutatedAt(w.Entry, w.Resource, wExec) ||
+					fact.mutatedAt(r.Entry, r.Resource, rExec) {
 					continue
 				}
 			}
@@ -133,7 +143,7 @@ func seqWorkflowConnections(entries []SeqWorkflowEntry, maxAttempts, maxConns in
 				continue
 			}
 			// B06b：源入口显式检查 Commit 错误 → 成功路径携带 commit_success。
-			if fact != nil && w.Tx && fact.commit[w.Entry] {
+			if fact != nil && w.Tx && fact.commitFor(w) {
 				conn.SuccessConditions = appendUniqueStr(conn.SuccessConditions, "commit_success")
 				var proofs []string
 				for _, p := range conn.MissingProofs {

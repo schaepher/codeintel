@@ -262,6 +262,8 @@ type CodeSeqNode struct {
 	InstanceCondition *SeqInstanceCondition `json:"instance_condition,omitempty"`
 	// call U04e：该调用节点对应的 AST 调用（Scan 事后补齐证据用；不序列化）。
 	call *ast.CallExpr
+	// callOffset 调用点在本文件内的偏移（U04bS 执行位置）。
+	callOffset int
 	// U04k：return 节点的各结果槽来源 / 调用节点的返回槽来源共识。
 	ValueOrigins  []*SeqStorageOrigin `json:"value_origins,omitempty"`
 	ResultOrigins []*SeqStorageOrigin `json:"result_origins,omitempty"`

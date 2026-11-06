@@ -3,6 +3,7 @@ package action
 // 前端源码解析辅助（从 action_seq_frontend.go 拆出）。
 
 import (
+	"path/filepath"
 	"strings"
 )
 
@@ -102,7 +103,7 @@ func seqFrontendBody(src string, from int) string {
 
 // seqFrontendResolveFetch 沿包装函数链解析 fetch（实参位置传播；深度 ≤3）。
 func seqFrontendResolveFetch(fn seqFrontendFunc, funcs map[string]seqFrontendFunc,
-	bindings map[string]string, depth int) (string, string, bool) {
+	imports map[string]map[string]string, bindings map[string]string, depth int) (string, string, bool) {
 	if depth > 3 {
 		return "", "", false
 	}
@@ -123,7 +124,7 @@ func seqFrontendResolveFetch(fn seqFrontendFunc, funcs map[string]seqFrontendFun
 		return fn.path, m, true
 	}
 	for _, c := range fn.calls {
-		next, ok := funcs[c.name]
+		next, ok := seqFrontendLookup(c.name, fn.file, funcs, imports)
 		if !ok {
 			continue
 		}
@@ -136,11 +137,42 @@ func seqFrontendResolveFetch(fn seqFrontendFunc, funcs map[string]seqFrontendFun
 				nb[next.params[i]] = v
 			}
 		}
-		if p, m, ok2 := seqFrontendResolveFetch(next, funcs, nb, depth+1); ok2 {
+		if p, m, ok2 := seqFrontendResolveFetch(next, funcs, imports, nb, depth+1); ok2 {
 			return p, m, true
 		}
 	}
 	return "", "", false
+}
+
+// seqFrontendLookup 按文件/导入解析函数身份（同名不跨文件覆盖）。
+func seqFrontendLookup(name, file string, funcs map[string]seqFrontendFunc,
+	imports map[string]map[string]string) (seqFrontendFunc, bool) {
+	if fn, ok := funcs[file+"\x00"+name]; ok {
+		return fn, true
+	}
+	if imp := imports[file][name]; strings.HasPrefix(imp, ".") {
+		if rel := seqFrontendImportFile(file, imp, funcs); rel != "" {
+			if fn, ok := funcs[rel+"\x00"+name]; ok {
+				return fn, true
+			}
+		}
+	}
+	return seqFrontendFunc{}, false
+}
+
+// seqFrontendImportFile 相对导入路径 → 已解析文件（尝试常见扩展名）。
+func seqFrontendImportFile(cur, imp string, funcs map[string]seqFrontendFunc) string {
+	base := strings.TrimSuffix(filepath.ToSlash(filepath.Dir(cur)), "/")
+	rel := filepath.ToSlash(filepath.Join(base, imp))
+	for _, ext := range []string{"", ".ts", ".tsx", ".js", ".jsx"} {
+		cand := rel + ext
+		for key := range funcs {
+			if strings.HasPrefix(key, cand+"\x00") {
+				return cand
+			}
+		}
+	}
+	return ""
 }
 
 // seqFrontendRouteMap 后端路由表 → "METHOD path" → handler id（HandleFunc 空

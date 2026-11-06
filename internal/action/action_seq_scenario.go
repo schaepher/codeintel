@@ -20,6 +20,8 @@ type SeqWorkflowScenario struct {
 	Sequence   *CodeSeqNode      `json:"sequence,omitempty"`
 	Partial    bool              `json:"partial"`
 	Reasons    []string          `json:"reasons,omitempty"`
+	// Workflow B10c：该组合的完整关联入口分析结果（entries/connections/instances）。
+	Workflow *SeqWorkflow `json:"workflow,omitempty"`
 }
 
 // seqBuildScenarios 逐组合重分析根入口（组合参数按 Supported 调用实参关系映射）。
@@ -51,14 +53,15 @@ func (a *Actions) seqBuildScenarios(base CodeSequenceRequest, wf *SeqWorkflow) [
 		}
 		sub := base
 		sub.Target = root.Symbol
-		sub.RelatedEntries = nil
+		// B10c：组合场景包含同一组合的完整关联入口流程（复用单流程分析）。
+		sub.RelatedEntries = base.RelatedEntries
 		sub.CombinationSelector = ""
+		sub.FrontendRoots = base.FrontendRoots
 		sub.acc = base.acc
 		sub.pkgSet = base.pkgSet
 		sub.visited = map[string]bool{}
 		sub.entryID = ""
 		sub.runtime = nil
-		sub.FrontendRoots = nil
 		sub.seedParamOrigs = seed
 		sub.seedVarLits = nil
 		sub.scanSeeds = nil
@@ -71,7 +74,12 @@ func (a *Actions) seqBuildScenarios(base CodeSequenceRequest, wf *SeqWorkflow) [
 			continue
 		}
 		sc.Sequence = tree
+		sc.Workflow = tree.Workflow
 		sc.Partial, sc.Reasons = seqScenarioPartial(tree)
+		if sc.Workflow != nil && sc.Workflow.Partial {
+			sc.Partial = true
+			sc.Reasons = appendUniqueStr(sc.Reasons, "scenario_workflow_partial")
+		}
 		out = append(out, sc)
 	}
 	_ = entryDecl

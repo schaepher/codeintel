@@ -47,15 +47,21 @@ type seqFrontendCall struct {
 	args []string
 }
 
+// seqFrontendBinding 事件绑定（文件 + 函数名）。
+type seqFrontendBinding struct {
+	file string
+	name string
+}
+
 // seqAnalyzeFrontend 解析 frontendRoots 并连接已证明的后端 handler。
 func seqAnalyzeFrontend(a *Actions, base CodeSequenceRequest,
 	entries []SeqWorkflowEntry) *SeqWorkflowFrontend {
 	if a == nil || len(base.FrontendRoots) == 0 {
 		return nil
 	}
-	funcs := map[string]seqFrontendFunc{}
-	bindings := map[string]string{} // 事件绑定的函数名 → 动作名（同值）
-	var bindOrder []string
+	funcs := map[string]seqFrontendFunc{}     // file\x00name
+	imports := map[string]map[string]string{} // file → 本地名 → import 路径
+	var bindings []seqFrontendBinding
 	for _, root := range base.FrontendRoots {
 		dir := root
 		if !filepath.IsAbs(dir) {
@@ -74,7 +80,7 @@ func seqAnalyzeFrontend(a *Actions, base CodeSequenceRequest,
 				return nil
 			}
 			rel, _ := filepath.Rel(base.RepoAbs, path)
-			seqParseFrontendFile(string(data), rel, funcs, bindings, &bindOrder)
+			seqParseFrontendFile(string(data), rel, funcs, imports, &bindings)
 			return nil
 		})
 	}
@@ -84,17 +90,18 @@ func seqAnalyzeFrontend(a *Actions, base CodeSequenceRequest,
 	routes := seqFrontendRouteMap(a)
 	var actions []SeqFrontendAction
 	seen := map[string]bool{}
-	for _, name := range bindOrder {
-		if seen[name] {
+	for _, b := range bindings {
+		key := b.file + "\x00" + b.name
+		if seen[key] {
 			continue
 		}
-		seen[name] = true
-		fn, ok := funcs[name]
+		seen[key] = true
+		fn, ok := seqFrontendLookup(b.name, b.file, funcs, imports)
 		if !ok {
 			continue
 		}
-		path, method, ok := seqFrontendResolveFetch(fn, funcs, map[string]string{}, 0)
-		act := SeqFrontendAction{Action: name, Method: method, Path: path,
+		path, method, ok := seqFrontendResolveFetch(fn, funcs, imports, map[string]string{}, 0)
+		act := SeqFrontendAction{Action: b.name, Method: method, Path: path,
 			File: fn.file, Line: fn.line, Params: fn.params}
 		if !ok || path == "" {
 			act.Unknown = "dynamic_url_or_missing_fetch"
@@ -112,7 +119,12 @@ func seqAnalyzeFrontend(a *Actions, base CodeSequenceRequest,
 		}
 		actions = append(actions, act)
 	}
-	sort.Slice(actions, func(i, j int) bool { return actions[i].Action < actions[j].Action })
+	sort.Slice(actions, func(i, j int) bool {
+		if actions[i].Action != actions[j].Action {
+			return actions[i].Action < actions[j].Action
+		}
+		return actions[i].File < actions[j].File
+	})
 	return &SeqWorkflowFrontend{Actions: actions}
 }
 
@@ -122,11 +134,12 @@ var (
 	seqFrontendMethodRe   = regexp.MustCompile(`method\s*:\s*['"]([A-Za-z]+)['"]`)
 	seqFrontendCallRe     = regexp.MustCompile(`\b([A-Za-z_]\w*)\s*\(([^()]*)\)`)
 	seqFrontendBindRe     = regexp.MustCompile(`on[A-Za-z]+\s*=\s*\{\s*\(\s*\)\s*=>\s*([A-Za-z_]\w*)\s*\(`)
+	seqFrontendImportRe   = regexp.MustCompile(`(?m)import\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]`)
 )
 
-// seqParseFrontendFile 解析一个前端文件的导出函数与事件绑定。
+// seqParseFrontendFile 解析一个前端文件的导出函数、导入与事件绑定。
 func seqParseFrontendFile(src, rel string, funcs map[string]seqFrontendFunc,
-	bindings map[string]string, order *[]string) {
+	imports map[string]map[string]string, bindings *[]seqFrontendBinding) {
 	locs := seqFrontendExportRe.FindAllStringSubmatchIndex(src, -1)
 	for _, loc := range locs {
 		name := src[loc[2]:loc[3]]
@@ -156,13 +169,24 @@ func seqParseFrontendFile(src, rel string, funcs map[string]seqFrontendFunc,
 			fn.calls = append(fn.calls, seqFrontendCall{name: name,
 				args: seqFrontendSplitArgs(m[2])})
 		}
-		funcs[name] = fn
+		funcs[rel+"\x00"+name] = fn
+	}
+	// 导入：`import {click} from './a'` → 本地名 → 导入路径（B09c）。
+	for _, m := range seqFrontendImportRe.FindAllStringSubmatch(src, -1) {
+		if imports[rel] == nil {
+			imports[rel] = map[string]string{}
+		}
+		path := strings.TrimSpace(m[2])
+		for _, name := range strings.Split(m[1], ",") {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				continue
+			}
+			imports[rel][name] = path
+		}
 	}
 	for _, loc := range seqFrontendBindRe.FindAllStringSubmatchIndex(src, -1) {
 		name := src[loc[2]:loc[3]]
-		if _, ok := bindings[name]; !ok {
-			bindings[name] = name
-			*order = append(*order, name)
-		}
+		*bindings = append(*bindings, seqFrontendBinding{file: rel, name: name})
 	}
 }

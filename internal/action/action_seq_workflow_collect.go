@@ -3,7 +3,10 @@ package action
 // U04b：入口树里的可信写入/读取与 Scan 目标映射（从
 // action_seq_workflow_conn.go 拆出）。
 
-import "strconv"
+import (
+	"go/ast"
+	"strconv"
+)
 
 // seqWFWrite 分析树里的可信写入。
 type seqWFWrite struct {
@@ -22,6 +25,7 @@ type seqWFWrite struct {
 	Resource string
 	Tx       bool
 	TxID     string
+	TxVar    string
 }
 
 // seqWFScan Scan 目标映射（read id + column → 变量/Scan 身份）。
@@ -38,6 +42,7 @@ type seqWFRead struct {
 	File     string
 	Line     int
 	Path     string
+	Offset   int
 	ReadID   string
 	Table    string
 	Columns  []string
@@ -84,6 +89,17 @@ func seqCollectWorkflowWrites(tree *CodeSeqNode, entry, repo, path string, out *
 	}
 	tx := false
 	txID := ""
+	txVar := ""
+	if st.ErrorResult != nil {
+		// 事务写入的接收者变量（B06c：Commit 必须绑定同一事务）。
+		if call := tree.call; call != nil {
+			if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+				if id, ok := runtimeUnparen(sel.X).(*ast.Ident); ok {
+					txVar = id.Name
+				}
+			}
+		}
+	}
 	if tree.Evidence.Transaction != nil && tree.Evidence.Transaction.Origin != nil {
 		tx = true
 		txID = tree.Evidence.Transaction.Origin.ID
@@ -91,7 +107,17 @@ func seqCollectWorkflowWrites(tree *CodeSeqNode, entry, repo, path string, out *
 	*out = append(*out, seqWFWrite{Entry: entry, Repo: repo, File: tree.Evidence.CallFile,
 		Line: tree.Evidence.CallLine, ID: id, Table: st.Table, Op: st.Operation,
 		Guard: st.Guard, Values: st.Writes, Preds: st.Predicates, Path: path,
-		Resource: st.ResourceDeclaration, Tx: tx, TxID: txID})
+		Resource: st.ResourceDeclaration, Tx: tx, TxID: txID, TxVar: txVar,
+		Offset: seqWFWriteOffset(tree)})
+}
+
+// seqWFWriteOffset 写入调用点偏移（错误返回槽的身份偏移）。
+func seqWFWriteOffset(tree *CodeSeqNode) int {
+	if tree == nil || tree.Evidence == nil || tree.Evidence.Storage == nil ||
+		tree.Evidence.Storage.ErrorResult == nil {
+		return 0
+	}
+	return tree.Evidence.Storage.ErrorResult.Offset
 }
 
 // seqCollectWorkflowReads 收集读取（需要读取结果身份 + 明确列 + AND 等式键）。
@@ -123,7 +149,8 @@ func seqCollectWorkflowReads(tree *CodeSeqNode, entry, repo, path string, out *[
 		return
 	}
 	*out = append(*out, seqWFRead{Entry: entry, Repo: repo, File: tree.Evidence.CallFile,
-		Line: tree.Evidence.CallLine, Path: path, ReadID: rd.Result.ID, Table: rd.Table,
+		Line: tree.Evidence.CallLine, Path: path, ReadID: rd.Result.ID,
+		Offset: rd.Result.Offset, Table: rd.Table,
 		Columns: rd.Columns, Preds: rd.Predicates, Resource: rd.ResourceDeclaration,
 		Guard: rd.Guard})
 }

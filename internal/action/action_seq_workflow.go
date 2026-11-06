@@ -157,17 +157,18 @@ func (a *Actions) seqAnalyzeRelatedEntries(base CodeSequenceRequest, root *CodeS
 			Symbol: id, Repo: base.RepoAbs, Sequence: tree})
 	}
 	// U04b/U04f：连接与实例（不改变入口树本身）。
-	facts := &seqWorkflowFacts{mutated: map[string]map[string]bool{}, commit: map[string]bool{}}
+	facts := &seqWorkflowFacts{byEntry: map[string]*seqEntryFactData{}}
 	for _, e := range wf.Entries {
-		mut, commit := seqEntryFacts(a, e.Repo, e.Symbol)
-		facts.mutated[e.Symbol] = mut
-		facts.commit[e.Symbol] = commit
+		facts.byEntry[e.Symbol] = seqEntryFacts(a, e.Repo, e.Symbol)
 	}
 	conns, cpartial := seqWorkflowConnections(wf.Entries, seqWFMatchMax, seqWFConnectionMax, facts)
 	wf.Connections = conns
-	if cpartial {
+	if cpartial || facts.partial() {
 		wf.Partial = true
 		wf.InstanceBoundaries = appendUniqueStr(wf.InstanceBoundaries, "connection_budget")
+		if facts.partial() {
+			wf.InstanceBoundaries = appendUniqueStr(wf.InstanceBoundaries, "resource_analysis_budget")
+		}
 	}
 	if len(conns) > 0 {
 		reanCount := 0
