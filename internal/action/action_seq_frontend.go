@@ -67,7 +67,15 @@ type seqFrontendFunc struct {
 	// B09e.4：形参局部名 → 位置 + 解构路径；函数体内局部声明/改写。
 	paramBindings map[string]seqFrontendParamBinding
 	shadowed      map[string]bool
-	mutated       []string
+	mutations     []seqFrontendMutation
+	// fetchPos 直接 fetch 在本函数体内的位置（用于判断改写是否发生在请求前）。
+	fetchPos int
+}
+
+// seqFrontendMutation 字段/对象改写（路径相对本函数形参）。
+type seqFrontendMutation struct {
+	path string
+	pos  int
 }
 
 // seqFrontendBodyField 请求体字段（name → 表达式）。
@@ -80,6 +88,7 @@ type seqFrontendBodyField struct {
 type seqFrontendCall struct {
 	name string
 	args []string
+	pos  int // 调用在函数体内的位置（判断调用方改写是否在此之前）
 }
 
 // seqFrontendBinding 事件绑定（文件 + 函数名）。

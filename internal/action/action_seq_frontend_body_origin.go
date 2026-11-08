@@ -14,7 +14,7 @@ func seqFrontendBodyOrigins(fn seqFrontendFunc) map[string]seqFrontendBodyOrigin
 	}
 	out := map[string]seqFrontendBodyOrigin{}
 	for _, f := range fn.body {
-		out[f.name] = seqFrontendBodyOriginOf(fn, f.expr)
+		out[f.name] = seqFrontendBodyOriginOf(fn, f.expr, fn.fetchPos)
 	}
 	return out
 }
@@ -23,7 +23,7 @@ func seqFrontendBodyOrigins(fn seqFrontendFunc) map[string]seqFrontendBodyOrigin
 //
 // `req.id` / 解构 `{id}` 保留 parameter + path；另一对象、同名局部变量、
 // 字段被覆盖、动态下标一律 unknown（不借用参数身份）。
-func seqFrontendBodyOriginOf(fn seqFrontendFunc, expr string) seqFrontendBodyOrigin {
+func seqFrontendBodyOriginOf(fn seqFrontendFunc, expr string, cutoff int) seqFrontendBodyOrigin {
 	expr = strings.TrimSpace(expr)
 	if lit, ok := seqFrontendStringLit(expr); ok {
 		return seqFrontendBodyOrigin{kind: "literal", literal: lit}
@@ -44,7 +44,7 @@ func seqFrontendBodyOriginOf(fn seqFrontendFunc, expr string) seqFrontendBodyOri
 		return seqFrontendBodyOrigin{kind: "unknown"}
 	}
 	full := strings.Join(parts, ".")
-	if seqFrontendFieldOverwritten(fn.mutated, full) {
+	if seqFrontendFieldOverwrittenBefore(fn.mutations, full, cutoff) {
 		return seqFrontendBodyOrigin{kind: "unknown"}
 	}
 	path := append(append([]string(nil), bind.path...), parts[1:]...)
@@ -54,10 +54,16 @@ func seqFrontendBodyOriginOf(fn seqFrontendFunc, expr string) seqFrontendBodyOri
 	return seqFrontendBodyOrigin{kind: "field_read", parameter: bind.parameter, path: path}
 }
 
-// seqFrontendFieldOverwritten 表达式或其对象前缀是否被本函数改写。
-func seqFrontendFieldOverwritten(mutated []string, expr string) bool {
-	for _, m := range mutated {
-		if m == expr || strings.HasPrefix(expr, m+".") || strings.HasPrefix(m, expr+".") {
+// seqFrontendFieldOverwrittenBefore 表达式或其对象前缀是否在 cutoff 之前
+// 被本函数改写（请求/调用之后发生的改写不倒推）。
+func seqFrontendFieldOverwrittenBefore(mutations []seqFrontendMutation, expr string,
+	cutoff int) bool {
+	for _, m := range mutations {
+		if cutoff > 0 && m.pos >= cutoff {
+			continue
+		}
+		if m.path == expr || strings.HasPrefix(expr, m.path+".") ||
+			strings.HasPrefix(m.path, expr+".") {
 			return true
 		}
 	}
@@ -69,20 +75,20 @@ var (
 	seqFrontendAssignRe = regexp.MustCompile(`(?m)([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*(?:\+\+|--|=[^=])`)
 )
 
-// seqFrontendBodyOverrides 函数体内的局部声明与字段改写（用于拒绝借用
-// 原形参来源）。
-func seqFrontendBodyOverrides(body string) (map[string]bool, []string) {
+// seqFrontendBodyOverrides 函数体内的局部声明与字段改写（带位置，用于
+// 拒绝借用原形参来源；请求之后的改写不失效请求时来源）。
+func seqFrontendBodyOverrides(body string) (map[string]bool, []seqFrontendMutation) {
 	shadowed := map[string]bool{}
 	for _, m := range seqFrontendDeclRe.FindAllStringSubmatch(body, -1) {
 		shadowed[m[1]] = true
 	}
-	var mutated []string
-	for _, m := range seqFrontendAssignRe.FindAllStringSubmatch(body, -1) {
-		name := m[1]
+	var mutations []seqFrontendMutation
+	for _, loc := range seqFrontendAssignRe.FindAllStringSubmatchIndex(body, -1) {
+		name := body[loc[2]:loc[3]]
 		if name == "method" || name == "body" {
 			continue
 		}
-		mutated = append(mutated, name)
+		mutations = append(mutations, seqFrontendMutation{path: name, pos: loc[0]})
 	}
-	return shadowed, mutated
+	return shadowed, mutations
 }

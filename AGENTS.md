@@ -51,6 +51,9 @@
   正常出口/helper 返回槽、循环可达与 panic/指针参数/预算 fail-closed、
   ORM 静态表名、前端有界包装与字段来源、场景覆盖/取消、timeout 存在性；
   含逐条状态与未覆盖边界）
+- [`docs/todo36-checklist.md`](docs/todo36-checklist.md)：todo36 剩余连接
+  （U04bU.1、B03e.4、B09e.4：goto 真实标签目标、ORM 忽略字段/重复列歧义、
+  前端包装 field_read 重绑定与调用前改写失效；含逐条状态与未覆盖边界）
 - [`docs/checklist-template.md`](docs/checklist-template.md)：Checklist/新任务模板
   ——逐条独立验收 + 反例矩阵 + 反捷径检查（写新 todo 必用）
   ——**接手先看这张表的"待办"行**

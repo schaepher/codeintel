@@ -57,6 +57,10 @@ type seqResourceFactBuilder struct {
 	ptrBinds []map[*ast.Object]string
 	// calls 已展开的调用数（U04bU.4 有界预算）。
 	calls int
+	// gotoFrames 函数级标签表/已跟随目标（U04bU.1：goto 不能只停止本块，
+	// 要沿真实标签目标继续；循环/重复目标 fail-closed）。
+	gotoFrames []seqGotoFrame
+	gotoHops   int
 }
 
 // seqResEventRef 已记录事件的定位（资源符号 + 该符号事件切片下标）。
@@ -75,6 +79,8 @@ func (b *seqResourceFactBuilder) walkFunc(fn *ast.FuncDecl, file *seqParsedGoFil
 		b.out.partial = true
 		return
 	}
+	b.pushGotoFrame(fn.Body)
+	defer b.popGotoFrame()
 	b.walkBlock(fn.Body, file, eventAt, isEntry, depth, map[*ast.Object]*ast.FuncLit{})
 }
 
@@ -213,31 +219,10 @@ func (b *seqResourceFactBuilder) walkStmt(st ast.Stmt, file *seqParsedGoFile,
 		b.walkExprCalls(s.Call, file, pos, isEntry, depth, closures)
 	case *ast.LabeledStmt:
 		b.walkStmt(s.Stmt, file, eventAt, isEntry, depth, closures)
-	}
-}
-
-// walkCaseBody switch/select 分支体（与块相同的可达性规则 + 分支终止边界）。
-func (b *seqResourceFactBuilder) walkCaseBody(stmts []ast.Stmt, clause ast.Node,
-	file *seqParsedGoFile, eventAt int, isEntry bool, depth int,
-	closures map[*ast.Object]*ast.FuncLit) {
-	mark := len(b.log)
-	for _, st := range stmts {
-		b.walkStmt(st, file, eventAt, isEntry, depth, closures)
-		if seqStmtStopsBlock(st) {
-			break
-		}
-	}
-	if isEntry && file.fset != nil && seqBlockTerminates(&ast.BlockStmt{List: stmts}) &&
-		len(stmts) > 0 {
-		die := file.fset.Position(stmts[len(stmts)-1].End()).Offset
-		if die <= 0 {
-			die = file.fset.Position(clause.End()).Offset
-		}
-		for _, ref := range b.log[mark:] {
-			ev := &b.out.events[ref.name][ref.idx]
-			if ev.die == 0 || die < ev.die {
-				ev.die = die
-			}
+	case *ast.BranchStmt:
+		// U04bU.1：goto 沿真实标签目标续查（break/continue 仍只停止本块）。
+		if s.Tok == token.GOTO && s.Label != nil {
+			b.walkGotoTarget(s.Label.Name, file, eventAt, isEntry, depth, closures)
 		}
 	}
 }
@@ -266,10 +251,14 @@ func (b *seqResourceFactBuilder) applyCall(call *ast.CallExpr, file *seqParsedGo
 	}
 	switch fun := call.Fun.(type) {
 	case *ast.FuncLit:
+		b.pushGotoFrame(fun.Body)
 		b.walkBlock(fun.Body, file, pos, false, depth+1, closures)
+		b.popGotoFrame()
 	case *ast.Ident:
 		if lit, ok := closures[fun.Obj]; ok {
+			b.pushGotoFrame(lit.Body)
 			b.walkBlock(lit.Body, file, pos, false, depth+1, closures)
+			b.popGotoFrame()
 			return
 		}
 		if fd := b.pkgFunc(fun.Name); fd != nil {

@@ -161,7 +161,7 @@ func seqFrontendResolve(fn seqFrontendFunc, funcs map[string]seqFrontendFunc,
 		}
 		if p, m, body, reason := seqFrontendResolve(next, funcs, imports, nb, depth+1,
 			visited); reason == "" {
-			return p, m, seqFrontendRebaseBody(body, next.params, argOrigins), ""
+			return p, m, seqFrontendRebaseBody(body, next.params, argOrigins, fn, c.pos), ""
 		} else if firstReason == "" {
 			firstReason = reason
 		}
@@ -186,40 +186,23 @@ func seqFrontendArgOrigin(arg string, params []string) seqFrontendBodyOrigin {
 	if lit, ok := seqFrontendStringLit(arg); ok {
 		return seqFrontendBodyOrigin{kind: "literal", literal: lit}
 	}
+	if arg == "" || strings.ContainsAny(arg, "[]()") {
+		return seqFrontendBodyOrigin{kind: "unknown"}
+	}
+	parts := strings.Split(arg, ".")
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+		if parts[i] == "" {
+			return seqFrontendBodyOrigin{kind: "unknown"}
+		}
+	}
 	for i, p := range params {
-		if p == arg {
-			return seqFrontendBodyOrigin{kind: "parameter", parameter: i}
+		if p == parts[0] {
+			path := append([]string(nil), parts[1:]...)
+			return seqFrontendBodyOrigin{kind: "parameter", parameter: i, path: path}
 		}
 	}
 	return seqFrontendBodyOrigin{kind: "unknown"}
-}
-
-// seqFrontendRebaseBody 把被调函数体内的形参来源替换为调用点来源。
-func seqFrontendRebaseBody(body map[string]seqFrontendBodyOrigin, calleeParams []string,
-	argOrigins map[string]seqFrontendBodyOrigin) map[string]seqFrontendBodyOrigin {
-	if len(body) == 0 {
-		return nil
-	}
-	out := map[string]seqFrontendBodyOrigin{}
-	for name, o := range body {
-		if o.kind == "parameter" && o.parameter >= 0 && o.parameter < len(calleeParams) {
-			rebased, ok := argOrigins[calleeParams[o.parameter]]
-			if !ok {
-				o = seqFrontendBodyOrigin{kind: "unknown"}
-			} else if rebased.kind == "parameter" {
-				// 被调路径接在调用实参来源之后（解构/字段路径不丢）。
-				o.parameter = rebased.parameter
-				o.path = append(append([]string(nil), rebased.path...), o.path...)
-				o.literal = rebased.literal
-			} else if len(o.path) == 0 {
-				o = rebased
-			} else {
-				o = seqFrontendBodyOrigin{kind: "unknown"}
-			}
-		}
-		out[name] = o
-	}
-	return out
 }
 
 // seqFrontendBodyJSON 内部来源 → JSON 契约。

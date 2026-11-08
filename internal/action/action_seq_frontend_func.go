@@ -10,9 +10,10 @@ func seqFrontendFuncFromSrc(src, rel, name, paramsRaw string, start int) seqFron
 	body := seqFrontendBody(src, start)
 	fn := seqFrontendFunc{name: name, file: rel, line: line,
 		params: seqFrontendParams(paramsRaw), paramBindings: seqFrontendParamBindings(paramsRaw)}
-	fn.shadowed, fn.mutated = seqFrontendBodyOverrides(body)
-	if m := seqFrontendFetchArgRe.FindStringSubmatch(body); m != nil {
-		arg := strings.TrimSpace(m[1])
+	fn.shadowed, fn.mutations = seqFrontendBodyOverrides(body)
+	if loc := seqFrontendFetchArgRe.FindStringSubmatchIndex(body); loc != nil {
+		fn.fetchPos = loc[0]
+		arg := strings.TrimSpace(body[loc[2]:loc[3]])
 		if lit, ok := seqFrontendStringLit(arg); ok {
 			fn.path = lit
 		} else {
@@ -25,14 +26,14 @@ func seqFrontendFuncFromSrc(src, rel, name, paramsRaw string, start int) seqFron
 		fn.method = "GET"
 	}
 	fn.body = seqFrontendParseBody(body)
-	for _, m := range seqFrontendCallRe.FindAllStringSubmatch(body, -1) {
-		call := m[1]
+	for _, loc := range seqFrontendCallRe.FindAllStringSubmatchIndex(body, -1) {
+		call := body[loc[2]:loc[3]]
 		if call == "fetch" || call == "function" || call == "if" || call == "return" ||
 			call == "JSON" || call == "stringify" {
 			continue
 		}
 		fn.calls = append(fn.calls, seqFrontendCall{name: call,
-			args: seqFrontendSplitArgs(m[2])})
+			args: seqFrontendSplitArgs(body[loc[4]:loc[5]]), pos: loc[0]})
 	}
 	return fn
 }

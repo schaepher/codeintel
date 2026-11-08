@@ -8575,3 +8575,24 @@ action；开库前先 `ValidateRuntimeData`）。
   `--timeout` 与后接其它选项不再被静默忽略（exit=2）。
 - 测试：`integration/todo35_*.go`；`scripts/verify.sh --quick`、
   `make it`（integration 全量）通过。
+
+## §195 todo36：goto 目标可达/ORM 忽略字段/前端包装 field_read 重绑定（2026-11-08）
+
+- **U04bU.1**：资源事实遍历新增函数级 `gotoFrames`（标签声明 → 语句列表与
+  下标）。`goto` 不再与 break/continue 共用"停止本块"规则：`walkGotoTarget`
+  从真实标签目标继续到列表末尾；break/continue 仍只停止本块。目标缺失、
+  重复/向后跳转、64 跳预算超限 → `partial` + 资源匹配 fail-closed。
+  `ReviewGotoReset` → 0 连接、`ReviewGotoSkip` → 1；跨文件 helper/其它资源/
+  读取后改写分别按声明与调用位置区分。
+- **B03e.4**：`seqORMColumnName` 对 `xorm:"-"` 返回空（不再回退默认列名）；
+  新增 `seqORMValidColumnBindings` 统一过滤忽略字段与"多字段同一列"歧义，
+  ORM 写入/工作流读取/读取结果/条件列来源共用；全忽略模型仍建立读取身份以
+  保留 Find/Get 错误槽。`ORMIgnoredFind` 条件列来源为空，`ORMNamedFind`
+  保留 `kind`。
+- **B09e.4**：前端函数模型记录改写位置（相对函数体）与调用位置；`fetchPos`
+  区分请求前后。`seqFrontendRebaseBody` 不再只处理 `parameter`，`field_read`
+  同样按调用实参重绑根参数并合并解构/字段路径；调用方在调用**之前**的
+  字段/整对象/父字段改写与局部遮蔽使来源 unknown，请求之后的改写不倒推。
+  `click` → parameter=1 path=[id]，`clickMutated` → unknown；交换形参、
+  解构别名多层包装、同名不同文件及动态下标均有正反例。
+- 测试：`integration/todo36_*.go`；`scripts/verify.sh` 与 `make it` 通过。

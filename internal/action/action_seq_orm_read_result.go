@@ -64,19 +64,16 @@ func seqBindORMReadResult(req CodeSequenceRequest, node *CodeSeqNode, call *ast.
 	if errSlot < 0 {
 		return
 	}
-	// 列顺序与模型字段声明一致（只取直接字段）。
-	cols := make([]string, 0, len(m.Fields))
-	fields := make([]string, 0, len(m.Fields))
-	for _, f := range m.Fields {
-		if f.Embedded || f.Name == "" {
-			continue
-		}
-		cols = append(cols, seqORMColumnName(f.Tag, f.Name))
-		fields = append(fields, f.Name)
+	// 列顺序与模型字段声明一致；忽略字段/重复列歧义不进入读取结果。
+	bindings := seqORMValidColumnBindings(m)
+	cols := make([]string, 0, len(bindings))
+	fields := make([]string, 0, len(bindings))
+	for _, b := range bindings {
+		cols = append(cols, b.Column)
+		fields = append(fields, b.Field)
 	}
-	if len(cols) == 0 {
-		return
-	}
+	// B03e.4：即使全部字段被忽略（没有任何列来源），读取身份仍要建立，
+	// 以便保留 Find/Get 的错误槽隔离；元素字段绑定由空列集合自然跳过。
 	req.acc.readSeq++
 	id := "orm-read-" + itoaSeq(req.acc.readSeq)
 	rr := &SeqSQLReadResult{ID: id, Repo: req.RepoAbs, Entry: req.entryID,

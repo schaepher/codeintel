@@ -18,6 +18,10 @@ func seqORMColumnName(tag, field string) string {
 			tag = tag[i+1:]
 		}
 		tag = strings.Trim(tag, `"' `)
+		// B03e.4：xorm 的 `-` 表示字段不映射数据库列，不能回退默认列名。
+		if tag == "-" {
+			return ""
+		}
 		// xorm 常见：`pk autoincr 'id'` / `'kind'` / `column:id`。
 		if i := strings.IndexAny(tag, "'\""); i >= 0 {
 			q := tag[i]
@@ -39,26 +43,16 @@ func seqORMColumnName(tag, field string) string {
 			}
 			low := strings.ToLower(tok)
 			switch low {
+			case "-":
+				return "" // 忽略字段：没有数据库列来源。
 			case "pk", "autoincr", "not", "null", "notnull", "unique", "index",
-				"default", "-", "->", "<-":
+				"default", "->", "<-":
 				continue
 			}
 			return tok
 		}
 	}
 	return snakeCase(field)
-}
-
-// seqORMColumns 模型字段 → 列名（只保留有明确声明的字段）。
-func seqORMColumns(m SeqORMModel) map[string]string {
-	out := map[string]string{}
-	for _, f := range m.Fields {
-		if f.Embedded || f.Name == "" {
-			continue
-		}
-		out[f.Name] = seqORMColumnName(f.Tag, f.Name)
-	}
-	return out
 }
 
 // seqORMWritesFromEvidence ORM 写入证据 → 工作流写入。
@@ -106,11 +100,8 @@ func seqORMReadsFromEvidence(node *CodeSeqNode, entry, repo string) []seqWFRead 
 	}
 	var cols []string
 	for _, m := range orm.Models {
-		for _, f := range m.Fields {
-			if f.Embedded || f.Name == "" {
-				continue
-			}
-			cols = append(cols, seqORMColumnName(f.Tag, f.Name))
+		for _, b := range seqORMValidColumnBindings(m) {
+			cols = append(cols, b.Column)
 		}
 	}
 	if len(cols) == 0 {
