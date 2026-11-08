@@ -225,8 +225,12 @@ func (a *Actions) seqAnalyzeRelatedEntries(base CodeSequenceRequest, root *CodeS
 	}
 	// B09：前端动作（可选）。
 	wf.Frontend = seqAnalyzeFrontend(a, base, wf.Entries)
-	// B10b：逐合法组合实际分析（场景树）。
-	wf.Scenarios = a.seqBuildScenarios(base, wf)
+	// B10b：逐合法组合实际分析（场景树）；取消必须传播到查询/batch。
+	scenarios, serr := a.seqBuildScenarios(base, wf)
+	if serr != nil {
+		return nil, serr
+	}
+	wf.Scenarios = scenarios
 	// B10：组合覆盖（可选）。
 	wf.Coverage = seqAnalyzeCoverage(a, base, wf)
 	if base.acc != nil {

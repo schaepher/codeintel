@@ -182,9 +182,17 @@ func seqXormEvidence(node *CodeSeqNode, call *ast.CallExpr, c *seqPersistCtx) *S
 	}
 	orm := &SeqORM{Framework: "xorm", Operation: op, Outcome: "unproven"}
 	chain := seqXormCollectChain(call, c)
+	// B03e.4：链上没有显式 Table 时，按实际模型的静态 TableName() 求表名
+	// （模型变体/动态命名/未知链修饰器都不借用）。
+	orm.Models = seqORMModelsFor(call, c)
 	if chain.table != "" && !chain.unknown {
 		orm.Table = chain.table
-	} else {
+	} else if chain.table == "" && chain.tableExpr == "" && !chain.unknown {
+		if table, ok := seqORMStaticModelTable(c, orm.Models); ok {
+			orm.Table = table
+		}
+	}
+	if orm.Table == "" {
 		if chain.tableExpr != "" {
 			orm.TableExpression = chain.tableExpr
 		}
@@ -215,7 +223,6 @@ func seqXormEvidence(node *CodeSeqNode, call *ast.CallExpr, c *seqPersistCtx) *S
 	if c != nil && c.guard != "" {
 		orm.Guard = c.guard
 	}
-	orm.Models = seqORMModelsFor(call, c)
 	return orm
 }
 

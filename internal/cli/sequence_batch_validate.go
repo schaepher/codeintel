@@ -23,10 +23,14 @@ func seqBatchValidateFlows(flows []seqBatchFlow, baseDir string) ([]seqBatchFlow
 	for i, fl := range flows {
 		// B11c/B11e：非法 timeout 在打开索引/创建目录前拒绝（整串消费 +
 		// 整数秒乘 time.Second 前检查范围）。
-		if fl.Timeout != "" {
-			dur, terr := parseBatchTimeout(fl.Timeout)
+		if fl.Timeout.set {
+			raw, ok := fl.Timeout.value()
+			if !ok {
+				return nil, fmt.Errorf("flow %s timeout 非法 %q", fl.ID, raw)
+			}
+			dur, terr := parseBatchTimeout(raw)
 			if terr != nil || dur <= 0 {
-				return nil, fmt.Errorf("flow %s timeout 非法 %q", fl.ID, fl.Timeout)
+				return nil, fmt.Errorf("flow %s timeout 非法 %q", fl.ID, raw)
 			}
 			out[i].timeout = dur
 		}

@@ -91,7 +91,8 @@ func cmdQuerySequenceCode(acts *action.Actions, abs, target string, depth, contS
 			if timeout > 0 && ctx.Err() == context.DeadlineExceeded {
 				fmt.Fprintf(os.Stderr, "error: 代码级时序超过查询预算 %s——已停止后台展开，结果不完整不输出\n", timeout)
 			} else {
-				fmt.Fprintln(os.Stderr, "error: 代码级时序展开已取消（未完成的分析不作为结果输出）")
+				// B10e.4 取消原文契约：非预算取消统一输出 context canceled。
+				fmt.Fprintln(os.Stderr, "error: context canceled")
 			}
 			return 1
 		}

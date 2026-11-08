@@ -28,9 +28,10 @@ type SeqFrontendAction struct {
 
 // SeqFrontendBodyValue 请求体字段来源（parameter/literal/unknown）。
 type SeqFrontendBodyValue struct {
-	Kind      string `json:"kind"`
-	Parameter *int   `json:"parameter,omitempty"`
-	Literal   string `json:"literal,omitempty"`
+	Kind      string   `json:"kind"`
+	Parameter *int     `json:"parameter,omitempty"`
+	Literal   string   `json:"literal,omitempty"`
+	Path      []string `json:"path,omitempty"`
 }
 
 // seqFrontendBodyOrigin 解析期请求体来源（相对当前函数形参下标）。
@@ -38,6 +39,7 @@ type seqFrontendBodyOrigin struct {
 	kind      string
 	parameter int
 	literal   string
+	path      []string
 }
 
 // seqFrontendImport 导入声明（本地名 → 导出名 + 路径）。
@@ -62,6 +64,10 @@ type seqFrontendFunc struct {
 	method   string
 	calls    []seqFrontendCall
 	body     []seqFrontendBodyField
+	// B09e.4：形参局部名 → 位置 + 解构路径；函数体内局部声明/改写。
+	paramBindings map[string]seqFrontendParamBinding
+	shadowed      map[string]bool
+	mutated       []string
 }
 
 // seqFrontendBodyField 请求体字段（name → 表达式）。
@@ -133,12 +139,16 @@ func seqAnalyzeFrontend(a *Actions, base CodeSequenceRequest,
 				Unknown: "declaration_not_found"})
 			continue
 		}
-		path, method, body, ok := seqFrontendResolve(fn, funcs, imports, map[string]string{}, 0)
+		path, method, body, reason := seqFrontendResolve(fn, funcs, imports,
+			map[string]string{}, 0, map[string]bool{})
 		act := SeqFrontendAction{Action: b.name, Method: method, Path: path,
 			File: fn.file, Line: fn.line, Params: fn.params,
 			RequestBody: seqFrontendBodyJSON(body)}
-		if !ok || path == "" {
-			act.Unknown = "dynamic_url_or_missing_fetch"
+		if reason != "" || path == "" {
+			if reason == "" {
+				reason = "dynamic_url_or_missing_fetch"
+			}
+			act.Unknown = reason
 			actions = append(actions, act)
 			continue
 		}
@@ -163,18 +173,18 @@ func seqAnalyzeFrontend(a *Actions, base CodeSequenceRequest,
 }
 
 var (
-	seqFrontendExportRe   = regexp.MustCompile(`(?m)^\s*export\s+(?:async\s+)?function\s+(\w+)\s*\(([^)]*)\)`)
+	seqFrontendExportRe = regexp.MustCompile(`(?m)^\s*export\s+(?:async\s+)?function\s+(\w+)\s*\(([^)]*)\)`)
 	// B09e：`export default function send(...)`——默认导出声明。
 	seqFrontendDefaultExportRe = regexp.MustCompile(`(?m)^\s*export\s+default\s+(?:async\s+)?function\s+(\w+)\s*\(([^)]*)\)`)
 	// B09e：`import send from './actions'` / `import send, { click } from './a'`。
 	seqFrontendDefaultImportRe = regexp.MustCompile(`(?m)^\s*import\s+([A-Za-z_$][\w$]*)\s*(?:,\s*\{([^}]*)\})?\s*from\s*['"]([^'"]+)['"]`)
-	seqFrontendFetchArgRe = regexp.MustCompile(`fetch\s*\(\s*([^,)]+)`)
-	seqFrontendMethodRe   = regexp.MustCompile(`method\s*:\s*['"]([A-Za-z]+)['"]`)
-	seqFrontendCallRe     = regexp.MustCompile(`\b([A-Za-z_]\w*)\s*\(([^()]*)\)`)
-	seqFrontendBindRe     = regexp.MustCompile(`on[A-Za-z]+\s*=\s*\{\s*\(\s*\)\s*=>\s*([A-Za-z_]\w*)\s*\(`)
-	seqFrontendImportRe   = regexp.MustCompile(`(?m)import\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]`)
-	seqFrontendReexportRe = regexp.MustCompile(`(?m)export\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]`)
-	seqFrontendBodyRe     = regexp.MustCompile(`body\s*:\s*(?:JSON\.stringify\s*\(\s*)?\{([^}]*)\}`)
+	seqFrontendFetchArgRe      = regexp.MustCompile(`fetch\s*\(\s*([^,)]+)`)
+	seqFrontendMethodRe        = regexp.MustCompile(`method\s*:\s*['"]([A-Za-z]+)['"]`)
+	seqFrontendCallRe          = regexp.MustCompile(`\b([A-Za-z_]\w*)\s*\(([^()]*)\)`)
+	seqFrontendBindRe          = regexp.MustCompile(`on[A-Za-z]+\s*=\s*\{\s*\(\s*\)\s*=>\s*([A-Za-z_]\w*)\s*\(`)
+	seqFrontendImportRe        = regexp.MustCompile(`(?m)import\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]`)
+	seqFrontendReexportRe      = regexp.MustCompile(`(?m)export\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]`)
+	seqFrontendBodyRe          = regexp.MustCompile(`body\s*:\s*(?:JSON\.stringify\s*\(\s*)?\{([^}]*)\}`)
 )
 
 // seqParseFrontendFile 解析一个前端文件的导出函数、导入与事件绑定。

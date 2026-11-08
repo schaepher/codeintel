@@ -59,13 +59,23 @@ func (a *seqCommitAnalyzer) aliasRoot(st *seqCommitState, obj *ast.Object) *ast.
 	return nil
 }
 
+// seqCommitReturn 遍历到的一次 return（记录当时状态）。
+type seqCommitReturn struct {
+	st  *seqCommitState
+	ret *ast.ReturnStmt
+}
+
 // seqCommitAnalyzer 单个入口函数的提交证明遍历器。
 type seqCommitAnalyzer struct {
-	fset  *token.FileSet
-	rel   string
-	dir   string
-	files map[string]*seqParsedGoFile
-	exits []*seqCommitState
+	fset    *token.FileSet
+	rel     string
+	dir     string // 当前包目录（仓库相对）
+	repo    string // 仓库根（跨包 helper 解析）
+	files   map[string]*seqParsedGoFile
+	file    *seqParsedGoFile // 当前文件（导入表）
+	fn      *ast.FuncDecl    // 当前函数（命名返回值）
+	exits   []*seqCommitState
+	returns []seqCommitReturn
 }
 
 // seqCommitHelperMaxDepth helper 返回事务来源的解析深度（有界）。
@@ -76,12 +86,13 @@ const seqCommitHelperMaxDepth = 4
 // B06e.4：同包 helper 的唯一 return 是 Begin 调用（或另一个这样的 helper）时，
 // `tx, err := openTx()` 的事务来源按**实际 Begin 调用**解析（不按变量名）。
 func seqCommitSuccessVars(fn *ast.FuncDecl, file *seqParsedGoFile,
-	files map[string]*seqParsedGoFile, fileDir string) map[string]bool {
+	files map[string]*seqParsedGoFile, fileDir, repo string) map[string]bool {
 	out := map[string]bool{}
 	if fn == nil || fn.Body == nil || file == nil {
 		return out
 	}
-	a := &seqCommitAnalyzer{fset: file.fset, rel: file.rel, files: files, dir: fileDir}
+	a := &seqCommitAnalyzer{fset: file.fset, rel: file.rel, files: files, dir: fileDir,
+		repo: repo, file: file, fn: fn}
 	a.walkStmts(fn.Body.List, newSeqCommitState())
 	if len(a.exits) == 0 {
 		return out
@@ -121,6 +132,7 @@ func (a *seqCommitAnalyzer) walkStmt(stmt ast.Stmt, st *seqCommitState) *seqComm
 	case nil:
 		return st
 	case *ast.ReturnStmt:
+		a.returns = append(a.returns, seqCommitReturn{st: st.clone(), ret: s})
 		if len(s.Results) == 0 || (len(s.Results) == 1 && seqIsNilIdent(s.Results[0])) {
 			a.exits = append(a.exits, st.clone())
 		}
@@ -176,32 +188,19 @@ func (a *seqCommitAnalyzer) walkStmt(stmt ast.Stmt, st *seqCommitState) *seqComm
 	case *ast.SelectStmt:
 		a.walkStmt(s.Body, st.clone())
 		return st
+	case *ast.CaseClause:
+		// B06e.3：switch/type-switch 的每个 case 都是潜在正常出口，不能
+		// 只遍历块而漏掉 case 里的 return（否则提前返回被当成不存在）。
+		a.walkStmts(s.Body, st.clone())
+		return st
+	case *ast.CommClause:
+		a.walkStmts(s.Body, st.clone())
+		return st
 	case *ast.DeferStmt, *ast.GoStmt:
 		// 延迟/异步提交不构成当前成功路径（需证明最终错误出口）。
 		return st
 	}
 	return st
-}
-
-// commitGuard 该 if 是否检查了某次 Commit 的实际错误并让失败返回。
-func (a *seqCommitAnalyzer) commitGuard(cond ast.Expr, body *ast.BlockStmt,
-	st *seqCommitState) (string, bool) {
-	obj := seqCondNonNilObj(cond)
-	if obj == nil {
-		return "", false
-	}
-	obj = a.aliasRoot(st, obj)
-	if obj == nil {
-		return "", false
-	}
-	key, ok := st.commitErr[obj]
-	if !ok || key == "" {
-		return "", false
-	}
-	if !seqBlockHasFailureReturnScoped(body) {
-		return "", false
-	}
-	return key, true
 }
 
 // applyAssign 赋值/短声明：事务绑定、Commit 错误槽与错误别名。

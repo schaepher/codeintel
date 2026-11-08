@@ -32,6 +32,7 @@ func seqAnalyzeCoverage(a *Actions, base CodeSequenceRequest, wf *SeqWorkflow) *
 		return &SeqWorkflowCoverage{Reasons: []string{"combination_selector_unproven"}}
 	}
 	cov := &SeqWorkflowCoverage{Supported: combos, Analyzed: combos}
+	scenarioComplete, scenarioPartial := 0, 0
 	if wf.Scenarios != nil {
 		// B10b：analyzed 只统计实际完成分析的组合，不能直接复制 supported。
 		cov.Analyzed = 0
@@ -39,9 +40,20 @@ func seqAnalyzeCoverage(a *Actions, base CodeSequenceRequest, wf *SeqWorkflow) *
 			if sc.Sequence != nil {
 				cov.Analyzed++
 			}
+			// B10e.3：完整性以场景自身状态为准（depth/预算造成的 partial
+			// 不能仍被汇总成 complete）。
+			if sc.Partial {
+				scenarioPartial++
+			} else {
+				scenarioComplete++
+			}
 		}
 	}
 	partial := false
+	if scenarioPartial > 0 {
+		cov.Reasons = append(cov.Reasons, "scenario_partial")
+		partial = true
+	}
 	if wf.Partial {
 		cov.Reasons = append(cov.Reasons, "analysis_partial")
 		partial = true
@@ -65,6 +77,9 @@ func seqAnalyzeCoverage(a *Actions, base CodeSequenceRequest, wf *SeqWorkflow) *
 	if partial {
 		cov.Complete = 0
 		cov.Partial = combos
+	} else if wf.Scenarios != nil {
+		cov.Complete = scenarioComplete
+		cov.Partial = scenarioPartial
 	} else {
 		cov.Complete = combos
 		cov.Partial = 0

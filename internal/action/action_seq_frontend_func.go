@@ -9,7 +9,8 @@ func seqFrontendFuncFromSrc(src, rel, name, paramsRaw string, start int) seqFron
 	line := 1 + strings.Count(src[:start], "\n")
 	body := seqFrontendBody(src, start)
 	fn := seqFrontendFunc{name: name, file: rel, line: line,
-		params: seqFrontendParams(paramsRaw)}
+		params: seqFrontendParams(paramsRaw), paramBindings: seqFrontendParamBindings(paramsRaw)}
+	fn.shadowed, fn.mutated = seqFrontendBodyOverrides(body)
 	if m := seqFrontendFetchArgRe.FindStringSubmatch(body); m != nil {
 		arg := strings.TrimSpace(m[1])
 		if lit, ok := seqFrontendStringLit(arg); ok {

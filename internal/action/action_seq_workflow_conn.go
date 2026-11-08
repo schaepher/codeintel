@@ -6,13 +6,6 @@ package action
 // 存储值保持原样、没有中间覆写、参数传递与资源绑定都未证明；不把连接当成
 // 真实请求已经发生。
 
-import (
-	"go/ast"
-	"path/filepath"
-
-	"github.com/schaepher/codeintel/internal/domain"
-)
-
 // 连接预算与证明代码。
 const (
 	seqWFMatchMax      = 4096
@@ -244,49 +237,4 @@ func seqBuildConnection(w seqWFWrite, r seqWFRead) (SeqWorkflowConnection, bool)
 		ReadID:        r.ReadID,
 		Table:         w.Table,
 	}, true
-}
-
-// seqWFResolveTxResource 事务 Begin 调用接收者的包级 DB 声明符号。
-//
-// 跨文件引用在单文件 parser 里没有 ast.Object——按**包级 var 名称表**回退
-// （局部同名变量仍不命中，因为只有包级声明在表里）。
-func seqWFResolveTxResource(entries []SeqWorkflowEntry, entry, txID, repo string) string {
-	tree := seqWFEntryTree(entries, entry)
-	if tree == nil {
-		return ""
-	}
-	var pkgVars map[string]bool
-	var found string
-	var walk func(nodes []*CodeSeqNode)
-	walk = func(nodes []*CodeSeqNode) {
-		for _, n := range nodes {
-			if found != "" || n == nil {
-				continue
-			}
-			tx := n.Evidence
-			if tx != nil && tx.Transaction != nil && tx.Transaction.Origin != nil &&
-				tx.Transaction.Origin.ID == txID && tx.Transaction.Action == SeqTxBegin &&
-				n.call != nil {
-				if sel, ok := n.call.Fun.(*ast.SelectorExpr); ok {
-					if id, ok2 := runtimeUnparen(sel.X).(*ast.Ident); ok2 {
-						if id.Obj != nil {
-							found = "symbol:go:" + pkgOfID(domain.CanonicalID(entry)) + ":" + id.Name
-						} else {
-							if pkgVars == nil {
-								dir := filepath.Dir(filepath.Join(repo, tx.CallFile))
-								pkgVars = seqPkgVarNames(seqParsePackageDir(dir))
-							}
-							if pkgVars[id.Name] {
-								found = "symbol:go:" + pkgOfID(domain.CanonicalID(entry)) + ":" + id.Name
-							}
-						}
-					}
-				}
-			}
-			walk(n.Nodes)
-			walk(n.Else)
-		}
-	}
-	walk(tree.Nodes)
-	return found
 }

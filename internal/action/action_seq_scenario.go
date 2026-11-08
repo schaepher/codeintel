@@ -3,6 +3,8 @@ package action
 // B10b：逐合法组合实际分析并输出场景树（workflow.scenarios）。
 
 import (
+	"context"
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -24,24 +26,36 @@ type SeqWorkflowScenario struct {
 	Workflow *SeqWorkflow `json:"workflow,omitempty"`
 }
 
+// SeqScenarioStageHook 测试钩子：进入场景重分析阶段（B10e.4 取消回归）。
+// 返回 true 表示在场景阶段确定性触发取消；生产路径不设置（nil）。
+var SeqScenarioStageHook func(ctx context.Context) bool
+
 // seqBuildScenarios 逐组合重分析根入口（组合参数按 Supported 调用实参关系映射）。
-func (a *Actions) seqBuildScenarios(base CodeSequenceRequest, wf *SeqWorkflow) []SeqWorkflowScenario {
+func (a *Actions) seqBuildScenarios(base CodeSequenceRequest,
+	wf *SeqWorkflow) ([]SeqWorkflowScenario, error) {
 	if a == nil || wf == nil || base.CombinationSelector == "" || len(wf.Entries) == 0 {
-		return nil
+		return nil, nil
 	}
 	root := wf.Entries[0]
 	combos, ok := a.seqSelectorCombosDetail(base, base.CombinationSelector)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	entryParams, entryDecl := seqFuncParamsOf(a, root.Repo, root.Symbol)
 	mapping := seqSelectorParamMapping(a, root.Repo, root.Symbol, base.CombinationSelector,
 		entryParams)
 	if len(mapping) == 0 {
-		return nil
+		return nil, nil
 	}
 	var out []SeqWorkflowScenario
 	for _, combo := range combos {
+		// B10e.4：场景阶段取消必须传播（停止后续组合，不返回部分成功树）。
+		if SeqScenarioStageHook != nil && SeqScenarioStageHook(base.ctx()) {
+			return nil, ErrSeqCanceled
+		}
+		if err := base.ctx().Err(); err != nil {
+			return nil, ErrSeqCanceled
+		}
 		seed := make([]*SeqStorageOrigin, len(entryParams))
 		for selParam, idx := range mapping {
 			v, ok := combo[selParam]
@@ -66,6 +80,9 @@ func (a *Actions) seqBuildScenarios(base CodeSequenceRequest, wf *SeqWorkflow) [
 		sub.seedVarLits = nil
 		sub.scanSeeds = nil
 		tree, err := a.CodeSequence(sub)
+		if err != nil && errors.Is(err, ErrSeqCanceled) {
+			return nil, ErrSeqCanceled
+		}
 		sc := SeqWorkflowScenario{Parameters: combo}
 		if err != nil || tree == nil {
 			sc.Partial = true
@@ -83,7 +100,10 @@ func (a *Actions) seqBuildScenarios(base CodeSequenceRequest, wf *SeqWorkflow) [
 		out = append(out, sc)
 	}
 	_ = entryDecl
-	return out
+	if err := base.ctx().Err(); err != nil {
+		return nil, ErrSeqCanceled
+	}
+	return out, nil
 }
 
 // seqScenarioPartial 场景树是否带 depth/candidate 等缺口。

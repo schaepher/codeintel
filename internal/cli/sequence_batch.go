@@ -5,6 +5,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,17 +23,17 @@ type seqBatchManifest struct {
 
 // seqBatchFlow 单个流程（B11b：可带运行时事实/组合选择/预算与场景）。
 type seqBatchFlow struct {
-	ID                  string   `json:"id"`
-	Repo                string   `json:"repo"`
-	Entry               string   `json:"entry"`
-	RelatedEntries      []string `json:"relatedEntries,omitempty"`
-	FrontendRoots       []string `json:"frontendRoots,omitempty"`
-	RuntimeData         string   `json:"runtimeData,omitempty"`
-	CombinationSelector string   `json:"combinationSelector,omitempty"`
-	Depth               int      `json:"depth,omitempty"`
-	ContinueSegments    int      `json:"continueSegments,omitempty"`
-	Scene               []string `json:"scene,omitempty"`
-	Timeout             string   `json:"timeout,omitempty"`
+	ID                  string          `json:"id"`
+	Repo                string          `json:"repo"`
+	Entry               string          `json:"entry"`
+	RelatedEntries      []string        `json:"relatedEntries,omitempty"`
+	FrontendRoots       []string        `json:"frontendRoots,omitempty"`
+	RuntimeData         string          `json:"runtimeData,omitempty"`
+	CombinationSelector string          `json:"combinationSelector,omitempty"`
+	Depth               int             `json:"depth,omitempty"`
+	ContinueSegments    int             `json:"continueSegments,omitempty"`
+	Scene               []string        `json:"scene,omitempty"`
+	Timeout             seqBatchTimeout `json:"timeout,omitempty"`
 }
 
 // seqBatchSummary JSON 摘要（稳定字段）。
@@ -125,6 +126,7 @@ func cmdSequenceBatch(args []string) int {
 	summary := seqBatchSummary{Total: len(mf.Flows)}
 	var index strings.Builder
 	index.WriteString("# sequence-batch 导出\n\n| flow | entry | 状态 | 文件 |\n|---|---|---|---|\n")
+	canceled := false
 	for fi, fl := range mf.Flows {
 		repo := fl.Repo
 		if !filepath.IsAbs(repo) {
@@ -174,6 +176,11 @@ func cmdSequenceBatch(args []string) int {
 			}
 			fmt.Fprintf(os.Stderr, "error: flow %s 分析失败: %s\n", fl.ID, reason)
 			index.WriteString(fmt.Sprintf("| %s | %s | failed（%s） | - |\n", fl.ID, fl.Entry, escapeMD(reason)))
+			if errors.Is(cerr, action.ErrSeqCanceled) {
+				// B10e.4：整体取消停止后续流程调度，不把取消当作部分成功导出。
+				canceled = true
+				break
+			}
 			continue
 		}
 		var files []string
@@ -241,6 +248,12 @@ func cmdSequenceBatch(args []string) int {
 			summary.Files = append(summary.Files, files...)
 		}
 		index.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n", fl.ID, fl.Entry, status, strings.Join(files, ", ")))
+	}
+	if canceled {
+		if jsonOut {
+			encodeJSON(summary)
+		}
+		return 1
 	}
 	indexPath := filepath.Join(outDir, "index.md")
 	if err := os.WriteFile(indexPath, []byte(index.String()), 0o644); err != nil {

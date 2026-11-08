@@ -20,7 +20,12 @@ import (
 	"github.com/schaepher/codeintel/internal/domain"
 )
 
-const seqResourceFactMaxDepth = 8
+// U04bU.4：资源分析深度/调用数预算。超限必须 fail-closed（不再用旧状态
+// 证明同对象连接），不能静默返回"看起来完整"的结论。
+const (
+	seqResourceFactMaxDepth = 32
+	seqResourceFactMaxCalls = 4096
+)
 
 var seqModulePathCache sync.Map
 
@@ -36,9 +41,9 @@ type seqResEvent struct {
 
 // seqEntryFactData 单个入口的资源改写事件与提交证明。
 type seqEntryFactData struct {
-	events        map[string][]seqResEvent // resource symbol → 事件（按偏移升序）
-	commitSites   map[string]bool          // 已证明成功检查的 Commit 调用位置（file:offset）
-	partial       bool
+	events      map[string][]seqResEvent // resource symbol → 事件（按偏移升序）
+	commitSites map[string]bool          // 已证明成功检查的 Commit 调用位置（file:offset）
+	partial     bool
 }
 
 // seqWorkflowFacts 入口事实集合。
@@ -51,6 +56,11 @@ func (f *seqWorkflowFacts) mutatedAt(entry, resource string, offset int) bool {
 	d := f.byEntry[entry]
 	if d == nil || resource == "" {
 		return false
+	}
+	// U04bU.4：资源分析未访问完时不能用旧状态证明"同对象未被改写"——
+	// 超限即失败（连接不生成），不能返回看起来成功的部分结论。
+	if d.partial {
+		return true
 	}
 	for _, ev := range d.events[resource] {
 		if ev.off >= offset {
@@ -167,7 +177,7 @@ func seqEntryFacts(a *Actions, repo, entry string) *seqEntryFactData {
 	b := &seqResourceFactBuilder{out: out, pkg: pkg, files: files, pkgVars: pkgVars,
 		pkgVarObjs: pkgVarObjs, repo: repo, entry: entry, fileDir: filepath.Dir(n.FilePath)}
 	// 入口函数里的 Commit 检查（路径敏感；只认入口自身，嵌套函数 return 不算）。
-	out.commitSites = seqCommitSuccessVars(fn, entryFile, files, filepath.Dir(n.FilePath))
+	out.commitSites = seqCommitSuccessVars(fn, entryFile, files, filepath.Dir(n.FilePath), repo)
 	b.walkFunc(fn, entryFile, 0, true, 0)
 	for res := range out.events {
 		sort.SliceStable(out.events[res], func(i, j int) bool {

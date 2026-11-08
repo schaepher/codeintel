@@ -17,6 +17,7 @@ const (
 // seqORMStruct 已解析的模型声明（请求内缓存值）。
 type seqORMStruct struct {
 	SymbolID string
+	Name     string
 	Package  string
 	File     string
 	Fields   []SeqORMField

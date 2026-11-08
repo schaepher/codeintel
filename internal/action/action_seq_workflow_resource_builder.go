@@ -52,6 +52,11 @@ type seqResourceFactBuilder struct {
 	fileDir    string // 入口文件所在包目录（仓库相对；来源键前缀）
 	// log 事件插入顺序（块终止时按区间回填 die 边界）。
 	log []seqResEventRef
+	// ptrBinds 被调函数形参 → 调用实参指向的包级资源（U04bU.3 跨包指针
+	// 写入）；按调用帧压栈，返回后失效。
+	ptrBinds []map[*ast.Object]string
+	// calls 已展开的调用数（U04bU.4 有界预算）。
+	calls int
 }
 
 // seqResEventRef 已记录事件的定位（资源符号 + 该符号事件切片下标）。
@@ -85,6 +90,9 @@ func (b *seqResourceFactBuilder) walkBlock(body *ast.BlockStmt, file *seqParsedG
 	mark := len(b.log)
 	for _, st := range body.List {
 		b.walkStmt(st, file, eventAt, isEntry, depth, closures)
+		if seqStmtStopsBlock(st) {
+			break // break/continue/goto/return/panic 之后的语句不可达。
+		}
 	}
 	if isEntry && seqBlockTerminates(body) && file.fset != nil && body.Rbrace.IsValid() {
 		die := file.fset.Position(body.Rbrace).Offset
@@ -116,9 +124,27 @@ func (b *seqResourceFactBuilder) walkStmt(st ast.Stmt, file *seqParsedGoFile,
 				closures[id.Obj] = lit
 			}
 		}
-		for _, lhs := range s.Lhs {
+		for i, lhs := range s.Lhs {
 			if id, ok := runtimeUnparen(lhs).(*ast.Ident); ok && b.isPkgVar(id) {
 				b.addEvent(id.Name, pos)
+				continue
+			}
+			// U04bU.3：`*handle = nil` 且 handle 绑定到调用实参 `&DB`。
+			if star, ok := runtimeUnparen(lhs).(*ast.StarExpr); ok {
+				if id, ok2 := runtimeUnparen(star.X).(*ast.Ident); ok2 {
+					if target := b.ptrBindOf(id); target != "" {
+						b.addEvent(target, pos)
+					}
+				}
+				continue
+			}
+			// 指针别名：`alias := handle` 沿用同一资源绑定。
+			if id, ok := lhs.(*ast.Ident); ok && b.ptrBinds != nil && i < len(s.Rhs) {
+				if src, ok2 := runtimeUnparen(s.Rhs[i]).(*ast.Ident); ok2 {
+					if target := b.ptrBindOf(src); target != "" && id.Obj != nil {
+						b.setPtrBind(id.Obj, target)
+					}
+				}
 			}
 		}
 		for _, rhs := range s.Rhs {
@@ -164,6 +190,14 @@ func (b *seqResourceFactBuilder) walkStmt(st ast.Stmt, file *seqParsedGoFile,
 		b.walkBlock(s.Body, file, eventAt, isEntry, depth, closures)
 	case *ast.SwitchStmt:
 		b.walkBlock(s.Body, file, eventAt, isEntry, depth, closures)
+	case *ast.TypeSwitchStmt:
+		b.walkBlock(s.Body, file, eventAt, isEntry, depth, closures)
+	case *ast.SelectStmt:
+		b.walkBlock(s.Body, file, eventAt, isEntry, depth, closures)
+	case *ast.CaseClause:
+		b.walkCaseBody(s.Body, s, file, eventAt, isEntry, depth, closures)
+	case *ast.CommClause:
+		b.walkCaseBody(s.Body, s, file, eventAt, isEntry, depth, closures)
 	case *ast.BlockStmt:
 		b.walkBlock(s, file, eventAt, isEntry, depth, closures)
 	case *ast.ReturnStmt:
@@ -177,6 +211,34 @@ func (b *seqResourceFactBuilder) walkStmt(st ast.Stmt, file *seqParsedGoFile,
 		b.walkExprCalls(s.Call, file, pos, isEntry, depth, closures)
 	case *ast.GoStmt:
 		b.walkExprCalls(s.Call, file, pos, isEntry, depth, closures)
+	case *ast.LabeledStmt:
+		b.walkStmt(s.Stmt, file, eventAt, isEntry, depth, closures)
+	}
+}
+
+// walkCaseBody switch/select 分支体（与块相同的可达性规则 + 分支终止边界）。
+func (b *seqResourceFactBuilder) walkCaseBody(stmts []ast.Stmt, clause ast.Node,
+	file *seqParsedGoFile, eventAt int, isEntry bool, depth int,
+	closures map[*ast.Object]*ast.FuncLit) {
+	mark := len(b.log)
+	for _, st := range stmts {
+		b.walkStmt(st, file, eventAt, isEntry, depth, closures)
+		if seqStmtStopsBlock(st) {
+			break
+		}
+	}
+	if isEntry && file.fset != nil && seqBlockTerminates(&ast.BlockStmt{List: stmts}) &&
+		len(stmts) > 0 {
+		die := file.fset.Position(stmts[len(stmts)-1].End()).Offset
+		if die <= 0 {
+			die = file.fset.Position(clause.End()).Offset
+		}
+		for _, ref := range b.log[mark:] {
+			ev := &b.out.events[ref.name][ref.idx]
+			if ev.die == 0 || die < ev.die {
+				ev.die = die
+			}
+		}
 	}
 }
 
@@ -211,7 +273,7 @@ func (b *seqResourceFactBuilder) applyCall(call *ast.CallExpr, file *seqParsedGo
 			return
 		}
 		if fd := b.pkgFunc(fun.Name); fd != nil {
-			b.walkFuncIn(fd, b.fileOfFunc(fd), pos, depth+1)
+			b.walkFuncIn(fd, b.fileOfFunc(fd), pos, depth+1, call.Args)
 		}
 	case *ast.SelectorExpr:
 		pkgID, ok := fun.X.(*ast.Ident)
@@ -220,61 +282,8 @@ func (b *seqResourceFactBuilder) applyCall(call *ast.CallExpr, file *seqParsedGo
 		}
 		if importPath := seqImportPath(file.file, pkgID.Name); importPath != "" {
 			if fd, f := b.importFunc(importPath, fun.Sel.Name); fd != nil {
-				b.walkFuncIn(fd, f, pos, depth+1)
+				b.walkFuncIn(fd, f, pos, depth+1, call.Args)
 			}
 		}
 	}
-}
-
-// walkFuncIn 被调函数体（事件记调用点位置）。
-func (b *seqResourceFactBuilder) walkFuncIn(fn *ast.FuncDecl, file *seqParsedGoFile,
-	callOffset, depth int) {
-	if fn == nil || file == nil {
-		return
-	}
-	if depth > seqResourceFactMaxDepth {
-		b.out.partial = true
-		return
-	}
-	b.walkBlock(fn.Body, file, callOffset, false, depth, map[*ast.Object]*ast.FuncLit{})
-}
-
-// pkgFunc 同包函数（唯一同名）。
-func (b *seqResourceFactBuilder) pkgFunc(name string) *ast.FuncDecl {
-	var found *ast.FuncDecl
-	for _, f := range b.files {
-		for _, d := range f.file.Decls {
-			fd, ok := d.(*ast.FuncDecl)
-			if !ok || fd.Recv != nil || fd.Name == nil || fd.Name.Name != name {
-				continue
-			}
-			if found != nil {
-				return nil
-			}
-			found = fd
-		}
-	}
-	return found
-}
-
-// addEvent 记录一次资源改写事件。
-func (b *seqResourceFactBuilder) addEvent(name string, offset int) {
-	if b == nil || b.out == nil || name == "" {
-		return
-	}
-	sym := "symbol:go:" + b.pkg + ":" + name
-	b.out.events[sym] = append(b.out.events[sym], seqResEvent{off: offset})
-	b.log = append(b.log, seqResEventRef{name: sym, idx: len(b.out.events[sym]) - 1})
-}
-
-// isPkgVar 赋值目标是否指向包级 var（AST 声明身份；局部同名不命中）。
-func (b *seqResourceFactBuilder) isPkgVar(id *ast.Ident) bool {
-	if id == nil {
-		return false
-	}
-	if id.Obj != nil {
-		return b.pkgVarObjs[id.Obj]
-	}
-	// 跨文件引用在单文件 parser 里没有 Obj：只能按名称回退。
-	return b.pkgVars[id.Name]
 }

@@ -2,9 +2,7 @@ package action
 
 // 前端源码解析辅助（从 action_seq_frontend.go 拆出）。
 
-import (
-	"strings"
-)
+import "strings"
 
 // seqFrontendStringLit 字符串字面量 → 内容。
 func seqFrontendStringLit(s string) (string, bool) {
@@ -60,31 +58,38 @@ func seqFrontendEvalArg(raw string, bindings map[string]string) (string, bool) {
 	return "", false
 }
 
-// seqFrontendParams `id: string, x` → 参数名列表。
-func seqFrontendParams(raw string) []string {
-	var out []string
-	for _, p := range strings.Split(raw, ",") {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		if i := strings.IndexAny(p, ":="); i >= 0 {
-			p = strings.TrimSpace(p[:i])
-		}
-		if p != "" {
-			out = append(out, p)
+// seqFrontendBody 从函数签名末尾开始按花括号配平截取函数体。
+//
+// B09e.4：必须先跨过参数列表（`send({id}: Input)` 的第一个 `{` 是解构，
+// 不是函数体），不能按"第一个大括号"切。
+func seqFrontendBody(src string, from int) string {
+	start := -1
+	if open := strings.Index(src[from:], "("); open >= 0 {
+		open += from
+		depth := 0
+		for i := open; i < len(src); i++ {
+			switch src[i] {
+			case '(':
+				depth++
+			case ')':
+				depth--
+				if depth == 0 {
+					if b := strings.Index(src[i+1:], "{"); b >= 0 {
+						start = i + 1 + b
+					}
+					i = len(src)
+				}
+			}
 		}
 	}
-	return out
-}
-
-// seqFrontendBody 从函数签名末尾开始按花括号配平截取函数体。
-func seqFrontendBody(src string, from int) string {
-	start := strings.Index(src[from:], "{")
+	if start < 0 {
+		if b := strings.Index(src[from:], "{"); b >= 0 {
+			start = from + b
+		}
+	}
 	if start < 0 {
 		return ""
 	}
-	start += from
 	depth := 0
 	for i := start; i < len(src); i++ {
 		switch src[i] {
@@ -100,20 +105,31 @@ func seqFrontendBody(src string, from int) string {
 	return src[start:]
 }
 
-// seqFrontendResolveFetch 沿包装函数链解析 fetch（实参位置传播；深度 ≤3）。
+// seqFrontendResolveMaxDepth 声明来源解析的共享预算（B09e.3：不是示例
+// 层数；超限必须明确报告，不返回"看起来成功"的结果）。
+const seqFrontendResolveMaxDepth = 16
+
+// seqFrontendResolve 沿包装函数链解析 fetch（实参位置传播 + 有界预算）。
+// reason 非空表示失败原因（dynamic_url_or_missing_fetch /
+// declaration_not_found / declaration_budget_exhausted / declaration_cycle）。
 func seqFrontendResolve(fn seqFrontendFunc, funcs map[string]seqFrontendFunc,
 	imports map[string]map[string]seqFrontendImport, bindings map[string]string,
-	depth int) (string, string, map[string]seqFrontendBodyOrigin, bool) {
-	if depth > 3 {
-		return "", "", nil, false
+	depth int, visited map[string]bool) (string, string, map[string]seqFrontendBodyOrigin, string) {
+	if depth > seqFrontendResolveMaxDepth {
+		return "", "", nil, "declaration_budget_exhausted"
 	}
+	key := fn.file + "\x00" + fn.name
+	if visited[key] {
+		return "", "", nil, "declaration_cycle"
+	}
+	visited[key] = true
 	// 有 fetch 的函数：解析最终路径/方法与请求体（相对本函数形参）。
 	if fn.fetchArg != "" || fn.path != "" {
 		path := fn.path
 		if fn.fetchArg != "" {
 			p, ok := seqFrontendEvalArg(fn.fetchArg, bindings)
 			if !ok {
-				return "", "", nil, false
+				return "", "", nil, "dynamic_url_or_missing_fetch"
 			}
 			path = p
 		}
@@ -121,11 +137,15 @@ func seqFrontendResolve(fn seqFrontendFunc, funcs map[string]seqFrontendFunc,
 		if m == "" {
 			m = "GET"
 		}
-		return path, m, seqFrontendBodyOrigins(fn), true
+		return path, m, seqFrontendBodyOrigins(fn), ""
 	}
+	firstReason := ""
 	for _, c := range fn.calls {
 		next, ok := seqFrontendLookup(c.name, fn.file, funcs, imports)
 		if !ok {
+			if firstReason == "" {
+				firstReason = "declaration_not_found"
+			}
 			continue
 		}
 		nb := map[string]string{}
@@ -139,19 +159,25 @@ func seqFrontendResolve(fn seqFrontendFunc, funcs map[string]seqFrontendFunc,
 			}
 			argOrigins[next.params[i]] = seqFrontendArgOrigin(arg, fn.params)
 		}
-		if p, m, body, ok2 := seqFrontendResolve(next, funcs, imports, nb, depth+1); ok2 {
-			return p, m, seqFrontendRebaseBody(body, next.params, argOrigins), true
+		if p, m, body, reason := seqFrontendResolve(next, funcs, imports, nb, depth+1,
+			visited); reason == "" {
+			return p, m, seqFrontendRebaseBody(body, next.params, argOrigins), ""
+		} else if firstReason == "" {
+			firstReason = reason
 		}
 	}
-	return "", "", nil, false
+	if firstReason == "" {
+		firstReason = "dynamic_url_or_missing_fetch"
+	}
+	return "", "", nil, firstReason
 }
 
 // seqFrontendResolveFetch 兼容入口：只取路径/方法。
 func seqFrontendResolveFetch(fn seqFrontendFunc, funcs map[string]seqFrontendFunc,
 	imports map[string]map[string]seqFrontendImport, bindings map[string]string,
 	depth int) (string, string, bool) {
-	p, m, _, ok := seqFrontendResolve(fn, funcs, imports, bindings, depth)
-	return p, m, ok
+	p, m, _, reason := seqFrontendResolve(fn, funcs, imports, bindings, depth, map[string]bool{})
+	return p, m, reason == ""
 }
 
 // seqFrontendArgOrigin 调用实参相对调用者形参的来源。
@@ -177,41 +203,21 @@ func seqFrontendRebaseBody(body map[string]seqFrontendBodyOrigin, calleeParams [
 	out := map[string]seqFrontendBodyOrigin{}
 	for name, o := range body {
 		if o.kind == "parameter" && o.parameter >= 0 && o.parameter < len(calleeParams) {
-			if rebased, ok := argOrigins[calleeParams[o.parameter]]; ok {
+			rebased, ok := argOrigins[calleeParams[o.parameter]]
+			if !ok {
+				o = seqFrontendBodyOrigin{kind: "unknown"}
+			} else if rebased.kind == "parameter" {
+				// 被调路径接在调用实参来源之后（解构/字段路径不丢）。
+				o.parameter = rebased.parameter
+				o.path = append(append([]string(nil), rebased.path...), o.path...)
+				o.literal = rebased.literal
+			} else if len(o.path) == 0 {
 				o = rebased
 			} else {
 				o = seqFrontendBodyOrigin{kind: "unknown"}
 			}
 		}
 		out[name] = o
-	}
-	return out
-}
-
-// seqFrontendBodyOrigins 函数自身请求体的字段来源（相对本函数形参）。
-func seqFrontendBodyOrigins(fn seqFrontendFunc) map[string]seqFrontendBodyOrigin {
-	if len(fn.body) == 0 {
-		return nil
-	}
-	out := map[string]seqFrontendBodyOrigin{}
-	for _, f := range fn.body {
-		expr := strings.TrimSpace(f.expr)
-		if lit, ok := seqFrontendStringLit(expr); ok {
-			out[f.name] = seqFrontendBodyOrigin{kind: "literal", literal: lit}
-			continue
-		}
-		idx := -1
-		for i, p := range fn.params {
-			if p == expr {
-				idx = i
-				break
-			}
-		}
-		if idx >= 0 {
-			out[f.name] = seqFrontendBodyOrigin{kind: "parameter", parameter: idx}
-			continue
-		}
-		out[f.name] = seqFrontendBodyOrigin{kind: "unknown"}
 	}
 	return out
 }
@@ -223,8 +229,9 @@ func seqFrontendBodyJSON(body map[string]seqFrontendBodyOrigin) map[string]SeqFr
 	}
 	out := map[string]SeqFrontendBodyValue{}
 	for name, o := range body {
-		v := SeqFrontendBodyValue{Kind: o.kind, Literal: o.literal}
-		if o.kind == "parameter" {
+		v := SeqFrontendBodyValue{Kind: o.kind, Literal: o.literal,
+			Path: append([]string(nil), o.path...)}
+		if o.kind == "parameter" || o.kind == "field_read" {
 			idx := o.parameter
 			v.Parameter = &idx
 		}

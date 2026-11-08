@@ -2,10 +2,16 @@ package action
 
 // B03：ORM 模型/表/列 → 工作流写入/读取（从 action_seq_workflow_conn.go 拆出）。
 
-import "strings"
+import (
+	"go/ast"
+	"go/token"
+	"strings"
+)
 
 // B03：ORM（xorm 风格）模型 → 表列映射（显式 Table + 准确列标签；无标签
 // 用 snake_case 默认策略，动态命名/链对象重绑不接入）。
+const seqORMTableNameMaxFiles = 64
+
 func seqORMColumnName(tag, field string) string {
 	if tag != "" {
 		if i := strings.Index(tag, ":"); i >= 0 {
@@ -119,6 +125,147 @@ func seqORMReadsFromEvidence(node *CodeSeqNode, entry, repo string) []seqWFRead 
 // seqORMSessionResource ORM 调用的资源声明（框架证据不提供句柄符号 → 空；
 // 两侧都空时连接带 resource_binding 缺失证明）。
 func seqORMSessionResource(*CodeSeqNode) string { return "" }
+
+// seqORMStaticModelTable 模型声明上的静态 TableName() → 表名。
+//
+// 身份按**模型类型的接收者声明**匹配（不是方法短名/目录扫描顺序）：同名
+// 方法定义在其它类型上、动态拼接/变量返回、链重绑都返回 false（unknown）。
+func seqORMStaticModelTable(c *seqPersistCtx, models []SeqORMModel) (string, bool) {
+	if c == nil || c.req == nil || len(models) == 0 {
+		return "", false
+	}
+	table := ""
+	for _, model := range models {
+		name := seqORMTypeNameOfSymbol(model.SymbolID)
+		if name == "" {
+			return "", false
+		}
+		pkg := seqORMPkgOfSymbol(model.SymbolID)
+		got, ok := seqORMStaticTypeTableName(c, pkg, name)
+		if !ok {
+			return "", false
+		}
+		if table != "" && table != got {
+			return "", false // 多个模型指向不同表 → 不猜。
+		}
+		table = got
+	}
+	return table, table != ""
+}
+
+// seqORMStaticTypeTableName 包内接收者类型恰为 name 的 TableName 方法。
+func seqORMStaticTypeTableName(c *seqPersistCtx, pkg, name string) (string, bool) {
+	scanned := 0
+	table := ""
+	found := 0
+	for _, ctx := range seqPkgFilesForReq(*c.req, pkg, "") {
+		if ctx == nil || ctx.file == nil || ctx.fset == nil || ctx.src == nil {
+			continue
+		}
+		scanned++
+		if scanned > seqORMTableNameMaxFiles {
+			return "", false // 预算不足：不能猜默认表名。
+		}
+		for _, d := range ctx.file.Decls {
+			fd, ok := d.(*ast.FuncDecl)
+			if !ok || fd.Recv == nil || fd.Name == nil || fd.Name.Name != "TableName" ||
+				fd.Body == nil {
+				continue
+			}
+			recv := seqORMRecvBaseName(fd.Recv)
+			if recv != name {
+				continue // 其它类型的同名方法不能借用身份。
+			}
+			found++
+			if found > 1 {
+				return "", false
+			}
+			lit, ok := seqORMStaticReturnString(fd.Body)
+			if !ok {
+				return "", false
+			}
+			table = lit
+		}
+	}
+	if found != 1 {
+		return "", false
+	}
+	return table, table != ""
+}
+
+// seqORMRecvBaseName 接收者类型名（去指针/泛型实例）。
+func seqORMRecvBaseName(recv *ast.FieldList) string {
+	if recv == nil || len(recv.List) == 0 {
+		return ""
+	}
+	typ := recv.List[0].Type
+	if star, ok := typ.(*ast.StarExpr); ok {
+		typ = star.X
+	}
+	if idx, ok := typ.(*ast.IndexExpr); ok {
+		typ = idx.X
+	}
+	if idx, ok := typ.(*ast.IndexListExpr); ok {
+		typ = idx.X
+	}
+	if id, ok := typ.(*ast.Ident); ok {
+		return id.Name
+	}
+	return ""
+}
+
+// seqORMStaticReturnString 方法体唯一 return 的字符串字面量。
+func seqORMStaticReturnString(body *ast.BlockStmt) (string, bool) {
+	if body == nil {
+		return "", false
+	}
+	var rets []*ast.ReturnStmt
+	ast.Inspect(body, func(n ast.Node) bool {
+		switch v := n.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.ReturnStmt:
+			rets = append(rets, v)
+			return false
+		}
+		return true
+	})
+	if len(rets) != 1 || len(rets[0].Results) != 1 {
+		return "", false
+	}
+	lit, ok := rets[0].Results[0].(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		return "", false
+	}
+	s, ok := seqFrontendStringLit(lit.Value)
+	if !ok || !seqXormSimpleIdent(s) {
+		return "", false
+	}
+	return s, true
+}
+
+// seqORMTypeNameOfSymbol `symbol:go:<pkg>:<name>` → name。
+func seqORMTypeNameOfSymbol(id string) string {
+	i := strings.LastIndex(id, ":")
+	if i < 0 || i+1 >= len(id) {
+		return ""
+	}
+	return id[i+1:]
+}
+
+// seqORMPkgOfSymbol `symbol:go:<pkg>:<name>` → pkg。
+func seqORMPkgOfSymbol(id string) string {
+	const prefix = "symbol:go:"
+	if !strings.HasPrefix(id, prefix) {
+		return ""
+	}
+	rest := strings.TrimPrefix(id, prefix)
+	i := strings.LastIndex(rest, ":")
+	if i < 0 {
+		return ""
+	}
+	return rest[:i]
+}
 
 // B05b：ORM 自动主键声明（pk + autoincr 标签）。
 func seqORMPKField(m SeqORMModel) (string, string, bool) {

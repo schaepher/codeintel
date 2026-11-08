@@ -124,19 +124,30 @@ func seqTxVarOrigin(req CodeSequenceRequest, id *ast.Ident) *SeqTxOrigin {
 	if id == nil || id.Obj == nil || req.env == nil {
 		return nil
 	}
+	if tx := seqTxObjOrigin(req, id.Obj); tx != nil {
+		return tx
+	}
+	origin, found := req.env.scalarOriginAt(id.Obj, id.Pos())
+	if found && origin != nil && origin.Kind == SeqOriginTransaction && origin.TxOrigin != nil {
+		cp := *origin.TxOrigin
+		return &cp
+	}
+	return nil
+}
+
+// seqTxObjOrigin 变量对象的事务槽来源（命名返回值等无 Ident 的场景）。
+func seqTxObjOrigin(req CodeSequenceRequest, obj *ast.Object) *SeqTxOrigin {
+	if obj == nil || req.env == nil {
+		return nil
+	}
 	for env := req.env; env != nil; env = env.parent {
-		if slot, ok := env.txs[id.Obj]; ok {
+		if slot, ok := env.txs[obj]; ok {
 			if slot.escaped || slot.origin == nil {
 				return nil
 			}
 			cp := *slot.origin
 			return &cp
 		}
-	}
-	origin, found := req.env.scalarOriginAt(id.Obj, id.Pos())
-	if found && origin != nil && origin.Kind == SeqOriginTransaction && origin.TxOrigin != nil {
-		cp := *origin.TxOrigin
-		return &cp
 	}
 	return nil
 }

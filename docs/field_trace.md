@@ -8542,3 +8542,36 @@ action；开库前先 `ValidateRuntimeData`）。
   建目录前拒绝（stderr 一行、stdout 空、exit=1）。
 - 测试：`integration/todo34_*.go` + `internal/cli/timeout_parse_test.go`；
   全量 internal + integration 通过。
+
+## §194 todo35：正常出口/helper 事务/资源可达与预算/ORM 静态表名/前端来源/覆盖取消/timeout 存在性（2026-11-08）
+
+- **B06e.3**：`seqCommitAnalyzer` 遍历 `CaseClause`/`CommClause`，switch 提前
+  `return nil` 计入正常出口；Commit 守卫要求失败分支传播错误（`return nil`
+  或裸 return 但命名返回值不是该 Commit 错误槽 → 不证明）。公开示例
+  `SubmitSwitchBypass`/`SubmitSwallowCommit` 从错误的 `commit_success` 变为
+  保留 `transaction_commit`。
+- **B06e.4**：helper 槽 0 沿局部变量/命名返回值/同包跨文件/跨包 import 解析到
+  同一次 Begin（`..._commit_helper.go`）；`seqBareReturnOrigins` 补事务槽；
+  跨包 Begin 的形参接收者按父调用实参回到入口包级 DB 声明
+  （`..._workflow_tx_resource.go`）。`SubmitLocalHelperTx`/命名/跨包 helper
+  获得 `commit_success`，冲突返回/重绑不证明。
+- **U04bU.1–4**：资源块遍历在 return/branch/panic 后停止，switch/select 分支
+  参与；未遮蔽内建 panic 形成 `die` 边界；跨包 `Clear(&DB)` 按调用帧把
+  `*handle=nil` 映射到 `&DB`；深度 32/调用 4096 预算超限 → `partial` +
+  `mutatedAt` fail-closed（不再用旧状态证明同对象）。
+- **B03e.4**：`seqORMStaticModelTable` 按模型类型接收者解析静态
+  `TableName()`（64 文件预算）；动态返回/同名其它类型/未知链修饰器不借用；
+  显式 `Table` 仍优先；`kind` 列来源保持。
+- **B09e.3/.4**：函数体截取先跨过参数列表；对象解构/别名/嵌套字段解析为
+  `field_read` + `parameter` + `path`；函数体内声明/字段改写使来源失效；
+  包装链共享 16 层预算并区分 `declaration_cycle`/`declaration_budget_exhausted`/
+  `declaration_not_found`，不按示例层数硬编码。
+- **B10e.3/.4**：`workflow.coverage` 先按 `scenario.partial` 汇总（complete 与
+  partial 互斥）；新增测试钩子 `SeqScenarioStageHook` 确定性触发场景阶段
+  取消，错误传播到单查询（stdout 空、exit=1、`error: context canceled`）与
+  batch（停止后续 flow 调度）。
+- **B11e.3**：manifest timeout 改为保留原始 JSON 值的 `seqBatchTimeout`
+  （缺省/`""`/null/类型错误可区分），非法值在开库/建目录前拒绝；CLI 裸
+  `--timeout` 与后接其它选项不再被静默忽略（exit=2）。
+- 测试：`integration/todo35_*.go`；`scripts/verify.sh --quick`、
+  `make it`（integration 全量）通过。

@@ -124,8 +124,8 @@ func (c *seqPersistCtx) resolveORMModel(ref seqORMTypeRef) *seqORMStruct {
 		if !ok {
 			return nil
 		}
-		model := &seqORMStruct{SymbolID: id, Package: cur.pkgPath, File: ctx.rel,
-			Fields: seqORMStructFields(ctx.fset, ctx.src, st)}
+		model := &seqORMStruct{SymbolID: id, Name: cur.name, Package: cur.pkgPath,
+			File: ctx.rel, Fields: seqORMStructFields(ctx.fset, ctx.src, st)}
 		if c.ormModels != nil {
 			c.ormModels[id] = model
 		}

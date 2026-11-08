@@ -17,6 +17,12 @@ func seqBareReturnOrigins(req CodeSequenceRequest) []*SeqStorageOrigin {
 			out = append(out, nil)
 			continue
 		}
+		// B06e.4：命名返回值 `func open()(tx *sql.Tx, err error){...;return}`
+		// 的事务来源在 env.txs 槽里（不是写入错误/标量来源）。
+		if tx := seqTxObjOrigin(req, obj); tx != nil {
+			out = append(out, &SeqStorageOrigin{Kind: SeqOriginTransaction, TxOrigin: tx})
+			continue
+		}
 		if ref := req.env.errSlotAt(obj, token.NoPos); ref != nil {
 			out = append(out, &SeqStorageOrigin{Kind: SeqOriginWriteError, WriteError: ref})
 			continue

@@ -183,10 +183,15 @@ func parseQueryFlags(args []string) queryFlags {
 			i++
 		case strings.HasPrefix(a, "--target-return="):
 			f.targetReturn, f.targetRetSet = strings.TrimPrefix(a, "--target-return="), true
-		case a == "--timeout" && i+1 < len(args):
+		case a == "--timeout" && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-"):
 			f.timeoutSet = true
 			f.setTimeout(args[i+1])
 			i++
+		case a == "--timeout":
+			// B11e：裸 --timeout（或后面紧跟其它选项）不能被静默忽略。
+			f.timeoutSet = true
+			f.timeoutErr = "缺少值"
+			f.timeout = 0
 		case strings.HasPrefix(a, "--timeout="):
 			f.timeoutSet = true
 			f.setTimeout(strings.TrimPrefix(a, "--timeout="))

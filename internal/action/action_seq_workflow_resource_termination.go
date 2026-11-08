@@ -6,24 +6,28 @@ package action
 
 import "go/ast"
 
-// seqBlockTerminates 块是否必然以 return 结束（任一路径执行到 return 即终止）。
+// seqBlockTerminates 块是否必然以 return/panic 结束（任一路径执行到终止
+// 语句即终止）。
 func seqBlockTerminates(body *ast.BlockStmt) bool {
 	if body == nil {
 		return false
 	}
 	for _, st := range body.List {
-		if seqStmtTerminates(st) {
+		if seqStmtStopsBlock(st) && seqStmtTerminates(st) {
 			return true
 		}
 	}
 	return false
 }
 
-// seqStmtTerminates 语句是否必然终止（return；if 需两分支都终止）。
+// seqStmtTerminates 语句是否必然终止（return / 内建 panic；if 需两分支
+// 都终止）。
 func seqStmtTerminates(st ast.Stmt) bool {
 	switch s := st.(type) {
 	case *ast.ReturnStmt:
 		return true
+	case *ast.ExprStmt:
+		return seqIsBuiltinPanicCall(s.X)
 	case *ast.BlockStmt:
 		return seqBlockTerminates(s)
 	case *ast.IfStmt:
@@ -37,4 +41,30 @@ func seqStmtTerminates(st ast.Stmt) bool {
 		}
 	}
 	return false
+}
+
+// seqStmtStopsBlock 该语句之后同一块里的语句不可达（控制权已离开本块）。
+// break/continue/goto 不算"终止函数"，只停止继续遍历本块。
+func seqStmtStopsBlock(st ast.Stmt) bool {
+	switch s := st.(type) {
+	case *ast.ReturnStmt:
+		return true
+	case *ast.BranchStmt:
+		return true
+	case *ast.ExprStmt:
+		return seqIsBuiltinPanicCall(s.X)
+	case *ast.LabeledStmt:
+		return seqStmtStopsBlock(s.Stmt)
+	}
+	return false
+}
+
+// seqIsBuiltinPanicCall 未遮蔽的内建 panic 调用（局部同名函数/变量不算）。
+func seqIsBuiltinPanicCall(e ast.Expr) bool {
+	call, ok := e.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	id, ok := call.Fun.(*ast.Ident)
+	return ok && id.Name == "panic" && id.Obj == nil
 }
