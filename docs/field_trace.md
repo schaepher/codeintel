@@ -8596,3 +8596,25 @@ action；开库前先 `ValidateRuntimeData`）。
   `click` → parameter=1 path=[id]，`clickMutated` → unknown；交换形参、
   解构别名多层包装、同名不同文件及动态下标均有正反例。
 - 测试：`integration/todo36_*.go`；`scripts/verify.sh` 与 `make it` 通过。
+
+## §196 todo37：调用方解构别名经包装函数后的字段来源（2026-11-08）
+
+- **问题**：`seqFrontendResolve` 构造 `argOrigins` 时只把原始形参字符串
+  交给 `seqFrontendArgOrigin`；解构形参在 `fn.params` 里是 `{profile: selected}`，
+  而调用实参是 `selected`，根名匹配失败 → 该实参被当成 `unknown`。已建立的
+  `fn.paramBindings[selected]={parameter:1,path:[profile]}` 没有参与跨调用来源解析。
+- **修法**：`seqFrontendArgOrigin(arg, caller seqFrontendFunc)` 按
+  `caller.paramBindings` 取根对象的**参数位置 + 解构路径**，未声明/局部遮蔽
+  → `unknown`；`seqFrontendBodyOrigin.local` 记录调用点书写表达式
+  （`selected` / `req.profile`），`seqFrontendRebaseBody` 用**合并前**的被调路径
+  拼 `local + "." + calleePath` 与 `caller.mutations` 按 `call.pos` 比较，
+  在真实调用位置应用改写失效（请求/调用之后的改写不倒推）。
+- **删掉 `seqFrontendParamBaseName`**：解构形参的根名原先按 `paramBindings`
+  map 迭代取第一个别名 → 多别名时改写判定不确定（Go map 顺序随机）。
+  现在根名取真实实参表达式，多别名各自按声明路径解析。
+- **公开示例**：`click`/`clickPlain` → `field_read parameter=1
+  path=[profile,id]`（两种取值写法同源），`clickMutated` → `unknown`；
+  嵌套解构 + 多层包装 `[outer,profile,id]`，传另一子对象 `[other,id]`，
+  跨文件被调函数仍解析到 `/requests`。
+- 测试：`integration/todo37_*.go`（Bindings/Paths/Invalidation/Identity 各正反例，
+  多别名改写取 8 次查询验证确定性）；`scripts/verify.sh --quick` 通过。

@@ -23,23 +23,27 @@ func seqFrontendRebaseBody(body map[string]seqFrontendBodyOrigin, calleeParams [
 		if !ok {
 			o = seqFrontendBodyOrigin{kind: "unknown"}
 		} else if rebased.kind == "parameter" {
+			// 被调函数相对其形参的字段路径（合并前，用于调用点改写判定）。
+			calleePath := append([]string(nil), o.path...)
 			// 被调路径接在调用实参来源之后（解构/字段路径不丢）。
 			o.parameter = rebased.parameter
 			o.path = append(append([]string(nil), rebased.path...), o.path...)
+			o.local = ""
 			if len(o.path) > 0 {
 				o.kind = "field_read"
 			} else {
 				o.kind = "parameter"
 			}
 			o.literal = rebased.literal
-			// 调用方在调用之前的改写/遮蔽使来源失效（请求之后的改写不倒推）。
-			if base := seqFrontendParamBaseName(caller, o.parameter); base != "" {
-				full := base
-				if len(o.path) > 0 {
-					full += "." + strings.Join(o.path, ".")
+			// 调用方在调用之前的改写使来源失效（请求之后的改写不倒推）。
+			// 表达式取调用方真实书写形式（解构别名/字段路径），根名不按
+			// map 遍历挑一个别名。
+			if expr := rebased.local; expr != "" {
+				full := expr
+				if len(calleePath) > 0 {
+					full += "." + strings.Join(calleePath, ".")
 				}
-				if caller.shadowed[base] ||
-					seqFrontendFieldOverwrittenBefore(caller.mutations, full, callPos) {
+				if seqFrontendFieldOverwrittenBefore(caller.mutations, full, callPos) {
 					o = seqFrontendBodyOrigin{kind: "unknown"}
 				}
 			}
@@ -51,21 +55,4 @@ func seqFrontendRebaseBody(body map[string]seqFrontendBodyOrigin, calleeParams [
 		out[name] = o
 	}
 	return out
-}
-
-// seqFrontendParamBaseName 调用方第 idx 个形参的根名（解构形参取绑定根）。
-func seqFrontendParamBaseName(fn seqFrontendFunc, idx int) string {
-	if idx < 0 || idx >= len(fn.params) {
-		return ""
-	}
-	name := strings.TrimSpace(fn.params[idx])
-	if strings.HasPrefix(name, "{") || strings.HasPrefix(name, "[") {
-		for local, b := range fn.paramBindings {
-			if b.parameter == idx {
-				return local
-			}
-		}
-		return ""
-	}
-	return name
 }

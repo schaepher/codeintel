@@ -54,6 +54,9 @@
 - [`docs/todo36-checklist.md`](docs/todo36-checklist.md)：todo36 剩余连接
   （U04bU.1、B03e.4、B09e.4：goto 真实标签目标、ORM 忽略字段/重复列歧义、
   前端包装 field_read 重绑定与调用前改写失效；含逐条状态与未覆盖边界）
+- [`docs/todo37-checklist.md`](docs/todo37-checklist.md)：todo37 调用方解构别名
+  （B09e.4：按 paramBindings 绑定根参数/路径逐层合并/真实调用点改写失效/
+  多别名身份；含逐条状态、修改前后原文与未覆盖边界）
 - [`docs/checklist-template.md`](docs/checklist-template.md)：Checklist/新任务模板
   ——逐条独立验收 + 反例矩阵 + 反捷径检查（写新 todo 必用）
   ——**接手先看这张表的"待办"行**

@@ -157,7 +157,7 @@ func seqFrontendResolve(fn seqFrontendFunc, funcs map[string]seqFrontendFunc,
 			if v, ok := seqFrontendEvalArg(arg, bindings); ok {
 				nb[next.params[i]] = v
 			}
-			argOrigins[next.params[i]] = seqFrontendArgOrigin(arg, fn.params)
+			argOrigins[next.params[i]] = seqFrontendArgOrigin(arg, fn)
 		}
 		if p, m, body, reason := seqFrontendResolve(next, funcs, imports, nb, depth+1,
 			visited); reason == "" {
@@ -181,7 +181,11 @@ func seqFrontendResolveFetch(fn seqFrontendFunc, funcs map[string]seqFrontendFun
 }
 
 // seqFrontendArgOrigin 调用实参相对调用者形参的来源。
-func seqFrontendArgOrigin(arg string, params []string) seqFrontendBodyOrigin {
+//
+// B09e.4：根对象按调用方真实声明解析——解构参数
+// `{profile: selected}` 的实参 `selected` 取 paramBindings 的位置与路径
+// （parameter=1, path=[profile]），不按形参字符串匹配根名。
+func seqFrontendArgOrigin(arg string, caller seqFrontendFunc) seqFrontendBodyOrigin {
 	arg = strings.TrimSpace(arg)
 	if lit, ok := seqFrontendStringLit(arg); ok {
 		return seqFrontendBodyOrigin{kind: "literal", literal: lit}
@@ -196,13 +200,14 @@ func seqFrontendArgOrigin(arg string, params []string) seqFrontendBodyOrigin {
 			return seqFrontendBodyOrigin{kind: "unknown"}
 		}
 	}
-	for i, p := range params {
-		if p == parts[0] {
-			path := append([]string(nil), parts[1:]...)
-			return seqFrontendBodyOrigin{kind: "parameter", parameter: i, path: path}
-		}
+	root := parts[0]
+	bind, ok := caller.paramBindings[root]
+	if !ok || caller.shadowed[root] {
+		return seqFrontendBodyOrigin{kind: "unknown"}
 	}
-	return seqFrontendBodyOrigin{kind: "unknown"}
+	path := append(append([]string(nil), bind.path...), parts[1:]...)
+	return seqFrontendBodyOrigin{kind: "parameter", parameter: bind.parameter,
+		path: path, local: strings.Join(parts, ".")}
 }
 
 // seqFrontendBodyJSON 内部来源 → JSON 契约。

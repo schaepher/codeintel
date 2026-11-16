@@ -35,11 +35,14 @@ type SeqFrontendBodyValue struct {
 }
 
 // seqFrontendBodyOrigin 解析期请求体来源（相对当前函数形参下标）。
+// local 只用于调用点改写判定：实参在调用者函数体里的书写形式
+// （如解构别名 `selected`、普通字段 `req.profile`）。
 type seqFrontendBodyOrigin struct {
 	kind      string
 	parameter int
 	literal   string
 	path      []string
+	local     string
 }
 
 // seqFrontendImport 导入声明（本地名 → 导出名 + 路径）。
